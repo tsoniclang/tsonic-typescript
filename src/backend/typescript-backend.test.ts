@@ -1,14 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createCompilerSessionFromFiles } from "@tsonic/tsts";
+import {
+  createCompilerSessionFromFiles,
+  createSourceSemanticsExtension,
+} from "@tsonic/tsts";
+import type { SourceSemanticsModule } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
+  type TargetArtifact,
   type TargetCompileInput,
+  type TargetRuntimeReference,
 } from "@tsonic/target-api";
 
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
+import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
 import { createTypeScriptBackend } from "./typescript-backend.js";
+
+const runtimeReference = typeScriptRuntimeReference();
 
 test("lowers and prints every checked source file in one batch", () => {
   const source = checkedSource({
@@ -34,14 +43,58 @@ test("lowers and prints every checked source file in one batch", () => {
   assert.deepEqual(
     result.artifacts.map((artifact) => [artifact.kind, artifact.path]),
     [
+      ["project", "package.json"],
       ["source", "a.ts"],
       ["source", "sub/b.ts"],
     ],
   );
   assert.deepEqual(
-    result.artifacts.map((artifact) => artifact.text),
+    result.artifacts.filter((artifact) => artifact.kind === "source").map((artifact) => artifact.text),
     ["// printed 0\n", "// printed 1\n"],
   );
+  assert.deepEqual(projectDependencies(result.artifacts), {});
+});
+
+test("declares the exact runtime package only when pointer lowering demands it", () => {
+  const source = checkedPointerSource();
+  const printer: TypeScriptAstPrinter = {
+    print(files) {
+      return files.map((_, index) => `// printed ${index}\n`);
+    },
+  };
+
+  const result = createTypeScriptBackend(printer).compile(
+    compileInput(source, [runtimeReference]),
+  );
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(projectDependencies(result.artifacts), {
+    "@tsonic/typescript-runtime": "0.0.1",
+  });
+});
+
+test("rejects pointer lowering when the target runtime reference is absent or mismatched", () => {
+  const source = checkedPointerSource();
+  const printer: TypeScriptAstPrinter = {
+    print(files) {
+      return files.map((_, index) => `// printed ${index}\n`);
+    },
+  };
+
+  for (const references of [
+    [],
+    [{ ...runtimeReference, version: `${runtimeReference.version}-wrong` }],
+  ]) {
+    const result = createTypeScriptBackend(printer).compile(
+      compileInput(source, references),
+    );
+
+    assert.deepEqual(result.artifacts, []);
+    assert.match(
+      result.diagnostics[0]?.message ?? "",
+      /TypeScript lowering requires npm-package reference '@tsonic\/typescript-runtime@0\.0\.1'/,
+    );
+  }
 });
 
 test("fails the compilation when the printer omits a source file", () => {
@@ -85,8 +138,48 @@ function checkedSource(files: Readonly<Record<string, string>>) {
   return createTargetSourceProgram(checked);
 }
 
+function checkedPointerSource() {
+  const markerModule = "./markers.js";
+  const markerSemantics = [{
+    moduleSpecifier: markerModule,
+    capabilities: ["type-marker", "call-marker"],
+    exports: [
+      { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
+      { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
+      { kind: "call-marker", exportName: "loadPointer", marker: "load" },
+    ],
+  }] satisfies readonly SourceSemanticsModule[];
+  const session = createCompilerSessionFromFiles({
+    currentDirectory: "/project",
+    files: {
+      "/project/index.ts": `import { allocatePointer, loadPointer } from "./markers.js";
+export const value = loadPointer(allocatePointer(1));
+`,
+      "/project/markers.ts": `export interface Pointer<T> { value: T }
+export declare function allocatePointer<T>(initial: T): Pointer<T>;
+export declare function loadPointer<T>(pointer: Pointer<T>): T;
+`,
+    },
+    rootFiles: ["/project/index.ts"],
+    compilerOptions: {
+      module: "esnext",
+      moduleResolution: "bundler",
+      strict: true,
+      target: "es2022",
+    },
+    extensionHostOptions: {
+      extensions: [createSourceSemanticsExtension({ modules: markerSemantics })],
+    },
+  });
+  const checked = session.checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  assert.equal(checked.extensionDiagnostics.length, 0);
+  return createTargetSourceProgram(checked);
+}
+
 function compileInput(
   source: ReturnType<typeof checkedSource>,
+  runtimeReferences: readonly TargetRuntimeReference[] = [],
 ): TargetCompileInput {
   return {
     source,
@@ -95,7 +188,7 @@ function compileInput(
       targets: [{ id: "typescript" }],
     },
     target: { id: "typescript" },
-    runtimeReferences: [],
+    runtimeReferences,
     paths: {
       projectFilePath: "/project/tsonic.json",
       projectRoot: "/project",
@@ -103,4 +196,27 @@ function compileInput(
       targetOutputRoot: "/project/out/typescript",
     },
   };
+}
+
+function projectDependencies(
+  artifacts: readonly TargetArtifact[],
+): Readonly<Record<string, string>> {
+  const project = artifacts.find((artifact) => artifact.path === "package.json");
+  assert.ok(project !== undefined);
+  const document: unknown = JSON.parse(project.text);
+  assert.ok(isRecord(document));
+  const dependencies = document["dependencies"];
+  assert.ok(isRecord(dependencies));
+  const result: Record<string, string> = {};
+  for (const [name, version] of Object.entries(dependencies)) {
+    assert.equal(typeof version, "string");
+    if (typeof version === "string") {
+      result[name] = version;
+    }
+  }
+  return result;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

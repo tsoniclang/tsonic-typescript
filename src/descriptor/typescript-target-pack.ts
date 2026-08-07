@@ -3,6 +3,8 @@ import type {
   TargetBackendContext,
   TargetPack,
   TargetProviderContext,
+  TargetRuntimeContributionContext,
+  TargetRuntimeContributions,
   TargetSourceCompilerContributions,
   TargetToolchain,
   TargetToolchainInput,
@@ -12,6 +14,7 @@ import type {
 import { createTypeScriptBackend } from "../backend/typescript-backend.js";
 import { readTypeScriptTargetOptions } from "../config/options.js";
 import { createExternalAstPrinter } from "../print/ast-printer.js";
+import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
 
 export const typeScriptTargetId = "typescript";
 
@@ -26,6 +29,13 @@ export function createTypeScriptTargetPack(): TargetPack {
         _context: TargetProviderContext,
       ): TargetSourceCompilerContributions {
         return {};
+      },
+      runtimeContributions(
+        _context: TargetRuntimeContributionContext,
+      ): TargetRuntimeContributions {
+        return {
+          references: [typeScriptRuntimeReference()],
+        };
       },
     },
     createBackend(context: TargetBackendContext): TargetBackend {

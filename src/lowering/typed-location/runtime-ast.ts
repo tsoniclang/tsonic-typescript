@@ -16,9 +16,8 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import { typeScriptRuntimeModule } from "../../runtime/package-contract.js";
 import { TypedLocationLoweringError } from "./diagnostic.js";
-
-const runtimeModule = "@tsonic/typescript-runtime";
 
 export function prependRuntimeImport(
   factory: NodeFactory,
@@ -40,7 +39,7 @@ export function prependRuntimeImport(
     factory,
     undefined,
     importClause,
-    NewStringLiteral(factory, runtimeModule, 0),
+    NewStringLiteral(factory, typeScriptRuntimeModule, 0),
     undefined,
   );
   const statements = NodeFactory_NewNodeList(factory, [

@@ -9,3 +9,10 @@ text. The transformed tree is encoded with the pinned TS-Go external-AST
 protocol and printed by one configured printer service. Bootstrap builds use
 the pinned TS-Go printer; the lowering contract is independent of that printer
 implementation.
+
+The target provider contributes the exact declared TypeScript runtime package
+reference. The backend emits one strict-ESM `package.json`, retains that
+dependency only when fact-driven lowering introduces a runtime import, and
+fails if the selected runtime name or version is absent or mismatched. Product
+assembly resolves the declared package locally or through its package manager;
+it does not invent a second runtime selection.

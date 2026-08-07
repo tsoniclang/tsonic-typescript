@@ -11,6 +11,7 @@ import { encodeTargetSourceFileForPrinting } from "@tsonic/tsts/target-ast";
 
 import { lowerTypedLocations } from "../lowering/typed-location/transform.js";
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
+import { createTypeScriptProjectArtifact } from "./project-artifact.js";
 
 export function createTypeScriptBackend(
   printer: TypeScriptAstPrinter,
@@ -18,8 +19,15 @@ export function createTypeScriptBackend(
   return {
     compile(input: TargetCompileInput): TargetCompileResult {
       try {
+        const compiled = compileSourceArtifacts(input, printer);
         return {
-          artifacts: compileSourceArtifacts(input, printer),
+          artifacts: Object.freeze([
+            createTypeScriptProjectArtifact(
+              input.runtimeReferences,
+              compiled.usesRuntime,
+            ),
+            ...compiled.artifacts,
+          ]),
           diagnostics: [],
         };
       } catch (error) {
@@ -40,7 +48,10 @@ export function createTypeScriptBackend(
 function compileSourceArtifacts(
   input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
-): readonly TargetArtifact[] {
+): {
+  readonly artifacts: readonly TargetArtifact[];
+  readonly usesRuntime: boolean;
+} {
   const lowered = input.source.navigation.sourceFiles.map((sourceFile) => {
     const document = input.source.documents.forFile(sourceFile);
     if (document.sourceFile !== sourceFile) {
@@ -52,6 +63,7 @@ function compileSourceArtifacts(
     return {
       path: sourceArtifactPath(input, document.fileName),
       encoded: encodeTargetSourceFileForPrinting(result.sourceFile),
+      usesRuntime: result.runtimeAlias !== undefined,
     };
   });
   const printed = printer.print(lowered.map((artifact) => artifact.encoded));
@@ -60,12 +72,15 @@ function compileSourceArtifacts(
       `TypeScript AST printer returned ${printed.length} files, expected ${lowered.length}`,
     );
   }
-  return Object.freeze(lowered.map((artifact, index): TargetSourceFile => ({
-    kind: "source",
-    language: "typescript",
-    path: artifact.path,
-    text: requiredPrintedSource(printed, index),
-  })));
+  return Object.freeze({
+    artifacts: Object.freeze(lowered.map((artifact, index): TargetSourceFile => ({
+      kind: "source",
+      language: "typescript",
+      path: artifact.path,
+      text: requiredPrintedSource(printed, index),
+    }))),
+    usesRuntime: lowered.some((artifact) => artifact.usesRuntime),
+  });
 }
 
 function requiredPrintedSource(
