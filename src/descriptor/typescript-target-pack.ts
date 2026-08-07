@@ -25,6 +25,14 @@ export function createTypeScriptTargetPack(): TargetPack {
     provider: {
       id: "typescript-provider",
       displayName: "TypeScript target provider",
+      sourceProfileContributions() {
+        return {
+          declarationPolicy: {
+            bundledLibraries: ["lib.es2024.d.ts"],
+            installedDeclarations: "package-contract",
+          },
+        };
+      },
       sourceCompilerContributions(
         _context: TargetProviderContext,
       ): TargetSourceCompilerContributions {

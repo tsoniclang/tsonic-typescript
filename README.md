@@ -16,3 +16,7 @@ dependency only when fact-driven lowering introduces a runtime import, and
 fails if the selected runtime name or version is absent or mismatched. Product
 assembly resolves the declared package locally or through its package manager;
 it does not invent a second runtime selection.
+
+The same provider owns the checked-source declaration profile: the bundled
+`lib.es2024.d.ts` closure and declaration contracts from installed packages.
+Callers do not inject ambient globals or rediscover the target's library set.
