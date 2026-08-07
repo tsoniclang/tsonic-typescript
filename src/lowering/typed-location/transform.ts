@@ -382,6 +382,15 @@ function lowerOperation(
         "pointer store expression",
       );
     }
+    case "equal-pointer":
+      requireArity(operation.operation, arguments_, 2);
+      return runtimeCall(
+        factory,
+        plan.runtimeAlias,
+        "sameLocation",
+        [],
+        arguments_,
+      );
     case "address-of":
       requireArity(operation.operation, arguments_, 1);
       return lowerAddressOf(
