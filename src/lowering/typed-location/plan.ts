@@ -10,25 +10,46 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { TypedLocationLoweringError } from "./diagnostic.js";
 
 export interface LocalLocationBinding {
+  readonly kind: "variable";
   readonly declaration: Node;
   readonly symbol: Symbol;
   readonly addressOperands: ReadonlySet<Node>;
 }
 
+export interface ParameterLocationBinding {
+  readonly kind: "parameter";
+  readonly declaration: Node;
+  readonly symbol: Symbol;
+  readonly addressOperands: ReadonlySet<Node>;
+  readonly body: Node;
+  readonly sourceName: string;
+  readonly locationName: string;
+}
+
+export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
+
 export interface TypedLocationPlan {
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
   readonly pointerTypes: ReadonlySet<Node>;
   readonly localBindings: ReadonlyMap<Node, LocalLocationBinding>;
-  readonly promotedReferences: ReadonlySet<Node>;
+  readonly parameterBindingsByBody: ReadonlyMap<
+    Node,
+    readonly ParameterLocationBinding[]
+  >;
+  readonly promotedReferences: ReadonlyMap<Node, LocationBinding>;
+  readonly addressBindings: ReadonlyMap<Node, LocationBinding>;
   readonly removableImports: ReadonlySet<Node>;
   readonly runtimeAlias: string;
   readonly usesRuntimeValue: boolean;
 }
 
-interface MutableLocalLocationBinding {
+interface MutableLocationBinding {
+  readonly kind: "variable" | "parameter";
   readonly declaration: Node;
   readonly symbol: Symbol;
   readonly addressOperands: Set<Node>;
+  readonly body?: Node;
+  readonly sourceName?: string;
 }
 
 export function createTypedLocationPlan(
@@ -41,7 +62,7 @@ export function createTypedLocationPlan(
   const selectedMarkerDeclarations = new Set<Node>();
   const selectedNamespaceBindings = new Set<Node>();
   const selectedNamespaceReceivers = new Set<Node>();
-  const localBindingsBySymbol = new Map<Symbol, MutableLocalLocationBinding>();
+  const bindingsBySymbol = new Map<Symbol, MutableLocationBinding>();
   let usesRuntimeValue = false;
 
   for (const node of nodes) {
@@ -62,7 +83,7 @@ export function createTypedLocationPlan(
         selectedNamespaceReceivers,
       );
       if (operation.operation === "address-of") {
-        collectAddressBinding(source, operation, localBindingsBySymbol);
+        collectAddressBinding(source, operation, bindingsBySymbol);
       }
     }
     if (
@@ -87,15 +108,34 @@ export function createTypedLocationPlan(
   }
 
   const localBindings = new Map<Node, LocalLocationBinding>();
-  const promotedReferences = new Set<Node>();
-  for (const binding of localBindingsBySymbol.values()) {
-    localBindings.set(binding.declaration, Object.freeze({
-      declaration: binding.declaration,
-      symbol: binding.symbol,
-      addressOperands: binding.addressOperands,
-    }));
-    collectPromotedReferences(source, nodes, binding, promotedReferences);
+  const parameterBindingsByBody = new Map<Node, ParameterLocationBinding[]>();
+  const promotedReferences = new Map<Node, LocationBinding>();
+  const addressBindings = new Map<Node, LocationBinding>();
+  const sealedBindingsBySymbol = new Map<Symbol, LocationBinding>();
+  const usedNames = collectIdentifierNames(source, nodes);
+  const mutableBindings = [...bindingsBySymbol.values()].sort(
+    (left, right) => source.ast.pos(left.declaration) - source.ast.pos(right.declaration),
+  );
+  for (const binding of mutableBindings) {
+    const sealed = sealLocationBinding(source, binding, usedNames);
+    sealedBindingsBySymbol.set(sealed.symbol, sealed);
+    if (sealed.kind === "variable") {
+      localBindings.set(sealed.declaration, sealed);
+    } else {
+      const bodyBindings = parameterBindingsByBody.get(sealed.body) ?? [];
+      bodyBindings.push(sealed);
+      parameterBindingsByBody.set(sealed.body, bodyBindings);
+    }
+    for (const operand of sealed.addressOperands) {
+      addressBindings.set(operand, sealed);
+    }
   }
+  collectPromotedReferences(
+    source,
+    nodes,
+    sealedBindingsBySymbol,
+    promotedReferences,
+  );
   const removableImports = collectRemovableImports(
     source,
     nodes,
@@ -107,7 +147,9 @@ export function createTypedLocationPlan(
     operations,
     pointerTypes,
     localBindings,
+    parameterBindingsByBody,
     promotedReferences,
+    addressBindings,
     removableImports,
     runtimeAlias: selectRuntimeAlias(source, nodes),
     usesRuntimeValue,
@@ -150,7 +192,7 @@ function requireCallTarget(source: TargetSourceProgram, node: Node): Node {
 function collectAddressBinding(
   source: TargetSourceProgram,
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
-  bindings: Map<Symbol, MutableLocalLocationBinding>,
+  bindings: Map<Symbol, MutableLocationBinding>,
 ): void {
   if (!source.ast.is.IsIdentifier(operation.storageExpression)) {
     return;
@@ -158,16 +200,28 @@ function collectAddressBinding(
   if (
     operation.storageSymbol === undefined ||
     operation.storageDeclaration === undefined ||
-    !source.ast.is.IsVariableDeclaration(operation.storageDeclaration)
+    !source.ast.is.IsVariableDeclaration(operation.storageDeclaration) &&
+    !source.ast.is.IsParameterDeclaration(operation.storageDeclaration)
   ) {
     throw new TypedLocationLoweringError(
-      "address-of identifier lacks an exact variable declaration and symbol",
+      "address-of identifier lacks an exact variable or parameter declaration",
     );
   }
   const declarationName = source.ast.name(operation.storageDeclaration);
   if (!source.ast.is.IsIdentifier(declarationName)) {
     throw new TypedLocationLoweringError(
       "address-of local currently requires one identifier declaration",
+    );
+  }
+  const isParameter = source.ast.is.IsParameterDeclaration(
+    operation.storageDeclaration,
+  );
+  const body = isParameter
+    ? source.ast.body(source.ast.parent(operation.storageDeclaration))
+    : undefined;
+  if (isParameter && body === undefined) {
+    throw new TypedLocationLoweringError(
+      "addressed parameter requires an exact function body",
     );
   }
   const existing = bindings.get(operation.storageSymbol);
@@ -181,34 +235,114 @@ function collectAddressBinding(
   }
   if (existing === undefined) {
     bindings.set(operation.storageSymbol, {
+      kind: isParameter ? "parameter" : "variable",
       declaration: operation.storageDeclaration,
       symbol: operation.storageSymbol,
       addressOperands: new Set([operation.storageExpression]),
+      ...(body === undefined ? {} : { body }),
+      ...(isParameter ? { sourceName: source.ast.text(declarationName) } : {}),
     });
   } else {
     existing.addressOperands.add(operation.storageExpression);
   }
 }
 
+function sealLocationBinding(
+  source: TargetSourceProgram,
+  binding: MutableLocationBinding,
+  usedNames: Set<string>,
+): LocationBinding {
+  if (binding.kind === "variable") {
+    return Object.freeze({
+      kind: "variable",
+      declaration: binding.declaration,
+      symbol: binding.symbol,
+      addressOperands: binding.addressOperands,
+    });
+  }
+  if (binding.body === undefined || binding.sourceName === undefined) {
+    throw new TypedLocationLoweringError(
+      "addressed parameter binding is incomplete",
+    );
+  }
+  for (const operand of binding.addressOperands) {
+    if (!isNodeWithin(source, operand, binding.body)) {
+      throw new TypedLocationLoweringError(
+        "address-of parameter outside its function body is unsupported",
+      );
+    }
+  }
+  return Object.freeze({
+    kind: "parameter",
+    declaration: binding.declaration,
+    symbol: binding.symbol,
+    addressOperands: binding.addressOperands,
+    body: binding.body,
+    sourceName: binding.sourceName,
+    locationName: selectLocationName(binding.sourceName, usedNames),
+  });
+}
+
+function collectIdentifierNames(
+  source: TargetSourceProgram,
+  nodes: readonly Node[],
+): Set<string> {
+  return new Set(nodes
+    .filter((node) => source.ast.is.IsIdentifier(node))
+    .map((node) => source.ast.text(node)));
+}
+
+function selectLocationName(sourceName: string, usedNames: Set<string>): string {
+  const base = `${sourceName}$location`;
+  if (!usedNames.has(base)) {
+    usedNames.add(base);
+    return base;
+  }
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${base}${suffix}`;
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate);
+      return candidate;
+    }
+  }
+}
+
 function collectPromotedReferences(
   source: TargetSourceProgram,
   nodes: readonly Node[],
-  binding: MutableLocalLocationBinding,
-  promoted: Set<Node>,
+  bindingsBySymbol: ReadonlyMap<Symbol, LocationBinding>,
+  promoted: Map<Node, LocationBinding>,
 ): void {
-  const declarationName = source.ast.name(binding.declaration);
   for (const node of nodes) {
+    if (!source.ast.is.IsIdentifier(node)) {
+      continue;
+    }
+    const symbol = source.navigation.sourceReferenceFor(node)?.symbol;
+    const binding = symbol === undefined ? undefined : bindingsBySymbol.get(symbol);
     if (
-      !source.ast.is.IsIdentifier(node) ||
-      node === declarationName ||
-      binding.addressOperands.has(node)
+      binding === undefined ||
+      node === source.ast.name(binding.declaration) ||
+      binding.addressOperands.has(node) ||
+      binding.kind === "parameter" && !isNodeWithin(source, node, binding.body)
     ) {
       continue;
     }
-    if (source.navigation.sourceReferenceFor(node)?.symbol === binding.symbol) {
-      promoted.add(node);
-    }
+    promoted.set(node, binding);
   }
+}
+
+function isNodeWithin(
+  source: TargetSourceProgram,
+  node: Node,
+  ancestor: Node,
+): boolean {
+  for (let current: Node | undefined = node; current !== undefined;) {
+    if (current === ancestor) {
+      return true;
+    }
+    current = source.ast.parent(current);
+  }
+  return false;
 }
 
 function recordMarkerSelection(

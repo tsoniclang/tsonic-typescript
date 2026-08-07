@@ -13,21 +13,27 @@ import type {
 import {
   AsBinaryExpression,
   AsCallExpression,
+  AsExpressionStatement,
   AsImportClause,
   AsImportDeclaration,
   AsNamedImports,
   AsPropertyAccessExpression,
   AsQualifiedName,
+  AsParameterDeclaration,
   AsTypeReferenceNode,
   AsVariableDeclaration,
   encodeTargetSourceFileForPrinting,
+  IsArrowFunction,
   IsBinaryExpression,
   IsCallExpression,
+  IsExpressionStatement,
+  IsFunctionDeclaration,
   IsImportClause,
   IsImportDeclaration,
   IsNamedImports,
   IsPropertyAccessExpression,
   IsQualifiedName,
+  IsStringLiteral,
   IsTypeReferenceNode,
   IsVariableDeclaration,
   KindTypeKeyword,
@@ -118,6 +124,114 @@ export function run(): [number, number, { value: number }] {
     "tsonicTypeScriptRuntime.location",
   );
   assert.ok(countPropertyAccessesNamed(fixture.source, result.sourceFile, "value") >= 5);
+});
+
+test("preserves a public parameter while promoting its internal location flow", () => {
+  const fixture = checkedFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+
+export function update(
+  value: number,
+  value$location: string,
+): [number, number, string] {
+  const pointer: Pointer<number> = addressOf(value);
+  value += 1;
+  storePointer(pointer, loadPointer(pointer) + 1);
+  return [value, loadPointer(pointer), value$location];
+}
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.promotedBindingCount, 1);
+  const location = variableDeclarationNamed(
+    fixture.source,
+    result.sourceFile,
+    "value$location2",
+  );
+  assert.equal(
+    callName(fixture.source, location.Initializer),
+    "tsonicTypeScriptRuntime.location",
+  );
+  assert.ok(
+    countPropertyAccessesNamed(fixture.source, result.sourceFile, "value") >= 4,
+  );
+});
+
+test("keeps parameter defaults outside the promoted body", () => {
+  const fixture = checkedFixture(`import { addressOf, loadPointer } from "./markers.js";
+
+export function read(value: number, before = value): [number, number] {
+  const pointer = addressOf(value);
+  value += 1;
+  return [before, loadPointer(pointer)];
+}
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const declaration = functionDeclarationNamed(
+    fixture.source,
+    result.sourceFile,
+    "read",
+  );
+  const defaultValue = AsParameterDeclaration(
+    fixture.source.ast.parameters(declaration)[1],
+  )?.Initializer;
+  assert.ok(defaultValue !== undefined);
+  assert.equal(fixture.source.ast.text(defaultValue), "value");
+});
+
+test("inserts parameter locations after directive prologues", () => {
+  const fixture = checkedFixture(`import { addressOf, loadPointer } from "./markers.js";
+
+export function read(value: number): number {
+  "use strict";
+  const pointer = addressOf(value);
+  return loadPointer(pointer);
+}
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const declaration = functionDeclarationNamed(
+    fixture.source,
+    result.sourceFile,
+    "read",
+  );
+  const body = fixture.source.ast.body(declaration);
+  assert.ok(body !== undefined);
+  const statements = fixture.source.ast.statements(body);
+  const first = statements[0];
+  assert.ok(first !== undefined && IsExpressionStatement(first));
+  const directive = AsExpressionStatement(first)?.Expression;
+  assert.ok(directive !== undefined && IsStringLiteral(directive));
+  assert.equal(fixture.source.ast.text(directive), "use strict");
+  const location = variableDeclarationNamed(
+    fixture.source,
+    result.sourceFile,
+    "value$location",
+  );
+  assert.equal(
+    callName(fixture.source, location.Initializer),
+    "tsonicTypeScriptRuntime.location",
+  );
+  assert.ok(statements[1] !== undefined);
+  assert.ok(containsNode(fixture.source, statements[1], location));
+});
+
+test("promotes addressed parameters in expression-bodied arrows", () => {
+  const fixture = checkedFixture(`import { addressOf, storePointer } from "./markers.js";
+
+export const update = (value: number, before = value): [number, number] =>
+  (storePointer(addressOf(value), value + 1), [before, value]);
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const declaration = variableDeclarationNamed(
+    fixture.source,
+    result.sourceFile,
+    "update",
+  );
+  assert.ok(declaration.Initializer !== undefined);
+  assert.ok(IsArrowFunction(declaration.Initializer));
+  const body = fixture.source.ast.body(declaration.Initializer);
+  assert.ok(body !== undefined && fixture.source.ast.is.IsBlock(body));
+  assert.equal(result.promotedBindingCount, 1);
 });
 
 test("addresses properties and elements without reevaluating bases or keys", () => {
@@ -253,6 +367,36 @@ function visit(
       visit(source, child, callback);
     }
   }
+}
+
+function containsNode(
+  source: TargetSourceProgram,
+  root: Node,
+  expected: Node,
+): boolean {
+  let found = false;
+  visit(source, root, (node) => {
+    found ||= node === expected;
+  });
+  return found;
+}
+
+function functionDeclarationNamed(
+  source: TargetSourceProgram,
+  sourceFile: SourceFile,
+  name: string,
+) {
+  let found: Node | undefined;
+  visit(source, sourceFile, (node) => {
+    if (!IsFunctionDeclaration(node)) {
+      return;
+    }
+    if (source.ast.text(source.ast.name(node)) === name) {
+      found = node;
+    }
+  });
+  assert.ok(found !== undefined);
+  return found;
 }
 
 function importModules(

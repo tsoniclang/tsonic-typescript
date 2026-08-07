@@ -27,6 +27,7 @@ import {
   IsTypeReferenceNode,
   IsVariableDeclaration,
   NewBinaryExpression,
+  NewIdentifier,
   NewPropertyAssignment,
   NewStringLiteral,
   NewToken,
@@ -40,8 +41,10 @@ import { TypedLocationLoweringError } from "./diagnostic.js";
 import {
   createTypedLocationPlan,
   type LocalLocationBinding,
+  type LocationBinding,
   type TypedLocationPlan,
 } from "./plan.js";
+import { prependParameterLocations } from "./parameter-location.js";
 import {
   locationValue,
   prependRuntimeImport,
@@ -88,7 +91,8 @@ export function lowerTypedLocations(
     sourceFile: transformed,
     operationCount: consumed.operations.size,
     pointerTypeCount: consumed.pointerTypes.size,
-    promotedBindingCount: consumed.localBindings.size,
+    promotedBindingCount:
+      consumed.localBindings.size + consumed.parameterBindings.size,
     runtimeAlias: plan.runtimeAlias,
   });
 }
@@ -97,6 +101,7 @@ interface ConsumptionState {
   readonly operations: Set<Node>;
   readonly pointerTypes: Set<Node>;
   readonly localBindings: Set<Node>;
+  readonly parameterBindings: Set<Node>;
   readonly promotedReferences: Set<Node>;
   readonly removableImports: Set<Node>;
 }
@@ -106,6 +111,7 @@ function createConsumptionState(): ConsumptionState {
     operations: new Set(),
     pointerTypes: new Set(),
     localBindings: new Set(),
+    parameterBindings: new Set(),
     promotedReferences: new Set(),
     removableImports: new Set(),
   };
@@ -154,19 +160,26 @@ function rewriteNode(
     return promoteLocalBinding(factory, updated, binding, plan.runtimeAlias);
   }
 
-  if (plan.promotedReferences.has(original)) {
+  const promotedBinding = plan.promotedReferences.get(original);
+  if (promotedBinding !== undefined) {
     const parent = source.ast.parent(original);
     if (parent !== undefined && source.ast.is.IsShorthandPropertyAssignment(parent)) {
       return updated;
     }
     consumed.promotedReferences.add(original);
-    return locationValue(factory, updated);
+    return locationValue(
+      factory,
+      locationBindingExpression(factory, promotedBinding, updated),
+    );
   }
 
   const shorthand = IsShorthandPropertyAssignment(original)
     ? AsShorthandPropertyAssignment(original)
     : undefined;
-  if (shorthand !== undefined && plan.promotedReferences.has(shorthand.name!)) {
+  const shorthandBinding = shorthand?.name === undefined
+    ? undefined
+    : plan.promotedReferences.get(shorthand.name);
+  if (shorthand !== undefined && shorthandBinding !== undefined) {
     const updatedShorthand = IsShorthandPropertyAssignment(updated)
       ? AsShorthandPropertyAssignment(updated)
       : undefined;
@@ -186,19 +199,45 @@ function rewriteNode(
       updatedShorthand.name,
       updatedShorthand.PostfixToken,
       updatedShorthand.Type,
-      locationValue(factory, updatedShorthand.name),
+      locationValue(
+        factory,
+        locationBindingExpression(
+          factory,
+          shorthandBinding,
+          updatedShorthand.name,
+        ),
+      ),
     );
   }
 
   const operation = plan.operations.get(original);
   if (operation !== undefined) {
     consumed.operations.add(original);
-    return lowerOperation(source, factory, operation, updated, plan.runtimeAlias);
+    return lowerOperation(
+      source,
+      factory,
+      operation,
+      updated,
+      plan,
+    );
   }
 
   if (plan.pointerTypes.has(original)) {
     consumed.pointerTypes.add(original);
     return lowerPointerType(factory, updated, plan.runtimeAlias);
+  }
+
+  const parameterBindings = plan.parameterBindingsByBody.get(original);
+  if (parameterBindings !== undefined) {
+    for (const parameter of parameterBindings) {
+      consumed.parameterBindings.add(parameter.declaration);
+    }
+    return prependParameterLocations(
+      factory,
+      updated,
+      parameterBindings,
+      plan.runtimeAlias,
+    );
   }
 
   if (IsSourceFile(updated)) {
@@ -216,6 +255,20 @@ function rewriteNode(
     );
   }
   return updated;
+}
+
+function locationBindingExpression(
+  factory: NodeFactory,
+  binding: LocationBinding,
+  variableExpression: Node,
+): Node {
+  if (binding.kind === "variable") {
+    return variableExpression;
+  }
+  return requiredNode(
+    NewIdentifier(factory, binding.locationName),
+    "addressed parameter location reference",
+  );
 }
 
 function promoteLocalBinding(
@@ -286,7 +339,7 @@ function lowerOperation(
   factory: NodeFactory,
   operation: PointerOperationFact,
   updated: Node,
-  runtimeAlias: string,
+  plan: TypedLocationPlan,
 ): Node {
   const call = IsCallExpression(updated) ? AsCallExpression(updated) : undefined;
   if (call === undefined) {
@@ -303,7 +356,7 @@ function lowerOperation(
       requireArity(operation.operation, arguments_, 1);
       return runtimeCall(
         factory,
-        runtimeAlias,
+        plan.runtimeAlias,
         "location",
         requireNodes(
           call.TypeArguments?.Nodes ?? [],
@@ -336,7 +389,7 @@ function lowerOperation(
         factory,
         operation,
         requiredElement(arguments_, 0),
-        runtimeAlias,
+        plan,
       );
   }
 }
@@ -346,19 +399,16 @@ function lowerAddressOf(
   factory: NodeFactory,
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
   updatedStorage: Node,
-  runtimeAlias: string,
+  plan: TypedLocationPlan,
 ): Node {
   if (source.ast.is.IsIdentifier(operation.storageExpression)) {
-    if (
-      operation.storageSymbol === undefined ||
-      operation.storageDeclaration === undefined ||
-      !source.ast.is.IsVariableDeclaration(operation.storageDeclaration)
-    ) {
+    const binding = plan.addressBindings.get(operation.storageExpression);
+    if (binding === undefined) {
       throw new TypedLocationLoweringError(
-        "addressed local lacks its exact variable declaration and symbol",
+        "addressed identifier lacks its exact location binding",
       );
     }
-    return updatedStorage;
+    return locationBindingExpression(factory, binding, updatedStorage);
   }
   const property = IsPropertyAccessExpression(updatedStorage)
     ? AsPropertyAccessExpression(updatedStorage)
@@ -384,7 +434,7 @@ function lowerAddressOf(
     }
     return runtimeCall(
       factory,
-      runtimeAlias,
+      plan.runtimeAlias,
       "propertyLocation",
       [],
       [
@@ -407,7 +457,7 @@ function lowerAddressOf(
     }
     return runtimeCall(
       factory,
-      runtimeAlias,
+      plan.runtimeAlias,
       "propertyLocation",
       [],
       [element.Expression, element.ArgumentExpression],
@@ -474,6 +524,14 @@ function assertCompleteConsumption(
   assertCount("pointer operations", consumed.operations, plan.operations.size);
   assertCount("pointer types", consumed.pointerTypes, plan.pointerTypes.size);
   assertCount("promoted bindings", consumed.localBindings, plan.localBindings.size);
+  assertCount(
+    "promoted parameters",
+    consumed.parameterBindings,
+    [...plan.parameterBindingsByBody.values()].reduce(
+      (count, bindings) => count + bindings.length,
+      0,
+    ),
+  );
   assertCount(
     "promoted references",
     consumed.promotedReferences,
