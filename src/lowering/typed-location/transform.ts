@@ -74,14 +74,20 @@ export function lowerTypedLocations(
   const consumed = createConsumptionState();
   const transformed = transformTargetSourceFile(
     sourceFile,
-    (original, updated, factory) => rewriteNode(
-      source,
-      plan,
-      consumed,
-      original,
-      updated,
-      factory,
-    ),
+    (original, updated, factory) => {
+      const rewritten = rewriteNode(
+        source,
+        plan,
+        consumed,
+        original,
+        updated,
+        factory,
+      );
+      if (rewritten !== undefined) {
+        consumed.updatedNodes.set(original, rewritten);
+      }
+      return rewritten;
+    },
   );
   assertCompleteConsumption(plan, consumed);
   return Object.freeze({
@@ -101,6 +107,7 @@ interface ConsumptionState {
   readonly parameterBindings: Set<Node>;
   readonly promotedReferences: Set<Node>;
   readonly removableImports: Set<Node>;
+  readonly updatedNodes: Map<Node, Node>;
 }
 
 function createConsumptionState(): ConsumptionState {
@@ -111,6 +118,7 @@ function createConsumptionState(): ConsumptionState {
     parameterBindings: new Set(),
     promotedReferences: new Set(),
     removableImports: new Set(),
+    updatedNodes: new Map(),
   };
 }
 
@@ -216,6 +224,7 @@ function rewriteNode(
       operation,
       updated,
       plan,
+      consumed.updatedNodes,
     );
   }
 
@@ -323,6 +332,7 @@ function lowerOperation(
   operation: PointerOperationFact,
   updated: Node,
   plan: TypedLocationPlan,
+  updatedNodes: ReadonlyMap<Node, Node>,
 ): Node {
   const call = IsCallExpression(updated) ? AsCallExpression(updated) : undefined;
   if (call === undefined) {
@@ -382,6 +392,7 @@ function lowerOperation(
         operation,
         requiredElement(arguments_, 0),
         plan,
+        updatedNodes,
       );
   }
 }

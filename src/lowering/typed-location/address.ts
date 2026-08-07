@@ -20,6 +20,7 @@ export function lowerAddressOf(
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
   updatedStorage: Node,
   plan: TypedLocationPlan,
+  updatedNodes: ReadonlyMap<Node, Node>,
 ): Node {
   if (source.ast.is.IsIdentifier(operation.storageExpression)) {
     const binding = plan.addressBindings.get(operation.storageExpression);
@@ -58,6 +59,7 @@ export function lowerAddressOf(
       originalProperty.Expression,
       property.Expression,
       plan,
+      updatedNodes,
     );
     return runtimeCall(
       factory,
@@ -103,6 +105,7 @@ function lowerValueFieldParentLocation(
   original: Node | undefined,
   updated: Node,
   plan: TypedLocationPlan,
+  updatedNodes: ReadonlyMap<Node, Node>,
 ): Node | undefined {
   if (original === undefined) {
     throw new TypedLocationLoweringError(
@@ -114,6 +117,16 @@ function lowerValueFieldParentLocation(
     return binding === undefined
       ? undefined
       : locationBindingExpression(factory, binding, updated);
+  }
+  const operation = plan.operations.get(original);
+  if (operation?.operation === "load") {
+    const pointer = updatedNodes.get(operation.pointerExpression);
+    if (pointer === undefined) {
+      throw new TypedLocationLoweringError(
+        "addressed pointer-load parent lacks its exact transformed pointer",
+      );
+    }
+    return pointer;
   }
   if (!source.ast.is.IsPropertyAccessExpression(original)) {
     return undefined;
@@ -137,6 +150,7 @@ function lowerValueFieldParentLocation(
     originalProperty.Expression,
     updatedProperty.Expression,
     plan,
+    updatedNodes,
   );
   if (parent === undefined) {
     return runtimeCall(

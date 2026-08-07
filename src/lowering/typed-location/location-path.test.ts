@@ -71,10 +71,29 @@ export const result = [loadPointer(original).value, loadPointer(selected).value]
   const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
 
   assert.equal(result.promotedBindingCount, 0);
-  assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 1);
+  assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
   assert.equal(
     countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
-    0,
+    1,
+  );
+});
+
+test("interior pointer-root locations follow pointee replacement", () => {
+  const fixture = checkedFixture(`import { addressOf, allocatePointer, loadPointer, storePointer } from "./markers.js";
+
+const selected = allocatePointer({ value: 1 });
+const field = addressOf(loadPointer(selected).value);
+storePointer(selected, { value: 2 });
+storePointer(field, 3);
+export const result = [loadPointer(selected).value, loadPointer(field)];
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.promotedBindingCount, 0);
+  assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
+  assert.equal(
+    countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
+    1,
   );
 });
 
