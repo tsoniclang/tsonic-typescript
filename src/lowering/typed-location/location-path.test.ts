@@ -78,17 +78,45 @@ export const result = [loadPointer(original).value, loadPointer(selected).value]
   );
 });
 
+test("interior external-property locations follow property replacement", () => {
+  const fixture = checkedFixture(
+    `import { addressOf, loadPointer, storePointer } from "./markers.js";
+import { state } from "./state.js";
+
+const field = addressOf(state.record.inner.value);
+state.record = { inner: { value: 2 } };
+storePointer(field, 3);
+export const result = [state.record.inner.value, loadPointer(field)];
+`,
+    {
+      "/src/state.ts": "export const state = { record: { inner: { value: 1 } } };\n",
+    },
+  );
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.promotedBindingCount, 0);
+  assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 1);
+  assert.equal(
+    countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
+    2,
+  );
+});
+
 interface CheckedFixture {
   readonly source: TargetSourceProgram;
   readonly sourceFile: SourceFile;
 }
 
-function checkedFixture(sourceText: string): CheckedFixture {
+function checkedFixture(
+  sourceText: string,
+  additionalFiles: Readonly<Record<string, string>> = {},
+): CheckedFixture {
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files: {
       "/src/index.ts": sourceText,
       "/src/markers.ts": markerDeclarations,
+      ...additionalFiles,
     },
     rootFiles: ["/src/index.ts"],
     compilerOptions: {

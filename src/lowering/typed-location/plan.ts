@@ -106,7 +106,7 @@ export function createTypedLocationPlan(
   }
   for (const operation of operations.values()) {
     if (operation.operation === "address-of") {
-      collectAddressBinding(source, operation, bindingsBySymbol);
+      collectAddressBinding(source, sourceFile, operation, bindingsBySymbol);
     }
   }
 
@@ -194,6 +194,7 @@ function requireCallTarget(source: TargetSourceProgram, node: Node): Node {
 
 function collectAddressBinding(
   source: TargetSourceProgram,
+  sourceFile: SourceFile,
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
   bindings: Map<Symbol, MutableLocationBinding>,
 ): void {
@@ -202,6 +203,12 @@ function collectAddressBinding(
     return;
   }
   const reference = source.navigation.sourceReferenceFor(root);
+  if (
+    reference !== undefined &&
+    source.ast.getSourceFile(reference.declaration) !== sourceFile
+  ) {
+    return;
+  }
   if (
     reference === undefined ||
     !source.ast.is.IsVariableDeclaration(reference.declaration) &&

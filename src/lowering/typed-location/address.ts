@@ -139,7 +139,19 @@ function lowerValueFieldParentLocation(
     plan,
   );
   if (parent === undefined) {
-    return undefined;
+    return runtimeCall(
+      factory,
+      plan.runtimeAlias,
+      "propertyLocation",
+      [],
+      [
+        updatedProperty.Expression,
+        requiredNode(
+          NewStringLiteral(factory, source.ast.text(originalProperty.name), 0),
+          "addressed value-field path segment",
+        ),
+      ],
+    );
   }
   return runtimeCall(
     factory,
