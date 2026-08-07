@@ -247,7 +247,7 @@ storePointer(field, loadPointer(element));
 
   assert.equal(
     countCallsNamed(fixture.source, result.sourceFile, "propertyLocation"),
-    2,
+    1,
   );
 });
 

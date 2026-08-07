@@ -26,39 +26,56 @@ const markerSemantics = [{
   capabilities: ["call-marker"],
   exports: [
     { kind: "call-marker", exportName: "addressOf", marker: "address-of" },
-    { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
+    { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
+    { kind: "call-marker", exportName: "loadPointer", marker: "load" },
+    { kind: "call-marker", exportName: "storePointer", marker: "store" },
   ],
 }] satisfies readonly SourceSemanticsModule[];
 
 const markerDeclarations = `export interface Pointer<T> { value: T }
 export declare function addressOf<T>(storage: T): Pointer<T>;
-export declare function equalPointer<T>(left: Pointer<T> | undefined, right: Pointer<T> | undefined): boolean;
+export declare function allocatePointer<T>(initial: T): Pointer<T>;
+export declare function loadPointer<T>(pointer: Pointer<T>): T;
+export declare function storePointer<T>(pointer: Pointer<T>, value: T): void;
 `;
 
-test("compares repeated property addresses by storage identity", () => {
-  const fixture = checkedFixture(`import { addressOf, equalPointer } from "./markers.js";
+test("interior value-field locations follow whole-root replacement", () => {
+  const fixture = checkedFixture(`import { addressOf, loadPointer, storePointer } from "./markers.js";
 
-const record = { value: 10, other: 10 };
-export const same = equalPointer(
-  addressOf(record.value),
-  addressOf(record.value),
-);
-export const different = equalPointer(
-  addressOf(record.value),
-  addressOf(record.other),
-);
-export const nils = equalPointer<number>(undefined, undefined);
+let record = { inner: { value: 1 } };
+const field = addressOf(record.inner.value);
+record = { inner: { value: 2 } };
+storePointer(field, 3);
+export const result = [record.inner.value, loadPointer(field)];
 `);
   const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.operationCount, 7);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "propertyLocation"), 0);
+  assert.equal(result.promotedBindingCount, 1);
+  assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
   assert.equal(
-    countCallsNamed(fixture, result.sourceFile, "nestedPropertyLocation"),
-    4,
+    countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
+    2,
   );
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "sameLocation"), 3);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "equalPointer"), 0);
+});
+
+test("interior pointer-root locations retain the selected pointee", () => {
+  const fixture = checkedFixture(`import { addressOf, allocatePointer, loadPointer, storePointer } from "./markers.js";
+
+let selected = allocatePointer({ value: 1 });
+const original = selected;
+const field = addressOf(loadPointer(selected).value);
+selected = allocatePointer({ value: 2 });
+storePointer(field, 3);
+export const result = [loadPointer(original).value, loadPointer(selected).value];
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.promotedBindingCount, 0);
+  assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 1);
+  assert.equal(
+    countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
+    0,
+  );
 });
 
 interface CheckedFixture {
@@ -95,7 +112,7 @@ function checkedFixture(sourceText: string): CheckedFixture {
   return { source, sourceFile };
 }
 
-function countCallsNamed(
+function countRuntimeCalls(
   fixture: CheckedFixture,
   sourceFile: SourceFile,
   name: string,
@@ -105,18 +122,11 @@ function countCallsNamed(
     if (!IsCallExpression(node)) {
       return;
     }
-    const call = AsCallExpression(node);
-    if (call?.Expression === undefined) {
-      return;
-    }
-    const expression = call.Expression;
-    const property = IsPropertyAccessExpression(expression)
-      ? AsPropertyAccessExpression(expression)
+    const target = AsCallExpression(node)?.Expression;
+    const property = target !== undefined && IsPropertyAccessExpression(target)
+      ? AsPropertyAccessExpression(target)
       : undefined;
-    const actual = property?.name === undefined
-      ? fixture.source.ast.text(expression)
-      : fixture.source.ast.text(property.name);
-    if (actual === name) {
+    if (property?.name !== undefined && fixture.source.ast.text(property.name) === name) {
       count += 1;
     }
   });

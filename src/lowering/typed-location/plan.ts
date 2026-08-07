@@ -14,6 +14,7 @@ export interface LocalLocationBinding {
   readonly declaration: Node;
   readonly symbol: Symbol;
   readonly addressOperands: ReadonlySet<Node>;
+  readonly sourceName: string;
 }
 
 export interface ParameterLocationBinding {
@@ -82,9 +83,6 @@ export function createTypedLocationPlan(
         selectedNamespaceBindings,
         selectedNamespaceReceivers,
       );
-      if (operation.operation === "address-of") {
-        collectAddressBinding(source, operation, bindingsBySymbol);
-      }
     }
     if (
       source.ast.is.IsTypeReferenceNode(node) &&
@@ -104,6 +102,11 @@ export function createTypedLocationPlan(
         selectedNamespaceBindings,
         selectedNamespaceReceivers,
       );
+    }
+  }
+  for (const operation of operations.values()) {
+    if (operation.operation === "address-of") {
+      collectAddressBinding(source, operation, bindingsBySymbol);
     }
   }
 
@@ -194,57 +197,83 @@ function collectAddressBinding(
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
   bindings: Map<Symbol, MutableLocationBinding>,
 ): void {
-  if (!source.ast.is.IsIdentifier(operation.storageExpression)) {
+  const root = valueFieldRoot(source, operation.storageExpression);
+  if (root === undefined) {
     return;
   }
+  const reference = source.navigation.sourceReferenceFor(root);
   if (
-    operation.storageSymbol === undefined ||
-    operation.storageDeclaration === undefined ||
-    !source.ast.is.IsVariableDeclaration(operation.storageDeclaration) &&
-    !source.ast.is.IsParameterDeclaration(operation.storageDeclaration)
+    reference === undefined ||
+    !source.ast.is.IsVariableDeclaration(reference.declaration) &&
+    !source.ast.is.IsParameterDeclaration(reference.declaration)
   ) {
     throw new TypedLocationLoweringError(
-      "address-of identifier lacks an exact variable or parameter declaration",
+      "address-of value-field root lacks an exact variable or parameter declaration",
     );
   }
-  const declarationName = source.ast.name(operation.storageDeclaration);
+  if (
+    root === operation.storageExpression &&
+    (operation.storageSymbol !== reference.symbol ||
+      operation.storageDeclaration !== reference.declaration)
+  ) {
+    throw new TypedLocationLoweringError(
+      "address-of identifier fact disagrees with its exact source reference",
+    );
+  }
+  const declarationName = source.ast.name(reference.declaration);
   if (!source.ast.is.IsIdentifier(declarationName)) {
     throw new TypedLocationLoweringError(
       "address-of local currently requires one identifier declaration",
     );
   }
   const isParameter = source.ast.is.IsParameterDeclaration(
-    operation.storageDeclaration,
+    reference.declaration,
   );
   const body = isParameter
-    ? source.ast.body(source.ast.parent(operation.storageDeclaration))
+    ? source.ast.body(source.ast.parent(reference.declaration))
     : undefined;
   if (isParameter && body === undefined) {
     throw new TypedLocationLoweringError(
       "addressed parameter requires an exact function body",
     );
   }
-  const existing = bindings.get(operation.storageSymbol);
+  const existing = bindings.get(reference.symbol);
   if (
     existing !== undefined &&
-    existing.declaration !== operation.storageDeclaration
+    existing.declaration !== reference.declaration
   ) {
     throw new TypedLocationLoweringError(
       "one addressable symbol resolves to more than one declaration",
     );
   }
   if (existing === undefined) {
-    bindings.set(operation.storageSymbol, {
+    bindings.set(reference.symbol, {
       kind: isParameter ? "parameter" : "variable",
-      declaration: operation.storageDeclaration,
-      symbol: operation.storageSymbol,
-      addressOperands: new Set([operation.storageExpression]),
+      declaration: reference.declaration,
+      symbol: reference.symbol,
+      addressOperands: new Set([root]),
       ...(body === undefined ? {} : { body }),
-      ...(isParameter ? { sourceName: source.ast.text(declarationName) } : {}),
+      sourceName: source.ast.text(declarationName),
     });
   } else {
-    existing.addressOperands.add(operation.storageExpression);
+    existing.addressOperands.add(root);
   }
+}
+
+function valueFieldRoot(
+  source: TargetSourceProgram,
+  storage: Node,
+): Node | undefined {
+  if (source.ast.is.IsIdentifier(storage)) {
+    return storage;
+  }
+  if (!source.ast.is.IsPropertyAccessExpression(storage)) {
+    return undefined;
+  }
+  const property = source.ast.as.AsPropertyAccessExpression(storage);
+  return property?.Expression === undefined
+    ? undefined
+    : valueFieldRoot(source, property.Expression);
 }
 
 function sealLocationBinding(
@@ -253,11 +282,17 @@ function sealLocationBinding(
   usedNames: Set<string>,
 ): LocationBinding {
   if (binding.kind === "variable") {
+    if (binding.sourceName === undefined) {
+      throw new TypedLocationLoweringError(
+        "addressed local binding has no exact source name",
+      );
+    }
     return Object.freeze({
       kind: "variable",
       declaration: binding.declaration,
       symbol: binding.symbol,
       addressOperands: binding.addressOperands,
+      sourceName: binding.sourceName,
     });
   }
   if (binding.body === undefined || binding.sourceName === undefined) {

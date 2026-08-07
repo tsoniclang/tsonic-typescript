@@ -6,7 +6,6 @@ import type {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
   AsCallExpression,
-  AsElementAccessExpression,
   AsImportClause,
   AsImportDeclaration,
   AsNamedImports,
@@ -17,7 +16,6 @@ import {
   AsVariableDeclaration,
   KindEqualsToken,
   IsCallExpression,
-  IsElementAccessExpression,
   IsImportClause,
   IsImportDeclaration,
   IsNamedImports,
@@ -27,9 +25,7 @@ import {
   IsTypeReferenceNode,
   IsVariableDeclaration,
   NewBinaryExpression,
-  NewIdentifier,
   NewPropertyAssignment,
-  NewStringLiteral,
   NewToken,
   NewVoidExpression,
   NodeFactory_UpdateVariableDeclaration,
@@ -37,11 +33,12 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import { lowerAddressOf } from "./address.js";
 import { TypedLocationLoweringError } from "./diagnostic.js";
+import { locationBindingExpression } from "./location-binding.js";
 import {
   createTypedLocationPlan,
   type LocalLocationBinding,
-  type LocationBinding,
   type TypedLocationPlan,
 } from "./plan.js";
 import { prependParameterLocations } from "./parameter-location.js";
@@ -257,20 +254,6 @@ function rewriteNode(
   return updated;
 }
 
-function locationBindingExpression(
-  factory: NodeFactory,
-  binding: LocationBinding,
-  variableExpression: Node,
-): Node {
-  if (binding.kind === "variable") {
-    return variableExpression;
-  }
-  return requiredNode(
-    NewIdentifier(factory, binding.locationName),
-    "addressed parameter location reference",
-  );
-}
-
 function promoteLocalBinding(
   factory: NodeFactory,
   updated: Node,
@@ -401,80 +384,6 @@ function lowerOperation(
         plan,
       );
   }
-}
-
-function lowerAddressOf(
-  source: TargetSourceProgram,
-  factory: NodeFactory,
-  operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
-  updatedStorage: Node,
-  plan: TypedLocationPlan,
-): Node {
-  if (source.ast.is.IsIdentifier(operation.storageExpression)) {
-    const binding = plan.addressBindings.get(operation.storageExpression);
-    if (binding === undefined) {
-      throw new TypedLocationLoweringError(
-        "addressed identifier lacks its exact location binding",
-      );
-    }
-    return locationBindingExpression(factory, binding, updatedStorage);
-  }
-  const property = IsPropertyAccessExpression(updatedStorage)
-    ? AsPropertyAccessExpression(updatedStorage)
-    : undefined;
-  if (property !== undefined) {
-    if (!source.ast.is.IsPropertyAccessExpression(operation.storageExpression)) {
-      throw new TypedLocationLoweringError(
-        "addressed property has no exact original property expression",
-      );
-    }
-    const originalProperty = source.ast.as.AsPropertyAccessExpression(
-      operation.storageExpression,
-    );
-    if (property.Expression === undefined || property.name === undefined) {
-      throw new TypedLocationLoweringError(
-        "addressed property lost its exact base or name",
-      );
-    }
-    if (originalProperty?.name === undefined) {
-      throw new TypedLocationLoweringError(
-        "addressed property has no exact original name",
-      );
-    }
-    return runtimeCall(
-      factory,
-      plan.runtimeAlias,
-      "propertyLocation",
-      [],
-      [
-        property.Expression,
-        requiredNode(
-          NewStringLiteral(factory, source.ast.text(originalProperty.name), 0),
-          "addressed property name",
-        ),
-      ],
-    );
-  }
-  const element = IsElementAccessExpression(updatedStorage)
-    ? AsElementAccessExpression(updatedStorage)
-    : undefined;
-  if (element !== undefined) {
-    if (element.Expression === undefined || element.ArgumentExpression === undefined) {
-      throw new TypedLocationLoweringError(
-        "addressed element lost its exact base or key",
-      );
-    }
-    return runtimeCall(
-      factory,
-      plan.runtimeAlias,
-      "propertyLocation",
-      [],
-      [element.Expression, element.ArgumentExpression],
-    );
-  }
-  throw new TypedLocationLoweringError(
-    "address-of storage is outside the TypeScript location model",
-  );
 }
 
 function requiredElement(
