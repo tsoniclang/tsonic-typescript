@@ -198,7 +198,7 @@ function collectAddressBinding(
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
   bindings: Map<Symbol, MutableLocationBinding>,
 ): void {
-  const root = valueFieldRoot(source, operation.storageExpression);
+  const root = valueStorageRoot(source, operation.storageExpression);
   if (root === undefined) {
     return;
   }
@@ -267,20 +267,26 @@ function collectAddressBinding(
   }
 }
 
-function valueFieldRoot(
+function valueStorageRoot(
   source: TargetSourceProgram,
   storage: Node,
 ): Node | undefined {
   if (source.ast.is.IsIdentifier(storage)) {
     return storage;
   }
-  if (!source.ast.is.IsPropertyAccessExpression(storage)) {
+  if (source.ast.is.IsPropertyAccessExpression(storage)) {
+    const property = source.ast.as.AsPropertyAccessExpression(storage);
+    return property?.Expression === undefined
+      ? undefined
+      : valueStorageRoot(source, property.Expression);
+  }
+  if (!source.ast.is.IsElementAccessExpression(storage)) {
     return undefined;
   }
-  const property = source.ast.as.AsPropertyAccessExpression(storage);
-  return property?.Expression === undefined
+  const element = source.ast.as.AsElementAccessExpression(storage);
+  return element?.Expression === undefined
     ? undefined
-    : valueFieldRoot(source, property.Expression);
+    : valueStorageRoot(source, element.Expression);
 }
 
 function sealLocationBinding(

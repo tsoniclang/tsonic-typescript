@@ -53,7 +53,7 @@ export function lowerAddressOf(
         "addressed property has no exact original name",
       );
     }
-    const parentLocation = lowerValueFieldParentLocation(
+    const parentLocation = lowerValueParentLocation(
       source,
       factory,
       originalProperty.Expression,
@@ -81,17 +81,40 @@ export function lowerAddressOf(
     ? AsElementAccessExpression(updatedStorage)
     : undefined;
   if (element !== undefined) {
+    if (!source.ast.is.IsElementAccessExpression(operation.storageExpression)) {
+      throw new TypedLocationLoweringError(
+        "addressed element has no exact original element expression",
+      );
+    }
+    const originalElement = source.ast.as.AsElementAccessExpression(
+      operation.storageExpression,
+    );
     if (element.Expression === undefined || element.ArgumentExpression === undefined) {
       throw new TypedLocationLoweringError(
         "addressed element lost its exact base or key",
       );
     }
+    if (originalElement?.Expression === undefined) {
+      throw new TypedLocationLoweringError(
+        "addressed element has no exact original base",
+      );
+    }
+    const parentLocation = lowerValueParentLocation(
+      source,
+      factory,
+      originalElement.Expression,
+      element.Expression,
+      plan,
+      updatedNodes,
+    );
     return runtimeCall(
       factory,
       plan.runtimeAlias,
-      "propertyLocation",
+      parentLocation === undefined
+        ? "propertyLocation"
+        : "nestedPropertyLocation",
       [],
-      [element.Expression, element.ArgumentExpression],
+      [parentLocation ?? element.Expression, element.ArgumentExpression],
     );
   }
   throw new TypedLocationLoweringError(
@@ -99,7 +122,7 @@ export function lowerAddressOf(
   );
 }
 
-function lowerValueFieldParentLocation(
+function lowerValueParentLocation(
   source: TargetSourceProgram,
   factory: NodeFactory,
   original: Node | undefined,
@@ -128,57 +151,71 @@ function lowerValueFieldParentLocation(
     }
     return pointer;
   }
-  if (!source.ast.is.IsPropertyAccessExpression(original)) {
-    return undefined;
-  }
-  const originalProperty = source.ast.as.AsPropertyAccessExpression(original);
-  const updatedProperty = IsPropertyAccessExpression(updated)
-    ? AsPropertyAccessExpression(updated)
-    : undefined;
-  if (
-    originalProperty?.Expression === undefined ||
-    originalProperty.name === undefined ||
-    updatedProperty?.Expression === undefined
-  ) {
-    throw new TypedLocationLoweringError(
-      "addressed value-field path lost an exact property segment",
+  if (source.ast.is.IsPropertyAccessExpression(original)) {
+    const originalProperty = source.ast.as.AsPropertyAccessExpression(original);
+    const updatedProperty = IsPropertyAccessExpression(updated)
+      ? AsPropertyAccessExpression(updated)
+      : undefined;
+    if (
+      originalProperty?.Expression === undefined ||
+      originalProperty.name === undefined ||
+      updatedProperty?.Expression === undefined
+    ) {
+      throw new TypedLocationLoweringError(
+        "addressed value path lost an exact property segment",
+      );
+    }
+    const parent = lowerValueParentLocation(
+      source,
+      factory,
+      originalProperty.Expression,
+      updatedProperty.Expression,
+      plan,
+      updatedNodes,
     );
-  }
-  const parent = lowerValueFieldParentLocation(
-    source,
-    factory,
-    originalProperty.Expression,
-    updatedProperty.Expression,
-    plan,
-    updatedNodes,
-  );
-  if (parent === undefined) {
+    const key = requiredNode(
+      NewStringLiteral(factory, source.ast.text(originalProperty.name), 0),
+      "addressed value path segment",
+    );
     return runtimeCall(
       factory,
       plan.runtimeAlias,
-      "propertyLocation",
+      parent === undefined ? "propertyLocation" : "nestedPropertyLocation",
       [],
-      [
-        updatedProperty.Expression,
-        requiredNode(
-          NewStringLiteral(factory, source.ast.text(originalProperty.name), 0),
-          "addressed value-field path segment",
-        ),
-      ],
+      [parent ?? updatedProperty.Expression, key],
     );
   }
+  if (!source.ast.is.IsElementAccessExpression(original)) {
+    return undefined;
+  }
+  const originalElement = source.ast.as.AsElementAccessExpression(original);
+  const updatedElement = IsElementAccessExpression(updated)
+    ? AsElementAccessExpression(updated)
+    : undefined;
+  if (
+    originalElement?.Expression === undefined ||
+    originalElement.ArgumentExpression === undefined ||
+    updatedElement?.Expression === undefined ||
+    updatedElement.ArgumentExpression === undefined
+  ) {
+    throw new TypedLocationLoweringError(
+      "addressed value path lost an exact element segment",
+    );
+  }
+  const parent = lowerValueParentLocation(
+    source,
+    factory,
+    originalElement.Expression,
+    updatedElement.Expression,
+    plan,
+    updatedNodes,
+  );
   return runtimeCall(
     factory,
     plan.runtimeAlias,
-    "nestedPropertyLocation",
+    parent === undefined ? "propertyLocation" : "nestedPropertyLocation",
     [],
-    [
-      parent,
-      requiredNode(
-        NewStringLiteral(factory, source.ast.text(originalProperty.name), 0),
-        "addressed value-field path segment",
-      ),
-    ],
+    [parent ?? updatedElement.Expression, updatedElement.ArgumentExpression],
   );
 }
 

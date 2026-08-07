@@ -58,6 +58,44 @@ export const result = [record.inner.value, loadPointer(field)];
   );
 });
 
+test("interior value-element locations follow whole-root replacement", () => {
+  const fixture = checkedFixture(`import { addressOf, loadPointer, storePointer } from "./markers.js";
+
+let values = [1];
+const element = addressOf(values[0]);
+values = [2];
+storePointer(element, 3);
+export const result = [values[0], loadPointer(element)];
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.promotedBindingCount, 1);
+  assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
+  assert.equal(
+    countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
+    1,
+  );
+});
+
+test("mixed element and field paths follow whole-root replacement", () => {
+  const fixture = checkedFixture(`import { addressOf, loadPointer, storePointer } from "./markers.js";
+
+let records = [{ value: 1 }];
+const field = addressOf(records[0].value);
+records = [{ value: 2 }];
+storePointer(field, 3);
+export const result = [records[0].value, loadPointer(field)];
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.promotedBindingCount, 1);
+  assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
+  assert.equal(
+    countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
+    2,
+  );
+});
+
 test("interior pointer-root locations retain the selected pointee", () => {
   const fixture = checkedFixture(`import { addressOf, allocatePointer, loadPointer, storePointer } from "./markers.js";
 
