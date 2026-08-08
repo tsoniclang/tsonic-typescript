@@ -7,7 +7,10 @@ import type {
   TargetCompileResult,
   TargetSourceFile,
 } from "@tsonic/target-api";
-import { encodeTargetSourceFileForPrinting } from "@tsonic/tsts/target-ast";
+import {
+  encodeTargetSourceFileForPrinting,
+  TargetAstEncodingError,
+} from "@tsonic/tsts/target-ast";
 
 import { lowerPointers } from "../lowering/pointer/transform.js";
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
@@ -62,7 +65,7 @@ function compileSourceArtifacts(
     const result = lowerPointers(input.source, sourceFile);
     return {
       path: sourceArtifactPath(input, document.fileName),
-      encoded: encodeTargetSourceFileForPrinting(result.sourceFile),
+      encoded: encodeTargetSourceFile(document.fileName, result.sourceFile),
       usesRuntime: result.runtimeAlias !== undefined,
     };
   });
@@ -81,6 +84,27 @@ function compileSourceArtifacts(
     }))),
     usesRuntime: lowered.some((artifact) => artifact.usesRuntime),
   });
+}
+
+function encodeTargetSourceFile(
+  fileName: string,
+  sourceFile: Parameters<typeof encodeTargetSourceFileForPrinting>[0],
+): Uint8Array {
+  try {
+    return encodeTargetSourceFileForPrinting(sourceFile);
+  } catch (error) {
+    if (!(error instanceof TargetAstEncodingError)) {
+      throw error;
+    }
+    const evidence = [
+      error.kind === undefined ? undefined : `kind=${error.kind}`,
+      error.field === undefined ? undefined : `field=${error.field}`,
+    ].filter((value): value is string => value !== undefined);
+    throw new Error(
+      `${fileName}: ${error.message}${evidence.length === 0 ? "" : ` (${evidence.join(", ")})`}`,
+      { cause: error },
+    );
+  }
 }
 
 function requiredPrintedSource(
