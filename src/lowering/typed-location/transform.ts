@@ -384,6 +384,27 @@ function lowerOperation(
         [],
         arguments_,
       );
+    case "hash-pointer":
+      requireArity(operation.operation, arguments_, 1);
+      return runtimeCall(
+        factory,
+        plan.runtimeAlias,
+        "hashLocation",
+        [],
+        arguments_,
+      );
+    case "project-pointer":
+      requireArity(operation.operation, arguments_, 3);
+      return runtimeCall(
+        factory,
+        plan.runtimeAlias,
+        "projectLocation",
+        requireNodes(
+          call.TypeArguments?.Nodes ?? [],
+          `${operation.operation} type arguments`,
+        ),
+        arguments_,
+      );
     case "address-of":
       requireArity(operation.operation, arguments_, 1);
       return lowerAddressOf(

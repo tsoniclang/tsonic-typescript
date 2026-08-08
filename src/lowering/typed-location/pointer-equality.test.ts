@@ -26,13 +26,23 @@ const markerSemantics = [{
   capabilities: ["call-marker"],
   exports: [
     { kind: "call-marker", exportName: "addressOf", marker: "address-of" },
+    { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
+    { kind: "call-marker", exportName: "loadPointer", marker: "load" },
+    { kind: "call-marker", exportName: "storePointer", marker: "store" },
     { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
+    { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
+    { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
   ],
 }] satisfies readonly SourceSemanticsModule[];
 
 const markerDeclarations = `export interface Pointer<T> { value: T }
 export declare function addressOf<T>(storage: T): Pointer<T>;
+export declare function allocatePointer<T>(initial: T): Pointer<T>;
+export declare function loadPointer<T>(pointer: Pointer<T>): T;
+export declare function storePointer<T>(pointer: Pointer<T>, value: T): void;
 export declare function equalPointer<T>(left: Pointer<T> | undefined, right: Pointer<T> | undefined): boolean;
+export declare function hashPointer<T>(pointer: Pointer<T> | undefined): number;
+export declare function projectPointer<F, T>(pointer: Pointer<F> | undefined, fromSource: (value: F) => T, toSource: (value: T) => F): Pointer<T> | undefined;
 `;
 
 test("compares repeated property addresses by storage identity", () => {
@@ -59,6 +69,39 @@ export const nils = equalPointer<number>(undefined, undefined);
   );
   assert.equal(countCallsNamed(fixture, result.sourceFile, "sameLocation"), 3);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "equalPointer"), 0);
+});
+
+test("hashes and projects pointers through the selected runtime identity", () => {
+  const fixture = checkedFixture(`import {
+  allocatePointer,
+  hashPointer,
+  loadPointer,
+  projectPointer,
+  storePointer,
+} from "./markers.js";
+
+const source = allocatePointer<number>(10);
+const projected = projectPointer<number, string>(
+  source,
+  (value) => String(value),
+  (value) => Number(value),
+)!;
+storePointer(projected, "25");
+export const result = [
+  hashPointer(source),
+  hashPointer(projected),
+  loadPointer(source),
+  loadPointer(projected),
+];
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.operationCount, 7);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "projectLocation"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "hashLocation"), 2);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "projectPointer"), 0);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "hashPointer"), 0);
 });
 
 interface CheckedFixture {
