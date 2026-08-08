@@ -17,7 +17,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
-import { TypedLocationLoweringError } from "./diagnostic.js";
+import { PointerLoweringError } from "./diagnostic.js";
 import type { ParameterLocationBinding } from "./plan.js";
 import { runtimeCall } from "./runtime-ast.js";
 
@@ -114,7 +114,7 @@ function prologueDirectiveCount(statements: readonly Node[]): number {
 
 function requiredNode(node: Node | undefined, subject: string): Node {
   if (node === undefined) {
-    throw new TypedLocationLoweringError(`${subject} was not created`);
+    throw new PointerLoweringError(`${subject} was not created`);
   }
   return node;
 }

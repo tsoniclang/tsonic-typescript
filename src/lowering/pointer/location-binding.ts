@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { NewIdentifier } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
-import { TypedLocationLoweringError } from "./diagnostic.js";
+import { PointerLoweringError } from "./diagnostic.js";
 import type { LocationBinding } from "./plan.js";
 
 export function locationBindingExpression(
@@ -15,7 +15,7 @@ export function locationBindingExpression(
     : binding.locationName;
   const expression = NewIdentifier(factory, name);
   if (expression === undefined) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       `${binding.kind} location reference was not created`,
     );
   }

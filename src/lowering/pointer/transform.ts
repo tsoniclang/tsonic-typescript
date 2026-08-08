@@ -34,14 +34,15 @@ import {
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
 import { lowerAddressOf } from "./address.js";
-import { TypedLocationLoweringError } from "./diagnostic.js";
+import { PointerLoweringError } from "./diagnostic.js";
 import { locationBindingExpression } from "./location-binding.js";
 import {
-  createTypedLocationPlan,
+  createPointerLoweringPlan,
   type LocalLocationBinding,
-  type TypedLocationPlan,
+  type PointerLoweringPlan,
 } from "./plan.js";
 import { prependParameterLocations } from "./parameter-location.js";
+import { lowerRawPointerOperation, lowerRawPointerType } from "./raw.js";
 import {
   locationValue,
   prependRuntimeImport,
@@ -49,24 +50,33 @@ import {
   runtimeType,
 } from "./runtime-ast.js";
 
-export interface TypedLocationLoweringResult {
+export interface PointerLoweringResult {
   readonly sourceFile: SourceFile;
   readonly operationCount: number;
   readonly pointerTypeCount: number;
+  readonly rawPointerOperationCount: number;
+  readonly rawPointerTypeCount: number;
   readonly promotedBindingCount: number;
   readonly runtimeAlias: string | undefined;
 }
 
-export function lowerTypedLocations(
+export function lowerPointers(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
-): TypedLocationLoweringResult {
-  const plan = createTypedLocationPlan(source, sourceFile);
-  if (plan.operations.size === 0 && plan.pointerTypes.size === 0) {
+): PointerLoweringResult {
+  const plan = createPointerLoweringPlan(source, sourceFile);
+  if (
+    plan.operations.size === 0 &&
+    plan.pointerTypes.size === 0 &&
+    plan.rawPointerOperations.size === 0 &&
+    plan.rawPointerTypes.size === 0
+  ) {
     return Object.freeze({
       sourceFile,
       operationCount: 0,
       pointerTypeCount: 0,
+      rawPointerOperationCount: 0,
+      rawPointerTypeCount: 0,
       promotedBindingCount: 0,
       runtimeAlias: undefined,
     });
@@ -94,6 +104,8 @@ export function lowerTypedLocations(
     sourceFile: transformed,
     operationCount: consumed.operations.size,
     pointerTypeCount: consumed.pointerTypes.size,
+    rawPointerOperationCount: consumed.rawPointerOperations.size,
+    rawPointerTypeCount: consumed.rawPointerTypes.size,
     promotedBindingCount:
       consumed.localBindings.size + consumed.parameterBindings.size,
     runtimeAlias: plan.runtimeAlias,
@@ -103,6 +115,8 @@ export function lowerTypedLocations(
 interface ConsumptionState {
   readonly operations: Set<Node>;
   readonly pointerTypes: Set<Node>;
+  readonly rawPointerOperations: Set<Node>;
+  readonly rawPointerTypes: Set<Node>;
   readonly localBindings: Set<Node>;
   readonly parameterBindings: Set<Node>;
   readonly promotedReferences: Set<Node>;
@@ -114,6 +128,8 @@ function createConsumptionState(): ConsumptionState {
   return {
     operations: new Set(),
     pointerTypes: new Set(),
+    rawPointerOperations: new Set(),
+    rawPointerTypes: new Set(),
     localBindings: new Set(),
     parameterBindings: new Set(),
     promotedReferences: new Set(),
@@ -124,7 +140,7 @@ function createConsumptionState(): ConsumptionState {
 
 function rewriteNode(
   source: TargetSourceProgram,
-  plan: TypedLocationPlan,
+  plan: PointerLoweringPlan,
   consumed: ConsumptionState,
   original: Node,
   updated: Node,
@@ -193,7 +209,7 @@ function rewriteNode(
       updatedShorthand.name === undefined ||
       updatedShorthand.ObjectAssignmentInitializer !== undefined
     ) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "promoted shorthand property has unsupported assignment syntax",
       );
     }
@@ -228,9 +244,26 @@ function rewriteNode(
     );
   }
 
+  const rawPointerOperation = plan.rawPointerOperations.get(original);
+  if (rawPointerOperation !== undefined) {
+    consumed.rawPointerOperations.add(original);
+    return lowerRawPointerOperation(
+      factory,
+      rawPointerOperation,
+      updated,
+      plan.runtimeAlias,
+    );
+  }
+
   if (plan.pointerTypes.has(original)) {
     consumed.pointerTypes.add(original);
     return lowerPointerType(factory, updated, plan.runtimeAlias);
+  }
+
+
+  if (plan.rawPointerTypes.has(original)) {
+    consumed.rawPointerTypes.add(original);
+    return lowerRawPointerType(factory, updated, plan.runtimeAlias);
   }
 
   const parameterBindings = plan.parameterBindingsByBody.get(original);
@@ -249,7 +282,7 @@ function rewriteNode(
   if (IsSourceFile(updated)) {
     const sourceFile = AsSourceFile(updated);
     if (sourceFile === undefined) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "source-file predicate did not yield a source-file receiver",
       );
     }
@@ -273,7 +306,7 @@ function promoteLocalBinding(
     ? AsVariableDeclaration(updated)
     : undefined;
   if (declaration === undefined || declaration.Initializer === undefined) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "addressed local must have an explicit variable initializer",
     );
   }
@@ -314,7 +347,7 @@ function lowerPointerType(
     typeReference.TypeArguments === undefined ||
     typeReference.TypeArguments.Nodes.length !== 1
   ) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "Pointer<T> fact must own exactly one type argument",
     );
   }
@@ -331,12 +364,12 @@ function lowerOperation(
   factory: NodeFactory,
   operation: PointerOperationFact,
   updated: Node,
-  plan: TypedLocationPlan,
+  plan: PointerLoweringPlan,
   updatedNodes: ReadonlyMap<Node, Node>,
 ): Node {
   const call = IsCallExpression(updated) ? AsCallExpression(updated) : undefined;
   if (call === undefined) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       `${operation.operation} fact no longer owns a call expression`,
     );
   }
@@ -436,7 +469,7 @@ function requiredElement(
 ): Node {
   const value = values[index];
   if (value === undefined) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       `pointer operation lost argument ${index}`,
     );
   }
@@ -451,7 +484,7 @@ function requireNodes(
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (value === undefined) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         `${subject} contains an absent node at index ${index}`,
       );
     }
@@ -466,7 +499,7 @@ function requireArity(
   expected: number,
 ): void {
   if (values.length !== expected) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       `${operation} requires ${expected} exact arguments, got ${values.length}`,
     );
   }
@@ -474,17 +507,27 @@ function requireArity(
 
 function requiredNode(node: Node | undefined, subject: string): Node {
   if (node === undefined) {
-    throw new TypedLocationLoweringError(`${subject} was not created`);
+    throw new PointerLoweringError(`${subject} was not created`);
   }
   return node;
 }
 
 function assertCompleteConsumption(
-  plan: TypedLocationPlan,
+  plan: PointerLoweringPlan,
   consumed: ConsumptionState,
 ): void {
   assertCount("pointer operations", consumed.operations, plan.operations.size);
   assertCount("pointer types", consumed.pointerTypes, plan.pointerTypes.size);
+  assertCount(
+    "raw-pointer operations",
+    consumed.rawPointerOperations,
+    plan.rawPointerOperations.size,
+  );
+  assertCount(
+    "raw-pointer types",
+    consumed.rawPointerTypes,
+    plan.rawPointerTypes.size,
+  );
   assertCount("promoted bindings", consumed.localBindings, plan.localBindings.size);
   assertCount(
     "promoted parameters",
@@ -512,7 +555,7 @@ function assertCount(
   expected: number,
 ): void {
   if (consumed.size !== expected) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       `consumed ${consumed.size} ${subject}, expected ${expected}`,
     );
   }

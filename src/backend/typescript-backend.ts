@@ -9,7 +9,7 @@ import type {
 } from "@tsonic/target-api";
 import { encodeTargetSourceFileForPrinting } from "@tsonic/tsts/target-ast";
 
-import { lowerTypedLocations } from "../lowering/typed-location/transform.js";
+import { lowerPointers } from "../lowering/pointer/transform.js";
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { createTypeScriptProjectArtifact } from "./project-artifact.js";
 
@@ -59,7 +59,7 @@ function compileSourceArtifacts(
         `source document '${document.identity}' does not own its exact AST`,
       );
     }
-    const result = lowerTypedLocations(input.source, sourceFile);
+    const result = lowerPointers(input.source, sourceFile);
     return {
       path: sourceArtifactPath(input, document.fileName),
       encoded: encodeTargetSourceFileForPrinting(result.sourceFile),

@@ -11,7 +11,7 @@ import {
 } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { createTypedLocationPlan } from "./plan.js";
+import { createPointerLoweringPlan } from "./plan.js";
 
 test("plans addressed bindings with one source-reference pass", () => {
   const small = referenceLookupsFor(16);
@@ -32,7 +32,7 @@ export function capture(value: number, pointer = addressOf(value)) {
 }
 `);
   assert.throws(
-    () => createTypedLocationPlan(fixture.source, fixture.sourceFile),
+    () => createPointerLoweringPlan(fixture.source, fixture.sourceFile),
     /address-of parameter outside its function body is unsupported/,
   );
 });
@@ -50,7 +50,7 @@ function referenceLookupsFor(bindingCount: number): number {
       },
     }),
   });
-  createTypedLocationPlan(source, fixture.sourceFile);
+  createPointerLoweringPlan(source, fixture.sourceFile);
   return referenceLookups;
 }
 

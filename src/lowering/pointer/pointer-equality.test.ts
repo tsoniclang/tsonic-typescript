@@ -19,12 +19,13 @@ import {
 import { createTargetSourceProgram } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { lowerTypedLocations } from "./transform.js";
+import { lowerPointers } from "./transform.js";
 
 const markerSemantics = [{
   moduleSpecifier: "./markers.js",
-  capabilities: ["call-marker"],
+  capabilities: ["call-marker", "type-marker"],
   exports: [
+    { kind: "type-marker", exportName: "RawPointer", marker: "raw-pointer" },
     { kind: "call-marker", exportName: "addressOf", marker: "address-of" },
     { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
     { kind: "call-marker", exportName: "loadPointer", marker: "load" },
@@ -33,10 +34,14 @@ const markerSemantics = [{
     { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
     { kind: "call-marker", exportName: "bindPointer", marker: "bind-pointer" },
     { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
+    { kind: "call-marker", exportName: "bindRawPointer", marker: "bind-raw-pointer" },
+    { kind: "call-marker", exportName: "equalRawPointer", marker: "equal-raw-pointer" },
+    { kind: "call-marker", exportName: "hashRawPointer", marker: "hash-raw-pointer" },
   ],
 }] satisfies readonly SourceSemanticsModule[];
 
 const markerDeclarations = `export interface Pointer<T> { value: T }
+export interface RawPointer { readonly identity: unique symbol }
 export declare function addressOf<T>(storage: T): Pointer<T>;
 export declare function allocatePointer<T>(initial: T): Pointer<T>;
 export declare function loadPointer<T>(pointer: Pointer<T>): T;
@@ -45,6 +50,9 @@ export declare function equalPointer<T>(left: Pointer<T> | undefined, right: Poi
 export declare function hashPointer<T>(pointer: Pointer<T> | undefined): number;
 export declare function bindPointer<T>(identity: object, read: () => T, write: (value: T) => void): Pointer<T>;
 export declare function projectPointer<F, T>(pointer: Pointer<F> | undefined, fromSource: (value: F) => T, toSource: (value: T) => F): Pointer<T> | undefined;
+export declare function bindRawPointer(identity: object): RawPointer;
+export declare function equalRawPointer(left: RawPointer | undefined, right: RawPointer | undefined): boolean;
+export declare function hashRawPointer(pointer: RawPointer | undefined): number;
 `;
 
 test("compares repeated property addresses by storage identity", () => {
@@ -61,7 +69,7 @@ export const different = equalPointer(
 );
 export const nils = equalPointer<number>(undefined, undefined);
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.operationCount, 7);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "propertyLocation"), 0);
@@ -96,7 +104,7 @@ export const result = [
   loadPointer(projected),
 ];
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.operationCount, 7);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 1);
@@ -133,13 +141,47 @@ export const result = [
   loadPointer(alias),
 ];
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.operationCount, 7);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "boundLocation"), 2);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "bindPointer"), 0);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "sameLocation"), 1);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "hashLocation"), 2);
+});
+
+test("lowers opaque raw-pointer identity with nested safe-pointer input in one pass", () => {
+  const fixture = checkedFixture(`import type { RawPointer } from "./markers.js";
+import {
+  allocatePointer,
+  bindRawPointer,
+  equalRawPointer,
+  hashRawPointer,
+} from "./markers.js";
+import * as markers from "./markers.js";
+
+function localBindRawPointer(identity: object): object { return identity; }
+
+const location = allocatePointer(1);
+const first: RawPointer = bindRawPointer(location);
+const alias = markers.bindRawPointer(location);
+export const result = [
+  equalRawPointer(first, alias),
+  hashRawPointer(first),
+  localBindRawPointer(location),
+];
+`);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.operationCount, 1);
+  assert.equal(result.rawPointerOperationCount, 4);
+  assert.equal(result.rawPointerTypeCount, 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "rawPointer"), 2);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "sameRawPointer"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "hashRawPointer"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "bindRawPointer"), 0);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "localBindRawPointer"), 1);
 });
 
 interface CheckedFixture {

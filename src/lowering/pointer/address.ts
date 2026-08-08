@@ -9,9 +9,9 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
-import { TypedLocationLoweringError } from "./diagnostic.js";
+import { PointerLoweringError } from "./diagnostic.js";
 import { locationBindingExpression } from "./location-binding.js";
-import type { TypedLocationPlan } from "./plan.js";
+import type { PointerLoweringPlan } from "./plan.js";
 import { runtimeCall } from "./runtime-ast.js";
 
 export function lowerAddressOf(
@@ -19,13 +19,13 @@ export function lowerAddressOf(
   factory: NodeFactory,
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
   updatedStorage: Node,
-  plan: TypedLocationPlan,
+  plan: PointerLoweringPlan,
   updatedNodes: ReadonlyMap<Node, Node>,
 ): Node {
   if (source.ast.is.IsIdentifier(operation.storageExpression)) {
     const binding = plan.addressBindings.get(operation.storageExpression);
     if (binding === undefined) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed identifier lacks its exact location binding",
       );
     }
@@ -36,7 +36,7 @@ export function lowerAddressOf(
     : undefined;
   if (property !== undefined) {
     if (!source.ast.is.IsPropertyAccessExpression(operation.storageExpression)) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed property has no exact original property expression",
       );
     }
@@ -44,12 +44,12 @@ export function lowerAddressOf(
       operation.storageExpression,
     );
     if (property.Expression === undefined || property.name === undefined) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed property lost its exact base or name",
       );
     }
     if (originalProperty?.name === undefined) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed property has no exact original name",
       );
     }
@@ -82,7 +82,7 @@ export function lowerAddressOf(
     : undefined;
   if (element !== undefined) {
     if (!source.ast.is.IsElementAccessExpression(operation.storageExpression)) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed element has no exact original element expression",
       );
     }
@@ -90,12 +90,12 @@ export function lowerAddressOf(
       operation.storageExpression,
     );
     if (element.Expression === undefined || element.ArgumentExpression === undefined) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed element lost its exact base or key",
       );
     }
     if (originalElement?.Expression === undefined) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed element has no exact original base",
       );
     }
@@ -117,7 +117,7 @@ export function lowerAddressOf(
       [parentLocation ?? element.Expression, element.ArgumentExpression],
     );
   }
-  throw new TypedLocationLoweringError(
+  throw new PointerLoweringError(
     "address-of storage is outside the TypeScript location model",
   );
 }
@@ -127,11 +127,11 @@ function lowerValueParentLocation(
   factory: NodeFactory,
   original: Node | undefined,
   updated: Node,
-  plan: TypedLocationPlan,
+  plan: PointerLoweringPlan,
   updatedNodes: ReadonlyMap<Node, Node>,
 ): Node | undefined {
   if (original === undefined) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "addressed property lost its exact original base",
     );
   }
@@ -145,7 +145,7 @@ function lowerValueParentLocation(
   if (operation?.operation === "load") {
     const pointer = updatedNodes.get(operation.pointerExpression);
     if (pointer === undefined) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed pointer-load parent lacks its exact transformed pointer",
       );
     }
@@ -161,7 +161,7 @@ function lowerValueParentLocation(
       originalProperty.name === undefined ||
       updatedProperty?.Expression === undefined
     ) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed value path lost an exact property segment",
       );
     }
@@ -198,7 +198,7 @@ function lowerValueParentLocation(
     updatedElement?.Expression === undefined ||
     updatedElement.ArgumentExpression === undefined
   ) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "addressed value path lost an exact element segment",
     );
   }
@@ -221,7 +221,7 @@ function lowerValueParentLocation(
 
 function requiredNode(node: Node | undefined, subject: string): Node {
   if (node === undefined) {
-    throw new TypedLocationLoweringError(`${subject} was not created`);
+    throw new PointerLoweringError(`${subject} was not created`);
   }
   return node;
 }

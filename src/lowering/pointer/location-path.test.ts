@@ -19,7 +19,7 @@ import {
 import { createTargetSourceProgram } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { lowerTypedLocations } from "./transform.js";
+import { lowerPointers } from "./transform.js";
 
 const markerSemantics = [{
   moduleSpecifier: "./markers.js",
@@ -48,7 +48,7 @@ record = { inner: { value: 2 } };
 storePointer(field, 3);
 export const result = [record.inner.value, loadPointer(field)];
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.promotedBindingCount, 1);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
@@ -67,7 +67,7 @@ values = [2];
 storePointer(element, 3);
 export const result = [values[0], loadPointer(element)];
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.promotedBindingCount, 1);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
@@ -86,7 +86,7 @@ records = [{ value: 2 }];
 storePointer(field, 3);
 export const result = [records[0].value, loadPointer(field)];
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.promotedBindingCount, 1);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
@@ -106,7 +106,7 @@ selected = allocatePointer({ value: 2 });
 storePointer(field, 3);
 export const result = [loadPointer(original).value, loadPointer(selected).value];
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.promotedBindingCount, 0);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
@@ -125,7 +125,7 @@ storePointer(selected, { value: 2 });
 storePointer(field, 3);
 export const result = [loadPointer(selected).value, loadPointer(field)];
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.promotedBindingCount, 0);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
@@ -149,7 +149,7 @@ export const result = [state.record.inner.value, loadPointer(field)];
       "/src/state.ts": "export const state = { record: { inner: { value: 1 } } };\n",
     },
   );
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.promotedBindingCount, 0);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 1);

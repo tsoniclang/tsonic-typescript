@@ -6,13 +6,13 @@ export type {
   TypeScriptAstPrinterOptions,
   TypeScriptTargetOptions,
 } from "./config/options.js";
-export { TypedLocationLoweringError } from "./lowering/typed-location/diagnostic.js";
+export { PointerLoweringError } from "./lowering/pointer/diagnostic.js";
 export {
-  lowerTypedLocations,
-} from "./lowering/typed-location/transform.js";
+  lowerPointers,
+} from "./lowering/pointer/transform.js";
 export type {
-  TypedLocationLoweringResult,
-} from "./lowering/typed-location/transform.js";
+  PointerLoweringResult,
+} from "./lowering/pointer/transform.js";
 export {
   createExternalAstPrinter,
   decodePrinterResponse,

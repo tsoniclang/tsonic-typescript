@@ -1,13 +1,19 @@
-import { pointerFactKey, pointerOperationFactKey } from "@tsonic/tsts";
+import {
+  pointerFactKey,
+  pointerOperationFactKey,
+  rawPointerFactKey,
+  rawPointerOperationFactKey,
+} from "@tsonic/tsts";
 import type {
   Node,
   PointerOperationFact,
+  RawPointerOperationFact,
   SourceFile,
   Symbol,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { TypedLocationLoweringError } from "./diagnostic.js";
+import { PointerLoweringError } from "./diagnostic.js";
 
 export interface LocalLocationBinding {
   readonly kind: "variable";
@@ -29,9 +35,11 @@ export interface ParameterLocationBinding {
 
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
 
-export interface TypedLocationPlan {
+export interface PointerLoweringPlan {
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
   readonly pointerTypes: ReadonlySet<Node>;
+  readonly rawPointerOperations: ReadonlyMap<Node, RawPointerOperationFact>;
+  readonly rawPointerTypes: ReadonlySet<Node>;
   readonly localBindings: ReadonlyMap<Node, LocalLocationBinding>;
   readonly parameterBindingsByBody: ReadonlyMap<
     Node,
@@ -53,13 +61,15 @@ interface MutableLocationBinding {
   readonly sourceName?: string;
 }
 
-export function createTypedLocationPlan(
+export function createPointerLoweringPlan(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
-): TypedLocationPlan {
+): PointerLoweringPlan {
   const nodes = collectNodes(source, sourceFile);
   const operations = new Map<Node, PointerOperationFact>();
   const pointerTypes = new Set<Node>();
+  const rawPointerOperations = new Map<Node, RawPointerOperationFact>();
+  const rawPointerTypes = new Set<Node>();
   const selectedMarkerDeclarations = new Set<Node>();
   const selectedNamespaceBindings = new Set<Node>();
   const selectedNamespaceReceivers = new Set<Node>();
@@ -70,11 +80,35 @@ export function createTypedLocationPlan(
     const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
     if (operation !== undefined) {
       if (operation.call !== node || operations.has(node)) {
-        throw new TypedLocationLoweringError(
+        throw new PointerLoweringError(
           "pointer operation fact is not uniquely attached to its exact call",
         );
       }
       operations.set(node, operation);
+      usesRuntimeValue = true;
+      recordMarkerSelection(
+        source,
+        requireCallTarget(source, node),
+        selectedMarkerDeclarations,
+        selectedNamespaceBindings,
+        selectedNamespaceReceivers,
+      );
+    }
+    const rawPointerOperation = source.sourceFacts.getFact(
+      node,
+      rawPointerOperationFactKey,
+    );
+    if (rawPointerOperation !== undefined) {
+      if (
+        rawPointerOperation.call !== node ||
+        rawPointerOperations.has(node) ||
+        operation !== undefined
+      ) {
+        throw new PointerLoweringError(
+          "raw-pointer operation fact is not uniquely attached to its exact call",
+        );
+      }
+      rawPointerOperations.set(node, rawPointerOperation);
       usesRuntimeValue = true;
       recordMarkerSelection(
         source,
@@ -91,8 +125,32 @@ export function createTypedLocationPlan(
       pointerTypes.add(node);
       const typeReference = source.ast.as.AsTypeReferenceNode(node);
       if (typeReference?.TypeName === undefined) {
-        throw new TypedLocationLoweringError(
+        throw new PointerLoweringError(
           "pointer type fact has no exact type-name syntax",
+        );
+      }
+      recordMarkerSelection(
+        source,
+        typeReference.TypeName,
+        selectedMarkerDeclarations,
+        selectedNamespaceBindings,
+        selectedNamespaceReceivers,
+      );
+    }
+    if (
+      source.ast.is.IsTypeReferenceNode(node) &&
+      source.sourceFacts.getFact(node, rawPointerFactKey) !== undefined
+    ) {
+      if (pointerTypes.has(node)) {
+        throw new PointerLoweringError(
+          "one type reference cannot be both a typed and raw pointer",
+        );
+      }
+      rawPointerTypes.add(node);
+      const typeReference = source.ast.as.AsTypeReferenceNode(node);
+      if (typeReference?.TypeName === undefined) {
+        throw new PointerLoweringError(
+          "raw-pointer type fact has no exact type-name syntax",
         );
       }
       recordMarkerSelection(
@@ -149,6 +207,8 @@ export function createTypedLocationPlan(
   return Object.freeze({
     operations,
     pointerTypes,
+    rawPointerOperations,
+    rawPointerTypes,
     localBindings,
     parameterBindingsByBody,
     promotedReferences,
@@ -185,7 +245,7 @@ function collectNodes(
 function requireCallTarget(source: TargetSourceProgram, node: Node): Node {
   const call = source.ast.as.AsCallExpression(node);
   if (call === undefined || call.Expression === undefined) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "pointer operation fact is not attached to a call expression",
     );
   }
@@ -214,7 +274,7 @@ function collectAddressBinding(
     !source.ast.is.IsVariableDeclaration(reference.declaration) &&
     !source.ast.is.IsParameterDeclaration(reference.declaration)
   ) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "address-of value-field root lacks an exact variable or parameter declaration",
     );
   }
@@ -223,13 +283,13 @@ function collectAddressBinding(
     (operation.storageSymbol !== reference.symbol ||
       operation.storageDeclaration !== reference.declaration)
   ) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "address-of identifier fact disagrees with its exact source reference",
     );
   }
   const declarationName = source.ast.name(reference.declaration);
   if (!source.ast.is.IsIdentifier(declarationName)) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "address-of local currently requires one identifier declaration",
     );
   }
@@ -240,7 +300,7 @@ function collectAddressBinding(
     ? source.ast.body(source.ast.parent(reference.declaration))
     : undefined;
   if (isParameter && body === undefined) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "addressed parameter requires an exact function body",
     );
   }
@@ -249,7 +309,7 @@ function collectAddressBinding(
     existing !== undefined &&
     existing.declaration !== reference.declaration
   ) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "one addressable symbol resolves to more than one declaration",
     );
   }
@@ -296,7 +356,7 @@ function sealLocationBinding(
 ): LocationBinding {
   if (binding.kind === "variable") {
     if (binding.sourceName === undefined) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "addressed local binding has no exact source name",
       );
     }
@@ -309,13 +369,13 @@ function sealLocationBinding(
     });
   }
   if (binding.body === undefined || binding.sourceName === undefined) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "addressed parameter binding is incomplete",
     );
   }
   for (const operand of binding.addressOperands) {
     if (!isNodeWithin(source, operand, binding.body)) {
-      throw new TypedLocationLoweringError(
+      throw new PointerLoweringError(
         "address-of parameter outside its function body is unsupported",
       );
     }
@@ -402,7 +462,7 @@ function recordMarkerSelection(
 ): void {
   const reference = source.navigation.sourceReferenceFor(markerReference);
   if (reference === undefined) {
-    throw new TypedLocationLoweringError(
+    throw new PointerLoweringError(
       "selected pointer marker has no exact declaration reference",
     );
   }

@@ -17,7 +17,7 @@ import {
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
 import { typeScriptRuntimeModule } from "../../runtime/package-contract.js";
-import { TypedLocationLoweringError } from "./diagnostic.js";
+import { PointerLoweringError } from "./diagnostic.js";
 
 export function prependRuntimeImport(
   factory: NodeFactory,
@@ -128,7 +128,7 @@ function requiredRuntimeNode(
   subject: string,
 ): Node {
   if (node === undefined) {
-    throw new TypedLocationLoweringError(`${subject} was not created`);
+    throw new PointerLoweringError(`${subject} was not created`);
   }
   return node;
 }

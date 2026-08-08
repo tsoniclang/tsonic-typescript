@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
   createCompilerSessionFromFiles,
   createSourceSemanticsExtension,
@@ -41,7 +40,7 @@ import {
 import { createTargetSourceProgram } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { lowerTypedLocations } from "./transform.js";
+import { lowerPointers } from "./transform.js";
 
 const markerModule = "./markers.js";
 const markerSemantics = [{
@@ -76,7 +75,7 @@ const pointer = allocatePointer<number>(10);
 increment(pointer);
 console.log(loadPointer(pointer));
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.operationCount, 4);
   assert.equal(result.pointerTypeCount, 1);
@@ -107,7 +106,7 @@ export function run(): [number, number, { value: number }] {
   return [value, loadPointer(alias), { value }];
 }
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.promotedBindingCount, 1);
   const valueDeclaration = variableDeclarationNamed(
@@ -140,7 +139,7 @@ export function update(
   return [value, loadPointer(pointer), value$location];
 }
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.promotedBindingCount, 1);
   const location = variableDeclarationNamed(
@@ -166,7 +165,7 @@ export function read(value: number, before = value): [number, number] {
   return [before, loadPointer(pointer)];
 }
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
   const declaration = functionDeclarationNamed(
     fixture.source,
     result.sourceFile,
@@ -188,7 +187,7 @@ export function read(value: number): number {
   return loadPointer(pointer);
 }
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
   const declaration = functionDeclarationNamed(
     fixture.source,
     result.sourceFile,
@@ -221,7 +220,7 @@ test("promotes addressed parameters in expression-bodied arrows", () => {
 export const update = (value: number, before = value): [number, number] =>
   (storePointer(addressOf(value), value + 1), [before, value]);
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
   const declaration = variableDeclarationNamed(
     fixture.source,
     result.sourceFile,
@@ -243,7 +242,7 @@ const field = addressOf(record.value);
 const element = addressOf(values[0]);
 storePointer(field, loadPointer(element));
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(
     countCallsNamed(fixture.source, result.sourceFile, "propertyLocation"),
@@ -262,7 +261,7 @@ function loadPointer(value: number): number { return value + 1; }
 const pointer = allocatePointer(10);
 export const result = loadPointer(10);
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.operationCount, 1);
   assert.equal(countCallsNamed(fixture.source, result.sourceFile, "loadPointer"), 1);
@@ -275,7 +274,7 @@ const pointer = markers.allocatePointer(10);
 export const ordinary = markers.ordinary;
 export const value = markers.loadPointer(pointer);
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.operationCount, 2);
   assert.deepEqual(importModules(fixture.source, result.sourceFile), [
@@ -292,7 +291,7 @@ test("removes only selected marker specifiers from a mixed named import", () => 
 const pointer = allocatePointer(10);
 export const value = ordinary;
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.deepEqual(
     namedImportBindings(fixture.source, result.sourceFile, "./markers.js"),
@@ -308,7 +307,7 @@ const tsonicTypeScriptRuntime = "source binding";
 const pointer = allocatePointer(10);
 export const value = [tsonicTypeScriptRuntime, pointer];
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.runtimeAlias, "tsonicTypeScriptRuntime2");
 });
@@ -318,7 +317,7 @@ test("uses a type-only runtime import when only Pointer<T> is lowered", () => {
 
 export type NumberPointer = Pointer<number>;
 `);
-  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.operationCount, 0);
   assert.equal(result.pointerTypeCount, 1);
