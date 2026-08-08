@@ -31,6 +31,7 @@ const markerSemantics = [{
     { kind: "call-marker", exportName: "storePointer", marker: "store" },
     { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
     { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
+    { kind: "call-marker", exportName: "bindPointer", marker: "bind-pointer" },
     { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
   ],
 }] satisfies readonly SourceSemanticsModule[];
@@ -42,6 +43,7 @@ export declare function loadPointer<T>(pointer: Pointer<T>): T;
 export declare function storePointer<T>(pointer: Pointer<T>, value: T): void;
 export declare function equalPointer<T>(left: Pointer<T> | undefined, right: Pointer<T> | undefined): boolean;
 export declare function hashPointer<T>(pointer: Pointer<T> | undefined): number;
+export declare function bindPointer<T>(identity: object, read: () => T, write: (value: T) => void): Pointer<T>;
 export declare function projectPointer<F, T>(pointer: Pointer<F> | undefined, fromSource: (value: F) => T, toSource: (value: T) => F): Pointer<T> | undefined;
 `;
 
@@ -102,6 +104,42 @@ export const result = [
   assert.equal(countCallsNamed(fixture, result.sourceFile, "hashLocation"), 2);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "projectPointer"), 0);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "hashPointer"), 0);
+});
+
+test("binds external storage to one exact pointer identity", () => {
+  const fixture = checkedFixture(`import {
+  bindPointer,
+  equalPointer,
+  hashPointer,
+  loadPointer,
+  storePointer,
+} from "./markers.js";
+
+const storage = { value: 10 };
+const first = bindPointer<number>(
+  storage,
+  () => storage.value,
+  (value) => { storage.value = value; },
+);
+const alias = bindPointer<number>(
+  storage,
+  () => storage.value,
+  (value) => { storage.value = value; },
+);
+storePointer(first, 25);
+export const result = [
+  equalPointer(first, alias),
+  hashPointer(first) === hashPointer(alias),
+  loadPointer(alias),
+];
+`);
+  const result = lowerTypedLocations(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.operationCount, 7);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "boundLocation"), 2);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "bindPointer"), 0);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "sameLocation"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "hashLocation"), 2);
 });
 
 interface CheckedFixture {

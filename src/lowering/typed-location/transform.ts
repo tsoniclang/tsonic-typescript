@@ -393,6 +393,18 @@ function lowerOperation(
         [],
         arguments_,
       );
+    case "bind-pointer":
+      requireArity(operation.operation, arguments_, 3);
+      return runtimeCall(
+        factory,
+        plan.runtimeAlias,
+        "boundLocation",
+        requireNodes(
+          call.TypeArguments?.Nodes ?? [],
+          `${operation.operation} type arguments`,
+        ),
+        arguments_,
+      );
     case "project-pointer":
       requireArity(operation.operation, arguments_, 3);
       return runtimeCall(
