@@ -2,6 +2,7 @@ import type { Node, SourceFile } from "@tsonic/tsts";
 import {
   KindTypeKeyword,
   KindUnknown,
+  NewAsExpression,
   NewCallExpression,
   NewIdentifier,
   NewImportClause,
@@ -110,11 +111,18 @@ export function runtimeCall(
 export function locationValue(
   factory: NodeFactory,
   expression: Node,
+  exactLocationType?: Node,
 ): Node {
+  const receiver = exactLocationType === undefined
+    ? expression
+    : requiredRuntimeNode(
+      NewAsExpression(factory, expression, exactLocationType),
+      "exact location assertion",
+    );
   return requiredRuntimeNode(
     NewPropertyAccessExpression(
       factory,
-      expression,
+      receiver,
       undefined,
       NewIdentifier(factory, "value"),
       0,

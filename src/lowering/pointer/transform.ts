@@ -65,11 +65,10 @@ export function lowerPointers(
   sourceFile: SourceFile,
 ): PointerLoweringResult {
   const plan = createPointerLoweringPlan(source, sourceFile);
+  const usesRuntime = hasRuntimeLowering(plan);
   if (
-    plan.operations.size === 0 &&
-    plan.pointerTypes.size === 0 &&
-    plan.rawPointerOperations.size === 0 &&
-    plan.rawPointerTypes.size === 0
+    !usesRuntime &&
+    plan.removableImports.size === 0
   ) {
     return Object.freeze({
       sourceFile,
@@ -108,7 +107,7 @@ export function lowerPointers(
     rawPointerTypeCount: consumed.rawPointerTypes.size,
     promotedBindingCount:
       consumed.localBindings.size + consumed.parameterBindings.size,
-    runtimeAlias: plan.runtimeAlias,
+    runtimeAlias: usesRuntime ? plan.runtimeAlias : undefined,
   });
 }
 
@@ -286,12 +285,12 @@ function rewriteNode(
         "source-file predicate did not yield a source-file receiver",
       );
     }
-    return prependRuntimeImport(
+    return hasRuntimeLowering(plan) ? prependRuntimeImport(
       factory,
       sourceFile,
       plan.runtimeAlias,
       plan.usesRuntimeValue,
-    );
+    ) : sourceFile;
   }
   return updated;
 }
@@ -392,13 +391,21 @@ function lowerOperation(
       );
     case "load":
       requireArity(operation.operation, arguments_, 1);
-      return locationValue(factory, requiredElement(arguments_, 0));
+      return locationValue(
+        factory,
+        requiredElement(arguments_, 0),
+        explicitLocationType(factory, operation, call, plan.runtimeAlias),
+      );
     case "store": {
       requireArity(operation.operation, arguments_, 2);
       const assignment = NewBinaryExpression(
         factory,
         undefined,
-        locationValue(factory, requiredElement(arguments_, 0)),
+        locationValue(
+          factory,
+          requiredElement(arguments_, 0),
+          explicitLocationType(factory, operation, call, plan.runtimeAlias),
+        ),
         undefined,
         NewToken(factory, KindEqualsToken),
         requiredElement(arguments_, 1),
@@ -461,6 +468,34 @@ function lowerOperation(
         updatedNodes,
       );
   }
+}
+
+function explicitLocationType(
+  factory: NodeFactory,
+  operation: PointerOperationFact,
+  call: NonNullable<ReturnType<typeof AsCallExpression>>,
+  runtimeAlias: string,
+): Node | undefined {
+  if (operation.explicitPointeeTypeNode === undefined) {
+    return undefined;
+  }
+  const typeArguments = requireNodes(
+    call.TypeArguments?.Nodes ?? [],
+    `${operation.operation} type arguments`,
+  );
+  if (typeArguments.length !== 1) {
+    throw new PointerLoweringError(
+      `${operation.operation} has explicit pointee evidence but ${typeArguments.length} transformed type arguments`,
+    );
+  }
+  return runtimeType(factory, runtimeAlias, "Location", typeArguments);
+}
+
+function hasRuntimeLowering(plan: PointerLoweringPlan): boolean {
+  return plan.operations.size !== 0
+    || plan.pointerTypes.size !== 0
+    || plan.rawPointerOperations.size !== 0
+    || plan.rawPointerTypes.size !== 0;
 }
 
 function requiredElement(

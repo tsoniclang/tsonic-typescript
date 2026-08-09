@@ -3,11 +3,13 @@ import {
   pointerOperationFactKey,
   rawPointerFactKey,
   rawPointerOperationFactKey,
+  sourceMarkerFactKey,
 } from "@tsonic/tsts";
 import type {
   Node,
   PointerOperationFact,
   RawPointerOperationFact,
+  SourceMarkerFact,
   SourceFile,
   Symbol,
 } from "@tsonic/tsts";
@@ -70,7 +72,6 @@ export function createPointerLoweringPlan(
   const pointerTypes = new Set<Node>();
   const rawPointerOperations = new Map<Node, RawPointerOperationFact>();
   const rawPointerTypes = new Set<Node>();
-  const selectedMarkerDeclarations = new Set<Node>();
   const selectedNamespaceBindings = new Set<Node>();
   const selectedNamespaceReceivers = new Set<Node>();
   const bindingsBySymbol = new Map<Symbol, MutableLocationBinding>();
@@ -89,7 +90,6 @@ export function createPointerLoweringPlan(
       recordMarkerSelection(
         source,
         requireCallTarget(source, node),
-        selectedMarkerDeclarations,
         selectedNamespaceBindings,
         selectedNamespaceReceivers,
       );
@@ -113,7 +113,6 @@ export function createPointerLoweringPlan(
       recordMarkerSelection(
         source,
         requireCallTarget(source, node),
-        selectedMarkerDeclarations,
         selectedNamespaceBindings,
         selectedNamespaceReceivers,
       );
@@ -132,7 +131,6 @@ export function createPointerLoweringPlan(
       recordMarkerSelection(
         source,
         typeReference.TypeName,
-        selectedMarkerDeclarations,
         selectedNamespaceBindings,
         selectedNamespaceReceivers,
       );
@@ -156,7 +154,6 @@ export function createPointerLoweringPlan(
       recordMarkerSelection(
         source,
         typeReference.TypeName,
-        selectedMarkerDeclarations,
         selectedNamespaceBindings,
         selectedNamespaceReceivers,
       );
@@ -200,7 +197,6 @@ export function createPointerLoweringPlan(
   const removableImports = collectRemovableImports(
     source,
     nodes,
-    selectedMarkerDeclarations,
     selectedNamespaceBindings,
     selectedNamespaceReceivers,
   );
@@ -456,7 +452,6 @@ function isNodeWithin(
 function recordMarkerSelection(
   source: TargetSourceProgram,
   markerReference: Node,
-  selectedDeclarations: Set<Node>,
   selectedNamespaceBindings: Set<Node>,
   namespaceReceivers: Set<Node>,
 ): void {
@@ -466,7 +461,6 @@ function recordMarkerSelection(
       "selected pointer marker has no exact declaration reference",
     );
   }
-  selectedDeclarations.add(reference.declaration);
   for (const child of descendants(source, markerReference)) {
     const childReference = source.navigation.sourceReferenceFor(child);
     if (
@@ -503,16 +497,14 @@ function descendants(
 function collectRemovableImports(
   source: TargetSourceProgram,
   nodes: readonly Node[],
-  selectedDeclarations: ReadonlySet<Node>,
   selectedNamespaceBindings: ReadonlySet<Node>,
   selectedNamespaceReceivers: ReadonlySet<Node>,
 ): ReadonlySet<Node> {
   const removable = new Set<Node>();
   for (const node of nodes) {
     if (source.ast.is.IsImportSpecifier(node)) {
-      const name = source.ast.name(node);
-      const declaration = source.navigation.sourceReferenceFor(name)?.declaration;
-      if (declaration !== undefined && selectedDeclarations.has(declaration)) {
+      const marker = source.sourceFacts.getFact(node, sourceMarkerFactKey);
+      if (marker !== undefined && isPointerMarker(marker)) {
         removable.add(node);
       }
       continue;
@@ -540,6 +532,37 @@ function collectRemovableImports(
     }
   }
   return removable;
+}
+
+function isPointerMarker(marker: SourceMarkerFact): boolean {
+  if (marker.kind === "type-marker") {
+    return marker.marker === "pointer" || marker.marker === "raw-pointer";
+  }
+  switch (marker.marker) {
+    case "address-of":
+    case "allocate":
+    case "load":
+    case "store":
+    case "equal-pointer":
+    case "hash-pointer":
+    case "bind-pointer":
+    case "project-pointer":
+    case "bind-raw-pointer":
+    case "equal-raw-pointer":
+    case "hash-raw-pointer":
+      return true;
+    case "write-only-reference":
+    case "read-write-reference":
+    case "read-only-reference":
+    case "shared-borrow":
+    case "mutable-borrow":
+    case "move":
+    case "struct":
+    case "field":
+    case "attribute":
+    case "default-value":
+      return false;
+  }
 }
 
 function selectRuntimeAlias(
