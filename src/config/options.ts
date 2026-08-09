@@ -18,7 +18,7 @@ export function readTypeScriptTargetOptions(
   }
   rejectUnknownKeys(
     options,
-    new Set(["printer", "typescriptCompatibility"]),
+    new Set(["printer"]),
     "TypeScript target options",
   );
   const printer = options["printer"];

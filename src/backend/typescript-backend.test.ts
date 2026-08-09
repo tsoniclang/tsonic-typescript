@@ -119,6 +119,31 @@ test("fails the compilation when the printer omits a source file", () => {
   );
 });
 
+test("reports every independent lowering failure before invoking the printer", () => {
+  const source = checkedRejectedPointerSources();
+  let printCalls = 0;
+  const printer: TypeScriptAstPrinter = {
+    print() {
+      printCalls += 1;
+      return [];
+    },
+  };
+
+  const result = createTypeScriptBackend(printer).compile(
+    compileInput(source),
+  );
+
+  assert.equal(printCalls, 0);
+  assert.deepEqual(result.artifacts, []);
+  assert.deepEqual(
+    result.diagnostics.map((diagnostic) => diagnostic.message),
+    [
+      "/project/a.ts: selected pointer marker at KindIdentifier is used as a runtime value without an exact lowering operation",
+      "/project/b.ts: selected pointer marker at KindPropertyAccessExpression is used as a runtime value without an exact lowering operation",
+    ],
+  );
+});
+
 function checkedSource(files: Readonly<Record<string, string>>) {
   const rootFiles = Object.keys(files).sort();
   const session = createCompilerSessionFromFiles({
@@ -169,6 +194,47 @@ export declare function loadPointer<T>(pointer: Pointer<T>): T;
     },
     extensionHostOptions: {
       extensions: [createSourceSemanticsExtension({ modules: markerSemantics })],
+    },
+  });
+  const checked = session.checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  assert.equal(checked.extensionDiagnostics.length, 0);
+  return createTargetSourceProgram(checked);
+}
+
+function checkedRejectedPointerSources() {
+  const session = createCompilerSessionFromFiles({
+    currentDirectory: "/project",
+    files: {
+      "/project/a.ts": `import { loadPointer } from "./markers.js";
+export const marker = loadPointer;
+`,
+      "/project/b.ts": `import * as markers from "./markers.js";
+export const marker = markers.loadPointer;
+`,
+      "/project/markers.ts": `export interface Pointer<T> { value: T }
+export declare function loadPointer<T>(pointer: Pointer<T>): T;
+`,
+    },
+    rootFiles: ["/project/a.ts", "/project/b.ts"],
+    compilerOptions: {
+      module: "esnext",
+      moduleResolution: "bundler",
+      strict: true,
+      target: "es2022",
+    },
+    extensionHostOptions: {
+      extensions: [createSourceSemanticsExtension({
+        modules: [{
+          moduleSpecifier: "./markers.js",
+          capabilities: ["call-marker"],
+          exports: [{
+            kind: "call-marker",
+            exportName: "loadPointer",
+            marker: "load",
+          }],
+        }],
+      })],
     },
   });
   const checked = session.checkSource();

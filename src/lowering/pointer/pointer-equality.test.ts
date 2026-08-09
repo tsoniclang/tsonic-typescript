@@ -208,8 +208,8 @@ function checkedFixture(sourceText: string): CheckedFixture {
     },
   });
   const checked = session.checkSource();
-  assert.deepEqual(checked.diagnostics, []);
-  assert.deepEqual(checked.extensionDiagnostics, []);
+  assert.equal(checked.diagnostics.length, 0);
+  assert.equal(checked.extensionDiagnostics.length, 0);
   const source = createTargetSourceProgram(checked);
   const sourceFile = source.navigation.sourceFiles.find(
     (candidate) => source.ast.getFileName(candidate) === "/src/index.ts",

@@ -50,7 +50,7 @@ export const result = [record.inner.value, loadPointer(field)];
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.promotedBindingCount, 1);
+  assert.equal(result.locationBindingCount, 1);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
   assert.equal(
     countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
@@ -69,7 +69,7 @@ export const result = [values[0], loadPointer(element)];
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.promotedBindingCount, 1);
+  assert.equal(result.locationBindingCount, 1);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
   assert.equal(
     countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
@@ -88,7 +88,7 @@ export const result = [records[0].value, loadPointer(field)];
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.promotedBindingCount, 1);
+  assert.equal(result.locationBindingCount, 1);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
   assert.equal(
     countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
@@ -108,7 +108,7 @@ export const result = [loadPointer(original).value, loadPointer(selected).value]
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.promotedBindingCount, 0);
+  assert.equal(result.locationBindingCount, 0);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
   assert.equal(
     countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
@@ -127,7 +127,7 @@ export const result = [loadPointer(selected).value, loadPointer(field)];
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.promotedBindingCount, 0);
+  assert.equal(result.locationBindingCount, 0);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 0);
   assert.equal(
     countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
@@ -151,7 +151,7 @@ export const result = [state.record.inner.value, loadPointer(field)];
   );
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.promotedBindingCount, 0);
+  assert.equal(result.locationBindingCount, 0);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 1);
   assert.equal(
     countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
@@ -170,7 +170,7 @@ export const result = [record.inner.value, loadPointer(field)];
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.promotedBindingCount, 0);
+  assert.equal(result.locationBindingCount, 0);
   assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 1);
   assert.equal(
     countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
@@ -206,8 +206,8 @@ function checkedFixture(
     },
   });
   const checked = session.checkSource();
-  assert.deepEqual(checked.diagnostics, []);
-  assert.deepEqual(checked.extensionDiagnostics, []);
+  assert.equal(checked.diagnostics.length, 0);
+  assert.equal(checked.extensionDiagnostics.length, 0);
   const source = createTargetSourceProgram(checked);
   const sourceFile = source.navigation.sourceFiles.find(
     (candidate) => source.ast.getFileName(candidate) === "/src/index.ts",

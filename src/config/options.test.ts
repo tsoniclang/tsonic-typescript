@@ -14,7 +14,6 @@ test("validates and freezes the external printer configuration", () => {
         executable: "/tools/tsgo-ast-printer",
         arguments: inputArguments,
       },
-      typescriptCompatibility: "strict-native",
     },
   };
 
@@ -39,6 +38,16 @@ test("fails closed on absent, unknown, and malformed target options", () => {
       options: { printer: {}, unexpected: true },
     }),
     /unsupported field 'unexpected'/,
+  );
+  assert.throws(
+    () => readTypeScriptTargetOptions({
+      id: "typescript",
+      options: {
+        printer: { executable: "tsgo-ast-printer" },
+        typescriptCompatibility: "strict-native",
+      },
+    }),
+    /unsupported field 'typescriptCompatibility'/,
   );
   assert.throws(
     () => readTypeScriptTargetOptions({

@@ -35,11 +35,36 @@ test("printer response fails closed on count and trailing-byte mutations", () =>
   );
 });
 
+test("printer response rejects malformed framing and invalid UTF-8", () => {
+  const valid = framedResponse(["x"]);
+  const invalidMagic = Buffer.from(valid);
+  invalidMagic[0] = 0;
+  const invalidUtf8 = framedBinaryResponse([Buffer.from([0xc3, 0x28])]);
+  const oversizedFrame = Buffer.from(framedResponse([""]));
+  oversizedFrame.writeUInt32LE(64 * 1024 * 1024 + 1, 12);
+
+  const cases: readonly [Uint8Array, RegExp][] = [
+    [invalidMagic, /invalid magic/u],
+    [valid.subarray(0, 7), /header is truncated/u],
+    [valid.subarray(0, 10), /file count is truncated/u],
+    [valid.subarray(0, 14), /frame 0 length is truncated/u],
+    [valid.subarray(0, 16), /frame 0 is truncated/u],
+    [invalidUtf8, /frame 0 is not valid UTF-8/u],
+    [oversizedFrame, /frame 0 size .* exceeds limit/u],
+  ];
+  for (const [response, expected] of cases) {
+    assert.throws(() => decodePrinterResponse(response, 1), expected);
+  }
+});
+
 function framedResponse(files: readonly string[]): Buffer {
+  return framedBinaryResponse(files.map((file) => Buffer.from(file, "utf8")));
+}
+
+function framedBinaryResponse(files: readonly Buffer[]): Buffer {
   const count = Buffer.allocUnsafe(4);
   count.writeUInt32LE(files.length, 0);
-  const frames = files.flatMap((file) => {
-    const payload = Buffer.from(file, "utf8");
+  const frames = files.flatMap((payload) => {
     const length = Buffer.allocUnsafe(4);
     length.writeUInt32LE(payload.length, 0);
     return [length, payload];

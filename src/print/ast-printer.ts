@@ -1,11 +1,14 @@
 import { spawnSync } from "node:child_process";
 
 import type { TypeScriptAstPrinterOptions } from "../config/options.js";
+import {
+  framedPayloadLength,
+  printerProtocolLimits,
+} from "./protocol-budget.js";
 
 const inputMagic = Buffer.from("TSTSPR01", "ascii");
 const outputMagic = Buffer.from("TSTSPR02", "ascii");
-const maximumFileCount = 1_000_000;
-const maximumFrameSize = 1 << 30;
+const decoder = new TextDecoder("utf-8", { fatal: true });
 
 export interface TypeScriptAstPrinter {
   print(encodedSourceFiles: readonly Uint8Array[]): readonly string[];
@@ -19,7 +22,7 @@ export function createExternalAstPrinter(
       const input = encodeRequest(encodedSourceFiles);
       const result = spawnSync(options.executable, options.arguments, {
         input,
-        maxBuffer: 512 * 1024 * 1024,
+        maxBuffer: printerProtocolLimits.maximumPayloadBytes,
         timeout: 5 * 60 * 1000,
       });
       if (result.error !== undefined) {
@@ -58,27 +61,37 @@ export function decodePrinterResponse(
 }
 
 function encodeRequest(encodedSourceFiles: readonly Uint8Array[]): Buffer {
-  if (encodedSourceFiles.length > maximumFileCount) {
-    throw new Error(
-      `TypeScript AST printer file count ${encodedSourceFiles.length} exceeds limit`,
-    );
-  }
-  const frames = encodedSourceFiles.map((sourceFile, index) => {
-    if (sourceFile.byteLength > maximumFrameSize) {
-      throw new Error(
-        `TypeScript AST printer frame ${index} size ${sourceFile.byteLength} exceeds limit`,
-      );
-    }
+  const payloadLength = framedPayloadLength(
+    encodedSourceFiles.map((sourceFile) => sourceFile.byteLength),
+    inputMagic.length,
+    printerProtocolLimits,
+    "TypeScript AST printer request",
+  );
+  const frames = encodedSourceFiles.map((sourceFile) => {
     const header = Buffer.allocUnsafe(4);
     header.writeUInt32LE(sourceFile.byteLength, 0);
     return [header, Buffer.from(sourceFile)] as const;
   });
   const count = Buffer.allocUnsafe(4);
   count.writeUInt32LE(encodedSourceFiles.length, 0);
-  return Buffer.concat([inputMagic, count, ...frames.flat()]);
+  return Buffer.concat([inputMagic, count, ...frames.flat()], payloadLength);
 }
 
 function decodeResponse(response: Buffer, expectedFileCount: number): readonly string[] {
+  if (
+    !Number.isSafeInteger(expectedFileCount) ||
+    expectedFileCount < 0 ||
+    expectedFileCount > printerProtocolLimits.maximumFileCount
+  ) {
+    throw new Error(
+      `TypeScript AST printer expected file count ${expectedFileCount} exceeds limit ${printerProtocolLimits.maximumFileCount}`,
+    );
+  }
+  if (response.byteLength > printerProtocolLimits.maximumPayloadBytes) {
+    throw new Error(
+      `TypeScript AST printer response payload size ${response.byteLength} exceeds limit ${printerProtocolLimits.maximumPayloadBytes}`,
+    );
+  }
   let offset = 0;
   requireAvailable(response, offset, outputMagic.length, "header");
   if (!response.subarray(offset, offset + outputMagic.length).equals(outputMagic)) {
@@ -98,13 +111,19 @@ function decodeResponse(response: Buffer, expectedFileCount: number): readonly s
     requireAvailable(response, offset, 4, `frame ${index} length`);
     const length = response.readUInt32LE(offset);
     offset += 4;
-    if (length > maximumFrameSize) {
+    if (length > printerProtocolLimits.maximumFrameBytes) {
       throw new Error(
-        `TypeScript AST printer response frame ${index} size ${length} exceeds limit`,
+        `TypeScript AST printer response frame ${index} size ${length} exceeds limit ${printerProtocolLimits.maximumFrameBytes}`,
       );
     }
     requireAvailable(response, offset, length, `frame ${index}`);
-    files.push(response.subarray(offset, offset + length).toString("utf8"));
+    try {
+      files.push(decoder.decode(response.subarray(offset, offset + length)));
+    } catch {
+      throw new Error(
+        `TypeScript AST printer response frame ${index} is not valid UTF-8`,
+      );
+    }
     offset += length;
   }
   if (offset !== response.length) {
@@ -121,7 +140,14 @@ function requireAvailable(
   length: number,
   subject: string,
 ): void {
-  if (offset + length > buffer.length) {
+  if (
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(length) ||
+    offset < 0 ||
+    length < 0 ||
+    offset > buffer.length ||
+    length > buffer.length - offset
+  ) {
     throw new Error(`TypeScript AST printer response ${subject} is truncated`);
   }
 }

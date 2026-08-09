@@ -6,42 +6,43 @@ import type {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
   AsCallExpression,
+  AsExportDeclaration,
   AsImportClause,
   AsImportDeclaration,
+  AsNamedExports,
   AsNamedImports,
-  AsPropertyAccessExpression,
-  AsShorthandPropertyAssignment,
   AsSourceFile,
   AsTypeReferenceNode,
-  AsVariableDeclaration,
   KindEqualsToken,
   IsCallExpression,
+  IsBlock,
+  IsCaseClause,
+  IsDefaultClause,
+  IsExportDeclaration,
   IsImportClause,
   IsImportDeclaration,
+  IsModuleBlock,
+  IsNamedExports,
   IsNamedImports,
-  IsPropertyAccessExpression,
-  IsShorthandPropertyAssignment,
   IsSourceFile,
   IsTypeReferenceNode,
-  IsVariableDeclaration,
   NewBinaryExpression,
-  NewPropertyAssignment,
   NewToken,
   NewVoidExpression,
-  NodeFactory_UpdateVariableDeclaration,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
 import { lowerAddressOf } from "./address.js";
 import { PointerLoweringError } from "./diagnostic.js";
-import { locationBindingExpression } from "./location-binding.js";
+import {
+  rewriteLocationStatementOwner,
+  wrapExpressionLocationBody,
+} from "./location-statements.js";
 import {
   createPointerLoweringPlan,
-  type LocalLocationBinding,
   type PointerLoweringPlan,
 } from "./plan.js";
-import { prependParameterLocations } from "./parameter-location.js";
 import { lowerRawPointerOperation, lowerRawPointerType } from "./raw.js";
 import {
   locationValue,
@@ -56,7 +57,7 @@ export interface PointerLoweringResult {
   readonly pointerTypeCount: number;
   readonly rawPointerOperationCount: number;
   readonly rawPointerTypeCount: number;
-  readonly promotedBindingCount: number;
+  readonly locationBindingCount: number;
   readonly runtimeAlias: string | undefined;
 }
 
@@ -68,7 +69,7 @@ export function lowerPointers(
   const usesRuntime = hasRuntimeLowering(plan);
   if (
     !usesRuntime &&
-    plan.removableImports.size === 0
+    plan.removableMarkerDeclarations.size === 0
   ) {
     return Object.freeze({
       sourceFile,
@@ -76,7 +77,7 @@ export function lowerPointers(
       pointerTypeCount: 0,
       rawPointerOperationCount: 0,
       rawPointerTypeCount: 0,
-      promotedBindingCount: 0,
+      locationBindingCount: 0,
       runtimeAlias: undefined,
     });
   }
@@ -105,8 +106,7 @@ export function lowerPointers(
     pointerTypeCount: consumed.pointerTypes.size,
     rawPointerOperationCount: consumed.rawPointerOperations.size,
     rawPointerTypeCount: consumed.rawPointerTypes.size,
-    promotedBindingCount:
-      consumed.localBindings.size + consumed.parameterBindings.size,
+    locationBindingCount: consumed.locationBindings.size,
     runtimeAlias: usesRuntime ? plan.runtimeAlias : undefined,
   });
 }
@@ -116,10 +116,8 @@ interface ConsumptionState {
   readonly pointerTypes: Set<Node>;
   readonly rawPointerOperations: Set<Node>;
   readonly rawPointerTypes: Set<Node>;
-  readonly localBindings: Set<Node>;
-  readonly parameterBindings: Set<Node>;
-  readonly promotedReferences: Set<Node>;
-  readonly removableImports: Set<Node>;
+  readonly locationBindings: Set<Node>;
+  readonly removableMarkerDeclarations: Set<Node>;
   readonly updatedNodes: Map<Node, Node>;
 }
 
@@ -129,10 +127,8 @@ function createConsumptionState(): ConsumptionState {
     pointerTypes: new Set(),
     rawPointerOperations: new Set(),
     rawPointerTypes: new Set(),
-    localBindings: new Set(),
-    parameterBindings: new Set(),
-    promotedReferences: new Set(),
-    removableImports: new Set(),
+    locationBindings: new Set(),
+    removableMarkerDeclarations: new Set(),
     updatedNodes: new Map(),
   };
 }
@@ -145,8 +141,8 @@ function rewriteNode(
   updated: Node,
   factory: NodeFactory,
 ): Node | undefined {
-  if (plan.removableImports.has(original)) {
-    consumed.removableImports.add(original);
+  if (plan.removableMarkerDeclarations.has(original)) {
+    consumed.removableMarkerDeclarations.add(original);
     return undefined;
   }
 
@@ -173,61 +169,22 @@ function rewriteNode(
   ) {
     return undefined;
   }
-
-  const binding = plan.localBindings.get(original);
-  if (binding !== undefined) {
-    consumed.localBindings.add(original);
-    return promoteLocalBinding(factory, updated, binding, plan.runtimeAlias);
-  }
-
-  const promotedBinding = plan.promotedReferences.get(original);
-  if (promotedBinding !== undefined) {
-    const parent = source.ast.parent(original);
-    if (parent !== undefined && source.ast.is.IsShorthandPropertyAssignment(parent)) {
-      return updated;
-    }
-    consumed.promotedReferences.add(original);
-    return locationValue(
-      factory,
-      locationBindingExpression(factory, promotedBinding, updated),
-    );
-  }
-
-  const shorthand = IsShorthandPropertyAssignment(original)
-    ? AsShorthandPropertyAssignment(original)
+  const namedExports = IsNamedExports(updated)
+    ? AsNamedExports(updated)
     : undefined;
-  const shorthandBinding = shorthand?.name === undefined
-    ? undefined
-    : plan.promotedReferences.get(shorthand.name);
-  if (shorthand !== undefined && shorthandBinding !== undefined) {
-    const updatedShorthand = IsShorthandPropertyAssignment(updated)
-      ? AsShorthandPropertyAssignment(updated)
-      : undefined;
-    if (
-      updatedShorthand === undefined ||
-      updatedShorthand.name === undefined ||
-      updatedShorthand.ObjectAssignmentInitializer !== undefined
-    ) {
-      throw new PointerLoweringError(
-        "promoted shorthand property has unsupported assignment syntax",
-      );
-    }
-    consumed.promotedReferences.add(shorthand.name!);
-    return NewPropertyAssignment(
-      factory,
-      updatedShorthand.modifiers,
-      updatedShorthand.name,
-      updatedShorthand.PostfixToken,
-      updatedShorthand.Type,
-      locationValue(
-        factory,
-        locationBindingExpression(
-          factory,
-          shorthandBinding,
-          updatedShorthand.name,
-        ),
-      ),
-    );
+  if (namedExports !== undefined && namedExports.Elements?.Nodes.length === 0) {
+    return undefined;
+  }
+  const exportDeclaration = IsExportDeclaration(updated)
+    ? AsExportDeclaration(updated)
+    : undefined;
+  if (
+    exportDeclaration !== undefined &&
+    IsExportDeclaration(original) &&
+    AsExportDeclaration(original)?.ExportClause !== undefined &&
+    exportDeclaration.ExportClause === undefined
+  ) {
+    return undefined;
   }
 
   const operation = plan.operations.get(original);
@@ -265,21 +222,38 @@ function rewriteNode(
     return lowerRawPointerType(factory, updated, plan.runtimeAlias);
   }
 
-  const parameterBindings = plan.parameterBindingsByBody.get(original);
-  if (parameterBindings !== undefined) {
-    for (const parameter of parameterBindings) {
-      consumed.parameterBindings.add(parameter.declaration);
-    }
-    return prependParameterLocations(
+  let structuralResult = updated;
+  if (
+    IsSourceFile(original) ||
+    IsBlock(original) ||
+    IsModuleBlock(original) ||
+    IsCaseClause(original) ||
+    IsDefaultClause(original)
+  ) {
+    structuralResult = rewriteLocationStatementOwner(
+      source,
       factory,
-      updated,
-      parameterBindings,
-      plan.runtimeAlias,
+      original,
+      structuralResult,
+      plan,
+      consumed.updatedNodes,
+      (binding) => consumed.locationBindings.add(binding.declaration),
     );
+  } else {
+    const bodyBindings = plan.prologueBindingsByBody.get(original);
+    if (bodyBindings !== undefined) {
+      structuralResult = wrapExpressionLocationBody(
+        factory,
+        structuralResult,
+        bodyBindings,
+        plan.runtimeAlias,
+        (binding) => consumed.locationBindings.add(binding.declaration),
+      );
+    }
   }
 
-  if (IsSourceFile(updated)) {
-    const sourceFile = AsSourceFile(updated);
+  if (IsSourceFile(structuralResult)) {
+    const sourceFile = AsSourceFile(structuralResult);
     if (sourceFile === undefined) {
       throw new PointerLoweringError(
         "source-file predicate did not yield a source-file receiver",
@@ -292,45 +266,7 @@ function rewriteNode(
       plan.usesRuntimeValue,
     ) : sourceFile;
   }
-  return updated;
-}
-
-function promoteLocalBinding(
-  factory: NodeFactory,
-  updated: Node,
-  _binding: LocalLocationBinding,
-  runtimeAlias: string,
-): Node {
-  const declaration = IsVariableDeclaration(updated)
-    ? AsVariableDeclaration(updated)
-    : undefined;
-  if (declaration === undefined || declaration.Initializer === undefined) {
-    throw new PointerLoweringError(
-      "addressed local must have an explicit variable initializer",
-    );
-  }
-  const originalType = declaration.Type;
-  const locationType = originalType === undefined
-    ? undefined
-    : runtimeType(factory, runtimeAlias, "Location", [originalType]);
-  const initializer = runtimeCall(
-    factory,
-    runtimeAlias,
-    "location",
-    [],
-    [declaration.Initializer],
-  );
-  return requiredNode(
-    NodeFactory_UpdateVariableDeclaration(
-      factory,
-      declaration,
-      declaration.name,
-      declaration.ExclamationToken,
-      locationType,
-      initializer,
-    ),
-    "promoted variable declaration",
-  );
+  return structuralResult;
 }
 
 function lowerPointerType(
@@ -563,24 +499,21 @@ function assertCompleteConsumption(
     consumed.rawPointerTypes,
     plan.rawPointerTypes.size,
   );
-  assertCount("promoted bindings", consumed.localBindings, plan.localBindings.size);
-  assertCount(
-    "promoted parameters",
-    consumed.parameterBindings,
-    [...plan.parameterBindingsByBody.values()].reduce(
-      (count, bindings) => count + bindings.length,
-      0,
-    ),
+  const parameterCount = [...plan.prologueBindingsByBody.values()].reduce(
+    (count, bindings) => count + bindings.filter(
+      (binding) => binding.kind === "parameter",
+    ).length,
+    0,
   );
   assertCount(
-    "promoted references",
-    consumed.promotedReferences,
-    plan.promotedReferences.size,
+    "location bindings",
+    consumed.locationBindings,
+    plan.localBindings.size + parameterCount,
   );
   assertCount(
-    "marker imports",
-    consumed.removableImports,
-    plan.removableImports.size,
+    "removable marker declarations",
+    consumed.removableMarkerDeclarations,
+    plan.removableMarkerDeclarations.size,
   );
 }
 

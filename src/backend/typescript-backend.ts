@@ -23,6 +23,12 @@ export function createTypeScriptBackend(
     compile(input: TargetCompileInput): TargetCompileResult {
       try {
         const compiled = compileSourceArtifacts(input, printer);
+        if (compiled.diagnostics.length > 0) {
+          return {
+            artifacts: [],
+            diagnostics: compiled.diagnostics,
+          };
+        }
         return {
           artifacts: Object.freeze([
             createTypeScriptProjectArtifact(
@@ -53,22 +59,50 @@ function compileSourceArtifacts(
   printer: TypeScriptAstPrinter,
 ): {
   readonly artifacts: readonly TargetArtifact[];
+  readonly diagnostics: TargetCompileResult["diagnostics"];
   readonly usesRuntime: boolean;
 } {
-  const lowered = input.source.navigation.sourceFiles.map((sourceFile) => {
+  const lowered: {
+    readonly path: string;
+    readonly encoded: Uint8Array;
+    readonly usesRuntime: boolean;
+  }[] = [];
+  const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
+  const sourceFiles = [...input.source.navigation.sourceFiles].sort(
+    (left, right) => input.source.documents.forFile(left).identity.localeCompare(
+      input.source.documents.forFile(right).identity,
+    ),
+  );
+  for (const sourceFile of sourceFiles) {
     const document = input.source.documents.forFile(sourceFile);
-    if (document.sourceFile !== sourceFile) {
-      throw new Error(
-        `source document '${document.identity}' does not own its exact AST`,
-      );
+    try {
+      if (document.sourceFile !== sourceFile) {
+        throw new Error(
+          `source document '${document.identity}' does not own its exact AST`,
+        );
+      }
+      const result = lowerPointers(input.source, sourceFile);
+      lowered.push({
+        path: sourceArtifactPath(input, document.fileName),
+        encoded: encodeTargetSourceFile(document.fileName, result.sourceFile),
+        usesRuntime: result.runtimeAlias !== undefined,
+      });
+    } catch (error) {
+      diagnostics.push({
+        code: "TYPESCRIPT_TARGET_LOWERING",
+        category: "error",
+        source: "@tsonic/target-typescript",
+        message: `${document.fileName}: ${error instanceof Error ? error.message : String(error)}`,
+      });
     }
-    const result = lowerPointers(input.source, sourceFile);
-    return {
-      path: sourceArtifactPath(input, document.fileName),
-      encoded: encodeTargetSourceFile(document.fileName, result.sourceFile),
-      usesRuntime: result.runtimeAlias !== undefined,
-    };
-  });
+  }
+  if (diagnostics.length > 0) {
+    return Object.freeze({
+      artifacts: [],
+      diagnostics: Object.freeze(diagnostics),
+      usesRuntime: false,
+    });
+  }
   const printed = printer.print(lowered.map((artifact) => artifact.encoded));
   if (printed.length !== lowered.length) {
     throw new Error(
@@ -82,6 +116,7 @@ function compileSourceArtifacts(
       path: artifact.path,
       text: requiredPrintedSource(printed, index),
     }))),
+    diagnostics: [],
     usesRuntime: lowered.some((artifact) => artifact.usesRuntime),
   });
 }
