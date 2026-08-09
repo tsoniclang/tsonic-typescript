@@ -7,6 +7,7 @@ import {
 import {
   AsBinaryExpression,
   AsCallExpression,
+  AsPropertyAccessExpression,
   AsVoidExpression,
   encodeTargetSourceFileForPrinting,
   IsAsExpression,
@@ -18,7 +19,6 @@ import type {
   Node,
 } from "@tsonic/tsts";
 import type {
-  SourceProgramNavigation,
   TargetSourceProgram,
 } from "@tsonic/target-api";
 
@@ -33,15 +33,23 @@ import {
   lowerScalarRepresentations,
 } from "./transform.js";
 
-const transparentComponent = `let evaluations = 0;
+const transparentProjections = `declare const storage: unique symbol;
+interface Stored<T> { readonly [storage]: T; }
+let evaluations = 0;
 function next(value: number): number {
   evaluations += 1;
   return value;
 }
-class Scalar {
+export class Scalar implements Stored<number> {
+  declare private readonly brand: void;
+  declare readonly [storage]: number;
   constructor(public readonly value: number) {}
+  label(): string { return "scalar"; }
+  get description(): string { return "scalar"; }
+  static identity(value: number): number { return value; }
 }
-type ScalarType = Scalar;
+export const escaped = new Scalar(9);
+export const Alias = Scalar;
 export const result: [number, number, number] = [
   new Scalar(next(40)).value,
   new Scalar(next(2)).value,
@@ -49,8 +57,8 @@ export const result: [number, number, number] = [
 ];
 `;
 
-test("plans one exact closed scalar allocation component", () => {
-  const fixture = checkedScalarFixture(transparentComponent);
+test("plans each exact projection despite exports and other class uses", () => {
+  const fixture = checkedScalarFixture(transparentProjections);
   const plan = createScalarRepresentationPlan(
     fixture.source,
     "closed-direct",
@@ -59,14 +67,13 @@ test("plans one exact closed scalar allocation component", () => {
   assert.equal(plan.profile, "closed-direct");
   assert.equal(plan.moduleBoundary, "closed");
   assert.equal(plan.syntacticProjectionCount, 2);
-  assert.equal(plan.provenComponentCount, 1);
   assert.equal(plan.projectionCount, 2);
   assert.equal(plan.retainedProjectionCount, 0);
   assert.equal(plan.projectionsFor(fixture.sourceFile).length, 2);
 });
 
-test("rewrites exact allocations to typed evaluation sequences", () => {
-  const fixture = checkedScalarFixture(transparentComponent);
+test("rewrites only the admitted immediate projections", () => {
+  const fixture = checkedScalarFixture(transparentProjections);
   const plan = createScalarRepresentationPlan(
     fixture.source,
     "closed-direct",
@@ -83,7 +90,7 @@ test("rewrites exact allocations to typed evaluation sequences", () => {
   );
   assert.equal(
     countNodes(fixture.source, result.sourceFile, IsNewExpression),
-    0,
+    1,
   );
   assert.equal(
     countNodes(fixture.source, result.sourceFile, IsAsExpression),
@@ -95,6 +102,7 @@ test("rewrites exact allocations to typed evaluation sequences", () => {
       commaExpressions.push(node);
     }
   });
+  assert.equal(commaExpressions.length, 2);
   for (const expression of commaExpressions) {
     const binary = AsBinaryExpression(expression);
     const targetEvaluation = AsVoidExpression(binary?.Left);
@@ -107,22 +115,6 @@ test("rewrites exact allocations to typed evaluation sequences", () => {
     assert.ok(argumentCall?.Expression !== undefined);
     assert.equal(fixture.source.ast.text(argumentCall.Expression), "next");
   }
-  assert.equal(
-    countNodes(
-      fixture.source,
-      result.sourceFile,
-      (node) => fixture.source.ast.operatorKindName(node) === "KindCommaToken",
-    ),
-    2,
-  );
-  assert.equal(
-    countNodes(
-      fixture.source,
-      result.sourceFile,
-      IsPropertyAccessExpression,
-    ),
-    0,
-  );
   const transformedEncoding = encodeTargetSourceFileForPrinting(
     result.sourceFile,
   );
@@ -148,13 +140,12 @@ export const values = [
     "closed-direct",
   );
   assert.equal(plan.syntacticProjectionCount, 4);
-  assert.equal(plan.provenComponentCount, 4);
   assert.equal(plan.projectionCount, 4);
   assert.equal(plan.retainedProjectionCount, 0);
 });
 
 test("preserves canonical representation unless closed-direct is explicit", () => {
-  const fixture = checkedScalarFixture(transparentComponent);
+  const fixture = checkedScalarFixture(transparentProjections);
   const plan = createScalarRepresentationPlan(fixture.source, "preserve");
   const result = lowerScalarRepresentations(
     fixture.sourceFile,
@@ -167,97 +158,83 @@ test("preserves canonical representation unless closed-direct is explicit", () =
   assert.equal(result.projectionCount, 0);
   assert.equal(
     countNodes(fixture.source, result.sourceFile, IsNewExpression),
-    2,
+    3,
   );
 });
 
-test("retains the whole component when any semantic guard is mutated", () => {
+test("rejects construction effects and non-scalar projections", () => {
   const cases: readonly [
     string,
     string,
     { readonly experimentalDecorators?: boolean }?,
   ][] = [
     ["constructor body", `function effect(): void {}
-class Scalar { constructor(public readonly value: number) { effect(); } }
+class Scalar { constructor(readonly value: number) { effect(); } }
 export const result = new Scalar(1).value;
 `],
     ["mutable parameter property", `class Scalar { constructor(public value: number) {} }
 export const result = new Scalar(1).value;
 `],
-    ["instance initializer", `function effect(): number { return 1; }
+    ["instance field initializer", `function effect(): number { return 1; }
 class Scalar {
   extra = effect();
-  constructor(public readonly value: number) {}
+  constructor(readonly value: number) {}
+}
+export const result = new Scalar(1).value;
+`],
+    ["static field initializer", `function effect(): number { return 1; }
+class Scalar {
+  static extra = effect();
+  constructor(readonly value: number) {}
+}
+export const result = new Scalar(1).value;
+`],
+    ["static block", `function effect(): void {}
+class Scalar {
+  static { effect(); }
+  constructor(readonly value: number) {}
 }
 export const result = new Scalar(1).value;
 `],
     ["parameter initializer", `class Scalar {
-  constructor(public readonly value: number = 1) {}
+  constructor(readonly value: number = 1) {}
 }
 export const result = new Scalar(2).value;
 `],
     ["base class", `class Base {}
 class Scalar extends Base {
-  constructor(public readonly value: number) { super(); }
+  constructor(readonly value: number) { super(); }
 }
 export const result = new Scalar(1).value;
 `],
-    ["escaped allocation", `class Scalar { constructor(public readonly value: number) {} }
-export const escaped = new Scalar(1);
-export const result = new Scalar(2).value;
-`],
-    ["identity and instanceof", `class Scalar {
-  constructor(public readonly value: number) {}
-}
-const observed = new Scalar(1);
-export const identity = observed === observed;
-export const instance = observed instanceof Scalar;
-export const result = new Scalar(2).value;
-`],
-    ["reflective class use", `class Scalar { constructor(public readonly value: number) {} }
-Object.defineProperty(Scalar.prototype, "value", { get: () => 9 });
-export const result = new Scalar(1).value;
-`],
-    ["accessor projection", `class Scalar {
-  constructor(public readonly input: number) {}
-  get value(): number { return this.input; }
+    ["getter projection", `class Scalar {
+  constructor(readonly raw: number) {}
+  get value(): number { return this.raw; }
 }
 export const result = new Scalar(1).value;
-`],
-    ["runtime alias", `class Scalar {
-  constructor(public readonly value: number) {}
-}
-const Alias = Scalar;
-export const result = new Scalar(1).value;
-void Alias;
-`],
-    ["aliased constructor", `class Scalar {
-  constructor(public readonly value: number) {}
-}
-const Alias = Scalar;
-export const result = new Alias(1).value;
 `],
     ["class decorator", `function decorate(target: Function): void {
   void target;
 }
 @decorate
-class Scalar { constructor(public readonly value: number) {} }
+class Scalar { constructor(readonly value: number) {} }
 export const result = new Scalar(1).value;
 `, { experimentalDecorators: true }],
-    ["open exported class", `export class Scalar {
-  constructor(public readonly value: number) {}
-}
-export const result = new Scalar(1).value;
-`],
     ["object wrapper", `class Scalar {
-  constructor(public readonly value: { readonly amount: number }) {}
+  constructor(readonly value: { readonly amount: number }) {}
 }
 export const result = new Scalar({ amount: 1 }).value;
 `],
     ["array wrapper", `class Scalar {
-  constructor(public readonly value: readonly number[]) {}
+  constructor(readonly value: readonly number[]) {}
 }
 export const result = new Scalar([1]).value;
+`],
+    ["aliased constructor target", `class Scalar {
+  constructor(readonly value: number) {}
+}
+const Alias = Scalar;
+export const result = new Alias(1).value;
 `],
   ];
 
@@ -272,74 +249,66 @@ export const result = new Scalar([1]).value;
   }
 });
 
-test("rejects exact class-binding write evidence", () => {
-  const fixture = checkedScalarFixture(transparentComponent);
+test("fails closed when exact selected-field identity is mutated", () => {
+  const fixture = checkedScalarFixture(transparentProjections);
+  let access: Node | undefined;
   let classDeclaration: Node | undefined;
   visit(fixture.source, fixture.sourceFile, (node) => {
     if (classDeclaration === undefined && IsClassDeclaration(node)) {
       classDeclaration = node;
     }
+    const property = IsPropertyAccessExpression(node)
+      ? AsPropertyAccessExpression(node)
+      : undefined;
+    if (
+      access === undefined &&
+      property?.Expression !== undefined &&
+      IsNewExpression(property.Expression)
+    ) {
+      access = node;
+    }
   });
+  assert.ok(access !== undefined);
   assert.ok(classDeclaration !== undefined);
-  const originalNavigation = fixture.source.navigation;
-  const mutatedNavigation: SourceProgramNavigation = {
-    ...originalNavigation,
-    bindingWritesWithin(symbol, root) {
-      const original = originalNavigation.bindingWritesWithin(symbol, root);
-      if (root !== fixture.sourceFile || classDeclaration === undefined) {
-        return original;
-      }
-      return Object.freeze([
-        ...original,
-        Object.freeze({
-          reference: classDeclaration,
-          operation: classDeclaration,
-          kind: "assignment" as const,
-        }),
-      ]);
-    },
-  };
+  const selectedAccess = access;
+  const wrongDeclaration = classDeclaration;
+  const originalSemantics = fixture.source.semantics;
   const mutatedSource: TargetSourceProgram = {
     ...fixture.source,
-    navigation: mutatedNavigation,
+    semantics: {
+      ...originalSemantics,
+      forNode(node) {
+        const semantics = originalSemantics.forNode(node);
+        if (node !== selectedAccess) {
+          return semantics;
+        }
+        return {
+          ...semantics,
+          getResolvedPropertyAccessInfo(candidate) {
+            const information = semantics.getResolvedPropertyAccessInfo(candidate);
+            if (candidate !== selectedAccess || information === undefined) {
+              return information;
+            }
+            return Object.freeze({
+              ...information,
+              selectedDeclaration: wrongDeclaration,
+            });
+          },
+        };
+      },
+    },
   };
 
   const plan = createScalarRepresentationPlan(
     mutatedSource,
     "closed-direct",
   );
-  assert.equal(plan.projectionCount, 0);
-  assert.equal(plan.retainedProjectionCount, 2);
-});
-
-test("admits the component only when every allocation is projected", () => {
-  const retained = checkedScalarFixture(`class Scalar {
-  constructor(public readonly value: number) {}
-}
-export const escaped = new Scalar(1);
-export const projected = new Scalar(2).value;
-`);
-  const closed = checkedScalarFixture(`class Scalar {
-  constructor(public readonly value: number) {}
-}
-export const first = new Scalar(1).value;
-export const second = new Scalar(2).value;
-`);
-
-  assert.equal(
-    createScalarRepresentationPlan(retained.source, "closed-direct")
-      .projectionCount,
-    0,
-  );
-  assert.equal(
-    createScalarRepresentationPlan(closed.source, "closed-direct")
-      .projectionCount,
-    2,
-  );
+  assert.equal(plan.projectionCount, 1);
+  assert.equal(plan.retainedProjectionCount, 1);
 });
 
 test("fails closed when a planned projection is not consumed", () => {
-  const fixture = checkedScalarFixture(transparentComponent);
+  const fixture = checkedScalarFixture(transparentProjections);
   const plan = createScalarRepresentationPlan(
     fixture.source,
     "closed-direct",
@@ -355,10 +324,10 @@ test("fails closed when a planned projection is not consumed", () => {
   );
 });
 
-test("matches executable behavior for the admitted scalar class", async () => {
+test("matches execution and target-before-argument evaluation", async () => {
   const original = `const trace: number[] = [];
 function next(value: number): number { trace.push(value); return value; }
-class Scalar { constructor(public readonly value: number) {} }
+class Scalar { constructor(readonly value: number) {} }
 export const result = [
   new Scalar(next(40)).value,
   new Scalar(next(2)).value,
@@ -367,7 +336,7 @@ export const result = [
 `;
   const lowered = `const trace: number[] = [];
 function next(value: number): number { trace.push(value); return value; }
-class Scalar { constructor(public readonly value: number) {} }
+class Scalar { constructor(readonly value: number) {} }
 export const result = [
   ((void Scalar, next(40)) as number),
   ((void Scalar, next(2)) as number),
@@ -390,7 +359,7 @@ function project(): number | string {
   catch { return trace.join(","); }
 }
 export const result = project();
-class Scalar { constructor(public readonly value: number) {} }
+class Scalar { constructor(readonly value: number) {} }
 `;
   const loweredTargetFirst = `const trace: string[] = [];
 function argument(): number { trace.push("argument"); return 1; }
@@ -399,7 +368,7 @@ function project(): number | string {
   catch { return trace.join(","); }
 }
 export const result = project();
-class Scalar { constructor(public readonly value: number) {} }
+class Scalar { constructor(readonly value: number) {} }
 `;
   const targetFirstFixture = checkedScalarFixture(originalTargetFirst);
   assert.equal(

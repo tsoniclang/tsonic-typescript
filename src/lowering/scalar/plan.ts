@@ -12,26 +12,21 @@ import {
   AsNewExpression,
   AsParameterDeclaration,
   AsPropertyAccessExpression,
+  AsPropertyDeclaration,
   IsBlock,
-  IsCallExpression,
   IsClassDeclaration,
+  IsClassStaticBlockDeclaration,
   IsConstructorDeclaration,
   IsDecorator,
-  IsExpressionWithTypeArguments,
+  IsGetAccessorDeclaration,
   IsIdentifier,
-  IsInterfaceDeclaration,
-  IsImportTypeNode,
-  IsJsxOpeningElement,
-  IsJsxSelfClosingElement,
   IsMethodDeclaration,
   IsNewExpression,
   IsPropertyAccessExpression,
+  IsPropertyDeclaration,
   IsSemicolonClassElement,
+  IsSetAccessorDeclaration,
   IsSpreadElement,
-  IsTaggedTemplateExpression,
-  IsTypeAliasDeclaration,
-  IsTypeQueryNode,
-  IsTypeReferenceNode,
 } from "@tsonic/tsts/target-ast";
 
 export type ScalarRepresentationProfile = "preserve" | "closed-direct";
@@ -51,26 +46,18 @@ export interface ScalarRepresentationPlan {
   readonly profile: ScalarRepresentationProfile;
   readonly moduleBoundary: "open" | "closed";
   readonly syntacticProjectionCount: number;
-  readonly provenComponentCount: number;
   readonly projectionCount: number;
   readonly retainedProjectionCount: number;
   projectionFor(access: Node): ScalarProjectionPlan | undefined;
   projectionsFor(sourceFile: SourceFile): readonly ScalarProjectionPlan[];
 }
 
-interface ProgramNodes {
-  readonly all: readonly Node[];
-}
-
 interface TransparentClassProof {
-  readonly declaration: Node;
   readonly constructorDeclaration: Node;
   readonly parameterDeclaration: Node;
   readonly selectedType: Type;
   readonly resultTypeNode: Node;
 }
-
-type ProjectionCandidate = ScalarProjectionPlan;
 
 const noProjections = Object.freeze([]) as readonly ScalarProjectionPlan[];
 
@@ -82,59 +69,26 @@ export function createScalarRepresentationPlan(
     throw new Error(`unsupported scalar representation profile '${String(profile)}'`);
   }
   const nodes = collectProgramNodes(source);
-  const syntactic = nodes.all.filter((node) => isSyntacticProjection(node));
+  const syntactic = nodes.filter((node) => isSyntacticProjection(node));
   if (profile === "preserve") {
-    return sealPlan(source, profile, syntactic.length, 0, []);
+    return sealPlan(source, profile, syntactic.length, []);
   }
 
   const classProofs = new Map<Node, TransparentClassProof | undefined>();
-  const candidates: ProjectionCandidate[] = [];
+  const projections: ScalarProjectionPlan[] = [];
   for (const node of syntactic) {
-    const candidate = resolveProjectionCandidate(source, node, classProofs);
-    if (candidate !== undefined) {
-      candidates.push(candidate);
+    const projection = resolveProjection(source, node, classProofs);
+    if (projection !== undefined) {
+      projections.push(projection);
     }
   }
-
-  const byClass = groupCandidatesByClass(candidates);
-  const typeOnlyNodes = collectTypeOnlyNodes(source, nodes.all);
-  const references = collectCandidateClassReferences(
-    source,
-    nodes.all,
-    new Set(byClass.keys()),
-  );
-  const admitted: ProjectionCandidate[] = [];
-  let provenComponentCount = 0;
-  for (const [classDeclaration, component] of byClass) {
-    if (
-      componentIsClosed(
-        source,
-        classDeclaration,
-        component,
-        references.get(classDeclaration) ?? noNodes,
-        typeOnlyNodes,
-      )
-    ) {
-      provenComponentCount += 1;
-      admitted.push(...component);
-    }
-  }
-  return sealPlan(
-    source,
-    profile,
-    syntactic.length,
-    provenComponentCount,
-    admitted,
-  );
+  return sealPlan(source, profile, syntactic.length, projections);
 }
-
-const noNodes = Object.freeze([]) as readonly Node[];
 
 function sealPlan(
   source: TargetSourceProgram,
   profile: ScalarRepresentationProfile,
   syntacticProjectionCount: number,
-  provenComponentCount: number,
   projections: readonly ScalarProjectionPlan[],
 ): ScalarRepresentationPlan {
   const byAccess = new Map<Node, ScalarProjectionPlan>();
@@ -163,7 +117,6 @@ function sealPlan(
     profile,
     moduleBoundary: profile === "closed-direct" ? "closed" : "open",
     syntacticProjectionCount,
-    provenComponentCount,
     projectionCount: projections.length,
     retainedProjectionCount: syntacticProjectionCount - projections.length,
     projectionFor(access: Node): ScalarProjectionPlan | undefined {
@@ -175,8 +128,8 @@ function sealPlan(
   });
 }
 
-function collectProgramNodes(source: TargetSourceProgram): ProgramNodes {
-  const all: Node[] = [];
+function collectProgramNodes(source: TargetSourceProgram): readonly Node[] {
+  const nodes: Node[] = [];
   const seen = new Set<Node>();
   const pending: Node[] = [...source.sourceFiles].reverse();
   while (pending.length > 0) {
@@ -185,7 +138,7 @@ function collectProgramNodes(source: TargetSourceProgram): ProgramNodes {
       continue;
     }
     seen.add(node);
-    all.push(node);
+    nodes.push(node);
     const children = source.ast.children(node);
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
@@ -194,7 +147,7 @@ function collectProgramNodes(source: TargetSourceProgram): ProgramNodes {
       }
     }
   }
-  return { all: Object.freeze(all) };
+  return Object.freeze(nodes);
 }
 
 function isSyntacticProjection(node: Node): boolean {
@@ -217,11 +170,11 @@ function isSyntacticProjection(node: Node): boolean {
     !IsSpreadElement(arguments_[0]);
 }
 
-function resolveProjectionCandidate(
+function resolveProjection(
   source: TargetSourceProgram,
   node: Node,
   classProofs: Map<Node, TransparentClassProof | undefined>,
-): ProjectionCandidate | undefined {
+): ScalarProjectionPlan | undefined {
   const access = AsPropertyAccessExpression(node);
   const construction = access?.Expression === undefined
     ? undefined
@@ -303,30 +256,17 @@ function proveTransparentClass(
     classDeclaration === undefined ||
     classDeclaration.name === undefined ||
     source.ast.extendsHeritageElements(declaration).length !== 0 ||
-    source.ast.implementsHeritageElements(declaration).length !== 0 ||
     hasDecorator(source, declaration) ||
     source.ast.hasModifierKind(declaration, "abstract") ||
     source.ast.hasModifierKind(declaration, "ambient") ||
-    source.ast.hasModifierKind(declaration, "export") ||
-    source.ast.hasModifierKind(declaration, "default")
+    !classMembersAreProjectionSafe(source, declaration)
   ) {
     return undefined;
   }
-  const members = source.ast.members(declaration).filter(
-    (member): member is Node => member !== undefined,
+  const constructors = source.ast.members(declaration).filter((member) =>
+    member !== undefined && IsConstructorDeclaration(member)
   );
-  const constructors = members.filter((member) =>
-    IsConstructorDeclaration(member)
-  );
-  if (
-    constructors.length !== 1 ||
-    members.some((member) =>
-      !IsConstructorDeclaration(member) &&
-      !IsMethodDeclaration(member) &&
-      !IsSemicolonClassElement(member)
-    ) ||
-    members.some((member) => hasDecorator(source, member))
-  ) {
+  if (constructors.length !== 1) {
     return undefined;
   }
   const constructorDeclaration = constructors[0];
@@ -354,7 +294,6 @@ function proveTransparentClass(
     parameter.DotDotDotToken !== undefined ||
     parameter.QuestionToken !== undefined ||
     !source.ast.hasModifierKind(parameterDeclaration, "readonly") ||
-    hasDecorator(source, constructorDeclaration) ||
     hasDecorator(source, parameterDeclaration)
   ) {
     return undefined;
@@ -385,12 +324,47 @@ function proveTransparentClass(
     return undefined;
   }
   return Object.freeze({
-    declaration,
     constructorDeclaration,
     parameterDeclaration,
     selectedType: selectedParameter.selectedType,
     resultTypeNode: parameter.Type,
   });
+}
+
+function classMembersAreProjectionSafe(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  for (const member of source.ast.members(declaration)) {
+    if (member === undefined || hasDecorator(source, member)) {
+      return false;
+    }
+    if (IsConstructorDeclaration(member) || IsSemicolonClassElement(member)) {
+      continue;
+    }
+    if (IsClassStaticBlockDeclaration(member)) {
+      return false;
+    }
+    if (IsPropertyDeclaration(member)) {
+      const property = AsPropertyDeclaration(member);
+      if (
+        property === undefined ||
+        property.Initializer !== undefined
+      ) {
+        return false;
+      }
+      continue;
+    }
+    if (
+      IsMethodDeclaration(member) ||
+      IsGetAccessorDeclaration(member) ||
+      IsSetAccessorDeclaration(member)
+    ) {
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 function isScalarType(
@@ -405,139 +379,4 @@ function isScalarType(
 
 function hasDecorator(source: TargetSourceProgram, node: Node): boolean {
   return source.ast.modifiers(node).some((modifier) => IsDecorator(modifier));
-}
-
-function groupCandidatesByClass(
-  candidates: readonly ProjectionCandidate[],
-): ReadonlyMap<Node, readonly ProjectionCandidate[]> {
-  const result = new Map<Node, ProjectionCandidate[]>();
-  for (const candidate of candidates) {
-    const component = result.get(candidate.classDeclaration);
-    if (component === undefined) {
-      result.set(candidate.classDeclaration, [candidate]);
-    } else {
-      component.push(candidate);
-    }
-  }
-  return result;
-}
-
-function collectCandidateClassReferences(
-  source: TargetSourceProgram,
-  nodes: readonly Node[],
-  candidateClasses: ReadonlySet<Node>,
-): ReadonlyMap<Node, readonly Node[]> {
-  const references = new Map<Node, Node[]>();
-  for (const node of nodes) {
-    const reference = source.navigation.sourceReferenceFor(node);
-    if (
-      reference === undefined ||
-      !candidateClasses.has(reference.declaration)
-    ) {
-      continue;
-    }
-    const classReferences = references.get(reference.declaration);
-    if (classReferences === undefined) {
-      references.set(reference.declaration, [node]);
-    } else {
-      classReferences.push(node);
-    }
-  }
-  return references;
-}
-
-function componentIsClosed(
-  source: TargetSourceProgram,
-  classDeclaration: Node,
-  component: readonly ProjectionCandidate[],
-  references: readonly Node[],
-  typeOnlyNodes: ReadonlySet<Node>,
-): boolean {
-  const classNode = AsClassDeclaration(classDeclaration);
-  if (classNode?.name === undefined) {
-    return false;
-  }
-  const permitted = new Set<Node>([
-    classDeclaration,
-    classNode.name,
-  ]);
-  for (const candidate of component) {
-    permitted.add(candidate.access);
-    permitted.add(candidate.construction);
-    permitted.add(candidate.constructorTarget);
-  }
-  if (references.some((node) =>
-    !permitted.has(node) && !typeOnlyNodes.has(node)
-  )) {
-    return false;
-  }
-  const symbol = source.semantics.forNode(classDeclaration)
-    .getSymbolAtLocation(classNode.name);
-  if (symbol === undefined) {
-    return false;
-  }
-  return source.sourceFiles.every((sourceFile) =>
-    source.navigation.bindingWritesWithin(symbol, sourceFile).length === 0
-  );
-}
-
-function collectTypeOnlyNodes(
-  source: TargetSourceProgram,
-  nodes: readonly Node[],
-): ReadonlySet<Node> {
-  const result = new Set<Node>();
-  for (const node of nodes) {
-    markTypeSubtree(source, result, source.ast.typeNode(node));
-    if (hasTypeArguments(node)) {
-      for (const typeArgument of source.ast.typeArguments(node)) {
-        markTypeSubtree(source, result, typeArgument);
-      }
-    }
-    for (const heritage of source.ast.implementsHeritageElements(node)) {
-      markTypeSubtree(source, result, heritage);
-    }
-    if (
-      IsInterfaceDeclaration(node) ||
-      IsTypeAliasDeclaration(node) ||
-      source.ast.isTypeOnlyImportOrExportDeclaration(node)
-    ) {
-      markTypeSubtree(source, result, node);
-    }
-  }
-  return result;
-}
-
-function hasTypeArguments(node: Node): boolean {
-  return IsCallExpression(node) ||
-    IsNewExpression(node) ||
-    IsTaggedTemplateExpression(node) ||
-    IsTypeReferenceNode(node) ||
-    IsExpressionWithTypeArguments(node) ||
-    IsImportTypeNode(node) ||
-    IsTypeQueryNode(node) ||
-    IsJsxOpeningElement(node) ||
-    IsJsxSelfClosingElement(node);
-}
-
-function markTypeSubtree(
-  source: TargetSourceProgram,
-  result: Set<Node>,
-  root: Node | undefined,
-): void {
-  if (root === undefined || result.has(root)) {
-    return;
-  }
-  const pending = [root];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined || result.has(node)) {
-      continue;
-    }
-    result.add(node);
-    for (const child of source.ast.children(node)) {
-      if (child !== undefined) {
-        pending.push(child);
-      }
-    }
-  }
 }
