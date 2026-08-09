@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import {
   createCompilerSessionFromFiles,
   createSourceSemanticsExtension,
+  structFactKey,
 } from "@tsonic/tsts";
 import type {
+  CompilerExtension,
   Node,
   SourceFile,
+  SourceAnalysisContext,
   SourceSemanticsModule,
 } from "@tsonic/tsts";
 import {
@@ -75,6 +78,43 @@ export function checkedPointerFixture(
   sourceText: string,
   additionalFiles: Readonly<Record<string, string>> = {},
 ): CheckedPointerFixture {
+  return checkedPointerFixtureWithExtension(
+    sourceText,
+    additionalFiles,
+    createSourceSemanticsExtension({ modules: pointerMarkerSemantics }),
+  );
+}
+
+export function checkedPointerFixtureWithValueSemantics(
+  sourceText: string,
+  typeName: string,
+): CheckedPointerFixture {
+  const sourceSemantics = createSourceSemanticsExtension({
+    modules: pointerMarkerSemantics,
+  });
+  const extension: CompilerExtension = Object.freeze({
+    ...sourceSemantics,
+    analyzeSource(context: SourceAnalysisContext): void {
+      sourceSemantics.analyzeSource?.(context);
+      const declaration = findNamedTypeDeclaration(context, typeName);
+      assert.equal(
+        context.facts.set(
+          declaration,
+          structFactKey,
+          Object.freeze({ valueType: true }),
+        ),
+        "inserted",
+      );
+    },
+  });
+  return checkedPointerFixtureWithExtension(sourceText, {}, extension);
+}
+
+function checkedPointerFixtureWithExtension(
+  sourceText: string,
+  additionalFiles: Readonly<Record<string, string>>,
+  extension: CompilerExtension,
+): CheckedPointerFixture {
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files: {
@@ -90,9 +130,7 @@ export function checkedPointerFixture(
       target: "es2022",
     },
     extensionHostOptions: {
-      extensions: [createSourceSemanticsExtension({
-        modules: pointerMarkerSemantics,
-      })],
+      extensions: [extension],
     },
   });
   const checked = session.checkSource();
@@ -103,6 +141,34 @@ export function checkedPointerFixture(
     source,
     sourceFile: sourceFileNamed(source, "/src/index.ts"),
   };
+}
+
+function findNamedTypeDeclaration(
+  context: SourceAnalysisContext,
+  typeName: string,
+): Node {
+  const sourceFile = context.source.getSourceFile("/src/index.ts");
+  assert.ok(sourceFile !== undefined);
+  const pending: Node[] = [sourceFile];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) {
+      continue;
+    }
+    if (
+      (context.source.ast.is.IsInterfaceDeclaration(node) ||
+        context.source.ast.is.IsClassDeclaration(node)) &&
+      context.source.ast.text(context.source.ast.name(node)) === typeName
+    ) {
+      return node;
+    }
+    for (const child of context.source.ast.children(node)) {
+      if (child !== undefined) {
+        pending.push(child);
+      }
+    }
+  }
+  assert.fail(`Missing direct-reference type declaration '${typeName}'.`);
 }
 
 export function sourceFileNamed(

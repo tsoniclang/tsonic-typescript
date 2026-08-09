@@ -1,20 +1,12 @@
-import type {
-  Node,
-  PointerOperationFact,
-  SourceFile,
-} from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
-  AsCallExpression,
   AsExportDeclaration,
   AsImportClause,
   AsImportDeclaration,
   AsNamedExports,
   AsNamedImports,
   AsSourceFile,
-  AsTypeReferenceNode,
-  KindEqualsToken,
-  IsCallExpression,
   IsBlock,
   IsCaseClause,
   IsDefaultClause,
@@ -25,31 +17,32 @@ import {
   IsNamedExports,
   IsNamedImports,
   IsSourceFile,
-  IsTypeReferenceNode,
-  NewBinaryExpression,
-  NewToken,
-  NewVoidExpression,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
-import { lowerAddressOf } from "./address.js";
 import { PointerLoweringError } from "./diagnostic.js";
+import type { ClosedPointerFlowPlan } from "./flow-plan.js";
+import { pointerFlowRepresentation, pointerLoweringPlanUsesRuntime } from "./flow-application.js";
 import {
   rewriteLocationStatementOwner,
   wrapExpressionLocationBody,
 } from "./location-statements.js";
 import {
+  lowerLocationPointerOperation,
+  lowerLocationPointerType,
+} from "./location-operation-ast.js";
+import {
   createPointerLoweringPlan,
-  pointerLoweringPlanUsesRuntime,
   type PointerLoweringPlan,
 } from "./plan.js";
 import { lowerRawPointerOperation, lowerRawPointerType } from "./raw.js";
 import {
-  locationValue,
+  lowerOptimizedPointerOperation,
+  lowerOptimizedPointerType,
+} from "./representation-ast.js";
+import {
   prependRuntimeImport,
-  runtimeCall,
-  runtimeType,
 } from "./runtime-ast.js";
 
 export interface PointerLoweringResult {
@@ -65,19 +58,32 @@ export interface PointerLoweringResult {
 export function lowerPointers(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
+  flowPlan?: ClosedPointerFlowPlan,
 ): PointerLoweringResult {
-  const plan = createPointerLoweringPlan(source, sourceFile);
+  const plan = createPointerLoweringPlan(source, sourceFile, flowPlan);
   return applyPointerLoweringPlan(source, plan);
 }
 
-export function applyPointerLoweringPlan(
+export interface PointerRewriteSession {
+  rewrite(
+    original: Node,
+    updated: Node,
+    factory: NodeFactory,
+  ): Node | undefined;
+  finish(sourceFile: SourceFile): PointerLoweringResult;
+}
+
+function applyPointerLoweringPlan(
   source: TargetSourceProgram,
   plan: PointerLoweringPlan,
 ): PointerLoweringResult {
   const { sourceFile } = plan;
   const usesRuntime = pointerLoweringPlanUsesRuntime(plan);
   if (
-    !usesRuntime &&
+    plan.operations.size === 0 &&
+    plan.pointerTypes.size === 0 &&
+    plan.rawPointerOperations.size === 0 &&
+    plan.rawPointerTypes.size === 0 &&
     plan.removableMarkerDeclarations.size === 0
   ) {
     return Object.freeze({
@@ -90,25 +96,71 @@ export function applyPointerLoweringPlan(
       runtimeAlias: undefined,
     });
   }
-  const consumed = createConsumptionState();
+  const session = createPointerRewriteSessionForPlan(source, plan);
   const transformed = transformTargetSourceFile(
     sourceFile,
-    (original, updated, factory) => {
-      const rewritten = rewriteNode(
-        source,
-        plan,
-        consumed,
-        original,
-        updated,
-        factory,
-      );
-      if (rewritten !== undefined) {
-        consumed.updatedNodes.set(original, rewritten);
-      }
-      return rewritten;
-    },
+    session.rewrite,
   );
-  assertCompleteConsumption(plan, consumed);
+  return session.finish(transformed);
+}
+
+export function createPointerRewriteSession(
+  source: TargetSourceProgram,
+  sourceFile: SourceFile,
+  flowPlan?: ClosedPointerFlowPlan,
+): PointerRewriteSession {
+  return createPointerRewriteSessionForPlan(
+    source,
+    createPointerLoweringPlan(source, sourceFile, flowPlan),
+  );
+}
+
+function createPointerRewriteSessionForPlan(
+  source: TargetSourceProgram,
+  plan: PointerLoweringPlan,
+): PointerRewriteSession {
+  const consumed = createConsumptionState();
+  let finished = false;
+  const rewrite = (
+    original: Node,
+    updated: Node,
+    factory: NodeFactory,
+  ): Node | undefined => {
+    if (finished) {
+      throw new PointerLoweringError("pointer rewrite session is already sealed");
+    }
+    const rewritten = rewriteNode(
+      source,
+      plan,
+      consumed,
+      original,
+      updated,
+      factory,
+    );
+    if (rewritten !== undefined) {
+      consumed.updatedNodes.set(original, rewritten);
+    }
+    return rewritten;
+  };
+  return Object.freeze({
+    rewrite,
+    finish(transformed: SourceFile): PointerLoweringResult {
+      if (finished) {
+        throw new PointerLoweringError("pointer rewrite session was sealed twice");
+      }
+      finished = true;
+      assertCompleteConsumption(plan, consumed);
+      return pointerLoweringResult(plan, consumed, transformed);
+    },
+  });
+}
+
+function pointerLoweringResult(
+  plan: PointerLoweringPlan,
+  consumed: ConsumptionState,
+  transformed: SourceFile,
+): PointerLoweringResult {
+  const usesRuntime = pointerLoweringPlanUsesRuntime(plan);
   return Object.freeze({
     sourceFile: transformed,
     operationCount: consumed.operations.size,
@@ -199,7 +251,16 @@ function rewriteNode(
   const operation = plan.operations.get(original);
   if (operation !== undefined) {
     consumed.operations.add(original);
-    return lowerOperation(
+    const optimized = lowerOptimizedPointerOperation(
+      factory,
+      operation,
+      updated,
+      pointerFlowRepresentation(plan, original),
+    );
+    if (optimized !== undefined) {
+      return optimized;
+    }
+    return lowerLocationPointerOperation(
       source,
       factory,
       operation,
@@ -222,7 +283,15 @@ function rewriteNode(
 
   if (plan.pointerTypes.has(original)) {
     consumed.pointerTypes.add(original);
-    return lowerPointerType(factory, updated, plan.runtimeAlias);
+    const optimized = lowerOptimizedPointerType(
+      factory,
+      updated,
+      pointerFlowRepresentation(plan, original),
+    );
+    if (optimized !== undefined) {
+      return optimized;
+    }
+    return lowerLocationPointerType(factory, updated, plan.runtimeAlias);
   }
 
 
@@ -276,213 +345,6 @@ function rewriteNode(
     ) : sourceFile;
   }
   return structuralResult;
-}
-
-function lowerPointerType(
-  factory: NodeFactory,
-  updated: Node,
-  runtimeAlias: string,
-): Node {
-  const typeReference = IsTypeReferenceNode(updated)
-    ? AsTypeReferenceNode(updated)
-    : undefined;
-  if (
-    typeReference === undefined ||
-    typeReference.TypeArguments === undefined ||
-    typeReference.TypeArguments.Nodes.length !== 1
-  ) {
-    throw new PointerLoweringError(
-      "Pointer<T> fact must own exactly one type argument",
-    );
-  }
-  return runtimeType(
-    factory,
-    runtimeAlias,
-    "Location",
-    requireNodes(typeReference.TypeArguments.Nodes, "Pointer<T> type arguments"),
-  );
-}
-
-function lowerOperation(
-  source: TargetSourceProgram,
-  factory: NodeFactory,
-  operation: PointerOperationFact,
-  updated: Node,
-  plan: PointerLoweringPlan,
-  updatedNodes: ReadonlyMap<Node, Node>,
-): Node {
-  const call = IsCallExpression(updated) ? AsCallExpression(updated) : undefined;
-  if (call === undefined) {
-    throw new PointerLoweringError(
-      `${operation.operation} fact no longer owns a call expression`,
-    );
-  }
-  const arguments_ = requireNodes(
-    call.Arguments?.Nodes ?? [],
-    `${operation.operation} arguments`,
-  );
-  switch (operation.operation) {
-    case "allocate":
-      requireArity(operation.operation, arguments_, 1);
-      return runtimeCall(
-        factory,
-        plan.runtimeAlias,
-        "location",
-        requireNodes(
-          call.TypeArguments?.Nodes ?? [],
-          `${operation.operation} type arguments`,
-        ),
-        arguments_,
-      );
-    case "load":
-      requireArity(operation.operation, arguments_, 1);
-      return locationValue(
-        factory,
-        requiredElement(arguments_, 0),
-        explicitLocationType(factory, operation, call, plan.runtimeAlias),
-      );
-    case "store": {
-      requireArity(operation.operation, arguments_, 2);
-      const assignment = NewBinaryExpression(
-        factory,
-        undefined,
-        locationValue(
-          factory,
-          requiredElement(arguments_, 0),
-          explicitLocationType(factory, operation, call, plan.runtimeAlias),
-        ),
-        undefined,
-        NewToken(factory, KindEqualsToken),
-        requiredElement(arguments_, 1),
-      );
-      return requiredNode(
-        NewVoidExpression(factory, assignment),
-        "pointer store expression",
-      );
-    }
-    case "equal-pointer":
-      requireArity(operation.operation, arguments_, 2);
-      return runtimeCall(
-        factory,
-        plan.runtimeAlias,
-        "sameLocation",
-        [],
-        arguments_,
-      );
-    case "hash-pointer":
-      requireArity(operation.operation, arguments_, 1);
-      return runtimeCall(
-        factory,
-        plan.runtimeAlias,
-        "hashLocation",
-        [],
-        arguments_,
-      );
-    case "bind-pointer":
-      requireArity(operation.operation, arguments_, 3);
-      return runtimeCall(
-        factory,
-        plan.runtimeAlias,
-        "boundLocation",
-        requireNodes(
-          call.TypeArguments?.Nodes ?? [],
-          `${operation.operation} type arguments`,
-        ),
-        arguments_,
-      );
-    case "project-pointer":
-      requireArity(operation.operation, arguments_, 3);
-      return runtimeCall(
-        factory,
-        plan.runtimeAlias,
-        "projectLocation",
-        requireNodes(
-          call.TypeArguments?.Nodes ?? [],
-          `${operation.operation} type arguments`,
-        ),
-        arguments_,
-      );
-    case "address-of":
-      requireArity(operation.operation, arguments_, 1);
-      return lowerAddressOf(
-        source,
-        factory,
-        operation,
-        requiredElement(arguments_, 0),
-        plan,
-        updatedNodes,
-      );
-  }
-}
-
-function explicitLocationType(
-  factory: NodeFactory,
-  operation: PointerOperationFact,
-  call: NonNullable<ReturnType<typeof AsCallExpression>>,
-  runtimeAlias: string,
-): Node | undefined {
-  if (operation.explicitPointeeTypeNode === undefined) {
-    return undefined;
-  }
-  const typeArguments = requireNodes(
-    call.TypeArguments?.Nodes ?? [],
-    `${operation.operation} type arguments`,
-  );
-  if (typeArguments.length !== 1) {
-    throw new PointerLoweringError(
-      `${operation.operation} has explicit pointee evidence but ${typeArguments.length} transformed type arguments`,
-    );
-  }
-  return runtimeType(factory, runtimeAlias, "Location", typeArguments);
-}
-
-function requiredElement(
-  values: readonly Node[],
-  index: number,
-): Node {
-  const value = values[index];
-  if (value === undefined) {
-    throw new PointerLoweringError(
-      `pointer operation lost argument ${index}`,
-    );
-  }
-  return value;
-}
-
-function requireNodes(
-  values: readonly (Node | undefined)[],
-  subject: string,
-): readonly Node[] {
-  const result: Node[] = [];
-  for (let index = 0; index < values.length; index += 1) {
-    const value = values[index];
-    if (value === undefined) {
-      throw new PointerLoweringError(
-        `${subject} contains an absent node at index ${index}`,
-      );
-    }
-    result.push(value);
-  }
-  return result;
-}
-
-function requireArity(
-  operation: PointerOperationFact["operation"],
-  values: readonly Node[],
-  expected: number,
-): void {
-  if (values.length !== expected) {
-    throw new PointerLoweringError(
-      `${operation} requires ${expected} exact arguments, got ${values.length}`,
-    );
-  }
-}
-
-function requiredNode(node: Node | undefined, subject: string): Node {
-  if (node === undefined) {
-    throw new PointerLoweringError(`${subject} was not created`);
-  }
-  return node;
 }
 
 function assertCompleteConsumption(

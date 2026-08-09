@@ -8,10 +8,21 @@ export type {
 } from "./config/options.js";
 export { PointerLoweringError } from "./lowering/pointer/diagnostic.js";
 export {
+  createClosedPointerFlowPlan,
+} from "./lowering/pointer/flow-plan.js";
+export type {
+  ClosedPointerFlowPlan,
+  PointerFlowBlocker,
+  PointerFlowComponentSummary,
+  PointerFlowRepresentation,
+} from "./lowering/pointer/flow-plan.js";
+export {
+  createPointerRewriteSession,
   lowerPointers,
 } from "./lowering/pointer/transform.js";
 export type {
   PointerLoweringResult,
+  PointerRewriteSession,
 } from "./lowering/pointer/transform.js";
 export {
   createExternalAstPrinter,
