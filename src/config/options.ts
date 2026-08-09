@@ -5,8 +5,17 @@ export interface TypeScriptAstPrinterOptions {
   readonly arguments: readonly string[];
 }
 
+export type TypeScriptPointerFlowProfile = "location" | "closed-direct";
+export type TypeScriptScalarProjectionProfile = "preserve" | "closed-direct";
+
+export interface TypeScriptOptimizationOptions {
+  readonly pointerFlows: TypeScriptPointerFlowProfile;
+  readonly scalarProjections: TypeScriptScalarProjectionProfile;
+}
+
 export interface TypeScriptTargetOptions {
   readonly printer: TypeScriptAstPrinterOptions;
+  readonly optimizations: TypeScriptOptimizationOptions;
 }
 
 export function readTypeScriptTargetOptions(
@@ -18,7 +27,7 @@ export function readTypeScriptTargetOptions(
   }
   rejectUnknownKeys(
     options,
-    new Set(["printer"]),
+    new Set(["printer", "optimizations"]),
     "TypeScript target options",
   );
   const printer = options["printer"];
@@ -50,12 +59,59 @@ export function readTypeScriptTargetOptions(
       }
       return argument;
     });
+  const optimizations = readOptimizationOptions(options["optimizations"]);
   return Object.freeze({
     printer: Object.freeze({
       executable,
       arguments: Object.freeze(arguments_),
     }),
+    optimizations,
   });
+}
+
+function readOptimizationOptions(value: unknown): TypeScriptOptimizationOptions {
+  if (value === undefined) {
+    return Object.freeze({
+      pointerFlows: "location",
+      scalarProjections: "preserve",
+    });
+  }
+  if (!isRecord(value)) {
+    throw new Error("TypeScript target option 'optimizations' must be an object");
+  }
+  rejectUnknownKeys(
+    value,
+    new Set(["pointerFlows", "scalarProjections"]),
+    "TypeScript target optimizations",
+  );
+  return Object.freeze({
+    pointerFlows: readClosedChoice(
+      value["pointerFlows"],
+      "pointerFlows",
+      "location",
+    ),
+    scalarProjections: readClosedChoice(
+      value["scalarProjections"],
+      "scalarProjections",
+      "preserve",
+    ),
+  });
+}
+
+function readClosedChoice<Canonical extends string>(
+  value: unknown,
+  name: string,
+  canonical: Canonical,
+): Canonical | "closed-direct" {
+  if (value === undefined || value === canonical) {
+    return canonical;
+  }
+  if (value === "closed-direct") {
+    return value;
+  }
+  throw new Error(
+    `TypeScript target optimization '${name}' must be '${canonical}' or 'closed-direct'`,
+  );
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

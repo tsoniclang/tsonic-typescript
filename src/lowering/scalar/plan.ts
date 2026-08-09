@@ -68,21 +68,27 @@ export function createScalarRepresentationPlan(
   if (profile !== "preserve" && profile !== "closed-direct") {
     throw new Error(`unsupported scalar representation profile '${String(profile)}'`);
   }
-  const nodes = collectProgramNodes(source);
-  const syntactic = nodes.filter((node) => isSyntacticProjection(node));
-  if (profile === "preserve") {
-    return sealPlan(source, profile, syntactic.length, []);
-  }
-
+  let syntacticProjectionCount = 0;
   const classProofs = new Map<Node, TransparentClassProof | undefined>();
   const projections: ScalarProjectionPlan[] = [];
-  for (const node of syntactic) {
-    const projection = resolveProjection(source, node, classProofs);
-    if (projection !== undefined) {
-      projections.push(projection);
+  forEachProgramNode(source, (node) => {
+    if (!isSyntacticProjection(node)) {
+      return;
     }
-  }
-  return sealPlan(source, profile, syntactic.length, projections);
+    syntacticProjectionCount += 1;
+    if (profile === "closed-direct") {
+      const projection = resolveProjection(source, node, classProofs);
+      if (projection !== undefined) {
+        projections.push(projection);
+      }
+    }
+  });
+  return sealPlan(
+    source,
+    profile,
+    syntacticProjectionCount,
+    projections,
+  );
 }
 
 function sealPlan(
@@ -128,26 +134,27 @@ function sealPlan(
   });
 }
 
-function collectProgramNodes(source: TargetSourceProgram): readonly Node[] {
-  const nodes: Node[] = [];
-  const seen = new Set<Node>();
-  const pending: Node[] = [...source.sourceFiles].reverse();
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined || seen.has(node)) {
-      continue;
-    }
-    seen.add(node);
-    nodes.push(node);
-    const children = source.ast.children(node);
-    for (let index = children.length - 1; index >= 0; index -= 1) {
-      const child = children[index];
-      if (child !== undefined) {
-        pending.push(child);
+function forEachProgramNode(
+  source: TargetSourceProgram,
+  visit: (node: Node) => void,
+): void {
+  for (const sourceFile of source.sourceFiles) {
+    const pending: Node[] = [sourceFile];
+    while (pending.length > 0) {
+      const node = pending.pop();
+      if (node === undefined) {
+        continue;
+      }
+      visit(node);
+      const children = source.ast.children(node);
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        const child = children[index];
+        if (child !== undefined) {
+          pending.push(child);
+        }
       }
     }
   }
-  return Object.freeze(nodes);
 }
 
 function isSyntacticProjection(node: Node): boolean {
