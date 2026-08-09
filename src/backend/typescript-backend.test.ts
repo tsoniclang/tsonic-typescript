@@ -26,7 +26,8 @@ test("lowers and prints every checked source file in one batch", () => {
   });
   const batches: Uint8Array[][] = [];
   const printer: TypeScriptAstPrinter = {
-    print(files) {
+    print(request) {
+      const files = request.encodedSourceFiles();
       batches.push([...files]);
       return files.map((_, index) => `// printed ${index}\n`);
     },
@@ -55,10 +56,34 @@ test("lowers and prints every checked source file in one batch", () => {
   assert.deepEqual(projectDependencies(result.artifacts), {});
 });
 
+test("orders source artifacts by locale-independent UTF-16 code units", () => {
+  const source = checkedSource({
+    "/project/z.ts": "export const z = 1;\n",
+    "/project/ä.ts": "export const umlaut = 2;\n",
+  });
+  const printer: TypeScriptAstPrinter = {
+    print(request) {
+      const files = request.encodedSourceFiles();
+      return files.map((_, index) => `// printed ${index}\n`);
+    },
+  };
+
+  const result = createTypeScriptBackend(printer).compile(
+    compileInput(source),
+  );
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(
+    result.artifacts.map((artifact) => artifact.path),
+    ["package.json", "z.ts", "ä.ts"],
+  );
+});
+
 test("declares the exact runtime package only when pointer lowering demands it", () => {
   const source = checkedPointerSource();
   const printer: TypeScriptAstPrinter = {
-    print(files) {
+    print(request) {
+      const files = request.encodedSourceFiles();
       return files.map((_, index) => `// printed ${index}\n`);
     },
   };
@@ -76,7 +101,8 @@ test("declares the exact runtime package only when pointer lowering demands it",
 test("rejects pointer lowering when the target runtime reference is absent or mismatched", () => {
   const source = checkedPointerSource();
   const printer: TypeScriptAstPrinter = {
-    print(files) {
+    print(request) {
+      const files = request.encodedSourceFiles();
       return files.map((_, index) => `// printed ${index}\n`);
     },
   };

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  BoundedFrameCollection,
   framedPayloadLength,
   type PrinterProtocolLimits,
 } from "./protocol-budget.js";
@@ -36,4 +37,20 @@ test("printer protocol budget rejects count, frame, aggregate, and arithmetic ex
     }, "test"),
     /frame 0 size .* exceeds limit/u,
   );
+});
+
+test("bounded frame collection rejects before retaining an over-budget frame", () => {
+  const frames = new BoundedFrameCollection(4, limits, "test");
+  const accepted = Uint8Array.from([1, 2, 3]);
+  frames.append(accepted);
+
+  assert.throws(
+    () => frames.append(Uint8Array.from([4, 5, 6])),
+    /payload size 22 exceeds limit 18/u,
+  );
+  assert.equal(frames.size, 1);
+  assert.equal(frames.payloadLength, 15);
+  const retained = frames.frames();
+  assert.equal(Object.isFrozen(retained), true);
+  assert.deepEqual(retained, [accepted]);
 });

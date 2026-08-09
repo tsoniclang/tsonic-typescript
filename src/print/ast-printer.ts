@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 
 import type { TypeScriptAstPrinterOptions } from "../config/options.js";
 import {
-  framedPayloadLength,
+  BoundedFrameCollection,
   printerProtocolLimits,
 } from "./protocol-budget.js";
 
@@ -11,15 +11,39 @@ const outputMagic = Buffer.from("TSTSPR02", "ascii");
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 export interface TypeScriptAstPrinter {
-  print(encodedSourceFiles: readonly Uint8Array[]): readonly string[];
+  print(request: TypeScriptPrinterRequest): readonly string[];
+}
+
+export class TypeScriptPrinterRequest {
+  readonly #frames = new BoundedFrameCollection(
+    inputMagic.length,
+    printerProtocolLimits,
+    "TypeScript AST printer request",
+  );
+
+  append(encodedSourceFile: Uint8Array): void {
+    this.#frames.append(encodedSourceFile);
+  }
+
+  get size(): number {
+    return this.#frames.size;
+  }
+
+  encodedSourceFiles(): readonly Uint8Array[] {
+    return this.#frames.frames();
+  }
+
+  payloadLength(): number {
+    return this.#frames.payloadLength;
+  }
 }
 
 export function createExternalAstPrinter(
   options: TypeScriptAstPrinterOptions,
 ): TypeScriptAstPrinter {
   return Object.freeze({
-    print(encodedSourceFiles: readonly Uint8Array[]) {
-      const input = encodeRequest(encodedSourceFiles);
+    print(request: TypeScriptPrinterRequest) {
+      const input = encodeRequest(request);
       const result = spawnSync(options.executable, options.arguments, {
         input,
         maxBuffer: printerProtocolLimits.maximumPayloadBytes,
@@ -42,7 +66,7 @@ export function createExternalAstPrinter(
             (stderr.length === 0 ? "" : `: ${stderr}`),
         );
       }
-      return decodeResponse(result.stdout, encodedSourceFiles.length);
+      return decodeResponse(result.stdout, request.size);
     },
   });
 }
@@ -50,7 +74,11 @@ export function createExternalAstPrinter(
 export function encodePrinterRequest(
   encodedSourceFiles: readonly Uint8Array[],
 ): Uint8Array {
-  return encodeRequest(encodedSourceFiles);
+  const request = new TypeScriptPrinterRequest();
+  for (const encodedSourceFile of encodedSourceFiles) {
+    request.append(encodedSourceFile);
+  }
+  return encodeRequest(request);
 }
 
 export function decodePrinterResponse(
@@ -60,13 +88,8 @@ export function decodePrinterResponse(
   return decodeResponse(Buffer.from(response), expectedFileCount);
 }
 
-function encodeRequest(encodedSourceFiles: readonly Uint8Array[]): Buffer {
-  const payloadLength = framedPayloadLength(
-    encodedSourceFiles.map((sourceFile) => sourceFile.byteLength),
-    inputMagic.length,
-    printerProtocolLimits,
-    "TypeScript AST printer request",
-  );
+function encodeRequest(request: TypeScriptPrinterRequest): Buffer {
+  const encodedSourceFiles = request.encodedSourceFiles();
   const frames = encodedSourceFiles.map((sourceFile) => {
     const header = Buffer.allocUnsafe(4);
     header.writeUInt32LE(sourceFile.byteLength, 0);
@@ -74,7 +97,10 @@ function encodeRequest(encodedSourceFiles: readonly Uint8Array[]): Buffer {
   });
   const count = Buffer.allocUnsafe(4);
   count.writeUInt32LE(encodedSourceFiles.length, 0);
-  return Buffer.concat([inputMagic, count, ...frames.flat()], payloadLength);
+  return Buffer.concat(
+    [inputMagic, count, ...frames.flat()],
+    request.payloadLength(),
+  );
 }
 
 function decodeResponse(response: Buffer, expectedFileCount: number): readonly string[] {

@@ -13,8 +13,12 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import { lowerPointers } from "../lowering/pointer/transform.js";
-import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
+import {
+  TypeScriptPrinterRequest,
+  type TypeScriptAstPrinter,
+} from "../print/ast-printer.js";
 import { createTypeScriptProjectArtifact } from "./project-artifact.js";
+import { compareSourceDocumentIdentities } from "./source-order.js";
 
 export function createTypeScriptBackend(
   printer: TypeScriptAstPrinter,
@@ -64,17 +68,20 @@ function compileSourceArtifacts(
 } {
   const lowered: {
     readonly path: string;
-    readonly encoded: Uint8Array;
     readonly usesRuntime: boolean;
   }[] = [];
+  const printerRequest = new TypeScriptPrinterRequest();
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
   const sourceFiles = [...input.source.navigation.sourceFiles].sort(
-    (left, right) => input.source.documents.forFile(left).identity.localeCompare(
+    (left, right) => compareSourceDocumentIdentities(
+      input.source.documents.forFile(left).identity,
       input.source.documents.forFile(right).identity,
     ),
   );
   for (const sourceFile of sourceFiles) {
     const document = input.source.documents.forFile(sourceFile);
+    let encoded: Uint8Array;
+    let usesRuntime: boolean;
     try {
       if (document.sourceFile !== sourceFile) {
         throw new Error(
@@ -82,11 +89,8 @@ function compileSourceArtifacts(
         );
       }
       const result = lowerPointers(input.source, sourceFile);
-      lowered.push({
-        path: sourceArtifactPath(input, document.fileName),
-        encoded: encodeTargetSourceFile(document.fileName, result.sourceFile),
-        usesRuntime: result.runtimeAlias !== undefined,
-      });
+      encoded = encodeTargetSourceFile(document.fileName, result.sourceFile);
+      usesRuntime = result.runtimeAlias !== undefined;
     } catch (error) {
       diagnostics.push({
         code: "TYPESCRIPT_TARGET_LOWERING",
@@ -94,7 +98,23 @@ function compileSourceArtifacts(
         source: "@tsonic/target-typescript",
         message: `${document.fileName}: ${error instanceof Error ? error.message : String(error)}`,
       });
+      continue;
     }
+    try {
+      printerRequest.append(encoded);
+    } catch (error) {
+      diagnostics.push({
+        code: "TYPESCRIPT_TARGET_LOWERING",
+        category: "error",
+        source: "@tsonic/target-typescript",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      break;
+    }
+    lowered.push({
+      path: sourceArtifactPath(input, document.fileName),
+      usesRuntime,
+    });
   }
   if (diagnostics.length > 0) {
     return Object.freeze({
@@ -103,7 +123,7 @@ function compileSourceArtifacts(
       usesRuntime: false,
     });
   }
-  const printed = printer.print(lowered.map((artifact) => artifact.encoded));
+  const printed = printer.print(printerRequest);
   if (printed.length !== lowered.length) {
     throw new Error(
       `TypeScript AST printer returned ${printed.length} files, expected ${lowered.length}`,

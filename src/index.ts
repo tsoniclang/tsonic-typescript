@@ -17,6 +17,7 @@ export {
   createExternalAstPrinter,
   decodePrinterResponse,
   encodePrinterRequest,
+  TypeScriptPrinterRequest,
 } from "./print/ast-printer.js";
 export type { TypeScriptAstPrinter } from "./print/ast-printer.js";
 export {
