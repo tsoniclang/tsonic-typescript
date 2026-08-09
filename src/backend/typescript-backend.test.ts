@@ -145,7 +145,7 @@ test("fails the compilation when the printer omits a source file", () => {
   );
 });
 
-test("plans every source and reports independent lowering failures before invoking the printer", () => {
+test("prepares every source and reports independent lowering failures before invoking the printer", () => {
   const source = checkedRejectedPointerSources();
   let printCalls = 0;
   const printer: TypeScriptAstPrinter = {
@@ -166,6 +166,7 @@ test("plans every source and reports independent lowering failures before invoki
     [
       "/project/a.ts: selected pointer marker at KindIdentifier is used as a runtime value without an exact lowering operation",
       "/project/b.ts: selected pointer marker at KindPropertyAccessExpression is used as a runtime value without an exact lowering operation",
+      "/project/c.ts: address-of does not support private field storage",
     ],
   );
 });
@@ -239,11 +240,24 @@ export const marker = loadPointer;
       "/project/b.ts": `import * as markers from "./markers.js";
 export const marker = markers.loadPointer;
 `,
+      "/project/c.ts": `import { addressOf } from "./markers.js";
+class Box {
+  #value = 1;
+  pointer() { return addressOf(this.#value); }
+}
+export const box = new Box();
+`,
       "/project/markers.ts": `export interface Pointer<T> { value: T }
+export declare function addressOf<T>(storage: T): Pointer<T>;
 export declare function loadPointer<T>(pointer: Pointer<T>): T;
 `,
     },
-    rootFiles: ["/project/0-valid.ts", "/project/a.ts", "/project/b.ts"],
+    rootFiles: [
+      "/project/0-valid.ts",
+      "/project/a.ts",
+      "/project/b.ts",
+      "/project/c.ts",
+    ],
     compilerOptions: {
       module: "esnext",
       moduleResolution: "bundler",
@@ -259,6 +273,10 @@ export declare function loadPointer<T>(pointer: Pointer<T>): T;
             kind: "call-marker",
             exportName: "loadPointer",
             marker: "load",
+          }, {
+            kind: "call-marker",
+            exportName: "addressOf",
+            marker: "address-of",
           }],
         }],
       })],

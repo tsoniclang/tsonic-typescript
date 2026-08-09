@@ -73,22 +73,46 @@ test("fails the complete print operation on a later batch count mismatch", () =>
   assert.equal(batchIndex, 2);
 });
 
-test("rejects one oversized frame before invoking the printer", () => {
+test("rejects a later oversized frame before invoking the printer", () => {
   let printCalls = 0;
   const printer: TypeScriptAstPrinter = {
-    print() {
+    print(batch) {
       printCalls += 1;
-      return [];
+      return batch.encodedSourceFiles.map(() => "// printed\n");
     },
   };
-  const oversized = [{
-    path: "oversized.ts",
-    encoded: Uint8Array.from([1, 2, 3, 4]),
-  }];
+  const oversized = [
+    ...encodedSources(1, 2),
+    {
+      path: "oversized.ts",
+      encoded: Uint8Array.from([1, 2, 3, 4]),
+    },
+  ];
 
   assert.throws(
     () => printEncodedTypeScriptSources(oversized, printer, limits),
     /frame 0 size 4 exceeds limit 3/u,
+  );
+  assert.equal(printCalls, 0);
+});
+
+test("finishes source preparation before invoking the printer", () => {
+  let printCalls = 0;
+  const printer: TypeScriptAstPrinter = {
+    print(batch) {
+      printCalls += 1;
+      return batch.encodedSourceFiles.map(() => "// printed\n");
+    },
+  };
+
+  function* sources(): Iterable<EncodedTypeScriptSource> {
+    yield* encodedSources(1, 2, 3);
+    throw new Error("later source preparation failed");
+  }
+
+  assert.throws(
+    () => printEncodedTypeScriptSources(sources(), printer, limits),
+    /later source preparation failed/u,
   );
   assert.equal(printCalls, 0);
 });

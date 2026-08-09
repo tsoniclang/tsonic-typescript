@@ -10,6 +10,12 @@ protocol and printed by one configured printer service. Bootstrap builds use
 the pinned TS-Go printer; the lowering contract is independent of that printer
 implementation.
 
+The backend prepares, lowers, encodes, and resource-validates every selected
+source before invoking that service. It then prints immutable-membership
+batches under one finite protocol budget and publishes artifacts only after
+every batch returns the exact ordered file count. Source-side failures invoke
+no printer; printer failures publish no partial target result.
+
 The target provider contributes the exact declared TypeScript runtime package
 reference. The backend emits one strict-ESM `package.json`, retains that
 dependency only when fact-driven lowering introduces a runtime import, and

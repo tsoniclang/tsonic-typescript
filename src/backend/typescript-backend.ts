@@ -11,12 +11,7 @@ import {
   TargetAstEncodingError,
 } from "@tsonic/tsts/target-ast";
 
-import {
-  createPointerLoweringPlan,
-  pointerLoweringPlanUsesRuntime,
-  type PointerLoweringPlan,
-} from "../lowering/pointer/plan.js";
-import { applyPointerLoweringPlan } from "../lowering/pointer/transform.js";
+import { lowerPointers } from "../lowering/pointer/transform.js";
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { createTypeScriptProjectArtifact } from "./project-artifact.js";
 import {
@@ -71,38 +66,33 @@ function compileSourceArtifacts(
   readonly diagnostics: TargetCompileResult["diagnostics"];
   readonly usesRuntime: boolean;
 } {
-  const planned = planSourceArtifacts(input);
-  if (planned.diagnostics.length > 0) {
+  const prepared = prepareSourceArtifacts(input);
+  if (prepared.diagnostics.length > 0) {
     return Object.freeze({
       artifacts: [],
-      diagnostics: planned.diagnostics,
+      diagnostics: prepared.diagnostics,
       usesRuntime: false,
     });
   }
   const artifacts = printEncodedTypeScriptSources(
-    encodePlannedSourceArtifacts(input, planned.artifacts),
+    prepared.artifacts,
     printer,
   );
   return Object.freeze({
     artifacts,
     diagnostics: [],
-    usesRuntime: planned.artifacts.some((artifact) =>
-      pointerLoweringPlanUsesRuntime(artifact.plan)),
+    usesRuntime: prepared.usesRuntime,
   });
 }
 
-interface PlannedSourceArtifact {
-  readonly fileName: string;
-  readonly path: string;
-  readonly plan: PointerLoweringPlan;
-}
-
-function planSourceArtifacts(input: TargetCompileInput): {
-  readonly artifacts: readonly PlannedSourceArtifact[];
+function prepareSourceArtifacts(input: TargetCompileInput): {
+  readonly artifacts: readonly EncodedTypeScriptSource[];
   readonly diagnostics: TargetCompileResult["diagnostics"];
+  readonly usesRuntime: boolean;
 } {
-  const artifacts: PlannedSourceArtifact[] = [];
+  const artifacts: EncodedTypeScriptSource[] = [];
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
+  let usesRuntime = false;
   const sourceFiles = [...input.source.navigation.sourceFiles].sort(
     (left, right) => compareSourceDocumentIdentities(
       input.source.documents.forFile(left).identity,
@@ -117,11 +107,12 @@ function planSourceArtifacts(input: TargetCompileInput): {
           `source document '${document.identity}' does not own its exact AST`,
         );
       }
+      const lowered = lowerPointers(input.source, sourceFile);
       artifacts.push(Object.freeze({
-        fileName: document.fileName,
         path: sourceArtifactPath(input, document.fileName),
-        plan: createPointerLoweringPlan(input.source, sourceFile),
+        encoded: encodeTargetSourceFile(lowered.sourceFile),
       }));
+      usesRuntime ||= lowered.runtimeAlias !== undefined;
     } catch (error) {
       diagnostics.push({
         code: "TYPESCRIPT_TARGET_LOWERING",
@@ -134,27 +125,8 @@ function planSourceArtifacts(input: TargetCompileInput): {
   return Object.freeze({
     artifacts: Object.freeze(artifacts),
     diagnostics: Object.freeze(diagnostics),
+    usesRuntime,
   });
-}
-
-function* encodePlannedSourceArtifacts(
-  input: TargetCompileInput,
-  artifacts: readonly PlannedSourceArtifact[],
-): Iterable<EncodedTypeScriptSource> {
-  for (const artifact of artifacts) {
-    try {
-      const lowered = applyPointerLoweringPlan(input.source, artifact.plan);
-      yield Object.freeze({
-        path: artifact.path,
-        encoded: encodeTargetSourceFile(lowered.sourceFile),
-      });
-    } catch (error) {
-      throw new Error(
-        `${artifact.fileName}: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      );
-    }
-  }
 }
 
 function encodeTargetSourceFile(

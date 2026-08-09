@@ -20,13 +20,31 @@ export function printEncodedTypeScriptSources(
   printer: TypeScriptAstPrinter,
   limits: PrinterProtocolLimits = printerProtocolLimits,
 ): readonly TargetSourceFile[] {
+  const batches = partitionEncodedTypeScriptSources(sources, limits);
   const artifacts: TargetSourceFile[] = [];
+
+  for (const { batch, paths } of batches) {
+    artifacts.push(...printBatch(printer, batch, paths));
+  }
+  return Object.freeze(artifacts);
+}
+
+interface EncodedTypeScriptSourceBatch {
+  readonly batch: TypeScriptPrinterBatch;
+  readonly paths: readonly string[];
+}
+
+function partitionEncodedTypeScriptSources(
+  sources: Iterable<EncodedTypeScriptSource>,
+  limits: PrinterProtocolLimits,
+): readonly EncodedTypeScriptSourceBatch[] {
+  const batches: EncodedTypeScriptSourceBatch[] = [];
   let builder = new TypeScriptPrinterBatchBuilder(limits);
   let paths: string[] = [];
 
   for (const source of sources) {
     if (!builder.tryAppend(source.encoded)) {
-      artifacts.push(...printBatch(printer, builder.seal(), paths));
+      batches.push(sealSourceBatch(builder, paths));
       builder = new TypeScriptPrinterBatchBuilder(limits);
       paths = [];
       builder.append(source.encoded);
@@ -34,8 +52,28 @@ export function printEncodedTypeScriptSources(
     paths.push(source.path);
   }
 
-  artifacts.push(...printBatch(printer, builder.seal(), paths));
-  return Object.freeze(artifacts);
+  const batch = builder.seal();
+  if (batch.encodedSourceFiles.length !== 0) {
+    batches.push(Object.freeze({
+      batch,
+      paths: Object.freeze([...paths]),
+    }));
+  }
+  return Object.freeze(batches);
+}
+
+function sealSourceBatch(
+  builder: TypeScriptPrinterBatchBuilder,
+  paths: readonly string[],
+): EncodedTypeScriptSourceBatch {
+  const batch = builder.seal();
+  if (batch.encodedSourceFiles.length === 0) {
+    throw new Error("TypeScript AST printer batch cannot be empty");
+  }
+  return Object.freeze({
+    batch,
+    paths: Object.freeze([...paths]),
+  });
 }
 
 function printBatch(
