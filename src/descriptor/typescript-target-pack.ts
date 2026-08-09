@@ -48,7 +48,10 @@ export function createTypeScriptTargetPack(): TargetPack {
     },
     createBackend(context: TargetBackendContext): TargetBackend {
       const options = readTypeScriptTargetOptions(context.target);
-      return createTypeScriptBackend(createExternalAstPrinter(options.printer));
+      return createTypeScriptBackend(
+        createExternalAstPrinter(options.printer),
+        options.optimizations,
+      );
     },
     createToolchain(): TargetToolchain {
       return {

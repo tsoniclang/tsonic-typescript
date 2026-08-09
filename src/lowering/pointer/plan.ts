@@ -12,6 +12,7 @@ import type {
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { validateAddressableStorage } from "./addressability.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type {
   ClosedPointerFlowPlan,
@@ -159,6 +160,7 @@ export function createPointerLoweringPlan(
       operation.operation === "address-of" &&
       (flowPlan?.representationFor(operation.call) ?? "location") === "location"
     ) {
+      validateAddressableStorage(source, operation.storageExpression);
       collectAddressBinding(source, sourceFile, operation, bindingsByDeclaration);
     }
   }

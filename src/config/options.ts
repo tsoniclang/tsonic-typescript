@@ -1,21 +1,18 @@
 import type { TargetSelection } from "@tsonic/target-api";
 
+import {
+  canonicalTypeScriptOptimizationProfile,
+  type TypeScriptOptimizationProfile,
+} from "../lowering/profile.js";
+
 export interface TypeScriptAstPrinterOptions {
   readonly executable: string;
   readonly arguments: readonly string[];
 }
 
-export type TypeScriptPointerFlowProfile = "location" | "closed-direct";
-export type TypeScriptScalarProjectionProfile = "preserve" | "closed-direct";
-
-export interface TypeScriptOptimizationOptions {
-  readonly pointerFlows: TypeScriptPointerFlowProfile;
-  readonly scalarProjections: TypeScriptScalarProjectionProfile;
-}
-
 export interface TypeScriptTargetOptions {
   readonly printer: TypeScriptAstPrinterOptions;
-  readonly optimizations: TypeScriptOptimizationOptions;
+  readonly optimizations: TypeScriptOptimizationProfile;
 }
 
 export function readTypeScriptTargetOptions(
@@ -69,12 +66,9 @@ export function readTypeScriptTargetOptions(
   });
 }
 
-function readOptimizationOptions(value: unknown): TypeScriptOptimizationOptions {
+function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile {
   if (value === undefined) {
-    return Object.freeze({
-      pointerFlows: "location",
-      scalarProjections: "preserve",
-    });
+    return canonicalTypeScriptOptimizationProfile();
   }
   if (!isRecord(value)) {
     throw new Error("TypeScript target option 'optimizations' must be an object");

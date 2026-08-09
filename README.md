@@ -27,6 +27,27 @@ The same provider owns the checked-source declaration profile: the bundled
 `lib.es2024.d.ts` closure and declaration contracts from installed packages.
 Callers do not inject ambient globals or rediscover the target's library set.
 
+## Optimization profile
+
+All representation changes are explicit target configuration. Omitting the
+profile selects the canonical, open-world-safe result:
+
+```json
+{
+  "optimizations": {
+    "pointerFlows": "location",
+    "scalarProjections": "preserve"
+  }
+}
+```
+
+An executable assembled as one closed program may select `"closed-direct"`
+for either family. The backend builds every whole-program plan before changing
+any source, then composes all selected rewrites in one post-order traversal of
+each original TS-Go-contract AST. Every planned source and semantic fact must
+be consumed exactly once before the transaction seals; otherwise printing is
+not invoked and no artifact is published.
+
 ## Pointer representations
 
 Canonical pointer lowering is `Location<T>`. It remains the default and the

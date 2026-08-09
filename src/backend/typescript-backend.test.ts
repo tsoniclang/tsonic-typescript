@@ -98,6 +98,23 @@ test("declares the exact runtime package only when pointer lowering demands it",
   });
 });
 
+test("omits the pointer runtime after an exact closed-flow contraction", () => {
+  const source = checkedPointerSource();
+  const printer: TypeScriptAstPrinter = {
+    print(batch) {
+      return batch.encodedSourceFiles.map((_, index) => `// printed ${index}\n`);
+    },
+  };
+
+  const result = createTypeScriptBackend(printer, {
+    pointerFlows: "closed-direct",
+    scalarProjections: "preserve",
+  }).compile(compileInput(source));
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(projectDependencies(result.artifacts), {});
+});
+
 test("rejects pointer lowering when the target runtime reference is absent or mismatched", () => {
   const source = checkedPointerSource();
   const printer: TypeScriptAstPrinter = {

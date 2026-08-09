@@ -11,7 +11,13 @@ import {
   TargetAstEncodingError,
 } from "@tsonic/tsts/target-ast";
 
-import { lowerPointers } from "../lowering/pointer/transform.js";
+import {
+  canonicalTypeScriptOptimizationProfile,
+  type TypeScriptOptimizationProfile,
+} from "../lowering/profile.js";
+import {
+  prepareTypeScriptLowering,
+} from "../lowering/transform.js";
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { createTypeScriptProjectArtifact } from "./project-artifact.js";
 import {
@@ -22,11 +28,12 @@ import { compareSourceDocumentIdentities } from "./source-order.js";
 
 export function createTypeScriptBackend(
   printer: TypeScriptAstPrinter,
+  profile: TypeScriptOptimizationProfile = canonicalTypeScriptOptimizationProfile(),
 ): TargetBackend {
   return {
     compile(input: TargetCompileInput): TargetCompileResult {
       try {
-        const compiled = compileSourceArtifacts(input, printer);
+        const compiled = compileSourceArtifacts(input, printer, profile);
         if (compiled.diagnostics.length > 0) {
           return {
             artifacts: [],
@@ -61,12 +68,13 @@ export function createTypeScriptBackend(
 function compileSourceArtifacts(
   input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
+  profile: TypeScriptOptimizationProfile,
 ): {
   readonly artifacts: readonly TargetArtifact[];
   readonly diagnostics: TargetCompileResult["diagnostics"];
   readonly usesRuntime: boolean;
 } {
-  const prepared = prepareSourceArtifacts(input);
+  const prepared = prepareSourceArtifacts(input, profile);
   if (prepared.diagnostics.length > 0) {
     return Object.freeze({
       artifacts: [],
@@ -85,7 +93,10 @@ function compileSourceArtifacts(
   });
 }
 
-function prepareSourceArtifacts(input: TargetCompileInput): {
+function prepareSourceArtifacts(
+  input: TargetCompileInput,
+  profile: TypeScriptOptimizationProfile,
+): {
   readonly artifacts: readonly EncodedTypeScriptSource[];
   readonly diagnostics: TargetCompileResult["diagnostics"];
   readonly usesRuntime: boolean;
@@ -99,7 +110,7 @@ function prepareSourceArtifacts(input: TargetCompileInput): {
       input.source.documents.forFile(right).identity,
     ),
   );
-  for (const sourceFile of sourceFiles) {
+  const selectedSources = sourceFiles.flatMap((sourceFile) => {
     const document = input.source.documents.forFile(sourceFile);
     try {
       if (document.sourceFile !== sourceFile) {
@@ -107,25 +118,69 @@ function prepareSourceArtifacts(input: TargetCompileInput): {
           `source document '${document.identity}' does not own its exact AST`,
         );
       }
-      const lowered = lowerPointers(input.source, sourceFile);
-      artifacts.push(Object.freeze({
+      return [Object.freeze({
+        sourceFile,
+        document,
         path: sourceArtifactPath(input, document.fileName),
+      })];
+    } catch (error) {
+      diagnostics.push(loweringDiagnostic(document.fileName, error));
+      return [];
+    }
+  });
+  if (diagnostics.length !== 0) {
+    return Object.freeze({
+      artifacts: [],
+      diagnostics: Object.freeze(diagnostics),
+      usesRuntime: false,
+    });
+  }
+  const preparation = prepareTypeScriptLowering(
+    input.source,
+    sourceFiles,
+    profile,
+  );
+  if (preparation.kind === "rejected") {
+    return Object.freeze({
+      artifacts: [],
+      diagnostics: Object.freeze(preparation.failures.map((failure) =>
+        loweringDiagnostic(
+          input.source.documents.forFile(failure.sourceFile).fileName,
+          failure.message,
+        )
+      )),
+      usesRuntime: false,
+    });
+  }
+  for (const selected of selectedSources) {
+    try {
+      const lowered = preparation.transaction.lower(selected.sourceFile);
+      artifacts.push(Object.freeze({
+        path: selected.path,
         encoded: encodeTargetSourceFile(lowered.sourceFile),
       }));
-      usesRuntime ||= lowered.runtimeAlias !== undefined;
+      usesRuntime ||= lowered.pointer.runtimeAlias !== undefined;
     } catch (error) {
-      diagnostics.push({
-        code: "TYPESCRIPT_TARGET_LOWERING",
-        category: "error",
-        source: "@tsonic/target-typescript",
-        message: `${document.fileName}: ${error instanceof Error ? error.message : String(error)}`,
-      });
+      diagnostics.push(loweringDiagnostic(selected.document.fileName, error));
     }
   }
+  preparation.transaction.finish();
   return Object.freeze({
     artifacts: Object.freeze(artifacts),
     diagnostics: Object.freeze(diagnostics),
     usesRuntime,
+  });
+}
+
+function loweringDiagnostic(
+  fileName: string,
+  error: unknown,
+): TargetCompileResult["diagnostics"][number] {
+  return Object.freeze({
+    code: "TYPESCRIPT_TARGET_LOWERING",
+    category: "error",
+    source: "@tsonic/target-typescript",
+    message: `${fileName}: ${error instanceof Error ? error.message : String(error)}`,
   });
 }
 

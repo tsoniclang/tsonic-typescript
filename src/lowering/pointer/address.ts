@@ -53,7 +53,6 @@ export function lowerAddressOf(
         "addressed property has no exact original name",
       );
     }
-    requireAddressablePropertyName(source, originalProperty.name);
     const parentLocation = lowerValueParentLocation(
       source,
       factory,
@@ -166,7 +165,6 @@ function lowerValueParentLocation(
         "addressed value path lost an exact property segment",
       );
     }
-    requireAddressablePropertyName(source, originalProperty.name);
     const parent = lowerValueParentLocation(
       source,
       factory,
@@ -219,17 +217,6 @@ function lowerValueParentLocation(
     [],
     [parent ?? updatedElement.Expression, updatedElement.ArgumentExpression],
   );
-}
-
-function requireAddressablePropertyName(
-  source: TargetSourceProgram,
-  name: Node,
-): void {
-  if (source.ast.is.IsPrivateIdentifier(name)) {
-    throw new PointerLoweringError(
-      "address-of does not support private field storage",
-    );
-  }
 }
 
 function requiredNode(node: Node | undefined, subject: string): Node {

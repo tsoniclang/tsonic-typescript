@@ -6,6 +6,23 @@ export type {
   TypeScriptAstPrinterOptions,
   TypeScriptTargetOptions,
 } from "./config/options.js";
+export {
+  canonicalTypeScriptOptimizationProfile,
+} from "./lowering/profile.js";
+export type {
+  TypeScriptOptimizationProfile,
+  TypeScriptPointerFlowProfile,
+  TypeScriptScalarProjectionProfile,
+} from "./lowering/profile.js";
+export {
+  prepareTypeScriptLowering,
+} from "./lowering/transform.js";
+export type {
+  TypeScriptLoweringPreparation,
+  TypeScriptLoweringTransaction,
+  TypeScriptSourceLoweringResult,
+  TypeScriptSourcePlanningFailure,
+} from "./lowering/transform.js";
 export { PointerLoweringError } from "./lowering/pointer/diagnostic.js";
 export {
   createClosedPointerFlowPlan,
