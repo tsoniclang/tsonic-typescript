@@ -109,6 +109,7 @@ test("omits the pointer runtime after an exact closed-flow contraction", () => {
   const result = createTypeScriptBackend(printer, {
     pointerFlows: "closed-direct",
     scalarProjections: "preserve",
+    cooperativeEffects: "preserve",
   }).compile(compileInput(source));
 
   assert.deepEqual(result.diagnostics, []);

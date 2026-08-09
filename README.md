@@ -36,7 +36,8 @@ profile selects the canonical, open-world-safe result:
 {
   "optimizations": {
     "pointerFlows": "location",
-    "scalarProjections": "preserve"
+    "scalarProjections": "preserve",
+    "cooperativeEffects": "preserve"
   }
 }
 ```
@@ -47,6 +48,17 @@ any source, then composes all selected rewrites in one post-order traversal of
 each original TS-Go-contract AST. Every planned source and semantic fact must
 be consumed exactly once before the transaction seals; otherwise printing is
 not invoked and no artifact is published.
+
+`optimizations.cooperativeEffects: "closed-direct"` removes cooperative
+`Promise` transport only from a complete, exact call component with no
+provider, indirect-call, escaping-callable, promise-forwarding, or unresolved
+boundary. The plan resolves calls through checked signatures, settles
+recursive components together, and rewrites each selected declaration,
+return contract, and dependent `await` in one transaction. For example,
+`async function answer(): Promise<number> { return 42 }` becomes
+`function answer(): number { return 42 }`, and an exact `await answer()` use
+becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`
+return, or provider call remains unchanged.
 
 ## Pointer representations
 

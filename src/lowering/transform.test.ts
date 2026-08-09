@@ -41,6 +41,7 @@ test("composes pointer and scalar lowering in one target-AST traversal", () => {
     {
       pointerFlows: "closed-direct",
       scalarProjections: "closed-direct",
+      cooperativeEffects: "preserve",
     },
   ));
   const results = files.map((sourceFile) => transaction.lower(sourceFile));

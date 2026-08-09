@@ -75,7 +75,7 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
   }
   rejectUnknownKeys(
     value,
-    new Set(["pointerFlows", "scalarProjections"]),
+    new Set(["pointerFlows", "scalarProjections", "cooperativeEffects"]),
     "TypeScript target optimizations",
   );
   return Object.freeze({
@@ -87,6 +87,11 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
     scalarProjections: readClosedChoice(
       value["scalarProjections"],
       "scalarProjections",
+      "preserve",
+    ),
+    cooperativeEffects: readClosedChoice(
+      value["cooperativeEffects"],
+      "cooperativeEffects",
       "preserve",
     ),
   });

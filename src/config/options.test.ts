@@ -25,6 +25,7 @@ test("validates and freezes the external printer configuration", () => {
   assert.deepEqual(result.optimizations, {
     pointerFlows: "location",
     scalarProjections: "preserve",
+    cooperativeEffects: "preserve",
   });
   assert.ok(Object.isFrozen(result));
   assert.ok(Object.isFrozen(result.printer));
@@ -40,6 +41,7 @@ test("validates and freezes explicit closed-flow optimizations", () => {
       optimizations: {
         pointerFlows: "closed-direct",
         scalarProjections: "closed-direct",
+        cooperativeEffects: "closed-direct",
       },
     },
   };
@@ -49,6 +51,7 @@ test("validates and freezes explicit closed-flow optimizations", () => {
   assert.deepEqual(result.optimizations, {
     pointerFlows: "closed-direct",
     scalarProjections: "closed-direct",
+    cooperativeEffects: "closed-direct",
   });
   assert.ok(Object.isFrozen(result.optimizations));
 });

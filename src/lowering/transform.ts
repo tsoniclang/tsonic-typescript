@@ -8,6 +8,16 @@ import {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
+  createClosedCooperativeEffectPlan,
+  type CooperativeEffectPlan,
+} from "./effect/plan.js";
+import {
+  createCooperativeEffectRewriteSession,
+  type CooperativeEffectRewriteResult,
+  type CooperativeEffectRewriteSession,
+} from "./effect/transform.js";
+
+import {
   createClosedPointerFlowPlan,
 } from "./pointer/flow-plan.js";
 import {
@@ -29,6 +39,7 @@ export interface TypeScriptSourceLoweringResult {
   readonly sourceFile: SourceFile;
   readonly pointer: PointerLoweringResult;
   readonly scalar: ScalarRepresentationRewriteResult;
+  readonly effect?: CooperativeEffectRewriteResult;
 }
 
 export interface TypeScriptSourcePlanningFailure {
@@ -54,6 +65,7 @@ export interface TypeScriptLoweringTransaction {
 interface SourceRewritePlan {
   readonly pointer: PointerRewriteSession;
   readonly scalar: ScalarRepresentationRewriter;
+  readonly effect?: CooperativeEffectRewriteSession;
 }
 
 export function prepareTypeScriptLowering(
@@ -69,6 +81,9 @@ export function prepareTypeScriptLowering(
     source,
     profile.scalarProjections,
   );
+  const effectPlan = profile.cooperativeEffects === "closed-direct"
+    ? createClosedCooperativeEffectPlan(source)
+    : undefined;
   const plans = new Map<SourceFile, SourceRewritePlan>();
   const failures: TypeScriptSourcePlanningFailure[] = [];
   for (const sourceFile of sourceFiles) {
@@ -80,6 +95,14 @@ export function prepareTypeScriptLowering(
           pointerFlowPlan,
         ),
         scalar: createScalarRepresentationRewriter(scalarPlan, sourceFile),
+        ...(effectPlan === undefined
+          ? {}
+          : {
+              effect: createCooperativeEffectRewriteSession(
+                effectPlan,
+                sourceFile,
+              ),
+            }),
       }));
     } catch (error) {
       failures.push(Object.freeze({
@@ -96,12 +119,13 @@ export function prepareTypeScriptLowering(
   }
   return Object.freeze({
     kind: "ready",
-    transaction: createTransaction(plans),
+    transaction: createTransaction(plans, effectPlan),
   });
 }
 
 function createTransaction(
   plans: ReadonlyMap<SourceFile, SourceRewritePlan>,
+  effectPlan: CooperativeEffectPlan | undefined,
 ): TypeScriptLoweringTransaction {
   const consumed = new Set<SourceFile>();
   let finished = false;
@@ -126,17 +150,28 @@ function createTransaction(
             updated,
             factory,
           );
-          return pointerResult === undefined
-            ? undefined
-            : plan.scalar.rewrite(original, pointerResult, factory);
+          if (pointerResult === undefined) {
+            return undefined;
+          }
+          const scalarResult = plan.scalar.rewrite(
+            original,
+            pointerResult,
+            factory,
+          );
+          if (scalarResult === undefined || plan.effect === undefined) {
+            return scalarResult;
+          }
+          return plan.effect.rewrite(original, scalarResult, factory);
         },
       );
       const pointer = plan.pointer.finish(transformed);
       const scalar = plan.scalar.finish(pointer.sourceFile);
+      const effect = plan.effect?.finish(scalar.sourceFile);
       return Object.freeze({
-        sourceFile: scalar.sourceFile,
+        sourceFile: effect?.sourceFile ?? scalar.sourceFile,
         pointer,
         scalar,
+        ...(effect === undefined ? {} : { effect }),
       });
     },
     finish(): void {
@@ -149,6 +184,7 @@ function createTransaction(
           `TypeScript lowering consumed ${consumed.size} source files, expected ${plans.size}`,
         );
       }
+      effectPlan?.finish();
     },
   });
 }
