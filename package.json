@@ -1,0 +1,48 @@
+{
+  "name": "@tsonic/target-typescript",
+  "version": "0.0.1",
+  "description": "TypeScript target pack for Tsonic",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "tsonic": {
+    "kind": "plugin",
+    "contractVersion": 1,
+    "entry": "."
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --preserve-symlinks --test 'dist/**/*.test.js'"
+  },
+  "dependencies": {
+    "@tsonic/typescript-runtime": "file:../typescript-runtime"
+  },
+  "peerDependencies": {
+    "@tsonic/target-api": "0.0.1",
+    "@tsonic/tsts": "0.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.1",
+    "@tsonic/host": "file:../tsonic/packages/host",
+    "@tsonic/target-api": "file:../tsonic/packages/target-api",
+    "@tsonic/tsts": "file:../tsts-legacy/packages/tsts",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "license": "MIT"
+}

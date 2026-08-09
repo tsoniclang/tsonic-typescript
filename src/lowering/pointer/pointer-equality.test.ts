@@ -1,0 +1,260 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import {
+  createCompilerSessionFromFiles,
+  createSourceSemanticsExtension,
+} from "@tsonic/tsts";
+import type {
+  Node,
+  SourceFile,
+  SourceSemanticsModule,
+} from "@tsonic/tsts";
+import {
+  AsCallExpression,
+  AsPropertyAccessExpression,
+  IsCallExpression,
+  IsPropertyAccessExpression,
+} from "@tsonic/tsts/target-ast";
+import { createTargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api";
+
+import { lowerPointers } from "./transform.js";
+
+const markerSemantics = [{
+  moduleSpecifier: "./markers.js",
+  capabilities: ["call-marker", "type-marker"],
+  exports: [
+    { kind: "type-marker", exportName: "RawPointer", marker: "raw-pointer" },
+    { kind: "call-marker", exportName: "addressOf", marker: "address-of" },
+    { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
+    { kind: "call-marker", exportName: "loadPointer", marker: "load" },
+    { kind: "call-marker", exportName: "storePointer", marker: "store" },
+    { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
+    { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
+    { kind: "call-marker", exportName: "bindPointer", marker: "bind-pointer" },
+    { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
+    { kind: "call-marker", exportName: "bindRawPointer", marker: "bind-raw-pointer" },
+    { kind: "call-marker", exportName: "equalRawPointer", marker: "equal-raw-pointer" },
+    { kind: "call-marker", exportName: "hashRawPointer", marker: "hash-raw-pointer" },
+  ],
+}] satisfies readonly SourceSemanticsModule[];
+
+const markerDeclarations = `export interface Pointer<T> { value: T }
+export interface RawPointer { readonly identity: unique symbol }
+export declare function addressOf<T>(storage: T): Pointer<T>;
+export declare function allocatePointer<T>(initial: T): Pointer<T>;
+export declare function loadPointer<T>(pointer: Pointer<T>): T;
+export declare function storePointer<T>(pointer: Pointer<T>, value: T): void;
+export declare function equalPointer<T>(left: Pointer<T> | undefined, right: Pointer<T> | undefined): boolean;
+export declare function hashPointer<T>(pointer: Pointer<T> | undefined): number;
+export declare function bindPointer<T>(identity: object, read: () => T, write: (value: T) => void): Pointer<T>;
+export declare function projectPointer<F, T>(pointer: Pointer<F> | undefined, fromSource: (value: F) => T, toSource: (value: T) => F): Pointer<T> | undefined;
+export declare function bindRawPointer(identity: object): RawPointer;
+export declare function equalRawPointer(left: RawPointer | undefined, right: RawPointer | undefined): boolean;
+export declare function hashRawPointer(pointer: RawPointer | undefined): number;
+`;
+
+test("compares repeated property addresses by storage identity", () => {
+  const fixture = checkedFixture(`import { addressOf, equalPointer } from "./markers.js";
+
+const record = { value: 10, other: 10 };
+export const same = equalPointer(
+  addressOf(record.value),
+  addressOf(record.value),
+);
+export const different = equalPointer(
+  addressOf(record.value),
+  addressOf(record.other),
+);
+export const nils = equalPointer<number>(undefined, undefined);
+`);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.operationCount, 7);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "propertyLocation"), 4);
+  assert.equal(
+    countCallsNamed(fixture, result.sourceFile, "nestedPropertyLocation"),
+    0,
+  );
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "sameLocation"), 3);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "equalPointer"), 0);
+});
+
+test("hashes and projects pointers through the selected runtime identity", () => {
+  const fixture = checkedFixture(`import {
+  allocatePointer,
+  hashPointer,
+  loadPointer,
+  projectPointer,
+  storePointer,
+} from "./markers.js";
+
+const source = allocatePointer<number>(10);
+const projected = projectPointer<number, string>(
+  source,
+  (value) => String(value),
+  (value) => Number(value),
+)!;
+storePointer(projected, "25");
+export const result = [
+  hashPointer(source),
+  hashPointer(projected),
+  loadPointer(source),
+  loadPointer(projected),
+];
+`);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.operationCount, 7);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "projectLocation"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "hashLocation"), 2);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "projectPointer"), 0);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "hashPointer"), 0);
+});
+
+test("binds external storage to one exact pointer identity", () => {
+  const fixture = checkedFixture(`import {
+  bindPointer,
+  equalPointer,
+  hashPointer,
+  loadPointer,
+  storePointer,
+} from "./markers.js";
+
+const storage = { value: 10 };
+const first = bindPointer<number>(
+  storage,
+  () => storage.value,
+  (value) => { storage.value = value; },
+);
+const alias = bindPointer<number>(
+  storage,
+  () => storage.value,
+  (value) => { storage.value = value; },
+);
+storePointer(first, 25);
+export const result = [
+  equalPointer(first, alias),
+  hashPointer(first) === hashPointer(alias),
+  loadPointer(alias),
+];
+`);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.operationCount, 7);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "boundLocation"), 2);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "bindPointer"), 0);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "sameLocation"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "hashLocation"), 2);
+});
+
+test("lowers opaque raw-pointer identity with nested safe-pointer input in one pass", () => {
+  const fixture = checkedFixture(`import type { RawPointer } from "./markers.js";
+import {
+  allocatePointer,
+  bindRawPointer,
+  equalRawPointer,
+  hashRawPointer,
+} from "./markers.js";
+import * as markers from "./markers.js";
+
+function localBindRawPointer(identity: object): object { return identity; }
+
+const location = allocatePointer(1);
+const first: RawPointer = bindRawPointer(location);
+const alias = markers.bindRawPointer(location);
+export const result = [
+  equalRawPointer(first, alias),
+  hashRawPointer(first),
+  localBindRawPointer(location),
+];
+`);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.operationCount, 1);
+  assert.equal(result.rawPointerOperationCount, 4);
+  assert.equal(result.rawPointerTypeCount, 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "rawPointer"), 2);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "sameRawPointer"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "hashRawPointer"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "bindRawPointer"), 0);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "localBindRawPointer"), 1);
+});
+
+interface CheckedFixture {
+  readonly source: TargetSourceProgram;
+  readonly sourceFile: SourceFile;
+}
+
+function checkedFixture(sourceText: string): CheckedFixture {
+  const session = createCompilerSessionFromFiles({
+    currentDirectory: "/src",
+    files: {
+      "/src/index.ts": sourceText,
+      "/src/markers.ts": markerDeclarations,
+    },
+    rootFiles: ["/src/index.ts"],
+    compilerOptions: {
+      module: "esnext",
+      moduleResolution: "bundler",
+      strict: true,
+      target: "es2022",
+    },
+    extensionHostOptions: {
+      extensions: [createSourceSemanticsExtension({ modules: markerSemantics })],
+    },
+  });
+  const checked = session.checkSource();
+  assert.deepEqual(checked.diagnostics, []);
+  assert.deepEqual(checked.extensionDiagnostics, []);
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = source.navigation.sourceFiles.find(
+    (candidate) => source.ast.getFileName(candidate) === "/src/index.ts",
+  );
+  assert.ok(sourceFile !== undefined);
+  return { source, sourceFile };
+}
+
+function countCallsNamed(
+  fixture: CheckedFixture,
+  sourceFile: SourceFile,
+  name: string,
+): number {
+  let count = 0;
+  visit(fixture.source, sourceFile, (node) => {
+    if (!IsCallExpression(node)) {
+      return;
+    }
+    const call = AsCallExpression(node);
+    if (call?.Expression === undefined) {
+      return;
+    }
+    const expression = call.Expression;
+    const property = IsPropertyAccessExpression(expression)
+      ? AsPropertyAccessExpression(expression)
+      : undefined;
+    const actual = property?.name === undefined
+      ? fixture.source.ast.text(expression)
+      : fixture.source.ast.text(property.name);
+    if (actual === name) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function visit(
+  source: TargetSourceProgram,
+  root: Node,
+  callback: (node: Node) => void,
+): void {
+  callback(root);
+  for (const child of source.ast.children(root)) {
+    if (child !== undefined) {
+      visit(source, child, callback);
+    }
+  }
+}
