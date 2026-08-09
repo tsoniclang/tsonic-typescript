@@ -159,6 +159,25 @@ export const result = [state.record.inner.value, loadPointer(field)];
   );
 });
 
+test("immutable roots use direct locations while mutable child paths stay live", () => {
+  const fixture = checkedFixture(`import { addressOf, loadPointer, storePointer } from "./markers.js";
+
+const record = { inner: { value: 1 } };
+const field = addressOf(record.inner.value);
+record.inner = { value: 2 };
+storePointer(field, 3);
+export const result = [record.inner.value, loadPointer(field)];
+`);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.promotedBindingCount, 0);
+  assert.equal(countRuntimeCalls(fixture, result.sourceFile, "propertyLocation"), 1);
+  assert.equal(
+    countRuntimeCalls(fixture, result.sourceFile, "nestedPropertyLocation"),
+    1,
+  );
+});
+
 interface CheckedFixture {
   readonly source: TargetSourceProgram;
   readonly sourceFile: SourceFile;

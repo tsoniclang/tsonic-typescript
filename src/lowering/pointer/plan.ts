@@ -14,6 +14,10 @@ import type {
   Symbol,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  AsVariableDeclarationList,
+  NodeFlagsConst,
+} from "@tsonic/tsts/target-ast";
 
 import { PointerLoweringError } from "./diagnostic.js";
 
@@ -283,6 +287,12 @@ function collectAddressBinding(
       "address-of identifier fact disagrees with its exact source reference",
     );
   }
+  if (
+    root !== operation.storageExpression &&
+    isImmutableVariable(source, reference.declaration)
+  ) {
+    return;
+  }
   const declarationName = source.ast.name(reference.declaration);
   if (!source.ast.is.IsIdentifier(declarationName)) {
     throw new PointerLoweringError(
@@ -321,6 +331,20 @@ function collectAddressBinding(
   } else {
     existing.addressOperands.add(root);
   }
+}
+
+function isImmutableVariable(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  if (!source.ast.is.IsVariableDeclaration(declaration)) {
+    return false;
+  }
+  const declarationList = AsVariableDeclarationList(
+    source.ast.parent(declaration),
+  );
+  return declarationList !== undefined &&
+    (declarationList.Flags & NodeFlagsConst) !== 0;
 }
 
 function valueStorageRoot(

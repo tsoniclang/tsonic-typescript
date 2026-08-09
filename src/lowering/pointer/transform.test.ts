@@ -246,11 +246,11 @@ storePointer(field, loadPointer(element));
 
   assert.equal(
     countCallsNamed(fixture.source, result.sourceFile, "propertyLocation"),
-    0,
+    2,
   );
   assert.equal(
     countCallsNamed(fixture.source, result.sourceFile, "nestedPropertyLocation"),
-    2,
+    0,
   );
 });
 

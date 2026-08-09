@@ -72,10 +72,10 @@ export const nils = equalPointer<number>(undefined, undefined);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.operationCount, 7);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "propertyLocation"), 0);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "propertyLocation"), 4);
   assert.equal(
     countCallsNamed(fixture, result.sourceFile, "nestedPropertyLocation"),
-    4,
+    0,
   );
   assert.equal(countCallsNamed(fixture, result.sourceFile, "sameLocation"), 3);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "equalPointer"), 0);
