@@ -7,12 +7,14 @@ import {
 import {
   AsBinaryExpression,
   AsCallExpression,
+  AsParenthesizedExpression,
   AsPropertyAccessExpression,
   AsVoidExpression,
   encodeTargetSourceFileForPrinting,
   IsAsExpression,
   IsClassDeclaration,
   IsNewExpression,
+  IsParenthesizedExpression,
   IsPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 import type {
@@ -160,6 +162,35 @@ test("preserves canonical representation unless closed-direct is explicit", () =
     countNodes(fixture.source, result.sourceFile, IsNewExpression),
     3,
   );
+});
+
+test("parenthesizes every projection before an enclosing expression", () => {
+  const fixture = checkedScalarFixture(`class Elem {
+  constructor(readonly value: number) {}
+}
+export const result = new Elem(
+  new Elem(1).value | new Elem(2).value,
+).value;
+`);
+  const plan = createScalarRepresentationPlan(
+    fixture.source,
+    "closed-direct",
+  );
+  const result = lowerScalarRepresentations(fixture.sourceFile, plan);
+  let parenthesizedProjections = 0;
+  visit(fixture.source, result.sourceFile, (node) => {
+    if (!IsParenthesizedExpression(node)) {
+      return;
+    }
+    const expression = AsParenthesizedExpression(node)?.Expression;
+    if (expression !== undefined && IsAsExpression(expression)) {
+      parenthesizedProjections += 1;
+    }
+  });
+
+  assert.equal(plan.projectionCount, 3);
+  assert.equal(result.projectionCount, 3);
+  assert.equal(parenthesizedProjections, 3);
 });
 
 test("rejects construction effects and non-scalar projections", () => {

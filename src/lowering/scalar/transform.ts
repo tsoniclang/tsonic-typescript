@@ -140,9 +140,13 @@ function projectScalarValue(
     NewParenthesizedExpression(factory, sequence),
     "scalar construction evaluation parentheses",
   );
-  return requiredNode(
+  const projected = requiredNode(
     NewAsExpression(factory, parenthesized, resultTypeNode),
     "scalar projection type preservation",
+  );
+  return requiredNode(
+    NewParenthesizedExpression(factory, projected),
+    "scalar projection use-site precedence",
   );
 }
 
