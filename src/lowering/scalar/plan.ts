@@ -201,6 +201,13 @@ function resolveProjection(
     return undefined;
   }
   const classDeclaration = reference.declaration;
+  const sourceFile = source.ast.getSourceFile(classDeclaration);
+  if (
+    sourceFile === undefined ||
+    source.navigation.bindingWritesWithin(reference.symbol, sourceFile).length !== 0
+  ) {
+    return undefined;
+  }
   let classProof = classProofs.get(classDeclaration);
   if (!classProofs.has(classDeclaration)) {
     classProof = proveTransparentClass(source, classDeclaration);

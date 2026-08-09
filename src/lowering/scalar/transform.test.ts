@@ -236,6 +236,15 @@ export const result = new Scalar([1]).value;
 const Alias = Scalar;
 export const result = new Alias(1).value;
 `],
+    ["reassigned constructor binding", `class Scalar {
+  constructor(readonly value: number) {}
+}
+class Replacement {
+  constructor(readonly value: number) { throw new Error("observable"); }
+}
+(Scalar as unknown as { new(value: number): Scalar }) = Replacement;
+export const result = new Scalar(1).value;
+`],
   ];
 
   for (const [label, sourceText, options] of cases) {
