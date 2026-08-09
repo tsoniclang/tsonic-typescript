@@ -1,13 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  createCompilerSessionFromFiles,
-  createSourceSemanticsExtension,
-} from "@tsonic/tsts";
 import type {
   Node,
   SourceFile,
-  SourceSemanticsModule,
 } from "@tsonic/tsts";
 import {
   AsBinaryExpression,
@@ -15,12 +10,10 @@ import {
   AsExpressionStatement,
   AsImportClause,
   AsImportDeclaration,
-  AsNamedImports,
   AsPropertyAccessExpression,
   AsQualifiedName,
   AsParameterDeclaration,
   AsTypeReferenceNode,
-  AsVariableDeclaration,
   encodeTargetSourceFileForPrinting,
   IsArrowFunction,
   IsBinaryExpression,
@@ -29,39 +22,23 @@ import {
   IsFunctionDeclaration,
   IsImportClause,
   IsImportDeclaration,
-  IsNamedImports,
   IsPropertyAccessExpression,
   IsQualifiedName,
   IsStringLiteral,
   IsTypeReferenceNode,
-  IsVariableDeclaration,
   KindTypeKeyword,
 } from "@tsonic/tsts/target-ast";
-import { createTargetSourceProgram } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import {
+  checkedPointerFixture as checkedFixture,
+  containsNode,
+  importModules,
+  namedImportBindings,
+  variableDeclarationNamed,
+  visit,
+} from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";
-
-const markerModule = "./markers.js";
-const markerSemantics = [{
-  moduleSpecifier: markerModule,
-  capabilities: ["type-marker", "call-marker"],
-  exports: [
-    { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
-    { kind: "call-marker", exportName: "addressOf", marker: "address-of" },
-    { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
-    { kind: "call-marker", exportName: "loadPointer", marker: "load" },
-    { kind: "call-marker", exportName: "storePointer", marker: "store" },
-  ],
-}] satisfies readonly SourceSemanticsModule[];
-
-const markerDeclarations = `export interface Pointer<T> { value: T }
-export declare function addressOf<T>(storage: T): Pointer<T>;
-export declare function allocatePointer<T>(initial: T): Pointer<T>;
-export declare function loadPointer<T>(pointer: Pointer<T>): T;
-export declare function storePointer<T>(pointer: Pointer<T>, value: T): void;
-export declare const ordinary: number;
-`;
 
 test("lowers exact pointer facts on the checked TS-Go AST", () => {
   const fixture = checkedFixture(`import type { Pointer } from "./markers.js";
@@ -79,7 +56,7 @@ console.log(loadPointer(pointer));
 
   assert.equal(result.operationCount, 4);
   assert.equal(result.pointerTypeCount, 1);
-  assert.equal(result.promotedBindingCount, 0);
+  assert.equal(result.locationBindingCount, 0);
   assert.equal(result.runtimeAlias, "tsonicTypeScriptRuntime");
   assert.deepEqual(importModules(fixture.source, result.sourceFile), [
     "@tsonic/typescript-runtime",
@@ -90,7 +67,7 @@ console.log(loadPointer(pointer));
   assert.ok(encodeTargetSourceFileForPrinting(result.sourceFile).byteLength > 0);
 });
 
-test("promotes an addressed local and all exact references to one location", () => {
+test("preserves an addressed local value and binds one live location companion", () => {
   const fixture = checkedFixture(`import type { Pointer } from "./markers.js";
 import { addressOf, loadPointer, storePointer } from "./markers.js";
 
@@ -108,24 +85,33 @@ export function run(): [number, number, { value: number }] {
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.promotedBindingCount, 1);
+  assert.equal(result.locationBindingCount, 1);
   const valueDeclaration = variableDeclarationNamed(
     fixture.source,
     result.sourceFile,
     "value",
   );
   assert.equal(
-    qualifiedTypeName(fixture.source, valueDeclaration.Type),
-    "tsonicTypeScriptRuntime.Location",
+    fixture.source.ast.kindName(valueDeclaration.Type),
+    "KindNumberKeyword",
+  );
+  assert.equal(fixture.source.ast.text(valueDeclaration.Initializer), "10");
+  const locationDeclaration = variableDeclarationNamed(
+    fixture.source,
+    result.sourceFile,
+    "value$location",
   );
   assert.equal(
-    callName(fixture.source, valueDeclaration.Initializer),
-    "tsonicTypeScriptRuntime.location",
+    callName(fixture.source, locationDeclaration.Initializer),
+    "tsonicTypeScriptRuntime.boundLocation",
   );
-  assert.ok(countPropertyAccessesNamed(fixture.source, result.sourceFile, "value") >= 5);
+  assert.equal(
+    countPropertyAccessesNamed(fixture.source, result.sourceFile, "value"),
+    3,
+  );
 });
 
-test("preserves a public parameter while promoting its internal location flow", () => {
+test("preserves a public parameter while binding its live location flow", () => {
   const fixture = checkedFixture(`import type { Pointer } from "./markers.js";
 import { addressOf, loadPointer, storePointer } from "./markers.js";
 
@@ -141,7 +127,7 @@ export function update(
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
-  assert.equal(result.promotedBindingCount, 1);
+  assert.equal(result.locationBindingCount, 1);
   const location = variableDeclarationNamed(
     fixture.source,
     result.sourceFile,
@@ -149,10 +135,11 @@ export function update(
   );
   assert.equal(
     callName(fixture.source, location.Initializer),
-    "tsonicTypeScriptRuntime.location",
+    "tsonicTypeScriptRuntime.boundLocation",
   );
-  assert.ok(
-    countPropertyAccessesNamed(fixture.source, result.sourceFile, "value") >= 4,
+  assert.equal(
+    countPropertyAccessesNamed(fixture.source, result.sourceFile, "value"),
+    3,
   );
 });
 
@@ -208,13 +195,13 @@ export function read(value: number): number {
   );
   assert.equal(
     callName(fixture.source, location.Initializer),
-    "tsonicTypeScriptRuntime.location",
+    "tsonicTypeScriptRuntime.boundLocation",
   );
   assert.ok(statements[1] !== undefined);
   assert.ok(containsNode(fixture.source, statements[1], location));
 });
 
-test("promotes addressed parameters in expression-bodied arrows", () => {
+test("binds addressed parameters in expression-bodied arrows", () => {
   const fixture = checkedFixture(`import { addressOf, storePointer } from "./markers.js";
 
 export const update = (value: number, before = value): [number, number] =>
@@ -230,7 +217,7 @@ export const update = (value: number, before = value): [number, number] =>
   assert.ok(IsArrowFunction(declaration.Initializer));
   const body = fixture.source.ast.body(declaration.Initializer);
   assert.ok(body !== undefined && fixture.source.ast.is.IsBlock(body));
-  assert.equal(result.promotedBindingCount, 1);
+  assert.equal(result.locationBindingCount, 1);
 });
 
 test("addresses properties and elements without reevaluating bases or keys", () => {
@@ -327,63 +314,6 @@ export type NumberPointer = Pointer<number>;
   );
 });
 
-function checkedFixture(sourceText: string): {
-  readonly source: TargetSourceProgram;
-  readonly sourceFile: SourceFile;
-} {
-  const session = createCompilerSessionFromFiles({
-    currentDirectory: "/src",
-    files: {
-      "/src/index.ts": sourceText,
-      "/src/markers.ts": markerDeclarations,
-    },
-    rootFiles: ["/src/index.ts"],
-    compilerOptions: {
-      module: "esnext",
-      moduleResolution: "bundler",
-      strict: true,
-      target: "es2022",
-    },
-    extensionHostOptions: {
-      extensions: [createSourceSemanticsExtension({ modules: markerSemantics })],
-    },
-  });
-  const checked = session.checkSource();
-  assert.equal(checked.diagnostics.length, 0);
-  assert.equal(checked.extensionDiagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
-  const sourceFile = source.navigation.sourceFiles.find(
-    (candidate) => source.ast.getFileName(candidate) === "/src/index.ts",
-  );
-  assert.ok(sourceFile !== undefined);
-  return { source, sourceFile };
-}
-
-function visit(
-  source: TargetSourceProgram,
-  root: Node,
-  callback: (node: Node) => void,
-): void {
-  callback(root);
-  for (const child of source.ast.children(root)) {
-    if (child !== undefined) {
-      visit(source, child, callback);
-    }
-  }
-}
-
-function containsNode(
-  source: TargetSourceProgram,
-  root: Node,
-  expected: Node,
-): boolean {
-  let found = false;
-  visit(source, root, (node) => {
-    found ||= node === expected;
-  });
-  return found;
-}
-
 function functionDeclarationNamed(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
@@ -400,54 +330,6 @@ function functionDeclarationNamed(
   });
   assert.ok(found !== undefined);
   return found;
-}
-
-function importModules(
-  source: TargetSourceProgram,
-  sourceFile: SourceFile,
-): readonly string[] {
-  return (sourceFile.Statements?.Nodes ?? []).flatMap((statement) => {
-    if (!IsImportDeclaration(statement)) {
-      return [];
-    }
-    const declaration = AsImportDeclaration(statement);
-    return declaration?.ModuleSpecifier === undefined
-      ? []
-      : [source.ast.text(declaration.ModuleSpecifier)];
-  });
-}
-
-function namedImportBindings(
-  source: TargetSourceProgram,
-  sourceFile: SourceFile,
-  moduleName: string,
-): readonly string[] {
-  for (const statement of sourceFile.Statements?.Nodes ?? []) {
-    if (!IsImportDeclaration(statement)) {
-      continue;
-    }
-    const declaration = AsImportDeclaration(statement);
-    if (
-      declaration?.ModuleSpecifier === undefined ||
-      source.ast.text(declaration.ModuleSpecifier) !== moduleName ||
-      declaration.ImportClause === undefined ||
-      !IsImportClause(declaration.ImportClause)
-    ) {
-      continue;
-    }
-    const clause = AsImportClause(declaration.ImportClause);
-    if (
-      clause?.NamedBindings === undefined ||
-      !IsNamedImports(clause.NamedBindings)
-    ) {
-      return [];
-    }
-    const named = AsNamedImports(clause.NamedBindings);
-    return Object.freeze((named?.Elements?.Nodes ?? []).map((element) =>
-      source.ast.text(source.ast.name(element))
-    ));
-  }
-  return [];
 }
 
 function runtimeImportPhase(
@@ -546,25 +428,6 @@ function countCallsNamed(
     }
   });
   return count;
-}
-
-function variableDeclarationNamed(
-  source: TargetSourceProgram,
-  sourceFile: SourceFile,
-  name: string,
-) {
-  let found: ReturnType<typeof AsVariableDeclaration>;
-  visit(source, sourceFile, (node) => {
-    if (!IsVariableDeclaration(node)) {
-      return;
-    }
-    const declaration = AsVariableDeclaration(node);
-    if (declaration !== undefined && source.ast.text(declaration.name) === name) {
-      found = declaration;
-    }
-  });
-  assert.ok(found !== undefined);
-  return found;
 }
 
 function qualifiedTypeName(

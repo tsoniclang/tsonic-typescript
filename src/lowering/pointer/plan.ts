@@ -3,40 +3,35 @@ import {
   pointerOperationFactKey,
   rawPointerFactKey,
   rawPointerOperationFactKey,
-  sourceMarkerFactKey,
 } from "@tsonic/tsts";
 import type {
   Node,
   PointerOperationFact,
   RawPointerOperationFact,
-  SourceMarkerFact,
   SourceFile,
-  Symbol,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
-import {
-  AsVariableDeclarationList,
-  NodeFlagsConst,
-} from "@tsonic/tsts/target-ast";
 
 import { PointerLoweringError } from "./diagnostic.js";
+import { planPointerMarkerUsage } from "./marker-usage.js";
 
 export interface LocalLocationBinding {
   readonly kind: "variable";
   readonly declaration: Node;
-  readonly symbol: Symbol;
   readonly addressOperands: ReadonlySet<Node>;
   readonly sourceName: string;
+  readonly locationName: string;
+  readonly writeName: string;
 }
 
 export interface ParameterLocationBinding {
   readonly kind: "parameter";
   readonly declaration: Node;
-  readonly symbol: Symbol;
   readonly addressOperands: ReadonlySet<Node>;
   readonly body: Node;
   readonly sourceName: string;
   readonly locationName: string;
+  readonly writeName: string;
 }
 
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
@@ -47,13 +42,16 @@ export interface PointerLoweringPlan {
   readonly rawPointerOperations: ReadonlyMap<Node, RawPointerOperationFact>;
   readonly rawPointerTypes: ReadonlySet<Node>;
   readonly localBindings: ReadonlyMap<Node, LocalLocationBinding>;
-  readonly parameterBindingsByBody: ReadonlyMap<
+  readonly localBindingsByStatement: ReadonlyMap<
     Node,
-    readonly ParameterLocationBinding[]
+    readonly LocalLocationBinding[]
   >;
-  readonly promotedReferences: ReadonlyMap<Node, LocationBinding>;
+  readonly prologueBindingsByBody: ReadonlyMap<
+    Node,
+    readonly LocationBinding[]
+  >;
   readonly addressBindings: ReadonlyMap<Node, LocationBinding>;
-  readonly removableImports: ReadonlySet<Node>;
+  readonly removableMarkerDeclarations: ReadonlySet<Node>;
   readonly runtimeAlias: string;
   readonly usesRuntimeValue: boolean;
 }
@@ -61,7 +59,6 @@ export interface PointerLoweringPlan {
 interface MutableLocationBinding {
   readonly kind: "variable" | "parameter";
   readonly declaration: Node;
-  readonly symbol: Symbol;
   readonly addressOperands: Set<Node>;
   readonly body?: Node;
   readonly sourceName?: string;
@@ -76,9 +73,8 @@ export function createPointerLoweringPlan(
   const pointerTypes = new Set<Node>();
   const rawPointerOperations = new Map<Node, RawPointerOperationFact>();
   const rawPointerTypes = new Set<Node>();
-  const selectedNamespaceBindings = new Set<Node>();
-  const selectedNamespaceReceivers = new Set<Node>();
-  const bindingsBySymbol = new Map<Symbol, MutableLocationBinding>();
+  const selectedMarkerRoots: Node[] = [];
+  const bindingsByDeclaration = new Map<Node, MutableLocationBinding>();
   let usesRuntimeValue = false;
 
   for (const node of nodes) {
@@ -91,12 +87,7 @@ export function createPointerLoweringPlan(
       }
       operations.set(node, operation);
       usesRuntimeValue = true;
-      recordMarkerSelection(
-        source,
-        requireCallTarget(source, node),
-        selectedNamespaceBindings,
-        selectedNamespaceReceivers,
-      );
+      selectedMarkerRoots.push(requireCallTarget(source, node));
     }
     const rawPointerOperation = source.sourceFacts.getFact(
       node,
@@ -114,12 +105,7 @@ export function createPointerLoweringPlan(
       }
       rawPointerOperations.set(node, rawPointerOperation);
       usesRuntimeValue = true;
-      recordMarkerSelection(
-        source,
-        requireCallTarget(source, node),
-        selectedNamespaceBindings,
-        selectedNamespaceReceivers,
-      );
+      selectedMarkerRoots.push(requireCallTarget(source, node));
     }
     if (
       source.ast.is.IsTypeReferenceNode(node) &&
@@ -132,12 +118,7 @@ export function createPointerLoweringPlan(
           "pointer type fact has no exact type-name syntax",
         );
       }
-      recordMarkerSelection(
-        source,
-        typeReference.TypeName,
-        selectedNamespaceBindings,
-        selectedNamespaceReceivers,
-      );
+      selectedMarkerRoots.push(typeReference.TypeName);
     }
     if (
       source.ast.is.IsTypeReferenceNode(node) &&
@@ -155,54 +136,79 @@ export function createPointerLoweringPlan(
           "raw-pointer type fact has no exact type-name syntax",
         );
       }
-      recordMarkerSelection(
-        source,
-        typeReference.TypeName,
-        selectedNamespaceBindings,
-        selectedNamespaceReceivers,
-      );
+      selectedMarkerRoots.push(typeReference.TypeName);
     }
   }
   for (const operation of operations.values()) {
     if (operation.operation === "address-of") {
-      collectAddressBinding(source, sourceFile, operation, bindingsBySymbol);
+      collectAddressBinding(source, sourceFile, operation, bindingsByDeclaration);
     }
   }
 
   const localBindings = new Map<Node, LocalLocationBinding>();
-  const parameterBindingsByBody = new Map<Node, ParameterLocationBinding[]>();
-  const promotedReferences = new Map<Node, LocationBinding>();
+  const localBindingsByStatement = new Map<Node, LocalLocationBinding[]>();
+  const prologueBindingsByBody = new Map<Node, LocationBinding[]>();
   const addressBindings = new Map<Node, LocationBinding>();
-  const sealedBindingsBySymbol = new Map<Symbol, LocationBinding>();
   const usedNames = collectIdentifierNames(source, nodes);
-  const mutableBindings = [...bindingsBySymbol.values()].sort(
+  const mutableBindings = [...bindingsByDeclaration.values()].sort(
     (left, right) => source.ast.pos(left.declaration) - source.ast.pos(right.declaration),
   );
   for (const binding of mutableBindings) {
     const sealed = sealLocationBinding(source, binding, usedNames);
-    sealedBindingsBySymbol.set(sealed.symbol, sealed);
     if (sealed.kind === "variable") {
       localBindings.set(sealed.declaration, sealed);
+      const declarationKind = source.ast.variableDeclarationKind(
+        sealed.declaration,
+      );
+      if (declarationKind === "const") {
+        throw new PointerLoweringError(
+          "address-of cannot create writable storage for a const binding",
+        );
+      }
+      if (declarationKind === "using" || declarationKind === "await using") {
+        throw new PointerLoweringError(
+          "address-of does not support resource-management bindings",
+        );
+      }
+      if (declarationKind === "var") {
+        const scope = requireVariableScope(source, sealed.declaration);
+        appendBinding(prologueBindingsByBody, scope, sealed);
+      } else if (declarationKind === "let") {
+        const declarationList = source.ast.parent(sealed.declaration);
+        const owner = source.ast.parent(declarationList);
+        if (owner !== undefined && source.ast.is.IsVariableStatement(owner)) {
+          requireStatementListOwner(source, owner);
+          appendBinding(localBindingsByStatement, owner, sealed);
+        } else if (
+          owner !== undefined &&
+          (source.ast.is.IsForStatement(owner) ||
+            source.ast.is.IsForInStatement(owner) ||
+            source.ast.is.IsForOfStatement(owner))
+        ) {
+          throw new PointerLoweringError(
+            "address-of does not support let bindings with per-iteration loop storage",
+          );
+        } else {
+          throw new PointerLoweringError(
+            "addressed let binding requires a standalone variable statement",
+          );
+        }
+      } else {
+        throw new PointerLoweringError(
+          "addressed local has no exact variable declaration kind",
+        );
+      }
     } else {
-      const bodyBindings = parameterBindingsByBody.get(sealed.body) ?? [];
-      bodyBindings.push(sealed);
-      parameterBindingsByBody.set(sealed.body, bodyBindings);
+      appendBinding(prologueBindingsByBody, sealed.body, sealed);
     }
     for (const operand of sealed.addressOperands) {
       addressBindings.set(operand, sealed);
     }
   }
-  collectPromotedReferences(
+  const markerUsage = planPointerMarkerUsage(
     source,
     nodes,
-    sealedBindingsBySymbol,
-    promotedReferences,
-  );
-  const removableImports = collectRemovableImports(
-    source,
-    nodes,
-    selectedNamespaceBindings,
-    selectedNamespaceReceivers,
+    selectedMarkerRoots,
   );
   return Object.freeze({
     operations,
@@ -210,10 +216,10 @@ export function createPointerLoweringPlan(
     rawPointerOperations,
     rawPointerTypes,
     localBindings,
-    parameterBindingsByBody,
-    promotedReferences,
+    localBindingsByStatement,
+    prologueBindingsByBody,
     addressBindings,
-    removableImports,
+    removableMarkerDeclarations: markerUsage.removableDeclarations,
     runtimeAlias: selectRuntimeAlias(source, nodes),
     usesRuntimeValue,
   });
@@ -256,7 +262,7 @@ function collectAddressBinding(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
-  bindings: Map<Symbol, MutableLocationBinding>,
+  bindings: Map<Node, MutableLocationBinding>,
 ): void {
   const root = valueStorageRoot(source, operation.storageExpression);
   if (root === undefined) {
@@ -280,8 +286,7 @@ function collectAddressBinding(
   }
   if (
     root === operation.storageExpression &&
-    (operation.storageSymbol !== reference.symbol ||
-      operation.storageDeclaration !== reference.declaration)
+    operation.storageDeclaration !== reference.declaration
   ) {
     throw new PointerLoweringError(
       "address-of identifier fact disagrees with its exact source reference",
@@ -310,20 +315,11 @@ function collectAddressBinding(
       "addressed parameter requires an exact function body",
     );
   }
-  const existing = bindings.get(reference.symbol);
-  if (
-    existing !== undefined &&
-    existing.declaration !== reference.declaration
-  ) {
-    throw new PointerLoweringError(
-      "one addressable symbol resolves to more than one declaration",
-    );
-  }
+  const existing = bindings.get(reference.declaration);
   if (existing === undefined) {
-    bindings.set(reference.symbol, {
+    bindings.set(reference.declaration, {
       kind: isParameter ? "parameter" : "variable",
       declaration: reference.declaration,
-      symbol: reference.symbol,
       addressOperands: new Set([root]),
       ...(body === undefined ? {} : { body }),
       sourceName: source.ast.text(declarationName),
@@ -340,11 +336,7 @@ function isImmutableVariable(
   if (!source.ast.is.IsVariableDeclaration(declaration)) {
     return false;
   }
-  const declarationList = AsVariableDeclarationList(
-    source.ast.parent(declaration),
-  );
-  return declarationList !== undefined &&
-    (declarationList.Flags & NodeFlagsConst) !== 0;
+  return source.ast.variableDeclarationKind(declaration) === "const";
 }
 
 function valueStorageRoot(
@@ -383,9 +375,16 @@ function sealLocationBinding(
     return Object.freeze({
       kind: "variable",
       declaration: binding.declaration,
-      symbol: binding.symbol,
       addressOperands: binding.addressOperands,
       sourceName: binding.sourceName,
+      locationName: selectGeneratedName(
+        `${binding.sourceName}$location`,
+        usedNames,
+      ),
+      writeName: selectGeneratedName(
+        `${binding.sourceName}$next`,
+        usedNames,
+      ),
     });
   }
   if (binding.body === undefined || binding.sourceName === undefined) {
@@ -403,11 +402,17 @@ function sealLocationBinding(
   return Object.freeze({
     kind: "parameter",
     declaration: binding.declaration,
-    symbol: binding.symbol,
     addressOperands: binding.addressOperands,
     body: binding.body,
     sourceName: binding.sourceName,
-    locationName: selectLocationName(binding.sourceName, usedNames),
+    locationName: selectGeneratedName(
+      `${binding.sourceName}$location`,
+      usedNames,
+    ),
+    writeName: selectGeneratedName(
+      `${binding.sourceName}$next`,
+      usedNames,
+    ),
   });
 }
 
@@ -420,8 +425,7 @@ function collectIdentifierNames(
     .map((node) => source.ast.text(node)));
 }
 
-function selectLocationName(sourceName: string, usedNames: Set<string>): string {
-  const base = `${sourceName}$location`;
+function selectGeneratedName(base: string, usedNames: Set<string>): string {
   if (!usedNames.has(base)) {
     usedNames.add(base);
     return base;
@@ -432,30 +436,6 @@ function selectLocationName(sourceName: string, usedNames: Set<string>): string 
       usedNames.add(candidate);
       return candidate;
     }
-  }
-}
-
-function collectPromotedReferences(
-  source: TargetSourceProgram,
-  nodes: readonly Node[],
-  bindingsBySymbol: ReadonlyMap<Symbol, LocationBinding>,
-  promoted: Map<Node, LocationBinding>,
-): void {
-  for (const node of nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
-    const symbol = source.navigation.sourceReferenceFor(node)?.symbol;
-    const binding = symbol === undefined ? undefined : bindingsBySymbol.get(symbol);
-    if (
-      binding === undefined ||
-      node === source.ast.name(binding.declaration) ||
-      binding.addressOperands.has(node) ||
-      binding.kind === "parameter" && !isNodeWithin(source, node, binding.body)
-    ) {
-      continue;
-    }
-    promoted.set(node, binding);
   }
 }
 
@@ -473,120 +453,80 @@ function isNodeWithin(
   return false;
 }
 
-function recordMarkerSelection(
-  source: TargetSourceProgram,
-  markerReference: Node,
-  selectedNamespaceBindings: Set<Node>,
-  namespaceReceivers: Set<Node>,
+function appendBinding<T extends LocationBinding>(
+  bindings: Map<Node, T[]>,
+  owner: Node,
+  binding: T,
 ): void {
-  const reference = source.navigation.sourceReferenceFor(markerReference);
-  if (reference === undefined) {
-    throw new PointerLoweringError(
-      "selected pointer marker has no exact declaration reference",
-    );
-  }
-  for (const child of descendants(source, markerReference)) {
-    const childReference = source.navigation.sourceReferenceFor(child);
+  const existing = bindings.get(owner) ?? [];
+  existing.push(binding);
+  bindings.set(owner, existing);
+}
+
+function requireVariableScope(
+  source: TargetSourceProgram,
+  declaration: Node,
+): Node {
+  for (
+    let current = source.ast.parent(declaration);
+    current !== undefined;
+    current = source.ast.parent(current)
+  ) {
     if (
-      childReference !== undefined &&
-      source.ast.is.IsNamespaceImport(childReference.declaration)
+      source.ast.is.IsSourceFile(current) ||
+      source.ast.is.IsModuleBlock(current)
     ) {
-      namespaceReceivers.add(child);
-      selectedNamespaceBindings.add(childReference.declaration);
+      return current;
+    }
+    if (!source.ast.is.IsBlock(current)) {
+      continue;
+    }
+    const parent = source.ast.parent(current);
+    if (
+      parent !== undefined &&
+      (isFunctionLike(source, parent) ||
+        source.ast.is.IsClassStaticBlockDeclaration(parent)) &&
+      source.ast.body(parent) === current
+    ) {
+      return current;
     }
   }
+  throw new PointerLoweringError(
+    "addressed var binding has no exact variable scope",
+  );
 }
 
-function descendants(
+function isFunctionLike(
   source: TargetSourceProgram,
-  root: Node,
-): readonly Node[] {
-  const result: Node[] = [];
-  const pending = [root];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined) {
-      continue;
-    }
-    result.push(node);
-    for (const child of source.ast.children(node)) {
-      if (child !== undefined) {
-        pending.push(child);
-      }
-    }
-  }
-  return result;
+  node: Node,
+): boolean {
+  return source.ast.is.IsFunctionDeclaration(node) ||
+    source.ast.is.IsFunctionExpression(node) ||
+    source.ast.is.IsArrowFunction(node) ||
+    source.ast.is.IsMethodDeclaration(node) ||
+    source.ast.is.IsConstructorDeclaration(node) ||
+    source.ast.is.IsGetAccessorDeclaration(node) ||
+    source.ast.is.IsSetAccessorDeclaration(node);
 }
 
-function collectRemovableImports(
+function requireStatementListOwner(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
-  selectedNamespaceBindings: ReadonlySet<Node>,
-  selectedNamespaceReceivers: ReadonlySet<Node>,
-): ReadonlySet<Node> {
-  const removable = new Set<Node>();
-  for (const node of nodes) {
-    if (source.ast.is.IsImportSpecifier(node)) {
-      const marker = source.sourceFacts.getFact(node, sourceMarkerFactKey);
-      if (marker !== undefined && isPointerMarker(marker)) {
-        removable.add(node);
-      }
-      continue;
-    }
-    if (!source.ast.is.IsNamespaceImport(node)) {
-      continue;
-    }
-    if (!selectedNamespaceBindings.has(node)) {
-      continue;
-    }
-    const declarationName = source.ast.name(node);
-    const residual = nodes.some((candidate) => {
-      if (
-        candidate === declarationName ||
-        selectedNamespaceReceivers.has(candidate) ||
-        !source.ast.is.IsIdentifier(candidate)
-      ) {
-        return false;
-      }
-      const reference = source.navigation.sourceReferenceFor(candidate);
-      return reference?.declaration === node;
-    });
-    if (!residual) {
-      removable.add(node);
-    }
+  statement: Node,
+): void {
+  const owner = source.ast.parent(statement);
+  if (
+    owner !== undefined &&
+    (source.ast.is.IsSourceFile(owner) ||
+      source.ast.is.IsBlock(owner) ||
+      source.ast.is.IsModuleBlock(owner) ||
+      source.ast.is.IsCaseClause(owner) ||
+      source.ast.is.IsDefaultClause(owner))
+  ) {
+    return;
   }
-  return removable;
-}
-
-function isPointerMarker(marker: SourceMarkerFact): boolean {
-  if (marker.kind === "type-marker") {
-    return marker.marker === "pointer" || marker.marker === "raw-pointer";
-  }
-  switch (marker.marker) {
-    case "address-of":
-    case "allocate":
-    case "load":
-    case "store":
-    case "equal-pointer":
-    case "hash-pointer":
-    case "bind-pointer":
-    case "project-pointer":
-    case "bind-raw-pointer":
-    case "equal-raw-pointer":
-    case "hash-raw-pointer":
-      return true;
-    case "write-only-reference":
-    case "read-write-reference":
-    case "read-only-reference":
-    case "shared-borrow":
-    case "mutable-borrow":
-    case "move":
-    case "struct":
-    case "field":
-    case "attribute":
-    case "default-value":
-      return false;
-  }
+  throw new PointerLoweringError(
+    "addressed let binding requires a statement-list owner",
+  );
 }
 
 function selectRuntimeAlias(

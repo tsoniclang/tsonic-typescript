@@ -29,7 +29,7 @@ export function lowerAddressOf(
         "addressed identifier lacks its exact location binding",
       );
     }
-    return locationBindingExpression(factory, binding, updatedStorage);
+    return locationBindingExpression(factory, binding);
   }
   const property = IsPropertyAccessExpression(updatedStorage)
     ? AsPropertyAccessExpression(updatedStorage)
@@ -53,6 +53,7 @@ export function lowerAddressOf(
         "addressed property has no exact original name",
       );
     }
+    requireAddressablePropertyName(source, originalProperty.name);
     const parentLocation = lowerValueParentLocation(
       source,
       factory,
@@ -139,7 +140,7 @@ function lowerValueParentLocation(
     const binding = plan.addressBindings.get(original);
     return binding === undefined
       ? undefined
-      : locationBindingExpression(factory, binding, updated);
+      : locationBindingExpression(factory, binding);
   }
   const operation = plan.operations.get(original);
   if (operation?.operation === "load") {
@@ -165,6 +166,7 @@ function lowerValueParentLocation(
         "addressed value path lost an exact property segment",
       );
     }
+    requireAddressablePropertyName(source, originalProperty.name);
     const parent = lowerValueParentLocation(
       source,
       factory,
@@ -217,6 +219,17 @@ function lowerValueParentLocation(
     [],
     [parent ?? updatedElement.Expression, updatedElement.ArgumentExpression],
   );
+}
+
+function requireAddressablePropertyName(
+  source: TargetSourceProgram,
+  name: Node,
+): void {
+  if (source.ast.is.IsPrivateIdentifier(name)) {
+    throw new PointerLoweringError(
+      "address-of does not support private field storage",
+    );
+  }
 }
 
 function requiredNode(node: Node | undefined, subject: string): Node {

@@ -8,6 +8,7 @@
   "files": [
     "dist",
     "!dist/**/*.test.*",
+    "!dist/**/*.test-support.*",
     "README.md",
     "LICENSE"
   ],
@@ -28,7 +29,7 @@
     "test": "npm run build && node --preserve-symlinks --test 'dist/**/*.test.js'"
   },
   "dependencies": {
-    "@tsonic/typescript-runtime": "file:../typescript-runtime"
+    "@tsonic/typescript-runtime": "0.0.1"
   },
   "peerDependencies": {
     "@tsonic/target-api": "0.0.1",
@@ -39,6 +40,7 @@
     "@tsonic/host": "file:../tsonic/packages/host",
     "@tsonic/target-api": "file:../tsonic/packages/target-api",
     "@tsonic/tsts": "file:../tsts-legacy/packages/tsts",
+    "@tsonic/typescript-runtime": "file:../typescript-runtime",
     "typescript": "5.9.3"
   },
   "engines": {
