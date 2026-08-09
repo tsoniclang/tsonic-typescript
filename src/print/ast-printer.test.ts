@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   decodePrinterResponse,
   encodePrinterRequest,
+  TypeScriptPrinterBatchBuilder,
 } from "./ast-printer.js";
 
 test("printer framing preserves exact binary inputs and UTF-8 outputs", () => {
@@ -21,6 +22,27 @@ test("printer framing preserves exact binary inputs and UTF-8 outputs", () => {
     "const first = 1;\n",
     "const second = '😀';\n",
   ]);
+});
+
+test("printer batches seal one immutable membership snapshot", () => {
+  const builder = new TypeScriptPrinterBatchBuilder({
+    maximumFileCount: 2,
+    maximumFrameBytes: 3,
+    maximumPayloadBytes: 26,
+  });
+  const encoded = Uint8Array.from([1, 2, 3]);
+  builder.append(encoded);
+
+  const batch = builder.seal();
+
+  assert.equal(Object.isFrozen(batch), true);
+  assert.equal(Object.isFrozen(batch.encodedSourceFiles), true);
+  assert.deepEqual(batch.encodedSourceFiles, [encoded]);
+  assert.equal(builder.seal(), batch);
+  assert.throws(
+    () => builder.append(Uint8Array.from([4])),
+    /batch is already sealed/u,
+  );
 });
 
 test("printer response fails closed on count and trailing-byte mutations", () => {

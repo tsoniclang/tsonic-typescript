@@ -41,6 +41,7 @@ import {
 } from "./location-statements.js";
 import {
   createPointerLoweringPlan,
+  pointerLoweringPlanUsesRuntime,
   type PointerLoweringPlan,
 } from "./plan.js";
 import { lowerRawPointerOperation, lowerRawPointerType } from "./raw.js";
@@ -66,7 +67,15 @@ export function lowerPointers(
   sourceFile: SourceFile,
 ): PointerLoweringResult {
   const plan = createPointerLoweringPlan(source, sourceFile);
-  const usesRuntime = hasRuntimeLowering(plan);
+  return applyPointerLoweringPlan(source, plan);
+}
+
+export function applyPointerLoweringPlan(
+  source: TargetSourceProgram,
+  plan: PointerLoweringPlan,
+): PointerLoweringResult {
+  const { sourceFile } = plan;
+  const usesRuntime = pointerLoweringPlanUsesRuntime(plan);
   if (
     !usesRuntime &&
     plan.removableMarkerDeclarations.size === 0
@@ -259,7 +268,7 @@ function rewriteNode(
         "source-file predicate did not yield a source-file receiver",
       );
     }
-    return hasRuntimeLowering(plan) ? prependRuntimeImport(
+    return pointerLoweringPlanUsesRuntime(plan) ? prependRuntimeImport(
       factory,
       sourceFile,
       plan.runtimeAlias,
@@ -425,13 +434,6 @@ function explicitLocationType(
     );
   }
   return runtimeType(factory, runtimeAlias, "Location", typeArguments);
-}
-
-function hasRuntimeLowering(plan: PointerLoweringPlan): boolean {
-  return plan.operations.size !== 0
-    || plan.pointerTypes.size !== 0
-    || plan.rawPointerOperations.size !== 0
-    || plan.rawPointerTypes.size !== 0;
 }
 
 function requiredElement(

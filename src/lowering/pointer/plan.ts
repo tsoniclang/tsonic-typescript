@@ -37,6 +37,7 @@ export interface ParameterLocationBinding {
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
 
 export interface PointerLoweringPlan {
+  readonly sourceFile: SourceFile;
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
   readonly pointerTypes: ReadonlySet<Node>;
   readonly rawPointerOperations: ReadonlyMap<Node, RawPointerOperationFact>;
@@ -211,6 +212,7 @@ export function createPointerLoweringPlan(
     selectedMarkerRoots,
   );
   return Object.freeze({
+    sourceFile,
     operations,
     pointerTypes,
     rawPointerOperations,
@@ -223,6 +225,15 @@ export function createPointerLoweringPlan(
     runtimeAlias: selectRuntimeAlias(source, nodes),
     usesRuntimeValue,
   });
+}
+
+export function pointerLoweringPlanUsesRuntime(
+  plan: PointerLoweringPlan,
+): boolean {
+  return plan.operations.size !== 0
+    || plan.pointerTypes.size !== 0
+    || plan.rawPointerOperations.size !== 0
+    || plan.rawPointerTypes.size !== 0;
 }
 
 function collectNodes(

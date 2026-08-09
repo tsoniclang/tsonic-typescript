@@ -10,66 +10,7 @@ export const printerProtocolLimits: PrinterProtocolLimits = Object.freeze({
   maximumPayloadBytes: 256 * 1024 * 1024,
 });
 
-export class BoundedFrameCollection {
-  readonly #budget: FramedPayloadBudget;
-  readonly #frames: Uint8Array[] = [];
-
-  constructor(
-    fixedHeaderBytes: number,
-    limits: PrinterProtocolLimits,
-    subject: string,
-  ) {
-    this.#budget = new FramedPayloadBudget(
-      fixedHeaderBytes,
-      limits,
-      subject,
-    );
-  }
-
-  append(frame: Uint8Array): void {
-    this.#budget.reserveFrame(frame.byteLength);
-    this.#frames.push(frame);
-  }
-
-  tryAppend(frame: Uint8Array): boolean {
-    if (!this.#budget.tryReserveFrame(frame.byteLength)) {
-      return false;
-    }
-    this.#frames.push(frame);
-    return true;
-  }
-
-  get size(): number {
-    return this.#frames.length;
-  }
-
-  get payloadLength(): number {
-    return this.#budget.payloadLength;
-  }
-
-  frames(): readonly Uint8Array[] {
-    return Object.freeze([...this.#frames]);
-  }
-}
-
-export function framedPayloadLength(
-  frameLengths: readonly number[],
-  fixedHeaderBytes: number,
-  limits: PrinterProtocolLimits,
-  subject: string,
-): number {
-  const budget = new FramedPayloadBudget(
-    fixedHeaderBytes,
-    limits,
-    subject,
-  );
-  for (const length of frameLengths) {
-    budget.reserveFrame(length);
-  }
-  return budget.payloadLength;
-}
-
-class FramedPayloadBudget {
+export class FramedPayloadBudget {
   readonly #limits: PrinterProtocolLimits;
   readonly #subject: string;
   #frameCount = 0;
@@ -81,6 +22,18 @@ class FramedPayloadBudget {
     subject: string,
   ) {
     requireNonNegativeSafeInteger(fixedHeaderBytes, `${subject} header size`);
+    requirePositiveSafeInteger(
+      limits.maximumFileCount,
+      `${subject} maximum file count`,
+    );
+    requireNonNegativeSafeInteger(
+      limits.maximumFrameBytes,
+      `${subject} maximum frame size`,
+    );
+    requireNonNegativeSafeInteger(
+      limits.maximumPayloadBytes,
+      `${subject} maximum payload size`,
+    );
     this.#limits = limits;
     this.#subject = subject;
     this.#payloadLength = checkedAdd(
@@ -88,6 +41,11 @@ class FramedPayloadBudget {
       4,
       `${subject} payload size`,
     );
+    if (this.#payloadLength > limits.maximumPayloadBytes) {
+      throw new Error(
+        `${subject} base payload size ${this.#payloadLength} exceeds limit ${limits.maximumPayloadBytes}`,
+      );
+    }
   }
 
   get payloadLength(): number {
@@ -149,5 +107,11 @@ function checkedAdd(left: number, right: number, subject: string): number {
 function requireNonNegativeSafeInteger(value: number, subject: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${subject} must be a non-negative safe integer`);
+  }
+}
+
+function requirePositiveSafeInteger(value: number, subject: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${subject} must be a positive safe integer`);
   }
 }

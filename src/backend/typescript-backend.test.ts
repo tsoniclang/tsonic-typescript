@@ -26,8 +26,8 @@ test("lowers and prints every checked source file in one batch", () => {
   });
   const batches: Uint8Array[][] = [];
   const printer: TypeScriptAstPrinter = {
-    print(request) {
-      const files = request.encodedSourceFiles();
+    print(batch) {
+      const files = batch.encodedSourceFiles;
       batches.push([...files]);
       return files.map((_, index) => `// printed ${index}\n`);
     },
@@ -62,8 +62,8 @@ test("orders source artifacts by locale-independent UTF-16 code units", () => {
     "/project/ä.ts": "export const umlaut = 2;\n",
   });
   const printer: TypeScriptAstPrinter = {
-    print(request) {
-      const files = request.encodedSourceFiles();
+    print(batch) {
+      const files = batch.encodedSourceFiles;
       return files.map((_, index) => `// printed ${index}\n`);
     },
   };
@@ -82,8 +82,8 @@ test("orders source artifacts by locale-independent UTF-16 code units", () => {
 test("declares the exact runtime package only when pointer lowering demands it", () => {
   const source = checkedPointerSource();
   const printer: TypeScriptAstPrinter = {
-    print(request) {
-      const files = request.encodedSourceFiles();
+    print(batch) {
+      const files = batch.encodedSourceFiles;
       return files.map((_, index) => `// printed ${index}\n`);
     },
   };
@@ -101,8 +101,8 @@ test("declares the exact runtime package only when pointer lowering demands it",
 test("rejects pointer lowering when the target runtime reference is absent or mismatched", () => {
   const source = checkedPointerSource();
   const printer: TypeScriptAstPrinter = {
-    print(request) {
-      const files = request.encodedSourceFiles();
+    print(batch) {
+      const files = batch.encodedSourceFiles;
       return files.map((_, index) => `// printed ${index}\n`);
     },
   };
@@ -145,7 +145,7 @@ test("fails the compilation when the printer omits a source file", () => {
   );
 });
 
-test("reports every independent lowering failure before invoking the printer", () => {
+test("plans every source and reports independent lowering failures before invoking the printer", () => {
   const source = checkedRejectedPointerSources();
   let printCalls = 0;
   const printer: TypeScriptAstPrinter = {
@@ -232,6 +232,7 @@ function checkedRejectedPointerSources() {
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/project",
     files: {
+      "/project/0-valid.ts": "export const valid = 1;\n",
       "/project/a.ts": `import { loadPointer } from "./markers.js";
 export const marker = loadPointer;
 `,
@@ -242,7 +243,7 @@ export const marker = markers.loadPointer;
 export declare function loadPointer<T>(pointer: Pointer<T>): T;
 `,
     },
-    rootFiles: ["/project/a.ts", "/project/b.ts"],
+    rootFiles: ["/project/0-valid.ts", "/project/a.ts", "/project/b.ts"],
     compilerOptions: {
       module: "esnext",
       moduleResolution: "bundler",
