@@ -54,3 +54,13 @@ test("bounded frame collection rejects before retaining an over-budget frame", (
   assert.equal(Object.isFrozen(retained), true);
   assert.deepEqual(retained, [accepted]);
 });
+
+test("bounded frame collection reports a full batch without retaining its next frame", () => {
+  const frames = new BoundedFrameCollection(4, limits, "test");
+  const accepted = Uint8Array.from([1, 2, 3]);
+  assert.equal(frames.tryAppend(accepted), true);
+  assert.equal(frames.tryAppend(Uint8Array.from([4, 5, 6])), false);
+  assert.equal(frames.size, 1);
+  assert.equal(frames.payloadLength, 15);
+  assert.deepEqual(frames.frames(), [accepted]);
+});

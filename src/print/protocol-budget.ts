@@ -31,6 +31,14 @@ export class BoundedFrameCollection {
     this.#frames.push(frame);
   }
 
+  tryAppend(frame: Uint8Array): boolean {
+    if (!this.#budget.tryReserveFrame(frame.byteLength)) {
+      return false;
+    }
+    this.#frames.push(frame);
+    return true;
+  }
+
   get size(): number {
     return this.#frames.length;
   }
@@ -87,11 +95,20 @@ class FramedPayloadBudget {
   }
 
   reserveFrame(length: number): void {
+    const rejection = this.#reserveFrame(length);
+    if (rejection !== undefined) {
+      throw new Error(rejection);
+    }
+  }
+
+  tryReserveFrame(length: number): boolean {
+    return this.#reserveFrame(length) === undefined;
+  }
+
+  #reserveFrame(length: number): string | undefined {
     const nextCount = this.#frameCount + 1;
     if (nextCount > this.#limits.maximumFileCount) {
-      throw new Error(
-        `${this.#subject} file count ${nextCount} exceeds limit ${this.#limits.maximumFileCount}`,
-      );
+      return `${this.#subject} file count ${nextCount} exceeds limit ${this.#limits.maximumFileCount}`;
     }
     requireNonNegativeSafeInteger(
       length,
@@ -113,12 +130,11 @@ class FramedPayloadBudget {
       `${this.#subject} payload size`,
     );
     if (nextPayloadLength > this.#limits.maximumPayloadBytes) {
-      throw new Error(
-        `${this.#subject} payload size ${nextPayloadLength} exceeds limit ${this.#limits.maximumPayloadBytes}`,
-      );
+      return `${this.#subject} payload size ${nextPayloadLength} exceeds limit ${this.#limits.maximumPayloadBytes}`;
     }
     this.#frameCount = nextCount;
     this.#payloadLength = nextPayloadLength;
+    return undefined;
   }
 }
 

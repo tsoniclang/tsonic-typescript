@@ -66,11 +66,12 @@ function compileSourceArtifacts(
   readonly diagnostics: TargetCompileResult["diagnostics"];
   readonly usesRuntime: boolean;
 } {
-  const lowered: {
+  const artifacts: TargetSourceFile[] = [];
+  let pending: {
     readonly path: string;
-    readonly usesRuntime: boolean;
   }[] = [];
-  const printerRequest = new TypeScriptPrinterRequest();
+  let printerRequest = new TypeScriptPrinterRequest();
+  let usesRuntime = false;
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
   const sourceFiles = [...input.source.navigation.sourceFiles].sort(
     (left, right) => compareSourceDocumentIdentities(
@@ -81,7 +82,7 @@ function compileSourceArtifacts(
   for (const sourceFile of sourceFiles) {
     const document = input.source.documents.forFile(sourceFile);
     let encoded: Uint8Array;
-    let usesRuntime: boolean;
+    let fileUsesRuntime: boolean;
     try {
       if (document.sourceFile !== sourceFile) {
         throw new Error(
@@ -90,7 +91,7 @@ function compileSourceArtifacts(
       }
       const result = lowerPointers(input.source, sourceFile);
       encoded = encodeTargetSourceFile(document.fileName, result.sourceFile);
-      usesRuntime = result.runtimeAlias !== undefined;
+      fileUsesRuntime = result.runtimeAlias !== undefined;
     } catch (error) {
       diagnostics.push({
         code: "TYPESCRIPT_TARGET_LOWERING",
@@ -100,21 +101,16 @@ function compileSourceArtifacts(
       });
       continue;
     }
-    try {
+    if (!printerRequest.tryAppend(encoded)) {
+      artifacts.push(...printBatch(printer, printerRequest, pending));
+      printerRequest = new TypeScriptPrinterRequest();
+      pending = [];
       printerRequest.append(encoded);
-    } catch (error) {
-      diagnostics.push({
-        code: "TYPESCRIPT_TARGET_LOWERING",
-        category: "error",
-        source: "@tsonic/target-typescript",
-        message: error instanceof Error ? error.message : String(error),
-      });
-      break;
     }
-    lowered.push({
+    pending.push({
       path: sourceArtifactPath(input, document.fileName),
-      usesRuntime,
     });
+    usesRuntime ||= fileUsesRuntime;
   }
   if (diagnostics.length > 0) {
     return Object.freeze({
@@ -123,22 +119,36 @@ function compileSourceArtifacts(
       usesRuntime: false,
     });
   }
-  const printed = printer.print(printerRequest);
-  if (printed.length !== lowered.length) {
+  artifacts.push(...printBatch(printer, printerRequest, pending));
+  return Object.freeze({
+    artifacts: Object.freeze(artifacts),
+    diagnostics: [],
+    usesRuntime,
+  });
+}
+
+function printBatch(
+  printer: TypeScriptAstPrinter,
+  request: TypeScriptPrinterRequest,
+  pending: readonly { readonly path: string }[],
+): readonly TargetSourceFile[] {
+  if (request.size === 0) {
+    return [];
+  }
+  const printed = printer.print(request);
+  if (printed.length !== pending.length) {
     throw new Error(
-      `TypeScript AST printer returned ${printed.length} files, expected ${lowered.length}`,
+      `TypeScript AST printer returned ${printed.length} files, expected ${pending.length}`,
     );
   }
-  return Object.freeze({
-    artifacts: Object.freeze(lowered.map((artifact, index): TargetSourceFile => ({
+  return Object.freeze(
+    pending.map((artifact, index): TargetSourceFile => ({
       kind: "source",
       language: "typescript",
       path: artifact.path,
       text: requiredPrintedSource(printed, index),
-    }))),
-    diagnostics: [],
-    usesRuntime: lowered.some((artifact) => artifact.usesRuntime),
-  });
+    })),
+  );
 }
 
 function encodeTargetSourceFile(

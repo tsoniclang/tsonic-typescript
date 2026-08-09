@@ -25,6 +25,10 @@ export class TypeScriptPrinterRequest {
     this.#frames.append(encodedSourceFile);
   }
 
+  tryAppend(encodedSourceFile: Uint8Array): boolean {
+    return this.#frames.tryAppend(encodedSourceFile);
+  }
+
   get size(): number {
     return this.#frames.size;
   }
