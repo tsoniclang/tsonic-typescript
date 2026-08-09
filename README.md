@@ -26,3 +26,44 @@ it does not invent a second runtime selection.
 The same provider owns the checked-source declaration profile: the bundled
 `lib.es2024.d.ts` closure and declaration contracts from installed packages.
 Callers do not inject ambient globals or rediscover the target's library set.
+
+## Pointer representations
+
+Canonical pointer lowering is `Location<T>`. It remains the default and the
+complete fallback for open, escaping, potentially nil, identity-observed,
+unsafe, indirect, or otherwise unproved flows.
+
+The target optimization `optimizations.pointerFlows: "closed-direct"` lets the
+backend create one whole-program plan with
+`createClosedPointerFlowPlan(source)` and supply that plan while lowering every
+source file. Lowering does not read configuration; omitting the plan always
+selects canonical `Location<T>`.
+
+Selecting `closed-direct` asserts that the complete emitted program is the
+consumer boundary. Project exports may therefore change representation, but
+only after the planner has joined every project definition, call, alias, and
+reference. Library output with unknown consumers must use canonical lowering.
+
+The closed planner can select only these exact representations:
+
+- a read-only scalar pointer becomes the scalar snapshot;
+- a closed mutable scalar alias component becomes one `{ value: T }` cell;
+- a class-represented pointee becomes the object itself only when its checked
+  type symbol has a primary project `ClassDeclaration` and the complete flow
+  neither replaces nor observes the pointer location.
+
+Object shape is never representation evidence. Arrays, interfaces,
+declaration-file classes, and structural wrapper shapes therefore remain
+`Location<T>`. A project class may carry value semantics because canonical
+`Location<T>.value` also returns that same represented object; generated copy
+operations remain outside pointer lowering. `addressOf(x)` can become a scalar
+snapshot only when `x` has one exact local storage identity and the checked
+navigation graph proves that storage cannot change. Repeated addresses of the
+same storage are one component. Nullable authored types and `value ?? panic()`
+guards are contracted only when all exact assignments and calls prove the
+component non-null.
+
+Planning uses original checked-node identities. `createPointerRewriteSession`
+exposes the node rewrite for composition with other semantic lowerers in one
+canonical target-AST traversal; it seals only after every planned fact has
+been consumed. No pass is keyed to cloned nodes.
