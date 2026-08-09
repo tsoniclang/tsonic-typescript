@@ -1,10 +1,12 @@
 import type {
   Node,
   SourceFile,
+  Symbol,
   Type,
 } from "@tsonic/tsts";
 import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import { propagateEffectBlockers } from "./blocker-propagation.js";
 import { createCooperativeEffectPlanLifecycle } from "./lifecycle.js";
 import {
   containingAwait,
@@ -43,11 +45,9 @@ export function createClosedCooperativeEffectPlan(
 ): CooperativeEffectPlan {
   const candidates = collectCandidates(source);
   const calls = collectCalls(source, candidates);
-  classifyAwaitDependencies(source, candidates, calls);
-  classifyReturnDependencies(source, candidates, calls);
+  classifyProgramEvidence(source, candidates, calls);
   classifyCallUses(source, candidates, calls);
-  classifyReferences(source, candidates, calls);
-  settleTransitiveBlockers(candidates.values());
+  propagateEffectBlockers(candidates.values());
   const optimized = new Set(
     [...candidates.values()]
       .filter((candidate) => !candidate.blocked)
@@ -182,61 +182,59 @@ function classifyAwaitDependencies(
   source: TargetSourceProgram,
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
+  node: Node,
 ): void {
-  forEachProgramNode(source, (node) => {
-    if (!source.ast.is.IsAwaitExpression(node)) {
-      return;
-    }
-    const owner = enclosingCandidate(source, candidates, node);
-    if (owner === undefined) {
-      return;
-    }
-    const expression = source.ast.as.AsAwaitExpression(node)?.Expression;
-    const call = exactCallExpression(source, expression);
-    const dependency = call === undefined ? undefined : calls.get(call);
-    if (dependency === undefined) {
-      owner.blocked = true;
-      return;
-    }
-    owner.dependencies.add(dependency);
-  });
+  if (!source.ast.is.IsAwaitExpression(node)) {
+    return;
+  }
+  const owner = enclosingCandidate(source, candidates, node);
+  if (owner === undefined) {
+    return;
+  }
+  const expression = source.ast.as.AsAwaitExpression(node)?.Expression;
+  const call = exactCallExpression(source, expression);
+  const dependency = call === undefined ? undefined : calls.get(call);
+  if (dependency === undefined) {
+    owner.blocked = true;
+    return;
+  }
+  owner.dependencies.add(dependency);
 }
 
 function classifyReturnDependencies(
   source: TargetSourceProgram,
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
+  node: Node,
 ): void {
-  forEachProgramNode(source, (node) => {
-    if (!source.ast.is.IsReturnStatement(node)) {
-      return;
-    }
-    const owner = enclosingCandidate(source, candidates, node);
-    if (owner === undefined) {
-      return;
-    }
-    const expression = source.ast.as.AsReturnStatement(node)?.Expression;
-    if (expression === undefined) {
-      owner.blocked ||= !source.semantics.forNode(node).isVoidLike(
-        owner.innerType,
-      );
-      return;
-    }
-    const returnedCall = exactReturnedCall(source, expression);
-    const dependency = returnedCall === undefined
-      ? undefined
-      : calls.get(returnedCall);
-    if (dependency !== undefined) {
-      owner.dependencies.add(dependency);
-      owner.blocked ||= !sameSelectedType(
-        source.semantics.forNode(expression),
-        owner.innerType,
-        dependency.innerType,
-      );
-      return;
-    }
-    owner.blocked ||= !expressionFitsInnerType(source, expression, owner.innerType);
-  });
+  if (!source.ast.is.IsReturnStatement(node)) {
+    return;
+  }
+  const owner = enclosingCandidate(source, candidates, node);
+  if (owner === undefined) {
+    return;
+  }
+  const expression = source.ast.as.AsReturnStatement(node)?.Expression;
+  if (expression === undefined) {
+    owner.blocked ||= !source.semantics.forNode(node).isVoidLike(
+      owner.innerType,
+    );
+    return;
+  }
+  const returnedCall = exactReturnedCall(source, expression);
+  const dependency = returnedCall === undefined
+    ? undefined
+    : calls.get(returnedCall);
+  if (dependency !== undefined) {
+    owner.dependencies.add(dependency);
+    owner.blocked ||= !sameSelectedType(
+      source.semantics.forNode(expression),
+      owner.innerType,
+      dependency.innerType,
+    );
+    return;
+  }
+  owner.blocked ||= !expressionFitsInnerType(source, expression, owner.innerType);
 }
 
 function classifyCallUses(
@@ -261,19 +259,19 @@ function classifyCallUses(
   }
 }
 
-function classifyReferences(
+function classifyProgramEvidence(
   source: TargetSourceProgram,
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
 ): void {
+  const tracked = indexCandidateSymbols(source, candidates.values());
   forEachProgramNode(source, (node) => {
+    classifyAwaitDependencies(source, candidates, calls, node);
+    classifyReturnDependencies(source, candidates, calls, node);
     if (!source.ast.is.IsIdentifier(node)) {
       return;
     }
-    const reference = source.navigation.sourceReferenceFor(node);
-    const candidate = reference === undefined
-      ? undefined
-      : candidates.get(reference.declaration);
+    const candidate = candidateForReference(source, tracked, node);
     if (
       candidate === undefined ||
       node === source.ast.name(candidate.declaration) ||
@@ -288,21 +286,56 @@ function classifyReferences(
   });
 }
 
-function settleTransitiveBlockers(candidates: Iterable<MutableCallable>): void {
-  const all = [...candidates];
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const candidate of all) {
-      if (
-        !candidate.blocked &&
-        [...candidate.dependencies].some((dependency) => dependency.blocked)
-      ) {
-        candidate.blocked = true;
-        changed = true;
-      }
+function indexCandidateSymbols(
+  source: TargetSourceProgram,
+  candidates: Iterable<MutableCallable>,
+): ReadonlyMap<Symbol, MutableCallable> {
+  const result = new Map<Symbol, MutableCallable>();
+  for (const candidate of candidates) {
+    const name = source.ast.name(candidate.declaration);
+    for (const symbol of exactSymbolsAt(source, name)) {
+      result.set(symbol, candidate);
+    }
+    const reference = source.navigation.sourceReferenceFor(name);
+    if (reference?.declaration === candidate.declaration) {
+      result.set(reference.symbol, candidate);
     }
   }
+  return result;
+}
+
+function candidateForReference(
+  source: TargetSourceProgram,
+  tracked: ReadonlyMap<Symbol, MutableCallable>,
+  node: Node,
+): MutableCallable | undefined {
+  for (const symbol of exactSymbolsAt(source, node)) {
+    const candidate = tracked.get(symbol);
+    if (candidate !== undefined) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function exactSymbolsAt(
+  source: TargetSourceProgram,
+  node: Node | undefined,
+): readonly Symbol[] {
+  if (node === undefined) {
+    return [];
+  }
+  const semantics = source.semantics.forNode(node);
+  const symbols = new Set<Symbol>();
+  const direct = semantics.getSymbolAtLocation(node);
+  const resolved = semantics.getResolvedSymbol(node);
+  if (direct !== undefined) {
+    symbols.add(direct);
+  }
+  if (resolved !== undefined) {
+    symbols.add(resolved);
+  }
+  return [...symbols];
 }
 
 function collectSettledAwaits(
@@ -311,17 +344,15 @@ function collectSettledAwaits(
   optimized: ReadonlySet<Node>,
 ): ReadonlySet<Node> {
   const awaits = new Set<Node>();
-  forEachProgramNode(source, (node) => {
-    if (!source.ast.is.IsAwaitExpression(node)) {
-      return;
+  for (const [call, candidate] of calls) {
+    if (!optimized.has(candidate.declaration)) {
+      continue;
     }
-    const expression = source.ast.as.AsAwaitExpression(node)?.Expression;
-    const call = exactCallExpression(source, expression);
-    const candidate = call === undefined ? undefined : calls.get(call);
-    if (candidate !== undefined && optimized.has(candidate.declaration)) {
-      awaits.add(node);
+    const awaitExpression = containingAwait(source, call);
+    if (awaitExpression !== undefined) {
+      awaits.add(awaitExpression);
     }
-  });
+  }
   return awaits;
 }
 

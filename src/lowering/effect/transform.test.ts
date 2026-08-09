@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { Node } from "@tsonic/tsts";
+
 import {
   IsAwaitExpression,
 } from "@tsonic/tsts/target-ast";
@@ -132,4 +134,52 @@ export class MathOps {
     1,
   );
   plan.finish();
+});
+
+test("propagates one boundary through a deep chain without rescanning it", () => {
+  const declarations = Array.from({ length: 64 }, (_, index) => {
+    const next = index === 63 ? "remote()" : `value${index + 1}()`;
+    return `async function value${index}(): Promise<number> { return await ${next}; }`;
+  }).join("\n");
+  const fixture = checkedEffectFixture(`
+declare function remote(): Promise<number>;
+${declarations}
+export const result = await value0();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 64);
+});
+
+test("does not resolve every unrelated identifier as a source reference", () => {
+  const unrelated = Array.from(
+    { length: 256 },
+    (_, index) => `const unrelated${index} = ${index};`,
+  ).join("\n");
+  const fixture = checkedEffectFixture(`
+${unrelated}
+async function value(): Promise<number> { return 1; }
+export const result = await value();
+`);
+  let queries = 0;
+  const source = Object.freeze({
+    ...fixture.source,
+    navigation: Object.freeze({
+      ...fixture.source.navigation,
+      sourceReferenceFor(node: Node | undefined) {
+        queries += 1;
+        return fixture.source.navigation.sourceReferenceFor(node);
+      },
+    }),
+  });
+
+  const plan = createClosedCooperativeEffectPlan(source);
+  lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.ok(queries < 8, `expected bounded source-reference queries, got ${queries}`);
 });
