@@ -14,6 +14,22 @@ export type {
   PointerLoweringResult,
 } from "./lowering/pointer/transform.js";
 export {
+  createScalarRepresentationPlan,
+} from "./lowering/scalar/plan.js";
+export type {
+  ScalarProjectionPlan,
+  ScalarRepresentationPlan,
+  ScalarRepresentationProfile,
+} from "./lowering/scalar/plan.js";
+export {
+  createScalarRepresentationRewriter,
+  lowerScalarRepresentations,
+} from "./lowering/scalar/transform.js";
+export type {
+  ScalarRepresentationRewriter,
+  ScalarRepresentationRewriteResult,
+} from "./lowering/scalar/transform.js";
+export {
   createExternalAstPrinter,
   decodePrinterResponse,
   encodePrinterRequest,
