@@ -91,6 +91,13 @@ canonical async return. This restriction is intentional: a structurally typed
 value may hide a runtime `then` member that JavaScript assimilates even when its
 declared interface does not expose one.
 
+The selected TypeScript runtime contract also certifies the fresh location and
+raw-pointer constructors that the target itself owns. Calls join through the
+exact import binding for the pinned runtime package; a same-spelled local,
+another package, an unknown runtime export, or a checked thenable result does
+not qualify. Project return forwarding may consume that fact, but arbitrary
+provider calls remain open.
+
 ## Pointer representations
 
 Canonical pointer lowering is `Location<T>`. It remains the default and the

@@ -2,6 +2,10 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
+  createTypeScriptRuntimeReturnContract,
+  type TypeScriptRuntimeReturnContract,
+} from "../../runtime/return-contract.js";
+import {
   objectLiteralIsDefinitelyNonThenable,
   projectConstructionIsDefinitelyNonThenable,
 } from "./return-construction.js";
@@ -44,6 +48,7 @@ export function createReturnValueFlow(
   const nodes = collectProgramNodes(source);
   const locals = createReturnLocalFlow(source, nodes);
   const storage = createReturnStorageFlow(source, nodes);
+  const runtime = createTypeScriptRuntimeReturnContract(source, nodes);
   const projections = createReturnProjectionFlow(
     source,
     nodes,
@@ -64,6 +69,7 @@ export function createReturnValueFlow(
     value,
     locals,
     storage,
+    runtime,
     projections,
     calls,
     results,
@@ -136,6 +142,7 @@ function expressionIsDefinitelyNonThenableWithin(
   value: ReturnProofValue,
   locals: ReturnLocalFlow,
   storage: ReturnStorageFlow,
+  runtime: TypeScriptRuntimeReturnContract,
   projections: ReturnProjectionFlow,
   calls: ReturnCallFlow,
   results: Map<ReturnProofScope, Map<Node, boolean>>,
@@ -159,6 +166,7 @@ function expressionIsDefinitelyNonThenableWithin(
         { expression: conditional.WhenTrue, scope: value.scope },
         locals,
         storage,
+        runtime,
         projections,
         calls,
         results,
@@ -170,12 +178,16 @@ function expressionIsDefinitelyNonThenableWithin(
         { expression: conditional.WhenFalse, scope: value.scope },
         locals,
         storage,
+        runtime,
         projections,
         calls,
         results,
         pendingDeclarations,
         pendingBindings,
       );
+  }
+  if (runtime.callResultIsDefinitelyNonThenable(root)) {
+    return true;
   }
   const callDeclaration = source.ast.is.IsCallExpression(root)
     ? calls.directDeclaration(root)
@@ -191,6 +203,7 @@ function expressionIsDefinitelyNonThenableWithin(
           input,
           locals,
           storage,
+          runtime,
           projections,
           calls,
           results,
@@ -208,6 +221,7 @@ function expressionIsDefinitelyNonThenableWithin(
       { expression: input, scope: value.scope },
       locals,
       storage,
+      runtime,
       projections,
       calls,
       results,
@@ -229,6 +243,7 @@ function expressionIsDefinitelyNonThenableWithin(
       scopedInput,
       locals,
       storage,
+      runtime,
       projections,
       calls,
       results,
@@ -259,6 +274,7 @@ function expressionIsDefinitelyNonThenableWithin(
       { expression: input, scope: value.scope },
       locals,
       storage,
+      runtime,
       projections,
       calls,
       results,
