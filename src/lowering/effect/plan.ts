@@ -6,15 +6,11 @@ import type {
 } from "@tsonic/tsts";
 import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
-import {
-  optimizationOccurrence,
-  type SourceIdentityResolver,
-} from "../occurrence.js";
+import type { SourceIdentityResolver } from "../occurrence.js";
 import { propagateEffectBlockers } from "./blocker-propagation.js";
 import {
   blockCooperativeEffect,
   type CooperativeEffectFallbackReason,
-  type CooperativeEffectFallbackOccurrence,
   type CooperativeEffectPlanSummary,
   summarizeCooperativeEffects,
 } from "./fallback.js";
@@ -39,10 +35,12 @@ import {
 interface MutableCallable {
   readonly declaration: Node;
   readonly sourceFile: SourceFile;
-  readonly occurrence: CooperativeEffectFallbackOccurrence;
   readonly innerType: Type;
   readonly dependencies: Set<MutableCallable>;
-  readonly directBlockers: Set<CooperativeEffectFallbackReason>;
+  readonly directBlockerNodes: Map<
+    CooperativeEffectFallbackReason,
+    Set<Node>
+  >;
   readonly blockers: Set<CooperativeEffectFallbackReason>;
 }
 export interface CooperativeEffectFilePlan {
@@ -63,7 +61,7 @@ export function createClosedCooperativeEffectPlan(
   source: TargetSourceProgram,
   sourceIdentityFor: SourceIdentityResolver,
 ): CooperativeEffectPlan {
-  const candidates = collectCandidates(source, sourceIdentityFor);
+  const candidates = collectCandidates(source);
   const calls = collectCalls(source, candidates);
   const valueFlow = createCallableValueFlow(
     source,
@@ -113,6 +111,8 @@ export function createClosedCooperativeEffectPlan(
     }));
   }
   const summary = summarizeCooperativeEffects(
+    source,
+    sourceIdentityFor,
     candidates.values(),
     optimized.size,
     awaits.size,
@@ -123,7 +123,6 @@ export function createClosedCooperativeEffectPlan(
 
 function collectCandidates(
   source: TargetSourceProgram,
-  sourceIdentityFor: SourceIdentityResolver,
 ): Map<Node, MutableCallable> {
   const candidates = new Map<Node, MutableCallable>();
   forEachProgramNode(source, (node) => {
@@ -166,10 +165,9 @@ function collectCandidates(
     const candidate: MutableCallable = {
       declaration: node,
       sourceFile,
-      occurrence: optimizationOccurrence(source, node, sourceIdentityFor),
       innerType,
       dependencies: new Set(),
-      directBlockers: new Set(),
+      directBlockerNodes: new Map(),
       blockers: new Set(),
     };
     candidates.set(node, candidate);
@@ -261,13 +259,17 @@ function classifyAwaitDependencies(
   }
   const resolution = valueFlow.resolutionFor(call);
   if (resolution === undefined || !resolution.closed) {
-    blockCooperativeEffect(owner, "unresolved-call");
+    blockCooperativeEffect(
+      owner,
+      "unresolved-call",
+      call ?? expression ?? node,
+    );
     return;
   }
   for (const declaration of resolution.dependencies) {
     const candidate = candidates.get(declaration);
     if (candidate === undefined) {
-      blockCooperativeEffect(owner, "unresolved-call");
+      blockCooperativeEffect(owner, "unresolved-call", call ?? node);
       return;
     }
     owner.dependencies.add(candidate);
@@ -291,7 +293,7 @@ function classifyReturnDependencies(
   const expression = source.ast.as.AsReturnStatement(node)?.Expression;
   if (expression === undefined) {
     if (!source.semantics.forNode(node).isVoidLike(owner.innerType)) {
-      blockCooperativeEffect(owner, "incompatible-return");
+      blockCooperativeEffect(owner, "incompatible-return", node);
     }
     return;
   }
@@ -309,7 +311,7 @@ function classifyReturnDependencies(
       for (const declaration of resolution.dependencies) {
         const candidate = candidates.get(declaration);
         if (candidate === undefined) {
-          blockCooperativeEffect(owner, "unresolved-call");
+          blockCooperativeEffect(owner, "unresolved-call", returnedCall);
           return;
         }
         owner.dependencies.add(candidate);
@@ -318,7 +320,7 @@ function classifyReturnDependencies(
     }
   }
   if (!expressionIsDefinitelyNonThenable(source, expression)) {
-    blockCooperativeEffect(owner, "promise-producing-return");
+    blockCooperativeEffect(owner, "promise-producing-return", expression);
   }
 }
 
@@ -341,7 +343,7 @@ function classifyCallUses(
       owner.dependencies.add(candidate);
       continue;
     }
-    blockCooperativeEffect(candidate, "promise-observed");
+    blockCooperativeEffect(candidate, "promise-observed", call);
   }
   for (const { call, resolution } of valueFlow.calls) {
     if (calls.has(call) || resolution.dependencies.length === 0) {
@@ -364,7 +366,7 @@ function classifyCallUses(
     for (const declaration of resolution.dependencies) {
       const candidate = candidates.get(declaration);
       if (candidate !== undefined) {
-        blockCooperativeEffect(candidate, "promise-observed");
+        blockCooperativeEffect(candidate, "promise-observed", call);
       }
     }
   }
@@ -394,7 +396,7 @@ function classifyProgramEvidence(
     }
     const call = directContainingCall(source, node);
     if (call === undefined || calls.get(call) !== candidate) {
-      blockCooperativeEffect(candidate, "escaping-callable");
+      blockCooperativeEffect(candidate, "escaping-callable", node);
     }
   });
   for (const candidate of candidates.values()) {
@@ -404,7 +406,11 @@ function classifyProgramEvidence(
       !valueFlow.allowsCandidateReference(candidate.declaration) &&
       directContainingCall(source, candidate.declaration) === undefined
     ) {
-      blockCooperativeEffect(candidate, "escaping-callable");
+      blockCooperativeEffect(
+        candidate,
+        "escaping-callable",
+        candidate.declaration,
+      );
     }
   }
 }

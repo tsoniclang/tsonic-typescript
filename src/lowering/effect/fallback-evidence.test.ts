@@ -7,7 +7,7 @@ import {
 } from "./effect.test-support.js";
 
 test("reports every retained cooperative candidate by closed reason", () => {
-  const fixture = checkedEffectFixture(`
+  const sourceText = `
 declare function remote(): Promise<number>;
 async function boundary(): Promise<number> { return await remote(); }
 async function caller(): Promise<number> { return await boundary(); }
@@ -16,7 +16,8 @@ export const callable: () => Promise<number> = escaped;
 async function promiseValue(): Promise<number> { return Promise.resolve(2); }
 async function settled(): Promise<number> { return 3; }
 export const result = await settled();
-`);
+`;
+  const fixture = checkedEffectFixture(sourceText);
 
   const plan = createClosedCooperativeEffectPlan(fixture.source);
 
@@ -30,19 +31,31 @@ export const result = await settled();
         reason: "escaping-callable",
         directCallableCount: 1,
         retainedCallableCount: 1,
-        directExamples: [authored("escaped")],
+        directExamples: [authored(
+          "escaped",
+          sourceText.indexOf("export const callable"),
+          "KindIdentifier",
+        )],
       },
       {
         reason: "promise-producing-return",
         directCallableCount: 1,
         retainedCallableCount: 1,
-        directExamples: [authored("promiseValue")],
+        directExamples: [authored(
+          "Promise.resolve(2)",
+          0,
+          "KindCallExpression",
+        )],
       },
       {
         reason: "unresolved-call",
         directCallableCount: 1,
         retainedCallableCount: 2,
-        directExamples: [authored("boundary")],
+        directExamples: [authored(
+          "remote()",
+          sourceText.indexOf("boundary"),
+          "KindCallExpression",
+        )],
       },
     ],
     propagation: {
@@ -52,22 +65,23 @@ export const result = await settled();
     },
   });
 
-  function authored(name: string) {
-    const declaration = [...fixture.source.navigation.sourceFiles]
-      .flatMap((sourceFile) => fixture.source.ast.children(sourceFile))
-      .find((node) => fixture.source.ast.text(fixture.source.ast.name(node)) === name);
-    assert.ok(declaration !== undefined);
-    const occurrence = fixture.source.documents.occurrenceFor(declaration);
-    assert.equal(occurrence.kind, "authored");
-    if (occurrence.kind !== "authored") {
-      assert.fail("effect fixture declaration must be authored");
-    }
+  function authored(
+    spelling: string,
+    from: number,
+    syntaxKind: string,
+  ) {
+    const start = sourceText.indexOf(spelling, from);
+    assert.ok(start >= 0);
+    const sourceFile = fixture.source.navigation.sourceFiles.find((candidate) =>
+      fixture.source.documents.forFile(candidate).identity === "/src/index.ts"
+    );
+    assert.ok(sourceFile !== undefined);
     return {
       kind: "authored" as const,
-      documentIdentity: occurrence.document.identity,
-      start: occurrence.start,
-      end: occurrence.end,
-      syntaxKind: occurrence.syntaxKind,
+      documentIdentity: fixture.source.documents.forFile(sourceFile).identity,
+      start,
+      end: start + spelling.length,
+      syntaxKind,
     };
   }
 });

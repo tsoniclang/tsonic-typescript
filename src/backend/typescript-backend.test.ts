@@ -131,10 +131,11 @@ test("emits deterministic immutable optimization evidence", () => {
 });
 
 test("reports fallback examples with stable target-relative source identities", () => {
-  const source = checkedSource({
-    "/project/index.ts": `declare function remote(): Promise<number>;
+  const sourceText = `declare function remote(): Promise<number>;
 export async function value(): Promise<number> { return await remote(); }
-`,
+`;
+  const source = checkedSource({
+    "/project/index.ts": sourceText,
   });
   const printer: TypeScriptAstPrinter = {
     print(batch) {
@@ -156,7 +157,12 @@ export async function value(): Promise<number> { return await remote(); }
   const evidence = JSON.parse(artifact.text) as {
     cooperativeEffects?: {
       fallbackReasons?: Array<{
-        directExamples?: Array<{ documentIdentity?: string }>;
+        reason?: string;
+        directExamples?: Array<{
+          documentIdentity?: string;
+          start?: number;
+          syntaxKind?: string;
+        }>;
       }>;
     };
   };
@@ -165,6 +171,13 @@ export async function value(): Promise<number> { return await remote(); }
     ?.directExamples?.[0]
     ?.documentIdentity;
   assert.equal(identity, "index.ts");
+  const unresolved = evidence.cooperativeEffects?.fallbackReasons?.find(
+    (reason) => reason.reason === "unresolved-call",
+  );
+  assert.ok(unresolved?.directExamples?.some((example) =>
+    example.start === sourceText.lastIndexOf("remote()") &&
+    example.syntaxKind === "KindCallExpression"
+  ));
   assert.doesNotMatch(artifact.text, /\/project|\.temp/u);
 });
 

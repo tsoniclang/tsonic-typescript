@@ -1,7 +1,12 @@
+import type { Node } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api";
+
 import type { EffectPropagationEvidence } from "./blocker-propagation.js";
 import {
   compareOptimizationOccurrences,
+  optimizationOccurrence,
   type OptimizationOccurrence,
+  type SourceIdentityResolver,
 } from "../occurrence.js";
 
 export const cooperativeEffectFallbackReasons = Object.freeze([
@@ -34,20 +39,30 @@ export interface CooperativeEffectPlanSummary {
 }
 
 export interface CooperativeEffectBlockable {
-  readonly occurrence: CooperativeEffectFallbackOccurrence;
-  readonly directBlockers: Set<CooperativeEffectFallbackReason>;
+  readonly directBlockerNodes: Map<
+    CooperativeEffectFallbackReason,
+    Set<Node>
+  >;
   readonly blockers: Set<CooperativeEffectFallbackReason>;
 }
 
 export function blockCooperativeEffect(
   candidate: CooperativeEffectBlockable,
   reason: CooperativeEffectFallbackReason,
+  occurrence: Node,
 ): void {
-  candidate.directBlockers.add(reason);
+  const existing = candidate.directBlockerNodes.get(reason);
+  if (existing === undefined) {
+    candidate.directBlockerNodes.set(reason, new Set([occurrence]));
+  } else {
+    existing.add(occurrence);
+  }
   candidate.blockers.add(reason);
 }
 
 export function summarizeCooperativeEffects(
+  source: TargetSourceProgram,
+  sourceIdentityFor: SourceIdentityResolver,
   candidates: Iterable<CooperativeEffectBlockable>,
   settledCallableCount: number,
   settledAwaitCount: number,
@@ -61,13 +76,16 @@ export function summarizeCooperativeEffects(
     CooperativeEffectFallbackOccurrence[]
   >();
   for (const candidate of all) {
-    for (const reason of candidate.directBlockers) {
+    for (const [reason, nodes] of candidate.directBlockerNodes) {
       directCounts.set(reason, (directCounts.get(reason) ?? 0) + 1);
+      const occurrences = [...nodes].map((node) =>
+        optimizationOccurrence(source, node, sourceIdentityFor)
+      );
       const examples = directExamples.get(reason);
       if (examples === undefined) {
-        directExamples.set(reason, [candidate.occurrence]);
+        directExamples.set(reason, occurrences);
       } else {
-        examples.push(candidate.occurrence);
+        examples.push(...occurrences);
       }
     }
     for (const reason of candidate.blockers) {
