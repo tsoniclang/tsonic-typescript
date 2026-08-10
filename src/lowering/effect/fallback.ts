@@ -13,7 +13,8 @@ export type CooperativeEffectFallbackReason =
 
 export interface CooperativeEffectFallbackEvidence {
   readonly reason: CooperativeEffectFallbackReason;
-  readonly callableCount: number;
+  readonly directCallableCount: number;
+  readonly retainedCallableCount: number;
 }
 
 export interface CooperativeEffectPlanSummary {
@@ -26,6 +27,7 @@ export interface CooperativeEffectPlanSummary {
 }
 
 export interface CooperativeEffectBlockable {
+  readonly directBlockers: Set<CooperativeEffectFallbackReason>;
   readonly blockers: Set<CooperativeEffectFallbackReason>;
 }
 
@@ -33,6 +35,7 @@ export function blockCooperativeEffect(
   candidate: CooperativeEffectBlockable,
   reason: CooperativeEffectFallbackReason,
 ): void {
+  candidate.directBlockers.add(reason);
   candidate.blockers.add(reason);
 }
 
@@ -43,17 +46,26 @@ export function summarizeCooperativeEffects(
   propagation: EffectPropagationEvidence,
 ): CooperativeEffectPlanSummary {
   const all = [...candidates];
-  const counts = new Map<CooperativeEffectFallbackReason, number>();
+  const directCounts = new Map<CooperativeEffectFallbackReason, number>();
+  const retainedCounts = new Map<CooperativeEffectFallbackReason, number>();
   for (const candidate of all) {
+    for (const reason of candidate.directBlockers) {
+      directCounts.set(reason, (directCounts.get(reason) ?? 0) + 1);
+    }
     for (const reason of candidate.blockers) {
-      counts.set(reason, (counts.get(reason) ?? 0) + 1);
+      retainedCounts.set(reason, (retainedCounts.get(reason) ?? 0) + 1);
     }
   }
   const fallbackReasons = cooperativeEffectFallbackReasons.flatMap((reason) => {
-    const callableCount = counts.get(reason) ?? 0;
-    return callableCount === 0
+    const directCallableCount = directCounts.get(reason) ?? 0;
+    const retainedCallableCount = retainedCounts.get(reason) ?? 0;
+    return retainedCallableCount === 0
       ? []
-      : [Object.freeze({ reason, callableCount })];
+      : [Object.freeze({
+          reason,
+          directCallableCount,
+          retainedCallableCount,
+        })];
   });
   return Object.freeze({
     candidateCount: all.length,

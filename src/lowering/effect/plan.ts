@@ -36,6 +36,7 @@ interface MutableCallable {
   readonly innerType: Type;
   readonly transportType: Type;
   readonly dependencies: Set<MutableCallable>;
+  readonly directBlockers: Set<CooperativeEffectFallbackReason>;
   readonly blockers: Set<CooperativeEffectFallbackReason>;
 }
 export interface CooperativeEffectFilePlan {
@@ -160,6 +161,7 @@ function collectCandidates(
       innerType,
       transportType: returnType,
       dependencies: new Set(),
+      directBlockers: new Set(),
       blockers: new Set(),
     });
   });

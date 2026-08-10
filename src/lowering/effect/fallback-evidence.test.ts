@@ -24,9 +24,21 @@ export const result = await settled();
     retainedCallableCount: 4,
     settledAwaitCount: 1,
     fallbackReasons: [
-      { reason: "escaping-callable", callableCount: 1 },
-      { reason: "promise-producing-return", callableCount: 1 },
-      { reason: "unresolved-call", callableCount: 2 },
+      {
+        reason: "escaping-callable",
+        directCallableCount: 1,
+        retainedCallableCount: 1,
+      },
+      {
+        reason: "promise-producing-return",
+        directCallableCount: 1,
+        retainedCallableCount: 1,
+      },
+      {
+        reason: "unresolved-call",
+        directCallableCount: 1,
+        retainedCallableCount: 2,
+      },
     ],
     propagation: {
       vertices: 5,

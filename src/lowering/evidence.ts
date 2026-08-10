@@ -20,6 +20,12 @@ export interface OptimizationReasonCount<Reason extends string> {
   readonly count: number;
 }
 
+export interface OptimizationPropagatedReasonCount<Reason extends string> {
+  readonly reason: Reason;
+  readonly directCount: number;
+  readonly retainedCount: number;
+}
+
 export type PointerOptimizationEvidence =
   | {
       readonly profile: "location";
@@ -54,7 +60,7 @@ export type CooperativeEffectOptimizationEvidence =
       readonly settledCallableCount: number;
       readonly retainedCallableCount: number;
       readonly settledAwaitCount: number;
-      readonly fallbackReasons: readonly OptimizationReasonCount<CooperativeEffectFallbackReason>[];
+      readonly fallbackReasons: readonly OptimizationPropagatedReasonCount<CooperativeEffectFallbackReason>[];
       readonly propagation: {
         readonly vertexCount: number;
         readonly edgeCount: number;
@@ -137,7 +143,11 @@ function effectEvidence(
     retainedCallableCount: summary.retainedCallableCount,
     settledAwaitCount: summary.settledAwaitCount,
     fallbackReasons: Object.freeze(summary.fallbackReasons.map((entry) =>
-      Object.freeze({ reason: entry.reason, count: entry.callableCount })
+      Object.freeze({
+        reason: entry.reason,
+        directCount: entry.directCallableCount,
+        retainedCount: entry.retainedCallableCount,
+      })
     )),
     propagation: Object.freeze({
       vertexCount: summary.propagation.vertices,
