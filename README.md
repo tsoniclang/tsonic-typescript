@@ -142,6 +142,12 @@ Within that proven bijection, pointer equality is object `===` and pointer
 hashing uses the runtime's stable object-identity hash. A nullable hash input is
 captured once before its nil branch, so lowering cannot duplicate evaluation.
 
+An exact project field can also use its object value for one direct project
+call when the complete synchronous execution closure cannot escape or replace
+the pointer, write the field, invoke an accessor, suspend, or cross an indirect
+or external call. Arguments evaluated after the address must satisfy the same
+proof. Any missing fact retains the canonical property `Location<T>`.
+
 Object shape is never representation evidence. Arrays, interfaces,
 declaration-file classes, and structural wrapper shapes therefore remain
 `Location<T>`. A project class may carry value semantics because canonical

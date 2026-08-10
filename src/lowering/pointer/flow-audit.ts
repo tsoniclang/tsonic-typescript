@@ -1,6 +1,7 @@
 import type { PointerOperationFact } from "@tsonic/tsts";
 
 import type { PointerCensus } from "./flow-census.js";
+import { createEphemeralAddressAudit } from "./flow-ephemeral-address.js";
 import {
   enclosingFunction,
   isModuleAliasReference,
@@ -13,8 +14,8 @@ import {
 export function auditPointerCensus(census: PointerCensus): void {
   auditReferences(census);
   auditBindingReassignments(census);
-  auditAddressedStorage(census);
   auditProducerUses(census);
+  auditAddressedStorage(census);
 }
 
 function auditReferences(census: PointerCensus): void {
@@ -91,12 +92,17 @@ function auditBindingReassignments(census: PointerCensus): void {
 
 function auditAddressedStorage(census: PointerCensus): void {
   const { source, graph } = census;
+  const preblockedNodes = graph.nodesInBlockedComponents();
+  const ephemeral = createEphemeralAddressAudit(census, preblockedNodes);
   for (const operation of census.operations.values()) {
     if (operation.operation !== "address-of") {
       continue;
     }
     const vertex = graph.get(operation.call);
-    if (!addressedStorageIsStable(census, operation)) {
+    if (
+      !addressedStorageIsStable(census, operation) &&
+      !ephemeral.accepts(operation)
+    ) {
       graph.block(
         vertex,
         "addressed-storage-may-change",
