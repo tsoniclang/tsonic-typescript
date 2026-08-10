@@ -27,6 +27,7 @@ export interface CallableValueCall {
 
 export interface CallableValueFlow {
   readonly calls: readonly CallableValueCall[];
+  readonly signatureFamilies: readonly (readonly Node[])[];
   resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
   allowsCandidateReference(node: Node): boolean;
   settledReturnTypes(optimized: ReadonlySet<Node>): readonly Node[];
@@ -85,8 +86,13 @@ export function createCallableValueFlow(
       resolution: sealResolution(resolution),
     });
   });
+  const signatureFamilies = Object.freeze(contractResolutions
+    .filter(({ resolution }) => resolution.closed)
+    .map(({ resolution }) => Object.freeze([...resolution.dependencies]))
+    .filter((family) => family.length !== 0));
   return Object.freeze({
     calls,
+    signatureFamilies,
     resolutionFor(call: Node | undefined) {
       return call === undefined ? undefined : resolutions.get(call);
     },

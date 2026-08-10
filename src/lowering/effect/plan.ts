@@ -71,6 +71,7 @@ export function createClosedCooperativeEffectPlan(
     source,
     new Set(candidates.keys()),
   );
+  connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const returnFlow = createReturnValueFlow(source);
   classifyProgramEvidence(source, candidates, calls, valueFlow, returnFlow);
   classifyCallUses(source, candidates, calls, valueFlow);
@@ -128,6 +129,26 @@ export function createClosedCooperativeEffectPlan(
     propagation,
   );
   return createCooperativeEffectPlanLifecycle(source, files, summary);
+}
+
+function connectSignatureFamilies(
+  candidates: ReadonlyMap<Node, MutableCallable>,
+  families: readonly (readonly Node[])[],
+): void {
+  for (const family of families) {
+    for (const declaration of family) {
+      const candidate = candidates.get(declaration);
+      if (candidate === undefined) {
+        continue;
+      }
+      for (const related of family) {
+        const dependency = candidates.get(related);
+        if (dependency !== undefined && dependency !== candidate) {
+          candidate.dependencies.add(dependency);
+        }
+      }
+    }
+  }
 }
 
 function collectCandidates(

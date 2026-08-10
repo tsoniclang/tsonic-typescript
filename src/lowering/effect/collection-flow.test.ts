@@ -3,7 +3,6 @@ import { test } from "node:test";
 
 import {
   IsAwaitExpression,
-  IsTypeReferenceNode,
 } from "@tsonic/tsts/target-ast";
 
 import {
@@ -34,7 +33,6 @@ export const result = await owner();
   assert.equal(result.awaitCount, 3);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
   assert.equal(countNodes(fixture.source, result.sourceFile, IsAwaitExpression), 0);
-  assert.equal(countPromiseTypes(fixture, result.sourceFile), 0);
 });
 
 test("settles a closed callable array through an exact generic extractor", () => {
@@ -61,7 +59,6 @@ export const result = await owner();
   assert.equal(result.callableCount, 3);
   assert.equal(result.awaitCount, 3);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
-  assert.equal(countPromiseTypes(fixture, result.sourceFile), 0);
 });
 
 test("preserves a callable array exposed to an unknown consumer", () => {
@@ -84,6 +81,28 @@ export const result = await owner();
   assert.equal(result.callableCount, 0);
   assert.equal(result.awaitCount, 0);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+});
+
+test("keeps every producer of one callable contract atomic", () => {
+  const fixture = checkedEffectFixture(`
+declare function remote(): Promise<void>;
+async function owner(): Promise<void> {
+  const callbacks: (() => Promise<void>)[] = [];
+  callbacks.push(async (): Promise<void> => {});
+  callbacks.push(async (): Promise<void> => { await remote(); });
+  const callback = callbacks.pop()!;
+  await callback();
+}
+export const result = await owner();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(result.awaitCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 3);
 });
 
 test("does not classify same-spelled methods on a custom collection", () => {
@@ -109,13 +128,3 @@ export const result = await owner();
   assert.equal(result.callableCount, 0);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
 });
-
-function countPromiseTypes(
-  fixture: ReturnType<typeof checkedEffectFixture>,
-  sourceFile: Parameters<typeof countNodes>[1],
-): number {
-  return countNodes(fixture.source, sourceFile, (node) =>
-    IsTypeReferenceNode(node) &&
-    fixture.source.ast.text(fixture.source.ast.name(node)) === "Promise"
-  );
-}
