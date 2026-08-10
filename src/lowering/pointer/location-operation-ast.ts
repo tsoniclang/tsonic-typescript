@@ -12,6 +12,8 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import type { FinalNodeLookup } from "../final-nodes.js";
+
 import { lowerAddressOf } from "./address.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type { PointerLoweringPlan } from "./plan.js";
@@ -52,7 +54,7 @@ export function lowerLocationPointerOperation(
   operation: PointerOperationFact,
   updated: Node,
   plan: PointerLoweringPlan,
-  updatedNodes: ReadonlyMap<Node, Node>,
+  finalNodes: FinalNodeLookup,
 ): Node {
   const call = IsCallExpression(updated) ? AsCallExpression(updated) : undefined;
   if (call === undefined) {
@@ -141,7 +143,7 @@ export function lowerLocationPointerOperation(
         operation,
         requiredElement(arguments_, 0),
         plan,
-        updatedNodes,
+        finalNodes,
       );
   }
 }

@@ -21,6 +21,11 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import {
+  createFinalNodeJournal,
+  type FinalNodeLookup,
+} from "../final-nodes.js";
+
 import { PointerLoweringError } from "./diagnostic.js";
 import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 import { pointerFlowRepresentation, pointerLoweringPlanUsesRuntime } from "./flow-application.js";
@@ -96,10 +101,14 @@ function applyPointerLoweringPlan(
       runtimeAlias: undefined,
     });
   }
-  const session = createPointerRewriteSessionForPlan(source, plan);
+  const finalNodes = createFinalNodeJournal();
+  const session = createPointerRewriteSessionForPlan(source, plan, finalNodes);
   const transformed = transformTargetSourceFile(
     sourceFile,
-    session.rewrite,
+    (original, updated, factory) => finalNodes.record(
+      original,
+      session.rewrite(original, updated, factory),
+    ),
   );
   return session.finish(transformed);
 }
@@ -107,17 +116,20 @@ function applyPointerLoweringPlan(
 export function createPointerRewriteSession(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
-  flowPlan?: ClosedPointerFlowPlan,
+  flowPlan: ClosedPointerFlowPlan | undefined,
+  finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
   return createPointerRewriteSessionForPlan(
     source,
     createPointerLoweringPlan(source, sourceFile, flowPlan),
+    finalNodes,
   );
 }
 
 function createPointerRewriteSessionForPlan(
   source: TargetSourceProgram,
   plan: PointerLoweringPlan,
+  finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
   const consumed = createConsumptionState();
   let finished = false;
@@ -133,13 +145,11 @@ function createPointerRewriteSessionForPlan(
       source,
       plan,
       consumed,
+      finalNodes,
       original,
       updated,
       factory,
     );
-    if (rewritten !== undefined) {
-      consumed.updatedNodes.set(original, rewritten);
-    }
     return rewritten;
   };
   return Object.freeze({
@@ -179,7 +189,6 @@ interface ConsumptionState {
   readonly rawPointerTypes: Set<Node>;
   readonly locationBindings: Set<Node>;
   readonly removableMarkerDeclarations: Set<Node>;
-  readonly updatedNodes: Map<Node, Node>;
 }
 
 function createConsumptionState(): ConsumptionState {
@@ -190,7 +199,6 @@ function createConsumptionState(): ConsumptionState {
     rawPointerTypes: new Set(),
     locationBindings: new Set(),
     removableMarkerDeclarations: new Set(),
-    updatedNodes: new Map(),
   };
 }
 
@@ -198,6 +206,7 @@ function rewriteNode(
   source: TargetSourceProgram,
   plan: PointerLoweringPlan,
   consumed: ConsumptionState,
+  finalNodes: FinalNodeLookup,
   original: Node,
   updated: Node,
   factory: NodeFactory,
@@ -266,7 +275,7 @@ function rewriteNode(
       operation,
       updated,
       plan,
-      consumed.updatedNodes,
+      finalNodes,
     );
   }
 
@@ -314,7 +323,7 @@ function rewriteNode(
       original,
       structuralResult,
       plan,
-      consumed.updatedNodes,
+      finalNodes,
       (binding) => consumed.locationBindings.add(binding.declaration),
     );
   } else {

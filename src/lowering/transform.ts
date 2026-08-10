@@ -8,6 +8,11 @@ import {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
+  createFinalNodeJournal,
+  type FinalNodeJournal,
+} from "./final-nodes.js";
+
+import {
   createClosedCooperativeEffectPlan,
   type CooperativeEffectPlan,
 } from "./effect/plan.js";
@@ -68,6 +73,7 @@ export interface TypeScriptLoweringTransaction {
 }
 
 interface SourceRewritePlan {
+  readonly finalNodes: FinalNodeJournal;
   readonly pointer: PointerRewriteSession;
   readonly scalar: ScalarRepresentationRewriter;
   readonly effect?: CooperativeEffectRewriteSession;
@@ -100,11 +106,14 @@ export function prepareTypeScriptLowering(
   const failures: TypeScriptSourcePlanningFailure[] = [];
   for (const sourceFile of sourceFiles) {
     try {
+      const finalNodes = createFinalNodeJournal();
       plans.set(sourceFile, Object.freeze({
+        finalNodes,
         pointer: createPointerRewriteSession(
           source,
           sourceFile,
           pointerFlowPlan,
+          finalNodes,
         ),
         scalar: createScalarRepresentationRewriter(scalarPlan, sourceFile),
         ...(effectPlan === undefined
@@ -165,17 +174,20 @@ function createTransaction(
             factory,
           );
           if (pointerResult === undefined) {
-            return undefined;
+            return plan.finalNodes.record(original, undefined);
           }
           const scalarResult = plan.scalar.rewrite(
             original,
             pointerResult,
             factory,
           );
-          if (scalarResult === undefined || plan.effect === undefined) {
-            return scalarResult;
+          if (scalarResult === undefined) {
+            return plan.finalNodes.record(original, undefined);
           }
-          return plan.effect.rewrite(original, scalarResult, factory);
+          const effectResult = plan.effect === undefined
+            ? scalarResult
+            : plan.effect.rewrite(original, scalarResult, factory);
+          return plan.finalNodes.record(original, effectResult);
         },
       );
       const pointer = plan.pointer.finish(transformed);

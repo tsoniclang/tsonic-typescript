@@ -47,7 +47,9 @@ for either family. The backend builds every whole-program plan before changing
 any source, then composes all selected rewrites in one post-order traversal of
 each original TS-Go-contract AST. Every planned source and semantic fact must
 be consumed exactly once before the transaction seals; otherwise printing is
-not invoked and no artifact is published.
+not invoked and no artifact is published. A structural rewrite that rebuilds a
+parent consumes the coordinator-recorded final child nodes after every selected
+lowering, never one lowering family's partial child output.
 
 `optimizations.cooperativeEffects: "closed-direct"` removes cooperative
 `Promise` transport only from a complete, exact call component with no

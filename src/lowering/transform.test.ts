@@ -67,6 +67,60 @@ test("composes pointer and scalar lowering in one target-AST traversal", () => {
   assert.equal(countNodes(result.sourceFile, fixture.source, IsAsExpression), 1);
 });
 
+test("composes callable storage and callable return narrowing atomically", () => {
+  const fixture = checkedPointerFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+class Slot {
+  private constructor(public value: (() => Awaitable<number>) | undefined) {}
+  static zero(): Slot { return new Slot(undefined); }
+}
+const slot = Slot.zero();
+slot.value = async (): Promise<number> => 41;
+export async function invoke(selected: boolean): Promise<number> {
+  let callback: (() => Awaitable<number>) | undefined = slot.value;
+  if (selected) callback = slot.value;
+  return (await callback!()) + 1;
+}
+export const result = await invoke(true);
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    fixture.source,
+    files,
+    {
+      pointerFlows: "closed-direct",
+      scalarProjections: "closed-direct",
+      cooperativeEffects: "closed-direct",
+    },
+    sourceIdentity(fixture),
+  ));
+  let transformed: SourceFile | undefined;
+  for (const sourceFile of files) {
+    const result = transaction.lower(sourceFile);
+    if (sourceFile === fixture.sourceFile) {
+      transformed = result.sourceFile;
+    }
+  }
+  transaction.finish();
+
+  assert.ok(transformed !== undefined);
+  const remainingContracts: string[] = [];
+  countNodes(transformed, fixture.source, (node) => {
+    const reference = fixture.source.ast.as.AsTypeReferenceNode(node);
+    if (reference === undefined) {
+      return false;
+    }
+    const name = fixture.source.ast.text(reference.TypeName);
+    if (name === "Awaitable" || name === "Promise") {
+      remainingContracts.push(
+        `${name}:${fixture.source.ast.kindName(fixture.source.ast.parent(node))}`,
+      );
+    }
+    return false;
+  });
+  assert.deepEqual(remainingContracts, []);
+});
+
 test("canonical transaction is byte-identical to canonical pointer lowering", () => {
   const fixture = checkedPointerFixture(composedSource);
   const canonical = lowerPointers(fixture.source, fixture.sourceFile);

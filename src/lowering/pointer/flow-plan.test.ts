@@ -17,6 +17,8 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { createFinalNodeJournal } from "../final-nodes.js";
+
 import {
   checkedPointerFixture,
   checkedPointerFixtureWithValueSemantics,
@@ -377,10 +379,12 @@ const pointer: Pointer<number> = allocatePointer(1);
 export const result = loadPointer(pointer);
 `);
   const flowPlan = createClosedPointerFlowPlan(fixture.source);
+  const finalNodes = createFinalNodeJournal();
   const session = createPointerRewriteSession(
     fixture.source,
     fixture.sourceFile,
     flowPlan,
+    finalNodes,
   );
   let composedRewrites = 0;
   const transformed = transformTargetSourceFile(
@@ -396,10 +400,17 @@ export const result = loadPointer(pointer);
         operation?.operation === "allocate"
       ) {
         composedRewrites += 1;
-        return NewParenthesizedExpression(factory, rewritten);
+        return finalNodes.record(
+          original,
+          NewParenthesizedExpression(factory, rewritten),
+        );
       }
-      return rewritten;
+      return finalNodes.record(original, rewritten);
     },
+  );
+  assert.throws(
+    () => finalNodes.record(fixture.sourceFile, transformed),
+    /finalized twice/u,
   );
   const result = session.finish(transformed);
   const pointer = variableDeclarationNamed(

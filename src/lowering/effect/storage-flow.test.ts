@@ -26,7 +26,7 @@ class Slot {
 async function base(): Promise<number> { return 40; }
 const slot = Slot.zero();
 slot.value = async (): Promise<number> => (await base()) + 1;
-async function invoke(): Promise<number> { return (await slot.value!()) + 1; }
+export async function invoke(): Promise<number> { return (await slot.value!()) + 1; }
 export const result = await invoke();
 `);
 
@@ -53,6 +53,14 @@ export const result = await invoke();
     }),
     0,
   );
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, (node) => {
+      const reference = fixture.source.ast.as.AsTypeReferenceNode(node);
+      return reference !== undefined &&
+        fixture.source.ast.text(reference.TypeName) === "Promise";
+    }),
+    0,
+  );
 });
 
 test("settles a closed callable field through a mutable local", () => {
@@ -67,7 +75,7 @@ class Slot {
 }
 const slot = Slot.zero();
 slot.value = async (): Promise<number> => 41;
-async function invoke(selected: boolean): Promise<number> {
+export async function invoke(selected: boolean): Promise<number> {
   let callback: (() => Awaitable<number>) | undefined = slot.value;
   if (selected) callback = slot.value;
   return (await callback!()) + 1;
@@ -95,6 +103,14 @@ export const result = await invoke(true);
       const reference = fixture.source.ast.as.AsTypeReferenceNode(node);
       return reference !== undefined &&
         fixture.source.ast.text(reference.TypeName) === "Awaitable";
+    }),
+    0,
+  );
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, (node) => {
+      const reference = fixture.source.ast.as.AsTypeReferenceNode(node);
+      return reference !== undefined &&
+        fixture.source.ast.text(reference.TypeName) === "Promise";
     }),
     0,
   );
