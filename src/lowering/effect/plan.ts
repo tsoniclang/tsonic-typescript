@@ -72,7 +72,10 @@ export function createClosedCooperativeEffectPlan(
     new Set(candidates.keys()),
   );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
-  const returnFlow = createReturnValueFlow(source);
+  const returnFlow = createReturnValueFlow(
+    source,
+    (call) => calls.get(call)?.declaration,
+  );
   classifyProgramEvidence(source, candidates, calls, valueFlow, returnFlow);
   classifyCallUses(source, candidates, calls, valueFlow);
   const propagation = propagateEffectBlockers(candidates.values());

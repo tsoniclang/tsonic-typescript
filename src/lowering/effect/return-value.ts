@@ -9,6 +9,10 @@ import {
   projectConstructionIsDefinitelyNonThenable,
 } from "./return-construction.js";
 import {
+  createReturnProjectionFlow,
+  type ReturnProjectionFlow,
+} from "./return-projection.js";
+import {
   collectProgramNodes,
   isFunctionLike,
   transparentExpression,
@@ -30,6 +34,7 @@ interface MutableReturnBinding {
 
 export function createReturnValueFlow(
   source: TargetSourceProgram,
+  directCallDeclaration: (call: Node) => Node | undefined,
 ): ReturnValueFlow {
   const nodes = collectProgramNodes(source);
   const bindings = collectReturnBindings(source, nodes);
@@ -47,6 +52,11 @@ export function createReturnValueFlow(
       isAwaitedSelfAssignmentInput(source, reference, rootDeclaration) ||
       isNullishIdentityObservation(source, reference),
   );
+  const projections = createReturnProjectionFlow(
+    source,
+    nodes,
+    directCallDeclaration,
+  );
   auditReturnBindings(source, bindings, aliases, bindingNodes);
   const results = new Map<Node, boolean>();
   return Object.freeze({
@@ -55,6 +65,7 @@ export function createReturnValueFlow(
         source,
         expression,
         bindings,
+        projections,
         results,
         new Set(),
       );
@@ -103,6 +114,7 @@ function expressionIsDefinitelyNonThenableWithin(
   source: TargetSourceProgram,
   expression: Node,
   bindings: ReadonlyMap<Node, MutableReturnBinding>,
+  projections: ReturnProjectionFlow,
   results: Map<Node, boolean>,
   pending: Set<Node>,
 ): boolean {
@@ -121,6 +133,7 @@ function expressionIsDefinitelyNonThenableWithin(
         source,
         conditional.WhenTrue,
         bindings,
+        projections,
         results,
         pending,
       ) &&
@@ -128,9 +141,22 @@ function expressionIsDefinitelyNonThenableWithin(
         source,
         conditional.WhenFalse,
         bindings,
+        projections,
         results,
         pending,
       );
+  }
+  if (projections.isDefinitelyNonThenable(root, (input) =>
+    expressionIsDefinitelyNonThenableWithin(
+      source,
+      input,
+      bindings,
+      projections,
+      results,
+      pending,
+    )
+  )) {
+    return true;
   }
   if (!source.ast.is.IsIdentifier(root)) {
     return false;
@@ -153,6 +179,7 @@ function expressionIsDefinitelyNonThenableWithin(
       source,
       input,
       bindings,
+      projections,
       results,
       pending,
     )
@@ -308,6 +335,13 @@ function directReturnReferences(
   }
   if (source.ast.is.IsIdentifier(root)) {
     return [root];
+  }
+  if (source.ast.is.IsArrayLiteralExpression(root)) {
+    return source.ast.elements(root).flatMap((element) =>
+      element === undefined || source.ast.is.IsSpreadElement(element)
+        ? []
+        : directReturnReferences(source, element)
+    );
   }
   if (!source.ast.is.IsConditionalExpression(root)) {
     return [];
