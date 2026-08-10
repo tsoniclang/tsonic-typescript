@@ -5,6 +5,7 @@ import {
   collectCallableCollectionInputs,
   type CallableCollectionContract,
 } from "./collection-inputs.js";
+import { collectCallableObjectInputs } from "./object-inputs.js";
 import {
   directContainingCall,
   forEachProgramNode,
@@ -108,6 +109,7 @@ export function collectCallableValueInputs(
       closedAliases.add(alias);
     }
   }
+  const objects = collectCallableObjectInputs(source, closedAliases);
   const propertyReferences = new Map<Node, ReferenceCounts>();
   for (const parameter of constructorParameters) {
     propertyReferences.set(parameter, { total: 0, admitted: 0 });
@@ -126,7 +128,7 @@ export function collectCallableValueInputs(
     );
   });
 
-  const closed = new Set<Node>(closedAliases);
+  const closed = new Set<Node>([...closedAliases, ...objects.closed]);
   for (const [constructor, classDeclaration] of constructorClasses) {
     const classCounts = classReferences.get(classDeclaration);
     if (
@@ -154,6 +156,9 @@ export function collectCallableValueInputs(
     }
   }
   for (const [declaration, values] of collections.values) {
+    mutableValues.set(declaration, [...values]);
+  }
+  for (const [declaration, values] of objects.values) {
     mutableValues.set(declaration, [...values]);
   }
   return Object.freeze({

@@ -161,7 +161,7 @@ function resolveDeclaration(
   pending: Set<Node>,
 ): MutableResolution {
   if (pending.has(declaration)) {
-    return unresolved();
+    return emptyResolution();
   }
   if (candidates.has(declaration)) {
     return resolutionWith(declaration);
