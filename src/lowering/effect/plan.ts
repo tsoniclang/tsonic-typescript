@@ -50,6 +50,7 @@ export interface CooperativeEffectFilePlan {
   readonly callables: readonly Node[];
   readonly awaits: readonly Node[];
   readonly asyncModifiers: readonly Node[];
+  readonly returnTypes: readonly Node[];
 }
 
 export interface CooperativeEffectPlan {
@@ -86,6 +87,7 @@ export function createClosedCooperativeEffectPlan(
     valueFlow,
     optimized,
   );
+  const returnTypes = valueFlow.settledReturnTypes(optimized);
   const files = new Map<SourceFile, CooperativeEffectFilePlan>();
   for (const sourceFile of source.navigation.sourceFiles) {
     files.set(sourceFile, Object.freeze({
@@ -112,6 +114,9 @@ export function createClosedCooperativeEffectPlan(
             modifier.Kind === KindAsyncKeyword
           ),
       ),
+      returnTypes: Object.freeze(returnTypes.filter((node) =>
+        source.ast.getSourceFile(node) === sourceFile
+      )),
     }));
   }
   const summary = summarizeCooperativeEffects(

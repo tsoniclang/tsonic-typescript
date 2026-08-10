@@ -40,14 +40,24 @@ export function createCooperativeEffectRewriteSession(
   const callables = new Set(file.callables);
   const awaits = new Set(file.awaits);
   const asyncModifiers = new Set(file.asyncModifiers);
+  const returnTypes = new Set(file.returnTypes);
   const consumedCallables = new Set<Node>();
   const consumedAwaits = new Set<Node>();
   const consumedModifiers = new Set<Node>();
+  const consumedReturnTypes = new Set<Node>();
   let finished = false;
   return Object.freeze({
     rewrite(original: Node, updated: Node, factory: NodeFactory): Node | undefined {
       if (finished) {
         throw new Error("cooperative-effect rewriter is already finished");
+      }
+      if (returnTypes.has(original)) {
+        const innerType = plan.source.ast.typeArguments(updated)[0];
+        if (innerType === undefined || consumedReturnTypes.has(original)) {
+          throw new Error("planned callable-container contract lost its exact AST shape");
+        }
+        consumedReturnTypes.add(original);
+        return innerType;
       }
       if (asyncModifiers.has(original)) {
         if (consumedModifiers.has(original)) {
@@ -81,6 +91,11 @@ export function createCooperativeEffectRewriteSession(
       assertExactConsumption("callable", callables, consumedCallables);
       assertExactConsumption("await", awaits, consumedAwaits);
       assertExactConsumption("async modifier", asyncModifiers, consumedModifiers);
+      assertExactConsumption(
+        "callable-container return type",
+        returnTypes,
+        consumedReturnTypes,
+      );
       plan.finishFile(sourceFile);
       return Object.freeze({
         sourceFile: transformed,

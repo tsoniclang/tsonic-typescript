@@ -29,6 +29,7 @@ export interface CallableValueFlow {
   readonly calls: readonly CallableValueCall[];
   resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
   allowsCandidateReference(node: Node): boolean;
+  settledReturnTypes(optimized: ReadonlySet<Node>): readonly Node[];
 }
 
 interface MutableResolution {
@@ -63,6 +64,27 @@ export function createCallableValueFlow(
   const calls = Object.freeze([...resolutions].map(([call, resolution]) =>
     Object.freeze({ call, resolution })
   ));
+  const contractResolutions = inputs.contracts.map((contract) => {
+    const resolution = emptyResolution();
+    for (const declaration of contract.extractedDeclarations) {
+      mergeResolution(
+        resolution,
+        resolveDeclaration(
+          source,
+          declaration,
+          candidates,
+          candidateSymbols,
+          inputs,
+          allowedCandidateReferences,
+          new Set(),
+        ),
+      );
+    }
+    return Object.freeze({
+      returnType: contract.returnType,
+      resolution: sealResolution(resolution),
+    });
+  });
   return Object.freeze({
     calls,
     resolutionFor(call: Node | undefined) {
@@ -70,6 +92,14 @@ export function createCallableValueFlow(
     },
     allowsCandidateReference(node: Node) {
       return allowedCandidateReferences.has(node);
+    },
+    settledReturnTypes(optimized: ReadonlySet<Node>) {
+      return Object.freeze(contractResolutions
+        .filter(({ resolution }) =>
+          resolution.closed &&
+          resolution.dependencies.every((dependency) => optimized.has(dependency))
+        )
+        .map(({ returnType }) => returnType));
     },
   });
 }

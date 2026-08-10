@@ -2,6 +2,10 @@ import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
+  collectCallableCollectionInputs,
+  type CallableCollectionContract,
+} from "./collection-inputs.js";
+import {
   directContainingCall,
   forEachProgramNode,
   isModuleForwardingReference,
@@ -11,6 +15,7 @@ import { typeMayBeCallable } from "./synchronous.js";
 export interface CallableValueInputs {
   readonly values: ReadonlyMap<Node, readonly Node[]>;
   readonly closed: ReadonlySet<Node>;
+  readonly contracts: readonly CallableCollectionContract[];
 }
 
 interface ReferenceCounts {
@@ -21,6 +26,7 @@ interface ReferenceCounts {
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
 ): CallableValueInputs {
+  const collections = collectCallableCollectionInputs(source);
   const mutableValues = new Map<Node, Node[]>();
   const constructorParameters = new Set<Node>();
   const callableAliases = new Map<Node, Node>();
@@ -147,12 +153,16 @@ export function collectCallableValueInputs(
       }
     }
   }
+  for (const [declaration, values] of collections.values) {
+    mutableValues.set(declaration, [...values]);
+  }
   return Object.freeze({
     values: new Map([...mutableValues].map(([key, values]) => [
       key,
       Object.freeze(values),
     ])),
     closed,
+    contracts: collections.contracts,
   });
 }
 
