@@ -19,6 +19,7 @@ import {
 import { planDirectReferenceFamilies } from "./flow-families.js";
 import type {
   PointerFlowBlocker,
+  PointerFlowBlockerOccurrence,
   PointerFlowComponent,
 } from "./flow-graph.js";
 import { describePointerPointee } from "./pointee-classification.js";
@@ -57,6 +58,7 @@ export interface ClosedPointerFlowPlan {
 interface PointerFlowDecision {
   readonly representation: PointerFlowRepresentation;
   readonly blockers: readonly PointerFlowBlocker[];
+  readonly blockerEvidence: readonly PointerFlowBlockerOccurrence[];
 }
 
 export function createClosedPointerFlowPlan(
@@ -104,8 +106,7 @@ export function createClosedPointerFlowPlan(
     appendFallbackEvidence(
       source,
       sourceIdentityFor,
-      component,
-      decision.blockers,
+      decision,
       fallbackReasons,
     );
   }
@@ -129,31 +130,25 @@ export function createClosedPointerFlowPlan(
 function appendFallbackEvidence(
   source: TargetSourceProgram,
   sourceIdentityFor: SourceIdentityResolver,
-  component: PointerFlowComponent,
-  blockers: readonly PointerFlowBlocker[],
+  decision: PointerFlowDecision,
   fallback: Map<
     PointerFlowBlocker,
     { count: number; examples: OptimizationOccurrence[] }
   >,
 ): void {
-  if (blockers.length === 0) {
-    return;
-  }
-  const example = component.vertices
-    .map((vertex) =>
-      optimizationOccurrence(source, vertex.node, sourceIdentityFor)
-    )
-    .sort(compareOptimizationOccurrences)[0];
-  if (example === undefined) {
-    throw new Error("pointer flow component has no source occurrence");
-  }
-  for (const blocker of blockers) {
-    const existing = fallback.get(blocker);
+  for (const blocker of decision.blockerEvidence) {
+    const examples = blocker.occurrences.map((node) =>
+      optimizationOccurrence(source, node, sourceIdentityFor)
+    );
+    if (examples.length === 0) {
+      throw new Error(`pointer fallback '${blocker.reason}' has no occurrence`);
+    }
+    const existing = fallback.get(blocker.reason);
     if (existing === undefined) {
-      fallback.set(blocker, { count: 1, examples: [example] });
+      fallback.set(blocker.reason, { count: 1, examples: [...examples] });
     } else {
       existing.count += 1;
-      existing.examples.push(example);
+      existing.examples.push(...examples);
     }
   }
 }
@@ -185,7 +180,11 @@ function selectRepresentation(
     return locationDecision(component);
   }
   if (component.producers.length === 0) {
-    return locationDecision(component, "unsupported-producer");
+    return locationDecision(
+      component,
+      "unsupported-producer",
+      componentAnchors(component),
+    );
   }
   const descriptions = component.pointees.map((evidence) =>
     describePointerPointee(source, evidence.anchor, evidence.type)
@@ -199,21 +198,33 @@ function selectRepresentation(
       candidate.identity !== description.identity
     )
   ) {
-    return locationDecision(component, "unsupported-pointee");
+    return locationDecision(
+      component,
+      "unsupported-pointee",
+      component.pointees.map((evidence) => evidence.anchor),
+    );
   }
   const category = description.category;
   const operations = component.operations.map((node) =>
     source.sourceFacts.getFact(node, pointerOperationFactKey)
   );
   if (operations.some((operation) => operation === undefined)) {
-    return locationDecision(component, "unsupported-flow");
+    return locationDecision(
+      component,
+      "unsupported-flow",
+      component.operations.filter((node, index) => operations[index] === undefined),
+    );
   }
   const hasStore = operations.some((operation) => operation?.operation === "store");
   const producersAreDirect = component.producers.every((producer) =>
     producer.operation === "allocate" || producer.operation === "address-of"
   );
   if (!producersAreDirect) {
-    return locationDecision(component, "unsupported-producer");
+    return locationDecision(
+      component,
+      "unsupported-producer",
+      component.producers.map((producer) => producer.call),
+    );
   }
   if (hasStore) {
     const representation = category === "scalar" && component.producers.every(
@@ -222,7 +233,14 @@ function selectRepresentation(
       ? "mutable-cell"
       : "location";
     return representation === "location"
-      ? locationDecision(component, "unsupported-flow")
+      ? locationDecision(
+          component,
+          "unsupported-flow",
+          component.operations.filter((node) =>
+            source.sourceFacts.getFact(node, pointerOperationFactKey)
+              ?.operation === "store"
+          ),
+        )
       : optimizedDecision(representation);
   }
   return optimizedDecision(
@@ -233,19 +251,59 @@ function selectRepresentation(
 function optimizedDecision(
   representation: Exclude<PointerFlowRepresentation, "location">,
 ): PointerFlowDecision {
-  return Object.freeze({ representation, blockers: Object.freeze([]) });
+  return Object.freeze({
+    representation,
+    blockers: Object.freeze([]),
+    blockerEvidence: Object.freeze([]),
+  });
 }
 
 function locationDecision(
   component: PointerFlowComponent,
   blocker?: PointerFlowBlocker,
+  occurrences: readonly Node[] = [],
 ): PointerFlowDecision {
-  const blockers = new Set(component.blockers);
+  const evidence = new Map<PointerFlowBlocker, Set<Node>>(
+    component.blockerEvidence.map((entry) => [
+      entry.reason,
+      new Set(entry.occurrences),
+    ]),
+  );
   if (blocker !== undefined) {
-    blockers.add(blocker);
+    const selected = occurrences.length === 0
+      ? componentAnchors(component)
+      : occurrences;
+    const existing = evidence.get(blocker);
+    if (existing === undefined) {
+      evidence.set(blocker, new Set(selected));
+    } else {
+      for (const occurrence of selected) {
+        existing.add(occurrence);
+      }
+    }
   }
+  for (const reason of component.blockers) {
+    if (!evidence.has(reason)) {
+      throw new Error(`pointer blocker '${reason}' has no exact occurrence`);
+    }
+  }
+  const blockerEvidence = [...evidence]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([reason, selected]) => Object.freeze({
+      reason,
+      occurrences: Object.freeze([...selected]),
+    }));
   return Object.freeze({
     representation: "location",
-    blockers: Object.freeze([...blockers].sort()),
+    blockers: Object.freeze(blockerEvidence.map((entry) => entry.reason)),
+    blockerEvidence: Object.freeze(blockerEvidence),
   });
+}
+
+function componentAnchors(component: PointerFlowComponent): readonly Node[] {
+  const anchors = component.vertices.map((vertex) => vertex.node);
+  if (anchors.length === 0) {
+    throw new Error("pointer flow component has no source anchor");
+  }
+  return anchors;
 }

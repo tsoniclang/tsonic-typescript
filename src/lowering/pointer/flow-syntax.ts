@@ -87,17 +87,17 @@ function blockTypeBearingWrapper(
       continue;
     }
     if (source.ast.is.IsAsExpression(current)) {
-      graph.block(vertex, "unsupported-flow");
+      graph.block(vertex, "unsupported-flow", current);
       current = source.ast.as.AsAsExpression(current)?.Expression;
       continue;
     }
     if (source.ast.is.IsTypeAssertion(current)) {
-      graph.block(vertex, "unsupported-flow");
+      graph.block(vertex, "unsupported-flow", current);
       current = source.ast.as.AsTypeAssertion(current)?.Expression;
       continue;
     }
     if (source.ast.is.IsSatisfiesExpression(current)) {
-      graph.block(vertex, "unsupported-flow");
+      graph.block(vertex, "unsupported-flow", current);
       current = source.ast.as.AsSatisfiesExpression(current)?.Expression;
       continue;
     }

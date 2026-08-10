@@ -169,11 +169,12 @@ export async function value(): Promise<number> { return await remote(); }
 });
 
 test("reports exact pointer fallback examples without machine-local paths", () => {
-  const source = checkedPointerSource(`import { allocatePointer, loadPointer } from "./markers.js";
+  const sourceText = `import { allocatePointer, loadPointer } from "./markers.js";
 const pointer = allocatePointer(1);
 export const escaped = { pointer };
 export const value = loadPointer(pointer);
-`);
+`;
+  const source = checkedPointerSource(sourceText);
   const printer: TypeScriptAstPrinter = {
     print(batch) {
       return batch.encodedSourceFiles.map(() => "// printed\n");
@@ -194,7 +195,13 @@ export const value = loadPointer(pointer);
   const evidence = JSON.parse(artifact.text) as {
     pointer?: {
       fallbackReasons?: Array<{
-        examples?: Array<{ kind?: string; documentIdentity?: string }>;
+        reason?: string;
+        examples?: Array<{
+          kind?: string;
+          documentIdentity?: string;
+          start?: number;
+          syntaxKind?: string;
+        }>;
       }>;
     };
   };
@@ -204,6 +211,17 @@ export const value = loadPointer(pointer);
   assert.ok(examples.length > 0);
   assert.ok(examples.every((example) => example.kind === "authored"));
   assert.ok(examples.every((example) => example.documentIdentity === "index.ts"));
+  const unsupported = evidence.pointer?.fallbackReasons?.find((reason) =>
+    reason.reason === "unsupported-flow"
+  );
+  const escapedPointer = sourceText.indexOf(
+    "pointer",
+    sourceText.indexOf("escaped"),
+  );
+  assert.ok(escapedPointer >= 0);
+  assert.ok(unsupported?.examples?.some((example) =>
+    example.start === escapedPointer && example.syntaxKind === "KindIdentifier"
+  ));
   assert.doesNotMatch(artifact.text, /\/project|\.temp/u);
 });
 

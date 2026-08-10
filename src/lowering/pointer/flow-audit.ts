@@ -35,12 +35,12 @@ function auditReferences(census: PointerCensus): void {
         !census.allowedPointerReferences.has(node) &&
         !isModuleAliasReference(source, node)
       ) {
-        graph.block(vertex, "unsupported-flow");
+        graph.block(vertex, "unsupported-flow", node);
       } else if (
         enclosingFunction(source, node) !==
           enclosingFunction(source, declaration)
       ) {
-        graph.block(vertex, "captured-parameter");
+        graph.block(vertex, "captured-parameter", node);
       }
     }
     const parameters = declaration === undefined
@@ -60,15 +60,15 @@ function auditReferences(census: PointerCensus): void {
       !isModuleAliasReference(source, node)
     ) {
       for (const parameter of parameters ?? []) {
-        graph.block(graph.get(parameter), "indirect-call");
+        graph.block(graph.get(parameter), "indirect-call", node);
       }
-      graph.block(result?.vertex, "indirect-call");
+      graph.block(result?.vertex, "indirect-call", node);
     }
   }
   for (const [owner, parameters] of functionParameters) {
     if (census.optimizableFunctions.get(owner) !== true) {
       for (const parameter of parameters) {
-        graph.block(graph.get(parameter), "open-call");
+        graph.block(graph.get(parameter), "open-call", owner);
       }
     }
   }
@@ -80,11 +80,11 @@ function auditBindingReassignments(census: PointerCensus): void {
     const name = source.ast.name(binding);
     const reference = references.referenceFor(name);
     if (reference === undefined) {
-      graph.block(graph.get(binding), "unsupported-flow");
+      graph.block(graph.get(binding), "unsupported-flow", binding);
       continue;
     }
-    if (references.hasWrite(reference.declaration)) {
-      graph.block(graph.get(binding), "pointer-rebinding");
+    for (const write of references.writesFor(reference.declaration)) {
+      graph.block(graph.get(binding), "pointer-rebinding", write);
     }
   }
 }
@@ -97,7 +97,11 @@ function auditAddressedStorage(census: PointerCensus): void {
     }
     const vertex = graph.get(operation.call);
     if (!addressedStorageIsStable(census, operation)) {
-      graph.block(vertex, "addressed-storage-may-change");
+      graph.block(
+        vertex,
+        "addressed-storage-may-change",
+        operation.storageExpression,
+      );
     }
   }
 }
@@ -133,7 +137,7 @@ function auditProducerUses(census: PointerCensus): void {
     const parent = source.ast.parent(root);
     const discarded = parent !== undefined && source.ast.is.IsExpressionStatement(parent);
     if (!discarded && !census.allowedProducerUses.has(operation.call)) {
-      graph.block(graph.get(operation.call), "unsupported-flow");
+      graph.block(graph.get(operation.call), "unsupported-flow", root);
     }
   }
   for (const expression of census.resultExpressions) {
@@ -142,7 +146,7 @@ function auditProducerUses(census: PointerCensus): void {
     const discarded = parent !== undefined &&
       source.ast.is.IsExpressionStatement(parent);
     if (!discarded && !census.allowedProducerUses.has(expression)) {
-      graph.block(graph.get(expression), "unsupported-flow");
+      graph.block(graph.get(expression), "unsupported-flow", root);
     }
   }
 }

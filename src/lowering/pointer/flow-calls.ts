@@ -58,11 +58,12 @@ export function connectPointerCalls(census: PointerCensus): void {
       info.optionalChain ||
       call?.Expression === undefined
     ) {
-      blockAll(graph, argumentVertices, "external-boundary");
+      blockAll(graph, argumentVertices, "external-boundary", node);
       blockSelectedParameters(
         graph,
         selectedParameters,
         "external-boundary",
+        node,
       );
       continue;
     }
@@ -101,8 +102,8 @@ export function connectPointerCalls(census: PointerCensus): void {
         census.optimizableFunctions.get(selectedDeclaration) !== true
       ) {
         const blocker = callBoundaryBlocker(source, selectedDeclaration);
-        graph.block(argumentVertex, blocker);
-        graph.block(parameterVertex, blocker);
+        graph.block(argumentVertex, blocker, node);
+        graph.block(parameterVertex, blocker, node);
         continue;
       }
       graph.union(argumentVertex, parameterVertex);
@@ -129,7 +130,7 @@ export function connectPointerCalls(census: PointerCensus): void {
         declaration !== undefined &&
         !boundParameters.has(declaration)
       ) {
-        graph.block(vertex, "open-call");
+        graph.block(vertex, "open-call", node);
       }
     }
   }
@@ -139,9 +140,10 @@ function blockAll(
   graph: PointerFlowGraph,
   vertices: readonly (PointerFlowVertex | undefined)[],
   blocker: "external-boundary" | "open-call",
+  occurrence: Node,
 ): void {
   for (const vertex of vertices) {
-    graph.block(vertex, blocker);
+    graph.block(vertex, blocker, occurrence);
   }
 }
 
@@ -149,9 +151,10 @@ function blockSelectedParameters(
   graph: PointerFlowGraph,
   parameters: readonly { readonly parameterDeclaration?: Node }[],
   blocker: "external-boundary" | "open-call",
+  occurrence: Node,
 ): void {
   for (const parameter of parameters) {
-    graph.block(graph.get(parameter.parameterDeclaration), blocker);
+    graph.block(graph.get(parameter.parameterDeclaration), blocker, occurrence);
   }
 }
 

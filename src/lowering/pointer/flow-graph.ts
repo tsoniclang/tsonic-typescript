@@ -23,7 +23,7 @@ export interface PointerFlowVertex {
   readonly pointerTypes: Set<Node>;
   readonly pointees: Map<Type, Node>;
   readonly producers: Set<PointerOperationFact>;
-  readonly blockers: Set<PointerFlowBlocker>;
+  readonly blockerOccurrences: Map<PointerFlowBlocker, Set<Node>>;
 }
 
 export interface PointerFlowComponent {
@@ -33,6 +33,12 @@ export interface PointerFlowComponent {
   readonly pointees: readonly PointerPointeeEvidence[];
   readonly producers: readonly PointerOperationFact[];
   readonly blockers: readonly PointerFlowBlocker[];
+  readonly blockerEvidence: readonly PointerFlowBlockerOccurrence[];
+}
+
+export interface PointerFlowBlockerOccurrence {
+  readonly reason: PointerFlowBlocker;
+  readonly occurrences: readonly Node[];
 }
 
 export interface PointerPointeeEvidence {
@@ -55,7 +61,7 @@ export class PointerFlowGraph {
       pointerTypes: new Set(),
       pointees: new Map(),
       producers: new Set(),
-      blockers: new Set(),
+      blockerOccurrences: new Map(),
     };
     this.#vertices.set(node, created);
     this.#parents.set(created, created);
@@ -78,8 +84,17 @@ export class PointerFlowGraph {
   block(
     vertex: PointerFlowVertex | undefined,
     blocker: PointerFlowBlocker,
+    occurrence: Node,
   ): void {
-    vertex?.blockers.add(blocker);
+    if (vertex === undefined) {
+      return;
+    }
+    const existing = vertex.blockerOccurrences.get(blocker);
+    if (existing === undefined) {
+      vertex.blockerOccurrences.set(blocker, new Set([occurrence]));
+    } else {
+      existing.add(occurrence);
+    }
   }
 
   components(): readonly PointerFlowComponent[] {
@@ -125,7 +140,7 @@ function sealComponent(
   const pointerTypes = new Set<Node>();
   const pointees = new Map<Type, Node>();
   const producers = new Set<PointerOperationFact>();
-  const blockers = new Set<PointerFlowBlocker>();
+  const blockerOccurrences = new Map<PointerFlowBlocker, Set<Node>>();
   for (const vertex of vertices) {
     append(operations, vertex.operations);
     append(pointerTypes, vertex.pointerTypes);
@@ -133,8 +148,21 @@ function sealComponent(
       pointees.set(type, anchor);
     }
     append(producers, vertex.producers);
-    append(blockers, vertex.blockers);
+    for (const [reason, occurrences] of vertex.blockerOccurrences) {
+      const existing = blockerOccurrences.get(reason);
+      if (existing === undefined) {
+        blockerOccurrences.set(reason, new Set(occurrences));
+      } else {
+        append(existing, occurrences);
+      }
+    }
   }
+  const blockerEvidence = [...blockerOccurrences]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([reason, occurrences]) => Object.freeze({
+      reason,
+      occurrences: Object.freeze([...occurrences]),
+    }));
   return Object.freeze({
     vertices: Object.freeze([...vertices]),
     operations: Object.freeze([...operations]),
@@ -143,7 +171,8 @@ function sealComponent(
       Object.freeze({ type, anchor })
     )),
     producers: Object.freeze([...producers]),
-    blockers: Object.freeze([...blockers].sort()),
+    blockers: Object.freeze(blockerEvidence.map((entry) => entry.reason)),
+    blockerEvidence: Object.freeze(blockerEvidence),
   });
 }
 

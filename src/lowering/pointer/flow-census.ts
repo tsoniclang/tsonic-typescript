@@ -199,7 +199,7 @@ function collectPointerOperations(
       operation.operation === "bind-pointer" ||
       operation.operation === "project-pointer"
     ) {
-      vertex.blockers.add("unsupported-producer");
+      graph.block(vertex, "unsupported-producer", operation.call);
     }
   }
   return operations;
@@ -229,7 +229,7 @@ function collectPointerBindings(
     const pointeeType = source.semantics.forNode(node)
       .getTypeFromTypeNode(fact.pointee);
     if (pointeeType === undefined) {
-      vertex.blockers.add("unsupported-pointee");
+      graph.block(vertex, "unsupported-pointee", fact.pointee);
     } else {
       vertex.pointees.set(pointeeType, fact.pointee);
     }
@@ -314,6 +314,7 @@ function connectVariableInitializers(
         graph.block(
           graph.get(node),
           initializer === undefined ? "nil-capable" : "unsupported-flow",
+          initializer ?? node,
         );
       }
       continue;
@@ -457,7 +458,7 @@ function attachPointerOperations(census: PointerCensus): void {
           census.resultExpressions,
         );
         if (operation.operation === "hash-pointer") {
-          graph.block(vertex, "identity-observed");
+          graph.block(vertex, "identity-observed", operation.call);
         }
         break;
       }
@@ -481,8 +482,8 @@ function attachPointerOperations(census: PointerCensus): void {
         }
         left?.operations.add(operation.call);
         right?.operations.add(operation.call);
-        graph.block(left, "identity-observed");
-        graph.block(right, "identity-observed");
+        graph.block(left, "identity-observed", operation.call);
+        graph.block(right, "identity-observed", operation.call);
         addTransparentReference(source, operation.leftExpression, census.allowedPointerReferences);
         addTransparentReference(source, operation.rightExpression, census.allowedPointerReferences);
         addTransparentProducer(
@@ -513,8 +514,8 @@ function attachPointerOperations(census: PointerCensus): void {
         if (result !== undefined && sourceVertex !== undefined) {
           graph.union(result, sourceVertex);
         }
-        graph.block(result, "unsupported-producer");
-        graph.block(sourceVertex, "unsupported-producer");
+        graph.block(result, "unsupported-producer", operation.call);
+        graph.block(sourceVertex, "unsupported-producer", operation.call);
         addTransparentReference(source, operation.pointerExpression, census.allowedPointerReferences);
         addTransparentProducer(
           source,

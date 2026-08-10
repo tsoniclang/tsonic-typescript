@@ -61,7 +61,7 @@ export function collectPointerFunctionResults(
     const pointeeType = source.semantics.forNode(pointerType)
       .getTypeFromTypeNode(fact.pointee);
     if (pointeeType === undefined) {
-      vertex.blockers.add("unsupported-pointee");
+      graph.block(vertex, "unsupported-pointee", fact.pointee);
     } else {
       vertex.pointees.set(pointeeType, fact.pointee);
     }
@@ -115,14 +115,14 @@ export function connectPointerResultCalls(
       info.optionalChain ||
       call?.Expression === undefined
     ) {
-      graph.block(result.vertex, "open-call");
+      graph.block(result.vertex, "open-call", node);
       continue;
     }
     const valueExpression = result.asynchronous
       ? awaitedCallResult(source, node)
       : node;
     if (valueExpression === undefined) {
-      graph.block(result.vertex, "unsupported-flow");
+      graph.block(result.vertex, "unsupported-flow", node);
       continue;
     }
     const valueVertex = graph.add(valueExpression);
@@ -155,7 +155,7 @@ export function connectPointerReturns(census: PointerCensus): void {
     }
     const expression = source.ast.as.AsReturnStatement(node)?.Expression;
     if (expression === undefined) {
-      graph.block(result.vertex, "unsupported-flow");
+      graph.block(result.vertex, "unsupported-flow", node);
       continue;
     }
     const expressionType = source.semantics.forNode(expression)
@@ -174,7 +174,7 @@ export function connectPointerReturns(census: PointerCensus): void {
       expression,
     );
     if (returned === undefined) {
-      graph.block(result.vertex, "unsupported-flow");
+      graph.block(result.vertex, "unsupported-flow", expression);
       continue;
     }
     graph.union(result.vertex, returned);

@@ -9,6 +9,7 @@ export interface PointerReferenceCensus {
   referenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
   tracks(declaration: Node | undefined): boolean;
   hasWrite(declaration: Node | undefined): boolean;
+  writesFor(declaration: Node | undefined): readonly Node[];
 }
 
 export interface PointerTrackedReferenceIndex {
@@ -78,7 +79,7 @@ export function censusPointerReferences(
 ): PointerReferenceCensus {
   const index = indexPointerTrackedReferences(source, trackedDeclarations);
   const references = new Map<Node, SourceDeclarationReference>();
-  const writtenDeclarations = new Set<Node>();
+  const writesByDeclaration = new Map<Node, Set<Node>>();
   for (const node of nodes) {
     if (!source.ast.is.IsIdentifier(node)) {
       continue;
@@ -88,10 +89,16 @@ export function censusPointerReferences(
       continue;
     }
     references.set(node, reference);
-    if (
-      source.navigation.bindingWritesWithin(reference.symbol, node).length !== 0
-    ) {
-      writtenDeclarations.add(reference.declaration);
+    for (const write of source.navigation.bindingWritesWithin(
+      reference.symbol,
+      node,
+    )) {
+      const existing = writesByDeclaration.get(reference.declaration);
+      if (existing === undefined) {
+        writesByDeclaration.set(reference.declaration, new Set([write.operation]));
+      } else {
+        existing.add(write.operation);
+      }
     }
   }
   return Object.freeze({
@@ -102,7 +109,12 @@ export function censusPointerReferences(
       return declaration !== undefined && trackedDeclarations.has(declaration);
     },
     hasWrite(declaration: Node | undefined) {
-      return declaration !== undefined && writtenDeclarations.has(declaration);
+      return declaration !== undefined && writesByDeclaration.has(declaration);
+    },
+    writesFor(declaration: Node | undefined) {
+      return declaration === undefined
+        ? Object.freeze([])
+        : Object.freeze([...(writesByDeclaration.get(declaration) ?? [])]);
     },
   });
 }
