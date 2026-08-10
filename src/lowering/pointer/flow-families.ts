@@ -11,7 +11,17 @@ import type {
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import type { PointerFlowComponent } from "./flow-graph.js";
+import type {
+  PointerFlowBlocker,
+  PointerFlowComponent,
+} from "./flow-graph.js";
+import {
+  appendFamilyFallback,
+  sealFamilyFallback,
+  type DirectReferenceFamilyFallback,
+  type FamilyFallbackLedger,
+} from "./flow-family-evidence.js";
+import { nonBijectiveIdentityOccurrences } from "./flow-family-identity.js";
 import { indexExactDeclarations } from "./flow-references.js";
 import { describePointerPointee } from "./pointee-classification.js";
 import { transparentExpression } from "./flow-syntax.js";
@@ -20,13 +30,14 @@ interface MutableDirectReferenceFamily {
   readonly identity: Node;
   readonly pointerTypes: Set<Node>;
   readonly operations: Map<Node, PointerOperationFact>;
-  readonly blockers: Set<string>;
+  readonly blockers: Map<PointerFlowBlocker, Set<Node>>;
   producerCount: number;
 }
 
 export interface DirectReferenceFamilyPlan {
   readonly representations: ReadonlyMap<Node, "direct-object">;
   readonly familyCount: number;
+  readonly fallbackReasons: readonly DirectReferenceFamilyFallback[];
 }
 
 export function planDirectReferenceFamilies(
@@ -57,14 +68,19 @@ export function planDirectReferenceFamilies(
     families,
     operationFamilies,
   );
+  applyIdentityBoundaries(source, families);
   const representations = new Map<Node, "direct-object">();
+  const fallbackReasons: FamilyFallbackLedger = new Map();
   let familyCount = 0;
   for (const family of families.values()) {
-    if (
-      family.blockers.size !== 0 ||
-      family.producerCount === 0 ||
-      family.operations.size === 0
-    ) {
+    if (family.producerCount === 0) {
+      blockFamily(family, "unsupported-producer", family.identity);
+    }
+    if (family.operations.size === 0) {
+      blockFamily(family, "unsupported-flow", family.identity);
+    }
+    if (family.blockers.size !== 0) {
+      appendFamilyFallback(fallbackReasons, family.blockers);
       continue;
     }
     familyCount += 1;
@@ -78,6 +94,7 @@ export function planDirectReferenceFamilies(
   return Object.freeze({
     representations,
     familyCount,
+    fallbackReasons: sealFamilyFallback(fallbackReasons),
   });
 }
 
@@ -107,7 +124,7 @@ function collectPointerType(
     sourceFile === undefined ||
     source.ast.isDeclarationFile(sourceFile)
   ) {
-    family.blockers.add("declaration-boundary");
+    blockFamily(family, "declaration-boundary", node);
   }
 }
 
@@ -140,11 +157,29 @@ function collectPointerOperation(
     case "load":
       break;
     case "equal-pointer":
-      family.blockers.add("identity-observed");
+    case "hash-pointer":
+      break;
+    case "store":
+      blockFamily(family, "pointee-replacement", operation.call);
       break;
     default:
-      family.blockers.add(`operation:${operation.operation}`);
+      blockFamily(family, "unsupported-producer", operation.call);
       break;
+  }
+}
+
+function applyIdentityBoundaries(
+  source: TargetSourceProgram,
+  families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+): void {
+  for (const family of families.values()) {
+    for (const occurrence of nonBijectiveIdentityOccurrences(
+      source,
+      family.identity,
+      family.operations.values(),
+    )) {
+      blockFamily(family, "non-bijective-identity", occurrence);
+    }
   }
 }
 
@@ -175,7 +210,7 @@ function applyGenericPointerBoundaries(
         authoredType !== undefined &&
         authoredTypeContainsGenericPointer(source, operand, authoredType)
       ) {
-        family.blockers.add("generic-storage-boundary");
+        blockFamily(family, "generic-storage", operand);
       }
     }
   }
@@ -216,7 +251,7 @@ function applyGenericPointerBoundaries(
         node,
         binding.selectedParameterType,
         families,
-        "generic-call-boundary",
+        "generic-call",
       );
     }
     const selectedDeclaration = semantics.getSignatureDeclaration(
@@ -234,7 +269,7 @@ function applyGenericPointerBoundaries(
         node,
         call.sourceResultType,
         families,
-        "generic-call-boundary",
+        "generic-call",
       );
     }
   }
@@ -396,13 +431,13 @@ function blockSelectedPointerFamilies(
   anchor: Node,
   type: Type | undefined,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
-  blocker: string,
+  blocker: PointerFlowBlocker,
 ): void {
   if (type === undefined) {
     return;
   }
   for (const family of selectedPointerFamilies(source, anchor, type, families)) {
-    family.blockers.add(blocker);
+    blockFamily(family, blocker, anchor);
   }
 }
 
@@ -483,7 +518,7 @@ function directReferenceFamily(
     identity: description.identity,
     pointerTypes: new Set(),
     operations: new Map(),
-    blockers: new Set(),
+    blockers: new Map(),
     producerCount: 0,
   };
   families.set(description.identity, created);
@@ -498,7 +533,7 @@ function applyComponentBoundaries(
 ): void {
   for (const component of components) {
     const touched = new Set<MutableDirectReferenceFamily>();
-    let hasNonDirectPointee = false;
+    const nonDirectPointees: Node[] = [];
     for (const evidence of component.pointees) {
       const description = describePointerPointee(
         source,
@@ -509,7 +544,7 @@ function applyComponentBoundaries(
         description?.category !== "direct-reference" ||
         typeof description.identity === "string"
       ) {
-        hasNonDirectPointee = true;
+        nonDirectPointees.push(evidence.anchor);
         continue;
       }
       const family = families.get(description.identity);
@@ -523,19 +558,39 @@ function applyComponentBoundaries(
         touched.add(family);
       }
     }
-    if (hasNonDirectPointee) {
+    if (nonDirectPointees.length !== 0) {
       for (const family of touched) {
-        family.blockers.add("mixed-pointee-flow");
+        for (const occurrence of nonDirectPointees) {
+          blockFamily(family, "mixed-pointee", occurrence);
+        }
       }
     }
-    if (
-      component.blockers.includes("addressed-storage-may-change") ||
-      component.blockers.includes("external-boundary") ||
-      component.blockers.includes("unsupported-producer")
-    ) {
+    for (const evidence of component.blockerEvidence) {
+      if (
+        evidence.reason !== "addressed-storage-may-change" &&
+        evidence.reason !== "external-boundary" &&
+        evidence.reason !== "unsupported-producer"
+      ) {
+        continue;
+      }
       for (const family of touched) {
-        family.blockers.add("component-boundary");
+        for (const occurrence of evidence.occurrences) {
+          blockFamily(family, evidence.reason, occurrence);
+        }
       }
     }
+  }
+}
+
+function blockFamily(
+  family: MutableDirectReferenceFamily,
+  reason: PointerFlowBlocker,
+  occurrence: Node,
+): void {
+  const existing = family.blockers.get(reason);
+  if (existing === undefined) {
+    family.blockers.set(reason, new Set([occurrence]));
+  } else {
+    existing.add(occurrence);
   }
 }

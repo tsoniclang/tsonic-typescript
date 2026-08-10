@@ -58,9 +58,11 @@ function operationUsesRuntimeValue(
   operation: PointerOperationFact,
   representation: PointerFlowRepresentation,
 ): boolean {
-  return representation === "location" &&
-    operation.operation !== "load" &&
-    operation.operation !== "store";
+  return representation === "direct-object"
+    ? operation.operation === "hash-pointer"
+    : representation === "location" &&
+      operation.operation !== "load" &&
+      operation.operation !== "store";
 }
 
 function operationNeedsRuntime(

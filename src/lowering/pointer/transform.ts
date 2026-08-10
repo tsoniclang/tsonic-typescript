@@ -261,10 +261,12 @@ function rewriteNode(
   if (operation !== undefined) {
     consumed.operations.add(original);
     const optimized = lowerOptimizedPointerOperation(
+      source,
       factory,
       operation,
       updated,
       pointerFlowRepresentation(plan, original),
+      plan.runtimeAlias,
     );
     if (optimized !== undefined) {
       return optimized;

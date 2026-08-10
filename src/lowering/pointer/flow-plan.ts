@@ -17,6 +17,7 @@ import {
   collectPointerFlowNodes,
 } from "./flow-census.js";
 import { planDirectReferenceFamilies } from "./flow-families.js";
+import type { DirectReferenceFamilyFallback } from "./flow-family-evidence.js";
 import type {
   PointerFlowBlocker,
   PointerFlowBlockerOccurrence,
@@ -53,6 +54,7 @@ export interface ClosedPointerFlowPlan {
   readonly optimizedComponentCount: number;
   readonly optimizedFamilyCount: number;
   readonly fallbackReasons: readonly PointerFlowFallbackEvidence[];
+  readonly familyFallbackReasons: readonly PointerFlowFallbackEvidence[];
 }
 
 interface PointerFlowDecision {
@@ -124,7 +126,26 @@ export function createClosedPointerFlowPlan(
     optimizedComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
     fallbackReasons: sealFallbackEvidence(fallbackReasons),
+    familyFallbackReasons: sealFamilyFallbackEvidence(
+      source,
+      sourceIdentityFor,
+      familyPlan.fallbackReasons,
+    ),
   });
+}
+
+function sealFamilyFallbackEvidence(
+  source: TargetSourceProgram,
+  sourceIdentityFor: SourceIdentityResolver,
+  fallback: readonly DirectReferenceFamilyFallback[],
+): readonly PointerFlowFallbackEvidence[] {
+  return Object.freeze(fallback.map((entry) => Object.freeze({
+    reason: entry.reason,
+    count: entry.count,
+    examples: Object.freeze(entry.occurrences.map((node) =>
+      optimizationOccurrence(source, node, sourceIdentityFor)
+    ).sort(compareOptimizationOccurrences).slice(0, 8)),
+  })));
 }
 
 function appendFallbackEvidence(

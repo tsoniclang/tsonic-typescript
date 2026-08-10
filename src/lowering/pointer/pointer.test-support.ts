@@ -22,6 +22,7 @@ import {
   AsVariableDeclaration,
   IsCallExpression,
   IsExportDeclaration,
+  IsIdentifier,
   IsImportClause,
   IsImportDeclaration,
   IsNamedImports,
@@ -319,9 +320,13 @@ export function countCallsNamed(
     const property = IsPropertyAccessExpression(expression)
       ? AsPropertyAccessExpression(expression)
       : undefined;
-    const actual = property?.name === undefined
-      ? source.ast.text(expression)
-      : source.ast.text(property.name);
+    const selectedName = property?.name ?? (IsIdentifier(expression)
+      ? expression
+      : undefined);
+    if (selectedName === undefined) {
+      return;
+    }
+    const actual = source.ast.text(selectedName);
     if (actual === name) {
       count += 1;
     }

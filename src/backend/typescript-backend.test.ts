@@ -101,7 +101,7 @@ test("emits deterministic immutable optimization evidence", () => {
   assert.ok(artifact !== undefined);
   assert.equal(artifact.kind, "asset");
   assert.deepEqual(JSON.parse(artifact.text), {
-    schemaVersion: 2,
+    schemaVersion: 3,
     pointer: {
       profile: "closed-direct",
       analyzed: true,
@@ -110,6 +110,7 @@ test("emits deterministic immutable optimization evidence", () => {
       optimizedFamilyCount: 0,
       representations: [{ value: "direct-snapshot", count: 1 }],
       fallbackReasons: [],
+      familyFallbackReasons: [],
     },
     scalar: {
       profile: "closed-direct",
@@ -234,6 +235,59 @@ export const value = loadPointer(pointer);
   assert.ok(escapedPointer >= 0);
   assert.ok(unsupported?.examples?.some((example) =>
     example.start === escapedPointer && example.syntaxKind === "KindIdentifier"
+  ));
+  assert.doesNotMatch(artifact.text, /\/project|\.temp/u);
+});
+
+test("reports exact direct-reference family retention evidence", () => {
+  const sourceText = `import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer } from "./markers.js";
+class Box { value = 1; }
+const box = new Box();
+const left: Pointer<Box> = allocatePointer(box);
+const right: Pointer<Box> = allocatePointer(box);
+export const same = equalPointer(left, right);
+`;
+  const source = checkedPointerSource(sourceText);
+  const printer: TypeScriptAstPrinter = {
+    print(batch) {
+      return batch.encodedSourceFiles.map(() => "// printed\n");
+    },
+  };
+
+  const result = createTypeScriptBackend(printer, {
+    pointerFlows: "closed-direct",
+    scalarProjections: "preserve",
+    cooperativeEffects: "preserve",
+  }).compile(compileInput(source, [runtimeReference]));
+
+  assert.deepEqual(result.diagnostics, []);
+  const artifact = result.artifacts.find((candidate) =>
+    candidate.path === "tsonic-typescript-optimization.json"
+  );
+  assert.ok(artifact !== undefined);
+  const evidence = JSON.parse(artifact.text) as {
+    pointer?: {
+      familyFallbackReasons?: Array<{
+        reason?: string;
+        count?: number;
+        examples?: Array<{
+          documentIdentity?: string;
+          start?: number;
+          syntaxKind?: string;
+        }>;
+      }>;
+    };
+  };
+  const identity = evidence.pointer?.familyFallbackReasons?.find((reason) =>
+    reason.reason === "non-bijective-identity"
+  );
+  assert.equal(identity?.count, 1);
+  const firstAllocation = sourceText.indexOf("allocatePointer(box)");
+  assert.ok(identity?.examples?.some((example) =>
+    example.documentIdentity === "index.ts" &&
+    example.start === firstAllocation + "allocatePointer(".length &&
+    example.syntaxKind === "KindIdentifier"
   ));
   assert.doesNotMatch(artifact.text, /\/project|\.temp/u);
 });
@@ -380,6 +434,7 @@ export const value = loadPointer(allocatePointer(1));
       { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
       { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
       { kind: "call-marker", exportName: "loadPointer", marker: "load" },
+      { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
     ],
   }] satisfies readonly SourceSemanticsModule[];
   const session = createCompilerSessionFromFiles({
@@ -389,6 +444,7 @@ export const value = loadPointer(allocatePointer(1));
       "/project/markers.ts": `export interface Pointer<T> { value: T }
 export declare function allocatePointer<T>(initial: T): Pointer<T>;
 export declare function loadPointer<T>(pointer: Pointer<T>): T;
+export declare function equalPointer<T>(left: Pointer<T> | undefined, right: Pointer<T> | undefined): boolean;
 `,
     },
     rootFiles: ["/project/index.ts"],

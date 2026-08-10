@@ -1,25 +1,41 @@
-import type { Node, PointerOperationFact } from "@tsonic/tsts";
+import type { Node, PointerOperationFact, Type } from "@tsonic/tsts";
 import {
   AsCallExpression,
   AsTypeReferenceNode,
   IsCallExpression,
   IsTypeReferenceNode,
+  KindColonToken,
+  KindEqualsEqualsEqualsToken,
+  KindEqualsGreaterThanToken,
   KindEqualsToken,
+  KindObjectKeyword,
+  KindQuestionToken,
+  KindUndefinedKeyword,
+  NewArrowFunction,
   NewBinaryExpression,
+  NewCallExpression,
+  NewConditionalExpression,
   NewIdentifier,
+  NewKeywordTypeNode,
+  NewNumericLiteral,
   NewObjectLiteralExpression,
+  NewParameterDeclaration,
+  NewParenthesizedExpression,
   NewPropertyAssignment,
   NewPropertyAccessExpression,
   NewPropertySignatureDeclaration,
   NewToken,
   NewTypeLiteralNode,
+  NewUnionTypeNode,
   NewVoidExpression,
   NodeFactory_NewNodeList,
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
+import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { PointerLoweringError } from "./diagnostic.js";
 import type { PointerFlowRepresentation } from "./flow-plan.js";
+import { runtimeCall } from "./runtime-ast.js";
 
 export function lowerOptimizedPointerType(
   factory: NodeFactory,
@@ -69,10 +85,12 @@ export function lowerOptimizedPointerType(
 }
 
 export function lowerOptimizedPointerOperation(
+  source: TargetSourceProgram,
   factory: NodeFactory,
   operation: PointerOperationFact,
   updated: Node,
   representation: PointerFlowRepresentation,
+  runtimeAlias: string,
 ): Node | undefined {
   if (representation === "location") {
     return undefined;
@@ -85,10 +103,7 @@ export function lowerOptimizedPointerOperation(
     );
   }
   const values = requireNodes(arguments_, operation.operation);
-  if (
-    representation === "direct-snapshot" ||
-    representation === "direct-object"
-  ) {
+  if (representation === "direct-snapshot") {
     if (
       operation.operation !== "allocate" &&
       operation.operation !== "address-of" &&
@@ -100,6 +115,35 @@ export function lowerOptimizedPointerOperation(
     }
     requireArity(operation.operation, values, 1);
     return values[0];
+  }
+  if (representation === "direct-object") {
+    switch (operation.operation) {
+      case "allocate":
+      case "address-of":
+      case "load":
+        requireArity(operation.operation, values, 1);
+        return values[0];
+      case "equal-pointer":
+        requireArity(operation.operation, values, 2);
+        return strictIdentity(
+          factory,
+          requiredValue(values, 0),
+          requiredValue(values, 1),
+        );
+      case "hash-pointer":
+        requireArity(operation.operation, values, 1);
+        return directObjectHash(
+          source,
+          factory,
+          requiredValue(values, 0),
+          operation.pointerType,
+          runtimeAlias,
+        );
+      default:
+        throw new PointerLoweringError(
+          `direct-object cannot lower ${operation.operation}`,
+        );
+    }
   }
   switch (operation.operation) {
     case "allocate":
@@ -131,6 +175,153 @@ export function lowerOptimizedPointerOperation(
         `mutable-cell cannot lower ${operation.operation}`,
       );
   }
+}
+
+function strictIdentity(factory: NodeFactory, left: Node, right: Node): Node {
+  return requiredNode(
+    NewBinaryExpression(
+      factory,
+      undefined,
+      left,
+      undefined,
+      NewToken(factory, KindEqualsEqualsEqualsToken),
+      right,
+    ),
+    "direct object pointer identity",
+  );
+}
+
+function directObjectHash(
+  source: TargetSourceProgram,
+  factory: NodeFactory,
+  pointer: Node,
+  pointerType: Type,
+  runtimeAlias: string,
+): Node {
+  if (!typeCanBeUndefined(source, pointer, pointerType)) {
+    return hashObject(factory, pointer, runtimeAlias);
+  }
+  const parameterName = "$pointer";
+  const parameter = requiredNode(
+    NewParameterDeclaration(
+      factory,
+      undefined,
+      undefined,
+      NewIdentifier(factory, parameterName),
+      undefined,
+      requiredNode(
+        NewUnionTypeNode(
+          factory,
+          NodeFactory_NewNodeList(factory, [
+            requiredNode(
+              NewKeywordTypeNode(factory, KindObjectKeyword),
+              "object pointer parameter type",
+            ),
+            requiredNode(
+              NewKeywordTypeNode(factory, KindUndefinedKeyword),
+              "undefined pointer parameter type",
+            ),
+          ]),
+        ),
+        "nullable pointer parameter type",
+      ),
+      undefined,
+    ),
+    "direct pointer hash parameter",
+  );
+  const selectedPointer = requiredNode(
+    NewConditionalExpression(
+      factory,
+      strictIdentity(
+        factory,
+        requiredIdentifier(factory, parameterName),
+        undefinedExpression(factory),
+      ),
+      NewToken(factory, KindQuestionToken),
+      undefinedExpression(factory),
+      NewToken(factory, KindColonToken),
+      runtimeCall(
+        factory,
+        runtimeAlias,
+        "rawPointer",
+        [],
+        [requiredIdentifier(factory, parameterName)],
+      ),
+    ),
+    "nullable direct pointer identity",
+  );
+  const arrow = requiredNode(
+    NewArrowFunction(
+      factory,
+      undefined,
+      undefined,
+      NodeFactory_NewNodeList(factory, [parameter]),
+      undefined,
+      undefined,
+      NewToken(factory, KindEqualsGreaterThanToken),
+      runtimeCall(
+        factory,
+        runtimeAlias,
+        "hashRawPointer",
+        [],
+        [selectedPointer],
+      ),
+    ),
+    "nullable direct pointer hash function",
+  );
+  return requiredNode(
+    NewCallExpression(
+      factory,
+      requiredNode(
+        NewParenthesizedExpression(factory, arrow),
+        "parenthesized direct pointer hash function",
+      ),
+      undefined,
+      undefined,
+      NodeFactory_NewNodeList(factory, [pointer]),
+      0,
+    ),
+    "nullable direct pointer hash call",
+  );
+}
+
+function hashObject(
+  factory: NodeFactory,
+  pointer: Node,
+  runtimeAlias: string,
+): Node {
+  return runtimeCall(
+    factory,
+    runtimeAlias,
+    "hashRawPointer",
+    [],
+    [runtimeCall(factory, runtimeAlias, "rawPointer", [], [pointer])],
+  );
+}
+
+function typeCanBeUndefined(
+  source: TargetSourceProgram,
+  anchor: Node,
+  type: Type,
+): boolean {
+  const semantics = source.semantics.forNode(anchor);
+  return semantics.isNullish(type) ||
+    semantics.isUnion(type) && semantics.getUnionOrIntersectionTypes(type)
+      .some((member) => member !== undefined && semantics.isNullish(member));
+}
+
+function undefinedExpression(factory: NodeFactory): Node {
+  return requiredNode(
+    NewVoidExpression(
+      factory,
+      requiredNode(NewNumericLiteral(factory, "0", 0), "zero literal"),
+    ),
+    "undefined expression",
+  );
+}
+
+function requiredIdentifier(factory: NodeFactory, name: string): Node {
+  return requiredNode(NewIdentifier(factory, name), `identifier ${name}`);
 }
 
 function mutableCell(factory: NodeFactory, initial: Node): Node {

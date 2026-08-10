@@ -111,8 +111,8 @@ recognizes `addressOf` or any other marker by spelling.
 ## Pointer representations
 
 Canonical pointer lowering is `Location<T>`. It remains the default and the
-complete fallback for open, escaping, potentially nil, identity-observed,
-unsafe, indirect, or otherwise unproved flows.
+complete fallback for open, escaping, unsafe, indirect, or otherwise unproved
+flows.
 
 The target optimization `optimizations.pointerFlows: "closed-direct"` lets the
 backend create one whole-program plan from the checked source and its stable
@@ -131,7 +131,16 @@ The closed planner can select only these exact representations:
 - a closed mutable scalar alias component becomes one `{ value: T }` cell;
 - a class-represented pointee becomes the object itself only when its checked
   type symbol has a primary project `ClassDeclaration` and the complete flow
-  neither replaces nor observes the pointer location.
+  does not replace the pointee through the pointer.
+
+An identity-observing class family can still use the object itself only when
+every pointer producer is `allocatePointer(new ExactClass(...))` and the target
+proves each construction returns a fresh object. Addressed storage, allocating
+an existing object, inheritance, class decorators, class-binding writes, and a
+constructor that can return a replacement object all retain `Location<T>`.
+Within that proven bijection, pointer equality is object `===` and pointer
+hashing uses the runtime's stable object-identity hash. A nullable hash input is
+captured once before its nil branch, so lowering cannot duplicate evaluation.
 
 Object shape is never representation evidence. Arrays, interfaces,
 declaration-file classes, and structural wrapper shapes therefore remain

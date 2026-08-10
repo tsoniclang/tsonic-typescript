@@ -6,11 +6,16 @@ import type {
   PointerOperationFact,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  AsBinaryExpression,
+  KindEqualsEqualsEqualsToken,
+} from "@tsonic/tsts/target-ast";
 
 import {
   checkedPointerFixture,
   countCallsNamed,
   createFixturePointerFlowPlan as createClosedPointerFlowPlan,
+  variableDeclarationNamed,
   visit,
 } from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";
@@ -184,10 +189,129 @@ export const same = equalPointer(left, right);
 export const result = loadPointer(left).value + loadPointer(right).value;
 `);
 
-  assertAllOperations(
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "location");
+  const identity = plan.familyFallbackReasons.find((entry) =>
+    entry.reason === "non-bijective-identity"
+  );
+  assert.equal(identity?.count, 1);
+  assert.ok(identity.examples.length > 0);
+});
+
+test("uses fresh object identity for equality and hashing", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer, hashPointer, loadPointer } from "./markers.js";
+class Box { value = 1; }
+const first: Pointer<Box> = allocatePointer(new Box());
+const alias = first;
+const second: Pointer<Box> = allocatePointer(new Box());
+export const result = [
+  loadPointer(first).value,
+  equalPointer(first, alias),
+  equalPointer(first, second),
+  hashPointer(first) === hashPointer(alias),
+];
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assert.equal(plan.optimizedFamilyCount, 1);
+  assertAllOperations(fixture.source, plan, "direct-object");
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  assert.ok(lowered.runtimeAlias !== undefined);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "allocatePointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "equalPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 2);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 2);
+});
+
+test("emits direct pointer equality as strict object identity", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer } from "./markers.js";
+class Box { value = 1; }
+const left: Pointer<Box> = allocatePointer(new Box());
+const right: Pointer<Box> = allocatePointer(new Box());
+export const same = equalPointer(left, right);
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  const initializer = variableDeclarationNamed(
     fixture.source,
-    createClosedPointerFlowPlan(fixture.source),
-    "location",
+    lowered.sourceFile,
+    "same",
+  ).Initializer;
+  const comparison = AsBinaryExpression(initializer);
+
+  assert.equal(comparison?.OperatorToken?.Kind, KindEqualsEqualsEqualsToken);
+  assert.equal(fixture.source.ast.text(comparison?.Left), "left");
+  assert.equal(fixture.source.ast.text(comparison?.Right), "right");
+});
+
+test("evaluates a nullable direct pointer once while hashing", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, hashPointer } from "./markers.js";
+class Box { value = 1; }
+let evaluations = 0;
+function nextPointer(): Pointer<Box> | undefined {
+  evaluations += 1;
+  return evaluations === 1 ? allocatePointer(new Box()) : undefined;
+}
+export const result = [hashPointer(nextPointer()), evaluations];
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "direct-object");
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "nextPointer"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 1);
+});
+
+test("keeps addressed identity in the canonical location representation", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, equalPointer } from "./markers.js";
+class Box { value = 1; }
+let first = new Box();
+let second = first;
+const left: Pointer<Box> = addressOf(first);
+const right: Pointer<Box> = addressOf(second);
+export const same = equalPointer(left, right);
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "location");
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "non-bijective-identity"
+    )?.count,
+    1,
+  );
+});
+
+test("keeps replacement-returning constructors in canonical locations", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer } from "./markers.js";
+class Box {
+  value = 1;
+  constructor(existing?: Box) {
+    if (existing !== undefined) return existing;
+  }
+}
+const shared = new Box();
+const left: Pointer<Box> = allocatePointer(new Box(shared));
+const right: Pointer<Box> = allocatePointer(new Box(shared));
+export const same = equalPointer(left, right);
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "location");
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "non-bijective-identity"
+    )?.count,
+    1,
   );
 });
 

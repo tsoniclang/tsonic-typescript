@@ -42,6 +42,7 @@ export type PointerOptimizationEvidence =
       readonly optimizedFamilyCount: number;
       readonly representations: readonly OptimizationCount<PointerFlowRepresentation>[];
       readonly fallbackReasons: readonly OptimizationReasonEvidence<PointerFlowBlocker>[];
+      readonly familyFallbackReasons: readonly OptimizationReasonEvidence<PointerFlowBlocker>[];
     };
 
 export interface ScalarOptimizationEvidence {
@@ -72,7 +73,7 @@ export type CooperativeEffectOptimizationEvidence =
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly pointer: PointerOptimizationEvidence;
   readonly scalar: ScalarOptimizationEvidence;
   readonly cooperativeEffects: CooperativeEffectOptimizationEvidence;
@@ -85,7 +86,7 @@ export function createTypeScriptOptimizationEvidence(
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     pointer: pointerEvidence(profile, pointerPlan),
     scalar: Object.freeze({
       profile: profile.scalarProjections,
@@ -120,6 +121,7 @@ function pointerEvidence(
       plan.components.map((component) => component.representation),
     ),
     fallbackReasons: plan.fallbackReasons,
+    familyFallbackReasons: plan.familyFallbackReasons,
   });
 }
 
