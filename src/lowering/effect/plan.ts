@@ -156,12 +156,12 @@ function isSupportedAsyncCallable(
   node: Node,
 ): boolean {
   const functionDeclaration = source.ast.is.IsFunctionDeclaration(node);
-  const staticMethod = source.ast.is.IsMethodDeclaration(node) &&
-    source.ast.hasModifierKind(node, "static");
+  const method = source.ast.is.IsMethodDeclaration(node) &&
+    methodDispatchIsClosed(source, node);
   const functionExpression = source.ast.is.IsFunctionExpression(node);
   const arrowFunction = source.ast.is.IsArrowFunction(node);
   if (
-    (!functionDeclaration && !staticMethod && !functionExpression && !arrowFunction) ||
+    (!functionDeclaration && !method && !functionExpression && !arrowFunction) ||
     !source.ast.hasModifierKind(node, "async") ||
     source.ast.body(node) === undefined
   ) {
@@ -169,12 +169,25 @@ function isSupportedAsyncCallable(
   }
   const parsed = functionDeclaration
     ? source.ast.as.AsFunctionDeclaration(node)
-    : staticMethod
+    : method
     ? source.ast.as.AsMethodDeclaration(node)
     : functionExpression
     ? source.ast.as.AsFunctionExpression(node)
     : source.ast.as.AsArrowFunction(node);
   return parsed?.AsteriskToken === undefined && parsed?.FullSignature === undefined;
+}
+
+function methodDispatchIsClosed(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  if (source.ast.hasModifierKind(declaration, "static")) {
+    return true;
+  }
+  const dispatch = source.navigation.memberDispatch(declaration);
+  return dispatch !== undefined &&
+    !dispatch.overridesBase &&
+    !dispatch.hasDerivedOverride;
 }
 
 function collectCalls(

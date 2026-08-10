@@ -58,7 +58,10 @@ callable producer, immutable local forwarding alias, and property use is exact
 and non-escaping. Nullish-presence checks and a `??` fallback proven to return
 `never` preserve closure without becoming callable producers. Spread
 construction, inheritance, property extraction, or one suspending producer
-preserves the entire family. The plan resolves calls through checked
+preserves the entire family. A non-static method is eligible only when checked
+member-dispatch evidence proves that it neither overrides a base member nor has
+a derived override; override families remain canonical as one unit. The plan
+resolves calls through checked
 signatures, settles recursive components together, and rewrites each selected
 declaration, return contract, and dependent `await` in one transaction. For example,
 `async function answer(): Promise<number> { return 42 }` becomes

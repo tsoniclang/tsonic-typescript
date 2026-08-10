@@ -403,3 +403,45 @@ export const result = await invoke();
     1,
   );
 });
+
+test("settles a closed instance method and its exact call", () => {
+  const fixture = checkedEffectFixture(`
+class Counter {
+  async next(value: number): Promise<number> { return value + 1; }
+}
+const counter = new Counter();
+export const result = await counter.next(41);
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 1);
+  assert.equal(result.awaitCount, 1);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
+test("keeps an override family canonical", () => {
+  const fixture = checkedEffectFixture(`
+class Base {
+  async next(value: number): Promise<number> { return value + 1; }
+}
+class Derived extends Base {
+  override async next(value: number): Promise<number> { return value + 2; }
+}
+const value: Base = new Derived();
+export const result = await value.next(40);
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+});
