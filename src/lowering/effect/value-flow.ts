@@ -2,10 +2,13 @@ import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
-  collectConstructorInputs,
-  type ConstructorInputs,
-} from "./constructor-inputs.js";
-import { forEachProgramNode } from "./syntax.js";
+  collectCallableValueInputs,
+  type CallableValueInputs,
+} from "./value-inputs.js";
+import {
+  exactCallableTarget,
+  forEachProgramNode,
+} from "./syntax.js";
 import {
   callableIsDefinitelySynchronous,
   resolvedCallIsDefinitelySynchronous,
@@ -37,7 +40,7 @@ export function createCallableValueFlow(
   candidates: ReadonlySet<Node>,
 ): CallableValueFlow {
   const candidateSymbols = indexCandidateSymbols(source, candidates);
-  const constructors = collectConstructorInputs(source);
+  const inputs = collectCallableValueInputs(source);
   const allowedCandidateReferences = new Set<Node>();
   const resolutions = new Map<Node, CallableValueResolution>();
   forEachProgramNode(source, (node) => {
@@ -49,7 +52,7 @@ export function createCallableValueFlow(
       node,
       candidates,
       candidateSymbols,
-      constructors,
+      inputs,
       allowedCandidateReferences,
     );
     if (resolution !== undefined) {
@@ -75,7 +78,7 @@ function resolveCall(
   call: Node,
   candidates: ReadonlySet<Node>,
   candidateSymbols: ReadonlyMap<Symbol, Node>,
-  constructors: ConstructorInputs,
+  inputs: CallableValueInputs,
   allowedCandidateReferences: Set<Node>,
 ): MutableResolution | undefined {
   const signature = source.semantics.forNode(call).getResolvedSignature(call);
@@ -90,7 +93,7 @@ function resolveCall(
     }
   }
   const expression = source.ast.as.AsCallExpression(call)?.Expression;
-  const target = transparentExpression(source, expression);
+  const target = exactCallableTarget(source, expression);
   const referenceNode = target !== undefined &&
       source.ast.is.IsPropertyAccessExpression(target)
     ? source.ast.as.AsPropertyAccessExpression(target)?.name
@@ -104,7 +107,7 @@ function resolveCall(
     reference.declaration,
     candidates,
     candidateSymbols,
-    constructors,
+    inputs,
     allowedCandidateReferences,
     new Set(),
   );
@@ -116,7 +119,7 @@ function resolveDeclaration(
   declaration: Node,
   candidates: ReadonlySet<Node>,
   candidateSymbols: ReadonlyMap<Symbol, Node>,
-  constructors: ConstructorInputs,
+  inputs: CallableValueInputs,
   allowedCandidateReferences: Set<Node>,
   pending: Set<Node>,
 ): MutableResolution {
@@ -129,8 +132,8 @@ function resolveDeclaration(
   if (callableIsDefinitelySynchronous(source, declaration)) {
     return emptyResolution();
   }
-  const values = constructors.values.get(declaration);
-  if (values === undefined || !constructors.closed.has(declaration)) {
+  const values = inputs.values.get(declaration);
+  if (values === undefined || !inputs.closed.has(declaration)) {
     return unresolved();
   }
   pending.add(declaration);
@@ -143,7 +146,7 @@ function resolveDeclaration(
         value,
         candidates,
         candidateSymbols,
-        constructors,
+        inputs,
         allowedCandidateReferences,
         pending,
       ),
@@ -158,7 +161,7 @@ function resolveExpression(
   expression: Node,
   candidates: ReadonlySet<Node>,
   candidateSymbols: ReadonlyMap<Symbol, Node>,
-  constructors: ConstructorInputs,
+  inputs: CallableValueInputs,
   allowedCandidateReferences: Set<Node>,
   pending: Set<Node>,
 ): MutableResolution {
@@ -178,7 +181,7 @@ function resolveExpression(
           branch,
           candidates,
           candidateSymbols,
-          constructors,
+          inputs,
           allowedCandidateReferences,
           pending,
         ));
@@ -227,7 +230,7 @@ function resolveExpression(
       reference.declaration,
       candidates,
       candidateSymbols,
-      constructors,
+      inputs,
       allowedCandidateReferences,
       pending,
     );

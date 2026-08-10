@@ -347,3 +347,32 @@ export const result = await invoke();
   assert.equal(result.awaitCount, 2);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
 });
+
+test("settles a guarded callable copied through one immutable local", () => {
+  const fixture = checkedEffectFixture(`
+class Callback {
+  constructor(readonly value: (() => number | Promise<number>) | undefined) {}
+}
+async function base(): Promise<number> { return 40; }
+const callback = new Callback(async (): Promise<number> => (await base()) + 1);
+function missing(): never { throw new Error("missing callback"); }
+async function invoke(): Promise<number> {
+  if (callback.value === undefined) return 0;
+  const selected = callback.value;
+  return await (selected ?? missing())();
+}
+export const result = await invoke();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 3);
+  assert.equal(result.awaitCount, 3);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});

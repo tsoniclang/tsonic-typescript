@@ -6,24 +6,32 @@ import {
   forEachProgramNode,
   isModuleForwardingReference,
 } from "./syntax.js";
+import { typeMayBeCallable } from "./synchronous.js";
 
-export interface ConstructorInputs {
+export interface CallableValueInputs {
   readonly values: ReadonlyMap<Node, readonly Node[]>;
   readonly closed: ReadonlySet<Node>;
 }
 
 interface ReferenceCounts {
   total: number;
-  direct: number;
+  admitted: number;
 }
 
-export function collectConstructorInputs(
+export function collectCallableValueInputs(
   source: TargetSourceProgram,
-): ConstructorInputs {
+): CallableValueInputs {
   const mutableValues = new Map<Node, Node[]>();
+  const constructorParameters = new Set<Node>();
+  const callableAliases = new Map<Node, Node>();
   const constructorClasses = new Map<Node, Node>();
   const invalidConstructors = new Set<Node>();
   forEachProgramNode(source, (node) => {
+    const aliasInitializer = callableAliasInitializer(source, node);
+    if (aliasInitializer !== undefined) {
+      callableAliases.set(node, aliasInitializer);
+      mutableValues.set(node, [aliasInitializer]);
+    }
     if (source.ast.is.IsConstructorDeclaration(node)) {
       const classDeclaration = source.ast.parent(node);
       if (
@@ -66,44 +74,60 @@ export function collectConstructorInputs(
         isReadonlyParameterProperty(source, parameter)
       ) {
         append(mutableValues, parameter, argument);
+        constructorParameters.add(parameter);
       }
     }
   });
 
   const classReferences = new Map<Node, ReferenceCounts>();
   for (const classDeclaration of constructorClasses.values()) {
-    classReferences.set(classDeclaration, { total: 0, direct: 0 });
+    classReferences.set(classDeclaration, { total: 0, admitted: 0 });
   }
   const classSymbols = indexDeclarationSymbols(
     source,
     classReferences.keys(),
   );
+  const aliasReferences = new Map<Node, ReferenceCounts>();
+  for (const alias of callableAliases.keys()) {
+    aliasReferences.set(alias, { total: 0, admitted: 0 });
+  }
+  const aliasSymbols = indexDeclarationSymbols(source, aliasReferences.keys());
+  forEachProgramNode(source, (node) => {
+    auditClassReference(source, node, classReferences, classSymbols);
+    auditAliasReference(source, node, aliasReferences, aliasSymbols);
+  });
+  const closedAliases = new Set<Node>();
+  for (const [alias, counts] of aliasReferences) {
+    if (counts.total === counts.admitted && counts.admitted !== 0) {
+      closedAliases.add(alias);
+    }
+  }
   const propertyReferences = new Map<Node, ReferenceCounts>();
-  for (const parameter of mutableValues.keys()) {
-    propertyReferences.set(parameter, { total: 0, direct: 0 });
+  for (const parameter of constructorParameters) {
+    propertyReferences.set(parameter, { total: 0, admitted: 0 });
   }
   const propertySymbols = indexDeclarationSymbols(
     source,
     propertyReferences.keys(),
   );
   forEachProgramNode(source, (node) => {
-    auditClassReference(source, node, classReferences, classSymbols);
     auditPropertyReference(
       source,
       node,
       propertyReferences,
       propertySymbols,
+      closedAliases,
     );
   });
 
-  const closed = new Set<Node>();
+  const closed = new Set<Node>(closedAliases);
   for (const [constructor, classDeclaration] of constructorClasses) {
     const classCounts = classReferences.get(classDeclaration);
     if (
       invalidConstructors.has(constructor) ||
       classCounts === undefined ||
-      classCounts.total !== classCounts.direct ||
-      classCounts.direct === 0
+      classCounts.total !== classCounts.admitted ||
+      classCounts.admitted === 0
     ) {
       continue;
     }
@@ -116,8 +140,8 @@ export function collectConstructorInputs(
         isReadonlyParameterProperty(source, parameter) &&
         mutableValues.has(parameter) &&
         propertyCounts !== undefined &&
-        propertyCounts.total === propertyCounts.direct &&
-        propertyCounts.direct !== 0
+        propertyCounts.total === propertyCounts.admitted &&
+        propertyCounts.admitted !== 0
       ) {
         closed.add(parameter);
       }
@@ -153,7 +177,7 @@ function auditClassReference(
   }
   counts.total += 1;
   if (directContainingNew(source, node) !== undefined) {
-    counts.direct += 1;
+    counts.admitted += 1;
   }
 }
 
@@ -162,6 +186,7 @@ function auditPropertyReference(
   node: Node,
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   trackedSymbols: ReadonlyMap<Symbol, Node>,
+  closedAliases: ReadonlySet<Node>,
 ): void {
   if (tracked.size === 0) {
     return;
@@ -174,8 +199,7 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        (selected.callCallee ||
-          directContainingCall(source, node) !== undefined) &&
+        propertyUseIsAdmitted(source, node, closedAliases) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -189,8 +213,7 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        (selected.callCallee ||
-          directContainingCall(source, node) !== undefined) &&
+        propertyUseIsAdmitted(source, node, closedAliases) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -216,6 +239,126 @@ function auditPropertyReference(
   ) {
     counts.total += 1;
   }
+}
+
+function auditAliasReference(
+  source: TargetSourceProgram,
+  node: Node,
+  tracked: ReadonlyMap<Node, ReferenceCounts>,
+  trackedSymbols: ReadonlyMap<Symbol, Node>,
+): void {
+  if (tracked.size === 0 || !source.ast.is.IsIdentifier(node)) {
+    return;
+  }
+  const declaration = declarationForSymbols(source, trackedSymbols, node);
+  const counts = declaration === undefined ? undefined : tracked.get(declaration);
+  if (
+    counts === undefined ||
+    node === source.ast.name(declaration) ||
+    isTypeOnlyReference(source, node) ||
+    isModuleForwardingReference(source, node)
+  ) {
+    return;
+  }
+  counts.total += 1;
+  if (directContainingCall(source, node) !== undefined) {
+    counts.admitted += 1;
+  }
+}
+
+function propertyUseIsAdmitted(
+  source: TargetSourceProgram,
+  node: Node,
+  closedAliases: ReadonlySet<Node>,
+): boolean {
+  return directContainingCall(source, node) !== undefined ||
+    isCallablePresenceObservation(source, node) ||
+    isInitializerOfClosedAlias(source, node, closedAliases);
+}
+
+function isCallablePresenceObservation(
+  source: TargetSourceProgram,
+  expression: Node,
+): boolean {
+  let current = expression;
+  for (;;) {
+    const parent = source.ast.parent(current);
+    if (parent === undefined) {
+      return false;
+    }
+    if (isTransparentParent(source, parent, current)) {
+      current = parent;
+      continue;
+    }
+    if (
+      !source.ast.is.IsBinaryExpression(parent) ||
+      !new Set([
+        "KindEqualsEqualsToken",
+        "KindExclamationEqualsToken",
+        "KindEqualsEqualsEqualsToken",
+        "KindExclamationEqualsEqualsToken",
+      ]).has(source.ast.operatorKindName(parent) ?? "")
+    ) {
+      return false;
+    }
+    const binary = source.ast.as.AsBinaryExpression(parent);
+    const other = binary?.Left === current
+      ? binary.Right
+      : binary?.Right === current
+      ? binary.Left
+      : undefined;
+    const otherType = other === undefined
+      ? undefined
+      : source.semantics.forNode(other).getTypeAtLocation(other);
+    return other !== undefined &&
+      otherType !== undefined &&
+      source.semantics.forNode(other).isNullish(otherType);
+  }
+}
+
+function isInitializerOfClosedAlias(
+  source: TargetSourceProgram,
+  expression: Node,
+  closedAliases: ReadonlySet<Node>,
+): boolean {
+  let current = expression;
+  for (;;) {
+    const parent = source.ast.parent(current);
+    if (parent === undefined) {
+      return false;
+    }
+    if (isTransparentParent(source, parent, current)) {
+      current = parent;
+      continue;
+    }
+    return source.ast.is.IsVariableDeclaration(parent) &&
+      source.ast.as.AsVariableDeclaration(parent)?.Initializer === current &&
+      closedAliases.has(parent);
+  }
+}
+
+function callableAliasInitializer(
+  source: TargetSourceProgram,
+  node: Node,
+): Node | undefined {
+  if (
+    !source.ast.is.IsVariableDeclaration(node) ||
+    source.ast.variableDeclarationKind(node) !== "const"
+  ) {
+    return undefined;
+  }
+  const name = source.ast.name(node);
+  const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
+  const type = name === undefined
+    ? undefined
+    : source.semantics.forNode(name).getTypeAtLocation(name);
+  return name !== undefined &&
+      source.ast.is.IsIdentifier(name) &&
+      initializer !== undefined &&
+      type !== undefined &&
+      typeMayBeCallable(source.semantics.forNode(name), type)
+    ? initializer
+    : undefined;
 }
 
 function indexDeclarationSymbols(
@@ -267,14 +410,14 @@ function exactSymbolsAt(
 
 function countPropertyUse(
   counts: ReferenceCounts | undefined,
-  direct: boolean,
+  admitted: boolean,
 ): void {
   if (counts === undefined) {
     return;
   }
   counts.total += 1;
-  if (direct) {
-    counts.direct += 1;
+  if (admitted) {
+    counts.admitted += 1;
   }
 }
 
@@ -343,6 +486,27 @@ function isPropertyAccessName(
   return parent !== undefined &&
     source.ast.is.IsPropertyAccessExpression(parent) &&
     source.ast.as.AsPropertyAccessExpression(parent)?.name === node;
+}
+
+function isTransparentParent(
+  source: TargetSourceProgram,
+  parent: Node,
+  child: Node,
+): boolean {
+  if (source.ast.is.IsParenthesizedExpression(parent)) {
+    return source.ast.as.AsParenthesizedExpression(parent)?.Expression === child;
+  }
+  if (source.ast.is.IsAsExpression(parent)) {
+    return source.ast.as.AsAsExpression(parent)?.Expression === child;
+  }
+  if (source.ast.is.IsTypeAssertion(parent)) {
+    return source.ast.as.AsTypeAssertion(parent)?.Expression === child;
+  }
+  if (source.ast.is.IsSatisfiesExpression(parent)) {
+    return source.ast.as.AsSatisfiesExpression(parent)?.Expression === child;
+  }
+  return source.ast.is.IsNonNullExpression(parent) &&
+    source.ast.as.AsNonNullExpression(parent)?.Expression === child;
 }
 
 function append(target: Map<Node, Node[]>, key: Node, value: Node): void {

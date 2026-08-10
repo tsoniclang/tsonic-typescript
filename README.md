@@ -54,7 +54,9 @@ not invoked and no artifact is published.
 provider, escaping-callable, promise-forwarding, thenable, or unresolved
 boundary. In addition to direct calls, the plan can close an indirect call
 through a readonly constructor property only when every construction, stored
-callable producer, and property use is exact and non-escaping. Spread
+callable producer, immutable local forwarding alias, and property use is exact
+and non-escaping. Nullish-presence checks and a `??` fallback proven to return
+`never` preserve closure without becoming callable producers. Spread
 construction, inheritance, property extraction, or one suspending producer
 preserves the entire family. The plan resolves calls through checked
 signatures, settles recursive components together, and rewrites each selected

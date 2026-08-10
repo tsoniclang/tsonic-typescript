@@ -84,7 +84,7 @@ function typeMaySuspend(
     .find((property) => property.name === "then");
   if (
     then !== undefined &&
-    typeCanBeCalled(semantics, then.type, new Set())
+    typeMayBeCallable(semantics, then.type)
   ) {
     pending.delete(type);
     return true;
@@ -93,10 +93,17 @@ function typeMaySuspend(
     index.keyType !== undefined &&
     index.valueType !== undefined &&
     semantics.isStringLike(index.keyType) &&
-    typeCanBeCalled(semantics, index.valueType, new Set())
+    typeMayBeCallable(semantics, index.valueType)
   );
   pending.delete(type);
   return indexedThen;
+}
+
+export function typeMayBeCallable(
+  semantics: SourceFileSemantics,
+  type: Type,
+): boolean {
+  return typeCanBeCalled(semantics, type, new Set());
 }
 
 function typeCanBeCalled(

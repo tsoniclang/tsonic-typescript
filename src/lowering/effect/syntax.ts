@@ -142,6 +142,10 @@ export function directContainingCall(
         ? parent
         : undefined;
     }
+    if (isNeverFallback(source, parent, current)) {
+      current = parent;
+      continue;
+    }
     if (
       source.ast.is.IsPropertyAccessExpression(parent) ||
       source.ast.is.IsElementAccessExpression(parent) ||
@@ -151,6 +155,46 @@ export function directContainingCall(
       continue;
     }
     return undefined;
+  }
+}
+
+export function exactCallableTarget(
+  source: TargetSourceProgram,
+  expression: Node | undefined,
+): Node | undefined {
+  let current = expression;
+  for (;;) {
+    if (current === undefined) {
+      return undefined;
+    }
+    if (source.ast.is.IsParenthesizedExpression(current)) {
+      current = source.ast.as.AsParenthesizedExpression(current)?.Expression;
+      continue;
+    }
+    if (source.ast.is.IsAsExpression(current)) {
+      current = source.ast.as.AsAsExpression(current)?.Expression;
+      continue;
+    }
+    if (source.ast.is.IsTypeAssertion(current)) {
+      current = source.ast.as.AsTypeAssertion(current)?.Expression;
+      continue;
+    }
+    if (source.ast.is.IsSatisfiesExpression(current)) {
+      current = source.ast.as.AsSatisfiesExpression(current)?.Expression;
+      continue;
+    }
+    if (source.ast.is.IsNonNullExpression(current)) {
+      current = source.ast.as.AsNonNullExpression(current)?.Expression;
+      continue;
+    }
+    const left = source.ast.is.IsBinaryExpression(current)
+      ? source.ast.as.AsBinaryExpression(current)?.Left
+      : undefined;
+    if (left !== undefined && isNeverFallback(source, current, left)) {
+      current = left;
+      continue;
+    }
+    return current;
   }
 }
 
@@ -220,4 +264,25 @@ function isTransparentExpression(
   }
   return source.ast.is.IsNonNullExpression(node) &&
     source.ast.as.AsNonNullExpression(node)?.Expression === child;
+}
+
+function isNeverFallback(
+  source: TargetSourceProgram,
+  node: Node,
+  left: Node,
+): boolean {
+  if (
+    !source.ast.is.IsBinaryExpression(node) ||
+    source.ast.operatorKindName(node) !== "KindQuestionQuestionToken" ||
+    source.ast.as.AsBinaryExpression(node)?.Left !== left
+  ) {
+    return false;
+  }
+  const fallback = source.ast.as.AsBinaryExpression(node)?.Right;
+  const fallbackType = fallback === undefined
+    ? undefined
+    : source.semantics.forNode(fallback).getTypeAtLocation(fallback);
+  return fallback !== undefined &&
+    fallbackType !== undefined &&
+    source.semantics.forNode(fallback).isNever(fallbackType);
 }
