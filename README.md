@@ -80,6 +80,17 @@ spread, computed property, `then`, or `__proto__` remain canonical. This keeps
 covariant and aggregate Go-shaped returns simple while preserving JavaScript's
 thenable assimilation boundary.
 
+A mutable field return may settle only when its complete storage flow is
+closed. The field owner and every nominal value carried through it must be
+project classes with private construction and nominal private or protected
+state; every construction, write, parameter transport, owner containment, and
+callable use must resolve inside the selected program. Provider crossings,
+open or structural carriers, widening or assertion erasure, inheritance,
+decorators, computed fields, spread arguments, and callable `then` preserve the
+canonical async return. This restriction is intentional: a structurally typed
+value may hide a runtime `then` member that JavaScript assimilates even when its
+declared interface does not expose one.
+
 ## Pointer representations
 
 Canonical pointer lowering is `Location<T>`. It remains the default and the
