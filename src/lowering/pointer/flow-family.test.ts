@@ -159,6 +159,91 @@ export const result = loadPointer(identity(pointer)).value;
 
   assert.equal(plan.optimizedFamilyCount, 1);
   assertAllOperations(fixture.source, plan, "direct-object");
+  assert.equal(
+    plan.familyFallbackReasons.some((entry) =>
+      entry.reason === "generic-call" || entry.reason === "generic-storage"
+    ),
+    false,
+  );
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
+});
+
+test("uses direct objects for a generic nominal pointee family", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+class Box<T> { constructor(public value: T) {} }
+function read<T>(pointer: Pointer<Box<T>>): T {
+  return loadPointer(pointer).value;
+}
+const pointer: Pointer<Box<number>> = allocatePointer(new Box(42));
+export const result = read(pointer);
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assert.equal(plan.optimizedFamilyCount, 1);
+  assertAllOperations(fixture.source, plan, "direct-object");
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  assert.equal(
+    countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"),
+    0,
+  );
+});
+
+test("keeps representation-varying generic pointees canonical", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+class Box { value = 1; }
+function read<T>(pointer: Pointer<T>): T {
+  return loadPointer(pointer);
+}
+const pointer: Pointer<Box> = allocatePointer(new Box());
+export const result = read(pointer).value;
+`);
+
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "location");
+  assert.ok(plan.familyFallbackReasons.some((entry) =>
+    entry.reason === "generic-call" || entry.reason === "generic-storage"
+  ));
+});
+
+test("uses direct objects through generic nominal storage", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+class Box<T> { constructor(public value: T) {} }
+class Holder<T> { pointer: Pointer<Box<T>> | undefined = undefined; }
+const holder = new Holder<number>();
+holder.pointer = allocatePointer(new Box(42));
+export const result = loadPointer(holder.pointer).value;
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assert.equal(plan.optimizedFamilyCount, 1);
+  assertAllOperations(fixture.source, plan, "direct-object");
+});
+
+test("keeps generic nominal pointees canonical when storage is replaced", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer, storePointer } from "./markers.js";
+class Box<T> { constructor(public value: T) {} }
+function replace<T>(pointer: Pointer<Box<T>>, value: T): void {
+  storePointer(pointer, new Box(value));
+}
+const pointer: Pointer<Box<number>> = allocatePointer(new Box(1));
+replace(pointer, 42);
+export const result = loadPointer(pointer).value;
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "location");
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "pointee-replacement"
+    )?.count,
+    1,
+  );
 });
 
 test("keeps a class family canonical through generic pointer storage", () => {

@@ -23,9 +23,20 @@ export function describePointerPointee(
     semantics.isVoidLike(pointee) ||
     semantics.isNullish(pointee) ||
     semantics.isUnion(pointee) ||
-    semantics.isIntersection(pointee) ||
-    semantics.couldContainTypeVariables(pointee)
+    semantics.isIntersection(pointee)
   ) {
+    return undefined;
+  }
+  const symbol = semantics.getTypeSymbol(pointee);
+  const declaration = semantics.getPrimarySymbolDeclaration(symbol);
+  if (
+    declaration !== undefined &&
+    source.navigation.isProjectDeclaration(declaration) &&
+    source.ast.is.IsClassDeclaration(declaration)
+  ) {
+    return Object.freeze({ category: "direct-reference", identity: declaration });
+  }
+  if (semantics.couldContainTypeVariables(pointee)) {
     return undefined;
   }
   for (const [identity, matches] of [
@@ -38,11 +49,5 @@ export function describePointerPointee(
       return Object.freeze({ category: "scalar", identity });
     }
   }
-  const symbol = semantics.getTypeSymbol(pointee);
-  const declaration = semantics.getPrimarySymbolDeclaration(symbol);
-  return declaration !== undefined &&
-    source.navigation.isProjectDeclaration(declaration) &&
-    source.ast.is.IsClassDeclaration(declaration)
-    ? Object.freeze({ category: "direct-reference", identity: declaration })
-    : undefined;
+  return undefined;
 }
