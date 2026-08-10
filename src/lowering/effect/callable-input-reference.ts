@@ -14,10 +14,11 @@ export interface ParameterUses {
 export function indexParameterUses(
   source: TargetSourceProgram,
   parameters: Iterable<Node>,
-  fields: ReadonlySet<Node>,
+  destinations: ReadonlySet<Node>,
 ): ParameterUses {
   const tracked = new Set(parameters);
-  const symbols = indexDeclarationSymbols(source, tracked);
+  const allDeclarations = new Set([...tracked, ...destinations]);
+  const symbols = indexDeclarationSymbols(source, allDeclarations);
   const dependencies = new Map<Node, Set<Node>>();
   const invalid = new Set<Node>();
   forEachProgramNode(source, (node) => {
@@ -41,8 +42,8 @@ export function indexParameterUses(
     const destination = trackedInputDestination(
       source,
       node,
-      tracked,
-      fields,
+      allDeclarations,
+      symbols,
     );
     if (destination === undefined) {
       invalid.add(parameter);
@@ -61,8 +62,8 @@ export function indexParameterUses(
 export function trackedInputDestination(
   source: TargetSourceProgram,
   expression: Node,
-  parameters: ReadonlySet<Node>,
-  fields: ReadonlySet<Node>,
+  declarations: ReadonlySet<Node>,
+  symbols: ReadonlyMap<Symbol, Node>,
 ): Node | undefined {
   let current = expression;
   for (;;) {
@@ -74,28 +75,71 @@ export function trackedInputDestination(
       current = parent;
       continue;
     }
+    if (source.ast.is.IsVariableDeclaration(parent)) {
+      return source.ast.as.AsVariableDeclaration(parent)?.Initializer === current &&
+          declarations.has(parent)
+        ? parent
+        : undefined;
+    }
+    if (source.ast.is.IsBinaryExpression(parent)) {
+      const binary = source.ast.as.AsBinaryExpression(parent);
+      return binary?.Right === current &&
+          source.ast.operatorKindName(parent) === "KindEqualsToken"
+        ? trackedStorageDeclaration(
+          source,
+          binary.Left,
+          declarations,
+          symbols,
+        )
+        : undefined;
+    }
     if (
-      !source.ast.is.IsCallExpression(parent) &&
-      !source.ast.is.IsNewExpression(parent)
+      source.ast.is.IsCallExpression(parent) ||
+      source.ast.is.IsNewExpression(parent)
     ) {
-      return undefined;
+      const index = source.ast.arguments(parent).indexOf(current);
+      if (index < 0) {
+        return undefined;
+      }
+      const semantics = source.semantics.forNode(parent);
+      const declaration = semantics.getSignatureDeclaration(
+        semantics.getResolvedSignature(parent),
+      );
+      const destination = declaration === undefined
+        ? undefined
+        : source.ast.parameters(declaration)[index];
+      return destination !== undefined && declarations.has(destination)
+        ? destination
+        : undefined;
     }
-    const index = source.ast.arguments(parent).indexOf(current);
-    if (index < 0) {
-      return undefined;
-    }
-    const semantics = source.semantics.forNode(parent);
-    const declaration = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(parent),
-    );
-    const destination = declaration === undefined
-      ? undefined
-      : source.ast.parameters(declaration)[index];
-    return destination !== undefined &&
-        (parameters.has(destination) || fields.has(destination))
-      ? destination
+    return undefined;
+  }
+}
+
+function trackedStorageDeclaration(
+  source: TargetSourceProgram,
+  expression: Node | undefined,
+  declarations: ReadonlySet<Node>,
+  symbols: ReadonlyMap<Symbol, Node>,
+): Node | undefined {
+  if (expression === undefined) {
+    return undefined;
+  }
+  if (source.ast.is.IsIdentifier(expression)) {
+    const declaration = declarationForSymbols(source, symbols, expression);
+    return declaration !== undefined && declarations.has(declaration)
+      ? declaration
       : undefined;
   }
+  const selected = source.ast.is.IsPropertyAccessExpression(expression)
+    ? source.semantics.forNode(expression).getResolvedPropertyAccessInfo(expression)
+    : source.ast.is.IsElementAccessExpression(expression)
+    ? source.semantics.forNode(expression).getResolvedElementAccessInfo(expression)
+    : undefined;
+  return selected?.selectedDeclaration !== undefined &&
+      declarations.has(selected.selectedDeclaration)
+    ? selected.selectedDeclaration
+    : undefined;
 }
 
 export function isCallablePresenceObservation(

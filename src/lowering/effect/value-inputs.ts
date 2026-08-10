@@ -5,20 +5,19 @@ import {
   collectCallableCollectionInputs,
   type CallableCollectionContract,
 } from "./collection-inputs.js";
-import { collectCallableObjectInputs } from "./object-inputs.js";
-import type { CallableObjectContract } from "./object-inputs.js";
+import { collectCallableStorageInputs } from "./storage-inputs.js";
+import type { CallableStorageContract } from "./storage-contracts.js";
 import {
   directContainingCall,
   forEachProgramNode,
   isModuleForwardingReference,
 } from "./syntax.js";
-import { typeMayBeCallable } from "./synchronous.js";
 
 export interface CallableValueInputs {
   readonly values: ReadonlyMap<Node, readonly Node[]>;
   readonly closed: ReadonlySet<Node>;
   readonly contracts: readonly CallableCollectionContract[];
-  readonly objectContracts: readonly CallableObjectContract[];
+  readonly storageContracts: readonly CallableStorageContract[];
 }
 
 interface ReferenceCounts {
@@ -32,15 +31,9 @@ export function collectCallableValueInputs(
   const collections = collectCallableCollectionInputs(source);
   const mutableValues = new Map<Node, Node[]>();
   const constructorParameters = new Set<Node>();
-  const callableAliases = new Map<Node, Node>();
   const constructorClasses = new Map<Node, Node>();
   const invalidConstructors = new Set<Node>();
   forEachProgramNode(source, (node) => {
-    const aliasInitializer = callableAliasInitializer(source, node);
-    if (aliasInitializer !== undefined) {
-      callableAliases.set(node, aliasInitializer);
-      mutableValues.set(node, [aliasInitializer]);
-    }
     if (source.ast.is.IsConstructorDeclaration(node)) {
       const classDeclaration = source.ast.parent(node);
       if (
@@ -96,22 +89,10 @@ export function collectCallableValueInputs(
     source,
     classReferences.keys(),
   );
-  const aliasReferences = new Map<Node, ReferenceCounts>();
-  for (const alias of callableAliases.keys()) {
-    aliasReferences.set(alias, { total: 0, admitted: 0 });
-  }
-  const aliasSymbols = indexDeclarationSymbols(source, aliasReferences.keys());
   forEachProgramNode(source, (node) => {
     auditClassReference(source, node, classReferences, classSymbols);
-    auditAliasReference(source, node, aliasReferences, aliasSymbols);
   });
-  const closedAliases = new Set<Node>();
-  for (const [alias, counts] of aliasReferences) {
-    if (counts.total === counts.admitted && counts.admitted !== 0) {
-      closedAliases.add(alias);
-    }
-  }
-  const objects = collectCallableObjectInputs(source, closedAliases);
+  const storage = collectCallableStorageInputs(source, collections.closed);
   const propertyReferences = new Map<Node, ReferenceCounts>();
   for (const parameter of constructorParameters) {
     propertyReferences.set(parameter, { total: 0, admitted: 0 });
@@ -126,11 +107,14 @@ export function collectCallableValueInputs(
       node,
       propertyReferences,
       propertySymbols,
-      closedAliases,
+      storage.closed,
     );
   });
 
-  const closed = new Set<Node>([...closedAliases, ...objects.closed]);
+  const closed = new Set<Node>([
+    ...collections.closed,
+    ...storage.closed,
+  ]);
   for (const [constructor, classDeclaration] of constructorClasses) {
     const classCounts = classReferences.get(classDeclaration);
     if (
@@ -160,7 +144,7 @@ export function collectCallableValueInputs(
   for (const [declaration, values] of collections.values) {
     mutableValues.set(declaration, [...values]);
   }
-  for (const [declaration, values] of objects.values) {
+  for (const [declaration, values] of storage.values) {
     mutableValues.set(declaration, [...values]);
   }
   return Object.freeze({
@@ -170,7 +154,7 @@ export function collectCallableValueInputs(
     ])),
     closed,
     contracts: collections.contracts,
-    objectContracts: objects.contracts,
+    storageContracts: storage.contracts,
   });
 }
 
@@ -204,7 +188,7 @@ function auditPropertyReference(
   node: Node,
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   trackedSymbols: ReadonlyMap<Symbol, Node>,
-  closedAliases: ReadonlySet<Node>,
+  closedStorage: ReadonlySet<Node>,
 ): void {
   if (tracked.size === 0) {
     return;
@@ -217,7 +201,7 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        propertyUseIsAdmitted(source, node, closedAliases) &&
+        propertyUseIsAdmitted(source, node, closedStorage) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -231,7 +215,7 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        propertyUseIsAdmitted(source, node, closedAliases) &&
+        propertyUseIsAdmitted(source, node, closedStorage) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -259,39 +243,14 @@ function auditPropertyReference(
   }
 }
 
-function auditAliasReference(
-  source: TargetSourceProgram,
-  node: Node,
-  tracked: ReadonlyMap<Node, ReferenceCounts>,
-  trackedSymbols: ReadonlyMap<Symbol, Node>,
-): void {
-  if (tracked.size === 0 || !source.ast.is.IsIdentifier(node)) {
-    return;
-  }
-  const declaration = declarationForSymbols(source, trackedSymbols, node);
-  const counts = declaration === undefined ? undefined : tracked.get(declaration);
-  if (
-    counts === undefined ||
-    node === source.ast.name(declaration) ||
-    isTypeOnlyReference(source, node) ||
-    isModuleForwardingReference(source, node)
-  ) {
-    return;
-  }
-  counts.total += 1;
-  if (directContainingCall(source, node) !== undefined) {
-    counts.admitted += 1;
-  }
-}
-
 function propertyUseIsAdmitted(
   source: TargetSourceProgram,
   node: Node,
-  closedAliases: ReadonlySet<Node>,
+  closedStorage: ReadonlySet<Node>,
 ): boolean {
   return directContainingCall(source, node) !== undefined ||
     isCallablePresenceObservation(source, node) ||
-    isInitializerOfClosedAlias(source, node, closedAliases);
+    isInitializerOfClosedStorage(source, node, closedStorage);
 }
 
 function isCallablePresenceObservation(
@@ -334,10 +293,10 @@ function isCallablePresenceObservation(
   }
 }
 
-function isInitializerOfClosedAlias(
+function isInitializerOfClosedStorage(
   source: TargetSourceProgram,
   expression: Node,
-  closedAliases: ReadonlySet<Node>,
+  closedStorage: ReadonlySet<Node>,
 ): boolean {
   let current = expression;
   for (;;) {
@@ -351,32 +310,8 @@ function isInitializerOfClosedAlias(
     }
     return source.ast.is.IsVariableDeclaration(parent) &&
       source.ast.as.AsVariableDeclaration(parent)?.Initializer === current &&
-      closedAliases.has(parent);
+      closedStorage.has(parent);
   }
-}
-
-function callableAliasInitializer(
-  source: TargetSourceProgram,
-  node: Node,
-): Node | undefined {
-  if (
-    !source.ast.is.IsVariableDeclaration(node) ||
-    source.ast.variableDeclarationKind(node) !== "const"
-  ) {
-    return undefined;
-  }
-  const name = source.ast.name(node);
-  const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
-  const type = name === undefined
-    ? undefined
-    : source.semantics.forNode(name).getTypeAtLocation(name);
-  return name !== undefined &&
-      source.ast.is.IsIdentifier(name) &&
-      initializer !== undefined &&
-      type !== undefined &&
-      typeMayBeCallable(source.semantics.forNode(name), type)
-    ? initializer
-    : undefined;
 }
 
 function indexDeclarationSymbols(

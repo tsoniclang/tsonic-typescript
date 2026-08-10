@@ -3,7 +3,6 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
   callableDeclarationAllowsSynchronousValue,
-  callableDeclarationSynchronousReturnTypes,
 } from "./callable-contract.js";
 import {
   declarationForSymbols,
@@ -19,17 +18,18 @@ import {
   forEachProgramNode,
   isModuleForwardingReference,
 } from "./syntax.js";
+import {
+  auditCallableLocalUse,
+  collectCallableLocals,
+} from "./local-inputs.js";
 import { typeMaySuspend } from "./synchronous.js";
+import { createCallableStorageContracts } from "./storage-contracts.js";
+import type { CallableStorageContract } from "./storage-contracts.js";
 
-export interface CallableObjectInputs {
+export interface CallableStorageInputs {
   readonly values: ReadonlyMap<Node, readonly Node[]>;
   readonly closed: ReadonlySet<Node>;
-  readonly contracts: readonly CallableObjectContract[];
-}
-
-export interface CallableObjectContract {
-  readonly declarations: readonly Node[];
-  readonly returnTypes: readonly Node[];
+  readonly contracts: readonly CallableStorageContract[];
 }
 
 interface ClosedParameters {
@@ -47,12 +47,20 @@ interface Invocation {
   readonly arguments: readonly Node[];
 }
 
-export function collectCallableObjectInputs(
+export function collectCallableStorageInputs(
   source: TargetSourceProgram,
-  closedAliases: ReadonlySet<Node>,
-): CallableObjectInputs {
+  excludedDeclarations: ReadonlySet<Node>,
+): CallableStorageInputs {
   const fields = collectPrivateConstructorFields(source);
   const parameters = collectCallableParameters(source);
+  const localValues = collectCallableLocals(source, excludedDeclarations);
+  const locals = new Set(localValues.keys());
+  const storageDeclarations = new Set([
+    ...parameters.keys(),
+    ...fields,
+    ...locals,
+  ]);
+  const storageSymbols = indexDeclarationSymbols(source, storageDeclarations);
   const parameterValues = new Map<Node, Node[]>();
   const fieldValues = new Map<Node, Node[]>();
   const invalidOwners = new Set<Node>();
@@ -77,14 +85,19 @@ export function collectCallableObjectInputs(
     source,
     parameters,
     fields,
+    locals,
     invalidOwners,
   );
   const preliminaryParameters = parameterClosure.declarations;
 
   const fieldCounts = new Map<Node, ReferenceCounts>();
-  const fieldDestinations = new Map<Node, Set<Node>>();
+  const localCounts = new Map<Node, ReferenceCounts>();
+  const storageDestinations = new Map<Node, Set<Node>>();
   for (const field of fields) {
     fieldCounts.set(field, { total: 0, admitted: 0 });
+  }
+  for (const local of locals) {
+    localCounts.set(local, { total: 0, admitted: 0 });
   }
   forEachProgramNode(source, (node) => {
     auditFieldUse(
@@ -93,9 +106,18 @@ export function collectCallableObjectInputs(
       fieldCounts,
       fieldValues,
       fields,
-      preliminaryParameters,
-      closedAliases,
-      fieldDestinations,
+      storageDeclarations,
+      storageSymbols,
+      storageDestinations,
+    );
+    auditCallableLocalUse(
+      source,
+      node,
+      localCounts,
+      localValues,
+      storageDeclarations,
+      storageSymbols,
+      storageDestinations,
     );
   });
 
@@ -112,16 +134,33 @@ export function collectCallableObjectInputs(
       candidateFields.add(field);
     }
   }
-  const closedDeclarations = closeObjectDeclarations(
-    new Set([...preliminaryParameters, ...candidateFields]),
+  const candidateLocals = new Set<Node>();
+  for (const [local, counts] of localCounts) {
+    if (
+      counts.total === counts.admitted &&
+      counts.admitted !== 0 &&
+      (localValues.get(local)?.length ?? 0) !== 0
+    ) {
+      candidateLocals.add(local);
+    }
+  }
+  const closedDeclarations = closeStorageDeclarations(
+    new Set([
+      ...preliminaryParameters,
+      ...candidateFields,
+      ...candidateLocals,
+    ]),
     parameterClosure.uses.dependencies,
-    fieldDestinations,
+    storageDestinations,
   );
   const closedParameters = new Set([...preliminaryParameters].filter(
     (parameter) => closedDeclarations.has(parameter),
   ));
   const closedFields = new Set([...candidateFields].filter(
     (field) => closedDeclarations.has(field),
+  ));
+  const closedLocals = new Set([...candidateLocals].filter(
+    (local) => closedDeclarations.has(local),
   ));
 
   const values = new Map<Node, readonly Node[]>();
@@ -137,23 +176,32 @@ export function collectCallableObjectInputs(
       values.set(field, Object.freeze([...inputs]));
     }
   }
-  const contracts = createObjectContracts(
+  for (const local of closedLocals) {
+    const inputs = localValues.get(local);
+    if (inputs !== undefined && inputs.length !== 0) {
+      values.set(local, Object.freeze([...inputs]));
+    }
+  }
+  const contracts = createCallableStorageContracts(
     source,
     closedDeclarations,
-    parameterClosure.uses.dependencies,
-    fieldDestinations,
+    [parameterClosure.uses.dependencies, storageDestinations],
   );
   return Object.freeze({
     values,
-    closed: new Set([...closedParameters, ...closedFields]),
+    closed: new Set([
+      ...closedParameters,
+      ...closedFields,
+      ...closedLocals,
+    ]),
     contracts: Object.freeze(contracts),
   });
 }
 
-function closeObjectDeclarations(
+function closeStorageDeclarations(
   candidates: Set<Node>,
   parameterDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
-  fieldDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
+  storageDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
 ): Set<Node> {
   let changed = true;
   while (changed) {
@@ -161,7 +209,7 @@ function closeObjectDeclarations(
     for (const declaration of [...candidates]) {
       const destinations = [
         ...(parameterDestinations.get(declaration) ?? []),
-        ...(fieldDestinations.get(declaration) ?? []),
+        ...(storageDestinations.get(declaration) ?? []),
       ];
       if (destinations.some((destination) => !candidates.has(destination))) {
         candidates.delete(declaration);
@@ -264,6 +312,7 @@ function closeParameters(
   source: TargetSourceProgram,
   parameters: ReadonlyMap<Node, Node>,
   fields: ReadonlySet<Node>,
+  locals: ReadonlySet<Node>,
   invalidOwners: ReadonlySet<Node>,
 ): ClosedParameters {
   const ownerCounts = new Map<Node, ReferenceCounts>();
@@ -286,7 +335,11 @@ function closeParameters(
       closed.add(parameter);
     }
   }
-  const uses = indexParameterUses(source, parameters.keys(), fields);
+  const uses = indexParameterUses(
+    source,
+    parameters.keys(),
+    new Set([...fields, ...locals]),
+  );
   let changed = true;
   while (changed) {
     changed = false;
@@ -357,8 +410,8 @@ function auditFieldUse(
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   values: Map<Node, Node[]>,
   fields: ReadonlySet<Node>,
-  closedParameters: ReadonlySet<Node>,
-  closedAliases: ReadonlySet<Node>,
+  storageDeclarations: ReadonlySet<Node>,
+  storageSymbols: ReadonlyMap<Symbol, Node>,
   destinations: Map<Node, Set<Node>>,
 ): void {
   const selected = source.ast.is.IsPropertyAccessExpression(node)
@@ -386,13 +439,12 @@ function auditFieldUse(
   const destination = trackedInputDestination(
     source,
     node,
-    closedParameters,
-    fields,
+    storageDeclarations,
+    storageSymbols,
   );
   if (
     directContainingCall(source, node) !== undefined ||
     isCallablePresenceObservation(source, node) ||
-    isInitializerOfClosedAlias(source, node, closedAliases) ||
     destination !== undefined
   ) {
     counts.admitted += 1;
@@ -400,64 +452,6 @@ function auditFieldUse(
       appendSet(destinations, field, destination);
     }
   }
-}
-
-function createObjectContracts(
-  source: TargetSourceProgram,
-  declarations: ReadonlySet<Node>,
-  parameterDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
-  fieldDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
-): readonly CallableObjectContract[] {
-  const neighbors = new Map<Node, Set<Node>>();
-  for (const declaration of declarations) {
-    neighbors.set(declaration, new Set());
-  }
-  for (const destinations of [parameterDestinations, fieldDestinations]) {
-    for (const [sourceDeclaration, targets] of destinations) {
-      if (!declarations.has(sourceDeclaration)) {
-        continue;
-      }
-      for (const target of targets) {
-        if (declarations.has(target)) {
-          appendSet(neighbors, sourceDeclaration, target);
-          appendSet(neighbors, target, sourceDeclaration);
-        }
-      }
-    }
-  }
-  const pending = new Set(declarations);
-  const contracts: CallableObjectContract[] = [];
-  while (pending.size !== 0) {
-    const first = pending.values().next().value;
-    if (first === undefined) {
-      throw new Error("callable object component lost its pending declaration");
-    }
-    const component: Node[] = [];
-    const work = [first];
-    pending.delete(first);
-    while (work.length !== 0) {
-      const declaration = work.pop();
-      if (declaration === undefined) {
-        continue;
-      }
-      component.push(declaration);
-      for (const neighbor of neighbors.get(declaration) ?? []) {
-        if (pending.delete(neighbor)) {
-          work.push(neighbor);
-        }
-      }
-    }
-    const returnTypes = component.flatMap((declaration) =>
-      callableDeclarationSynchronousReturnTypes(source, declaration) ?? []
-    );
-    if (returnTypes.length !== 0) {
-      contracts.push(Object.freeze({
-        declarations: Object.freeze(component),
-        returnTypes: Object.freeze(returnTypes),
-      }));
-    }
-  }
-  return Object.freeze(contracts);
 }
 
 function invocationAt(
@@ -498,27 +492,6 @@ function exactAssignedValue(
     return undefined;
   }
   return source.ast.as.AsBinaryExpression(parent)?.Right;
-}
-
-function isInitializerOfClosedAlias(
-  source: TargetSourceProgram,
-  expression: Node,
-  aliases: ReadonlySet<Node>,
-): boolean {
-  let current = expression;
-  for (;;) {
-    const parent = source.ast.parent(current);
-    if (parent === undefined) {
-      return false;
-    }
-    if (isTransparentParent(source, parent, current)) {
-      current = parent;
-      continue;
-    }
-    return source.ast.is.IsVariableDeclaration(parent) &&
-      source.ast.as.AsVariableDeclaration(parent)?.Initializer === current &&
-      aliases.has(parent);
-  }
 }
 
 function isParameterProperty(

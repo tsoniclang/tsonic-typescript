@@ -9,10 +9,10 @@ import {
   checkedEffectFixture,
   createFixtureEffectPlan,
 } from "./effect.test-support.js";
-import { collectCallableObjectInputs } from "./object-inputs.js";
+import { collectCallableStorageInputs } from "./storage-inputs.js";
 import { lowerCooperativeEffects } from "./transform.js";
 
-test("settles a closed callable field through an exact factory", () => {
+test("settles a closed callable storage field through an exact factory", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;
 class Slot {
@@ -53,6 +53,75 @@ export const result = await invoke();
     }),
     0,
   );
+});
+
+test("settles a closed callable field through a mutable local", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+class Slot {
+  private constructor(public value: (() => Awaitable<number>) | undefined) {}
+  static make(value: (() => Awaitable<number>) | undefined): Slot {
+    return new Slot(value);
+  }
+  static zero(): Slot { return Slot.make(undefined); }
+}
+const slot = Slot.zero();
+slot.value = async (): Promise<number> => 41;
+async function invoke(selected: boolean): Promise<number> {
+  let callback: (() => Awaitable<number>) | undefined = slot.value;
+  if (selected) callback = slot.value;
+  return (await callback!()) + 1;
+}
+export const result = await invoke(true);
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 2);
+  assert.equal(result.awaitCount, 2);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(
+      fixture.source,
+      result.sourceFile,
+      fixture.source.ast.is.IsAwaitExpression,
+    ),
+    0,
+  );
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, (node) => {
+      const reference = fixture.source.ast.as.AsTypeReferenceNode(node);
+      return reference !== undefined &&
+        fixture.source.ast.text(reference.TypeName) === "Awaitable";
+    }),
+    0,
+  );
+});
+
+test("keeps a mutable callable local canonical when it escapes", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+declare function expose(value: (() => Awaitable<number>) | undefined): void;
+class Slot {
+  private constructor(public value: (() => Awaitable<number>) | undefined) {}
+  static zero(): Slot { return new Slot(undefined); }
+}
+const slot = Slot.zero();
+slot.value = async (): Promise<number> => 42;
+let callback: (() => Awaitable<number>) | undefined = slot.value;
+expose(callback);
+async function invoke(): Promise<number> { return await callback!(); }
+export const result = await invoke();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
 });
 
 test("keeps a callable field open when its factory escapes", () => {
@@ -175,7 +244,7 @@ const result${index} = slot${index}.value!();
     }),
   });
 
-  collectCallableObjectInputs(source, new Set());
+  collectCallableStorageInputs(source, new Set());
 
   assert.ok(
     childQueries < nodeCount * 8,

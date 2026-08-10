@@ -53,12 +53,14 @@ not invoked and no artifact is published.
 `Promise` transport only from a complete, exact call component with no
 provider, escaping-callable, promise-forwarding, thenable, or unresolved
 boundary. In addition to direct calls, the plan can close an indirect call
-through a readonly constructor property only when every construction, stored
-callable producer, immutable local forwarding alias, and property use is exact
-and non-escaping. Nullish-presence checks and a `??` fallback proven to return
-`never` preserve closure without becoming callable producers. Spread
-construction, inheritance, property extraction, or one suspending producer
-preserves the entire family. A non-static method is eligible only when checked
+through an exact callable-storage component. That component may contain
+constructor properties, callable parameters, immutable aliases, and explicitly
+typed mutable locals only when every construction, write, forwarding edge,
+call, and presence check resolves to its checked declaration and no value
+escapes. Return contracts across the connected component narrow atomically. A
+missing or spread argument, open constructor, untracked assignment, exported
+value, inheritance boundary, or one suspending producer preserves the affected
+component. A non-static method is eligible only when checked
 member-dispatch evidence proves that it neither overrides a base member nor has
 a derived override; override families remain canonical as one unit. The plan
 resolves calls through checked

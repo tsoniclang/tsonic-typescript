@@ -86,7 +86,7 @@ export function createCallableValueFlow(
       resolution: sealResolution(resolution),
     });
   });
-  const objectContractResolutions = inputs.objectContracts.map((contract) =>
+  const storageContractResolutions = inputs.storageContracts.map((contract) =>
     {
       const resolution = emptyResolution();
       for (const declaration of contract.declarations) {
@@ -126,13 +126,13 @@ export function createCallableValueFlow(
           resolution.dependencies.every((dependency) => optimized.has(dependency))
         )
         .map(({ returnType }) => returnType);
-      const objectTypes = objectContractResolutions
+      const storageTypes = storageContractResolutions
         .filter(({ resolution }) =>
           resolution.closed &&
           resolution.dependencies.every((dependency) => optimized.has(dependency))
         )
         .flatMap(({ returnTypes }) => returnTypes);
-      return Object.freeze([...collectionTypes, ...objectTypes]);
+      return Object.freeze([...collectionTypes, ...storageTypes]);
     },
   });
 }
