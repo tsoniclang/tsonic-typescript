@@ -7,6 +7,7 @@ import type {
 import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { SourceIdentityResolver } from "../occurrence.js";
+import type { LoweredValueContract } from "../value-contract.js";
 import { propagateEffectBlockers } from "./blocker-propagation.js";
 import {
   blockCooperativeEffect,
@@ -66,6 +67,7 @@ export interface CooperativeEffectPlan {
 export function createClosedCooperativeEffectPlan(
   source: TargetSourceProgram,
   sourceIdentityFor: SourceIdentityResolver,
+  loweredValues?: LoweredValueContract,
 ): CooperativeEffectPlan {
   const candidates = collectCandidates(source);
   const calls = collectCalls(source, candidates);
@@ -77,6 +79,7 @@ export function createClosedCooperativeEffectPlan(
   const returnFlow = createReturnValueFlow(
     source,
     (call) => calls.get(call)?.declaration,
+    loweredValues,
   );
   classifyProgramEvidence(source, candidates, calls, valueFlow, returnFlow);
   classifyCallUses(source, candidates, calls, valueFlow);

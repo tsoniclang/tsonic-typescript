@@ -98,6 +98,16 @@ another package, an unknown runtime export, or a checked thenable result does
 not qualify. Project return forwarding may consume that fact, but arbitrary
 provider calls remain open.
 
+Composed lowerings exchange result facts before rewriting rather than inspect
+one another's output. The pointer planner supplies the cooperative-effect
+planner with an exact-node contract for each selected pointer operation and
+representation. Thus canonical `addressOf(record.value)` is known to become a
+fresh non-thenable `Location`, while `loadPointer(pointer)` remains open when
+the pointee may itself be thenable. Direct scalar and object representations
+delegate the proof to the exact operand they preserve. The bridge consumes
+TSTS pointer facts and the selected whole-program pointer plan; it never
+recognizes `addressOf` or any other marker by spelling.
+
 ## Pointer representations
 
 Canonical pointer lowering is `Location<T>`. It remains the default and the

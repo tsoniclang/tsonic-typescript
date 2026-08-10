@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import type { LoweredValueContract } from "../value-contract.js";
 import {
   createTypeScriptRuntimeReturnContract,
   type TypeScriptRuntimeReturnContract,
@@ -44,6 +45,7 @@ export interface ReturnValueFlow {
 export function createReturnValueFlow(
   source: TargetSourceProgram,
   directCallDeclaration: (call: Node) => Node | undefined,
+  loweredValues?: LoweredValueContract,
 ): ReturnValueFlow {
   const nodes = collectProgramNodes(source);
   const locals = createReturnLocalFlow(source, nodes);
@@ -70,6 +72,7 @@ export function createReturnValueFlow(
     locals,
     storage,
     runtime,
+    loweredValues,
     projections,
     calls,
     results,
@@ -143,6 +146,7 @@ function expressionIsDefinitelyNonThenableWithin(
   locals: ReturnLocalFlow,
   storage: ReturnStorageFlow,
   runtime: TypeScriptRuntimeReturnContract,
+  loweredValues: LoweredValueContract | undefined,
   projections: ReturnProjectionFlow,
   calls: ReturnCallFlow,
   results: Map<ReturnProofScope, Map<Node, boolean>>,
@@ -167,6 +171,7 @@ function expressionIsDefinitelyNonThenableWithin(
         locals,
         storage,
         runtime,
+        loweredValues,
         projections,
         calls,
         results,
@@ -179,6 +184,7 @@ function expressionIsDefinitelyNonThenableWithin(
         locals,
         storage,
         runtime,
+        loweredValues,
         projections,
         calls,
         results,
@@ -187,6 +193,23 @@ function expressionIsDefinitelyNonThenableWithin(
       );
   }
   if (runtime.callResultIsDefinitelyNonThenable(root)) {
+    return true;
+  }
+  if (loweredValues?.isDefinitelyNonThenable(root, (input) =>
+    expressionIsDefinitelyNonThenableWithin(
+      source,
+      { expression: input, scope: value.scope },
+      locals,
+      storage,
+      runtime,
+      loweredValues,
+      projections,
+      calls,
+      results,
+      pendingDeclarations,
+      pendingBindings,
+    )
+  ) === true) {
     return true;
   }
   const callDeclaration = source.ast.is.IsCallExpression(root)
@@ -204,6 +227,7 @@ function expressionIsDefinitelyNonThenableWithin(
           locals,
           storage,
           runtime,
+          loweredValues,
           projections,
           calls,
           results,
@@ -222,6 +246,7 @@ function expressionIsDefinitelyNonThenableWithin(
       locals,
       storage,
       runtime,
+      loweredValues,
       projections,
       calls,
       results,
@@ -244,6 +269,7 @@ function expressionIsDefinitelyNonThenableWithin(
       locals,
       storage,
       runtime,
+      loweredValues,
       projections,
       calls,
       results,
@@ -275,6 +301,7 @@ function expressionIsDefinitelyNonThenableWithin(
       locals,
       storage,
       runtime,
+      loweredValues,
       projections,
       calls,
       results,

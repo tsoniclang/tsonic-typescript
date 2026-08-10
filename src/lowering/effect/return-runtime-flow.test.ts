@@ -66,6 +66,64 @@ export const result = await value();
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
 });
 
+test("settles an adapter return through an exact project helper", () => {
+  const fixture = checkedEffectFixture(`
+import * as runtime from "@tsonic/typescript-runtime";
+import { NodeDefault } from "./node.js";
+class Adapter {
+  constructor(
+    readonly value: runtime.Location<{ Default: { Node: number } }>,
+  ) {}
+  async AsNode(): Promise<runtime.Location<number> | undefined> {
+    return NodeDefault.AsNode(
+      runtime.propertyLocation(this.value.value, "Default"),
+    );
+  }
+}
+export const result = await new Adapter({
+  storageIdentity: {},
+  value: { Default: { Node: 42 } },
+}).AsNode();
+`, {
+    ...runtimeFiles,
+    "/src/node.ts": `
+import * as runtime from "@tsonic/typescript-runtime";
+export class NodeDefault {
+  static AsNode(
+    node: runtime.Location<{ Node: number }> | undefined,
+  ): runtime.Location<number> | undefined {
+    return node === undefined
+      ? undefined
+      : runtime.propertyLocation(node.value, "Node");
+  }
+}
+`,
+  });
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+
+  assert.equal(
+    results.reduce((total, result) => total + result.callableCount, 0),
+    1,
+  );
+  assert.equal(
+    results.reduce((total, result) => total + result.awaitCount, 0),
+    1,
+  );
+  assert.equal(
+    results.reduce(
+      (total, result) =>
+        total + countAsyncCallables(fixture.source, result.sourceFile),
+      0,
+    ),
+    0,
+  );
+});
+
 test("does not classify a same-spelled local location constructor", () => {
   const fixture = checkedEffectFixture(`
 interface Location<T> { value: T }

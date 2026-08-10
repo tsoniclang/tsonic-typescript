@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   encodeTargetSourceFileForPrinting,
   IsAsExpression,
+  IsAwaitExpression,
   IsNewExpression,
 } from "@tsonic/tsts/target-ast";
 import type { Node, SourceFile } from "@tsonic/tsts";
@@ -119,6 +120,133 @@ export const result = await invoke(true);
     return false;
   });
   assert.deepEqual(remainingContracts, []);
+});
+
+test("settles a pointer-producing return from its exact lowering fact", () => {
+  const fixture = checkedPointerFixture(`
+import { addressOf, type Pointer } from "./markers.js";
+const record = { value: 41 };
+async function select(): Promise<Pointer<number>> {
+  return addressOf(record.value);
+}
+export const result = await select();
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    fixture.source,
+    files,
+    {
+      pointerFlows: "location",
+      scalarProjections: "closed-direct",
+      cooperativeEffects: "closed-direct",
+    },
+    sourceIdentity(fixture),
+  ));
+  let transformed: SourceFile | undefined;
+  for (const sourceFile of files) {
+    const result = transaction.lower(sourceFile);
+    if (sourceFile === fixture.sourceFile) {
+      transformed = result.sourceFile;
+    }
+  }
+  transaction.finish();
+
+  assert.ok(transformed !== undefined);
+  assert.equal(
+    countNodes(transformed, fixture.source, (node) =>
+      fixture.source.ast.hasModifierKind(node, "async")
+    ),
+    0,
+  );
+  assert.equal(
+    countNodes(transformed, fixture.source, IsAwaitExpression),
+    0,
+  );
+  assert.equal(countCallsNamed(fixture.source, transformed, "addressOf"), 0);
+});
+
+test("does not treat a same-spelled ordinary call as a pointer result", () => {
+  const fixture = checkedPointerFixture(`
+interface Box<T> { readonly value: T }
+declare function addressOf<T>(value: T): Box<T>;
+async function select(): Promise<Box<number>> {
+  return addressOf(41);
+}
+export const result = await select();
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    fixture.source,
+    files,
+    {
+      pointerFlows: "location",
+      scalarProjections: "closed-direct",
+      cooperativeEffects: "closed-direct",
+    },
+    sourceIdentity(fixture),
+  ));
+  let transformed: SourceFile | undefined;
+  for (const sourceFile of files) {
+    const result = transaction.lower(sourceFile);
+    if (sourceFile === fixture.sourceFile) {
+      transformed = result.sourceFile;
+    }
+  }
+  transaction.finish();
+
+  assert.ok(transformed !== undefined);
+  assert.equal(
+    countNodes(transformed, fixture.source, (node) =>
+      fixture.source.ast.hasModifierKind(node, "async")
+    ),
+    1,
+  );
+  assert.equal(
+    countNodes(transformed, fixture.source, IsAwaitExpression),
+    1,
+  );
+});
+
+test("preserves a thenable loaded through an exact pointer fact", () => {
+  const fixture = checkedPointerFixture(`
+import { allocatePointer, loadPointer } from "./markers.js";
+const pointer = allocatePointer(Promise.resolve(41));
+async function select(): Promise<number> {
+  return loadPointer(pointer);
+}
+export const result = await select();
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    fixture.source,
+    files,
+    {
+      pointerFlows: "location",
+      scalarProjections: "closed-direct",
+      cooperativeEffects: "closed-direct",
+    },
+    sourceIdentity(fixture),
+  ));
+  let transformed: SourceFile | undefined;
+  for (const sourceFile of files) {
+    const result = transaction.lower(sourceFile);
+    if (sourceFile === fixture.sourceFile) {
+      transformed = result.sourceFile;
+    }
+  }
+  transaction.finish();
+
+  assert.ok(transformed !== undefined);
+  assert.equal(
+    countNodes(transformed, fixture.source, (node) =>
+      fixture.source.ast.hasModifierKind(node, "async")
+    ),
+    1,
+  );
+  assert.equal(
+    countNodes(transformed, fixture.source, IsAwaitExpression),
+    1,
+  );
 });
 
 test("canonical transaction is byte-identical to canonical pointer lowering", () => {
