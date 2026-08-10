@@ -15,6 +15,7 @@ import {
   summarizeCooperativeEffects,
 } from "./fallback.js";
 import { createCooperativeEffectPlanLifecycle } from "./lifecycle.js";
+import { expressionIsDefinitelyNonThenable } from "./return-value.js";
 import {
   containingAwait,
   containingReturn,
@@ -36,7 +37,6 @@ interface MutableCallable {
   readonly sourceFile: SourceFile;
   readonly occurrence: CooperativeEffectFallbackOccurrence;
   readonly innerType: Type;
-  readonly transportType: Type;
   readonly dependencies: Set<MutableCallable>;
   readonly directBlockers: Set<CooperativeEffectFallbackReason>;
   readonly blockers: Set<CooperativeEffectFallbackReason>;
@@ -57,8 +57,9 @@ export interface CooperativeEffectPlan {
 
 export function createClosedCooperativeEffectPlan(
   source: TargetSourceProgram,
+  sourceIdentityFor: (sourceFile: SourceFile) => string,
 ): CooperativeEffectPlan {
-  const candidates = collectCandidates(source);
+  const candidates = collectCandidates(source, sourceIdentityFor);
   const calls = collectCalls(source, candidates);
   const valueFlow = createCallableValueFlow(
     source,
@@ -118,6 +119,7 @@ export function createClosedCooperativeEffectPlan(
 
 function collectCandidates(
   source: TargetSourceProgram,
+  sourceIdentityFor: (sourceFile: SourceFile) => string,
 ): Map<Node, MutableCallable> {
   const candidates = new Map<Node, MutableCallable>();
   forEachProgramNode(source, (node) => {
@@ -157,16 +159,16 @@ function collectCandidates(
     if (sourceFile === undefined) {
       return;
     }
-    candidates.set(node, {
+    const candidate: MutableCallable = {
       declaration: node,
       sourceFile,
-      occurrence: fallbackOccurrence(source, node),
+      occurrence: fallbackOccurrence(source, node, sourceIdentityFor),
       innerType,
-      transportType: returnType,
       dependencies: new Set(),
       directBlockers: new Set(),
       blockers: new Set(),
-    });
+    };
+    candidates.set(node, candidate);
   });
   return candidates;
 }
@@ -174,12 +176,13 @@ function collectCandidates(
 function fallbackOccurrence(
   source: TargetSourceProgram,
   node: Node,
+  sourceIdentityFor: (sourceFile: SourceFile) => string,
 ): CooperativeEffectFallbackOccurrence {
   const occurrence = source.documents.occurrenceFor(node);
   return occurrence.kind === "authored"
     ? Object.freeze({
         kind: "authored",
-        documentIdentity: occurrence.document.identity,
+        documentIdentity: sourceIdentityFor(occurrence.document.sourceFile),
         start: occurrence.start,
         end: occurrence.end,
         syntaxKind: occurrence.syntaxKind,
@@ -314,13 +317,6 @@ function classifyReturnDependencies(
     : calls.get(returnedCall);
   if (dependency !== undefined) {
     owner.dependencies.add(dependency);
-    if (!sameSelectedType(
-      source.semantics.forNode(expression),
-      owner.innerType,
-      dependency.innerType,
-    )) {
-      blockCooperativeEffect(owner, "incompatible-return");
-    }
     return;
   }
   if (returnedCall !== undefined) {
@@ -337,22 +333,8 @@ function classifyReturnDependencies(
       return;
     }
   }
-  if (!expressionFitsInnerType(source, expression, owner.innerType)) {
-    const selected = source.semantics.forNode(expression).getTypeAtLocation(
-      expression,
-    );
-    blockCooperativeEffect(
-      owner,
-      sameSelectedType(
-          source.semantics.forNode(expression),
-          selected,
-          owner.transportType,
-        )
-        ? "promise-producing-return"
-        : returnedCall === undefined
-        ? "incompatible-return"
-        : "unresolved-call",
-    );
+  if (!expressionIsDefinitelyNonThenable(source, expression)) {
+    blockCooperativeEffect(owner, "promise-producing-return");
   }
 }
 
@@ -532,25 +514,6 @@ function collectSettledAwaits(
     awaits.add(node);
   });
   return awaits;
-}
-
-function expressionFitsInnerType(
-  source: TargetSourceProgram,
-  expression: Node,
-  innerType: Type,
-): boolean {
-  const semantics = source.semantics.forNode(expression);
-  const contextual = semantics.selectContextualValueType(expression);
-  if (
-    contextual.kind === "selected" &&
-    sameSelectedType(semantics, contextual.type, innerType)
-  ) {
-    return true;
-  }
-  const selected = semantics.getTypeAtLocation(expression);
-  return selected !== undefined &&
-    (sameSelectedType(semantics, selected, innerType) ||
-      sameSelectedType(semantics, semantics.getWidenedType(selected), innerType));
 }
 
 function sameSelectedType(

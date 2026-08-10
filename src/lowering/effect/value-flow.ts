@@ -8,6 +8,7 @@ import {
 import {
   exactCallableTarget,
   forEachProgramNode,
+  transparentExpression,
 } from "./syntax.js";
 import {
   callableIsDefinitelySynchronous,
@@ -281,35 +282,6 @@ function exactSymbolsAt(
     }
   }
   return [...result];
-}
-
-function transparentExpression(
-  source: TargetSourceProgram,
-  expression: Node | undefined,
-): Node | undefined {
-  let current = expression;
-  for (;;) {
-    if (current === undefined) {
-      return undefined;
-    }
-    if (source.ast.is.IsParenthesizedExpression(current)) {
-      current = source.ast.as.AsParenthesizedExpression(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsAsExpression(current)) {
-      current = source.ast.as.AsAsExpression(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsTypeAssertion(current)) {
-      current = source.ast.as.AsTypeAssertion(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsNonNullExpression(current)) {
-      current = source.ast.as.AsNonNullExpression(current)?.Expression;
-      continue;
-    }
-    return current;
-  }
 }
 
 function emptyResolution(): MutableResolution {

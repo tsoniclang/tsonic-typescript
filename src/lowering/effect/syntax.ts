@@ -15,34 +15,10 @@ export function exactCallExpression(
   source: TargetSourceProgram,
   expression: Node | undefined,
 ): Node | undefined {
-  let current = expression;
-  while (current !== undefined) {
-    if (source.ast.is.IsCallExpression(current)) {
-      return current;
-    }
-    if (source.ast.is.IsParenthesizedExpression(current)) {
-      current = source.ast.as.AsParenthesizedExpression(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsAsExpression(current)) {
-      current = source.ast.as.AsAsExpression(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsTypeAssertion(current)) {
-      current = source.ast.as.AsTypeAssertion(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsSatisfiesExpression(current)) {
-      current = source.ast.as.AsSatisfiesExpression(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsNonNullExpression(current)) {
-      current = source.ast.as.AsNonNullExpression(current)?.Expression;
-      continue;
-    }
-    return undefined;
-  }
-  return undefined;
+  const current = transparentExpression(source, expression);
+  return current !== undefined && source.ast.is.IsCallExpression(current)
+    ? current
+    : undefined;
 }
 
 export function isFunctionLike(
@@ -162,39 +138,39 @@ export function exactCallableTarget(
   source: TargetSourceProgram,
   expression: Node | undefined,
 ): Node | undefined {
-  let current = expression;
+  let current = transparentExpression(source, expression);
   for (;;) {
     if (current === undefined) {
       return undefined;
-    }
-    if (source.ast.is.IsParenthesizedExpression(current)) {
-      current = source.ast.as.AsParenthesizedExpression(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsAsExpression(current)) {
-      current = source.ast.as.AsAsExpression(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsTypeAssertion(current)) {
-      current = source.ast.as.AsTypeAssertion(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsSatisfiesExpression(current)) {
-      current = source.ast.as.AsSatisfiesExpression(current)?.Expression;
-      continue;
-    }
-    if (source.ast.is.IsNonNullExpression(current)) {
-      current = source.ast.as.AsNonNullExpression(current)?.Expression;
-      continue;
     }
     const left = source.ast.is.IsBinaryExpression(current)
       ? source.ast.as.AsBinaryExpression(current)?.Left
       : undefined;
     if (left !== undefined && isNeverFallback(source, current, left)) {
-      current = left;
+      current = transparentExpression(source, left);
       continue;
     }
     return current;
+  }
+}
+
+export function transparentExpression(
+  source: TargetSourceProgram,
+  expression: Node | undefined,
+): Node | undefined {
+  let current = expression;
+  for (;;) {
+    if (current === undefined) {
+      return undefined;
+    }
+    const child = transparentExpressionChild(source, current);
+    if (child === false) {
+      return current;
+    }
+    if (child === undefined) {
+      return undefined;
+    }
+    current = child;
   }
 }
 
@@ -264,6 +240,28 @@ function isTransparentExpression(
   }
   return source.ast.is.IsNonNullExpression(node) &&
     source.ast.as.AsNonNullExpression(node)?.Expression === child;
+}
+
+function transparentExpressionChild(
+  source: TargetSourceProgram,
+  node: Node,
+): Node | undefined | false {
+  if (source.ast.is.IsParenthesizedExpression(node)) {
+    return source.ast.as.AsParenthesizedExpression(node)?.Expression;
+  }
+  if (source.ast.is.IsAsExpression(node)) {
+    return source.ast.as.AsAsExpression(node)?.Expression;
+  }
+  if (source.ast.is.IsTypeAssertion(node)) {
+    return source.ast.as.AsTypeAssertion(node)?.Expression;
+  }
+  if (source.ast.is.IsSatisfiesExpression(node)) {
+    return source.ast.as.AsSatisfiesExpression(node)?.Expression;
+  }
+  if (source.ast.is.IsNonNullExpression(node)) {
+    return source.ast.as.AsNonNullExpression(node)?.Expression;
+  }
+  return false;
 }
 
 function isNeverFallback(

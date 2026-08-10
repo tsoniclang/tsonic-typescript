@@ -130,6 +130,44 @@ test("emits deterministic immutable optimization evidence", () => {
   });
 });
 
+test("reports fallback examples with stable target-relative source identities", () => {
+  const source = checkedSource({
+    "/project/index.ts": `declare function remote(): Promise<number>;
+export async function value(): Promise<number> { return await remote(); }
+`,
+  });
+  const printer: TypeScriptAstPrinter = {
+    print(batch) {
+      return batch.encodedSourceFiles.map(() => "// printed\n");
+    },
+  };
+
+  const result = createTypeScriptBackend(printer, {
+    pointerFlows: "location",
+    scalarProjections: "preserve",
+    cooperativeEffects: "closed-direct",
+  }).compile(compileInput(source));
+
+  assert.deepEqual(result.diagnostics, []);
+  const artifact = result.artifacts.find((candidate) =>
+    candidate.path === "tsonic-typescript-optimization.json"
+  );
+  assert.ok(artifact !== undefined);
+  const evidence = JSON.parse(artifact.text) as {
+    cooperativeEffects?: {
+      fallbackReasons?: Array<{
+        directExamples?: Array<{ documentIdentity?: string }>;
+      }>;
+    };
+  };
+  const identity = evidence.cooperativeEffects
+    ?.fallbackReasons?.[0]
+    ?.directExamples?.[0]
+    ?.documentIdentity;
+  assert.equal(identity, "index.ts");
+  assert.doesNotMatch(artifact.text, /\/project|\.temp/u);
+});
+
 test("declares the exact runtime package only when pointer lowering demands it", () => {
   const source = checkedPointerSource();
   const printer: TypeScriptAstPrinter = {

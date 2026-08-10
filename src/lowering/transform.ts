@@ -77,6 +77,7 @@ export function prepareTypeScriptLowering(
   source: TargetSourceProgram,
   sourceFiles: readonly SourceFile[],
   profile: TypeScriptOptimizationProfile,
+  sourceIdentityFor: (sourceFile: SourceFile) => string,
 ): TypeScriptLoweringPreparation {
   assertExactSourceMembership(source, sourceFiles);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
@@ -87,7 +88,7 @@ export function prepareTypeScriptLowering(
     profile.scalarProjections,
   );
   const effectPlan = profile.cooperativeEffects === "closed-direct"
-    ? createClosedCooperativeEffectPlan(source)
+    ? createClosedCooperativeEffectPlan(source, sourceIdentityFor)
     : undefined;
   const evidence = createTypeScriptOptimizationEvidence(
     profile,

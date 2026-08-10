@@ -10,12 +10,10 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import {
-  createClosedCooperativeEffectPlan,
-} from "./plan.js";
-import {
   countAsyncCallables,
   countNodes,
   checkedEffectFixture,
+  createFixtureEffectPlan as createClosedCooperativeEffectPlan,
 } from "./effect.test-support.js";
 import {
   lowerCooperativeEffects,
@@ -109,6 +107,52 @@ export const result = await value();
 
   assert.equal(result.callableCount, 0);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
+test("settles checked non-thenable aggregate and covariant returns", () => {
+  const fixture = checkedEffectFixture(`
+interface Result { readonly value: number }
+async function value(): Promise<Result | undefined> { return { value: 41 }; }
+async function aggregate(): Promise<[number, Result | undefined]> {
+  return [1, await value()];
+}
+export const result = await aggregate();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 2);
+  assert.equal(result.awaitCount, 2);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
+test("preserves aggregate returns whose construction may provide then", () => {
+  const fixture = checkedEffectFixture(`
+const base = { value: 41 };
+async function spread(): Promise<{ value: number }> { return { ...base }; }
+async function thenable(): Promise<unknown> {
+  return { then(resolve: (value: number) => void): void { resolve(42); } };
+}
+export const result = [await spread(), await thenable()];
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(result.awaitCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    2,
+  );
 });
 
 test("settles exact static methods and cross-file imports", () => {

@@ -15,7 +15,7 @@ export function resolvedCallIsDefinitelySynchronous(
   return declaration !== undefined &&
     !source.ast.hasModifierKind(declaration, "async") &&
     returnType !== undefined &&
-    !typeMaySuspend(semantics, returnType, new Set());
+    !typeMaySuspend(semantics, returnType);
 }
 
 export function callableIsDefinitelySynchronous(
@@ -40,11 +40,25 @@ export function callableIsDefinitelySynchronous(
   return signatures.length !== 0 && signatures.every((signature) => {
     const returnType = semantics.getReturnTypeOfSignature(signature);
     return returnType !== undefined &&
-      !typeMaySuspend(semantics, returnType, new Set());
+      !typeMaySuspend(semantics, returnType);
   });
 }
 
-function typeMaySuspend(
+export function typeMaySuspend(
+  semantics: SourceFileSemantics,
+  type: Type,
+): boolean {
+  return typeMaySuspendWithin(semantics, type, new Set());
+}
+
+export function typeExposesCallableThen(
+  semantics: SourceFileSemantics,
+  type: Type,
+): boolean {
+  return typeExposesCallableThenWithin(semantics, type, new Set());
+}
+
+function typeMaySuspendWithin(
   semantics: SourceFileSemantics,
   type: Type,
   pending: Set<Type>,
@@ -74,7 +88,7 @@ function typeMaySuspend(
   if (
     semantics.isUnion(type) &&
     semantics.getUnionOrIntersectionTypes(type).some((member) =>
-      member === undefined || typeMaySuspend(semantics, member, pending)
+      member === undefined || typeMaySuspendWithin(semantics, member, pending)
     )
   ) {
     pending.delete(type);
@@ -133,6 +147,53 @@ function typeCanBeCalled(
   );
   pending.delete(type);
   return callable;
+}
+
+function typeExposesCallableThenWithin(
+  semantics: SourceFileSemantics,
+  type: Type,
+  pending: Set<Type>,
+): boolean {
+  if (pending.has(type)) {
+    return true;
+  }
+  if (semantics.isAny(type) || semantics.isUnknown(type)) {
+    return true;
+  }
+  if (
+    semantics.isNever(type) ||
+    semantics.isVoidLike(type) ||
+    semantics.isNullish(type) ||
+    semantics.isStringLike(type) ||
+    semantics.isNumberLike(type) ||
+    semantics.isBooleanLike(type) ||
+    semantics.isBigIntLike(type)
+  ) {
+    return false;
+  }
+  pending.add(type);
+  if (
+    (semantics.isUnion(type) || semantics.isIntersection(type)) &&
+    semantics.getUnionOrIntersectionTypes(type).some((member) =>
+      member === undefined ||
+      typeExposesCallableThenWithin(semantics, member, pending)
+    )
+  ) {
+    pending.delete(type);
+    return true;
+  }
+  const then = semantics.getPropertyInfos(type)
+    .find((property) => property.name === "then");
+  const result =
+    (then !== undefined && typeMayBeCallable(semantics, then.type)) ||
+    semantics.getIndexInfos(type).some((index) =>
+      index.keyType !== undefined &&
+      index.valueType !== undefined &&
+      semantics.isStringLike(index.keyType) &&
+      typeMayBeCallable(semantics, index.valueType)
+    );
+  pending.delete(type);
+  return result;
 }
 
 function isCallableDeclaration(

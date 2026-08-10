@@ -69,6 +69,13 @@ declaration, return contract, and dependent `await` in one transaction. For exam
 becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`
 return, or provider call remains unchanged.
 
+A checked direct scalar return and a freshly constructed array or object may
+also settle without requiring identical source and result type identities. The
+constructed value must expose no callable `then`; object literals containing a
+spread, computed property, `then`, or `__proto__` remain canonical. This keeps
+covariant and aggregate Go-shaped returns simple while preserving JavaScript's
+thenable assimilation boundary.
+
 ## Pointer representations
 
 Canonical pointer lowering is `Location<T>`. It remains the default and the

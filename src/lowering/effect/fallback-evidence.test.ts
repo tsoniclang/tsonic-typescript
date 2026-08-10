@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { checkedEffectFixture } from "./effect.test-support.js";
-import { createClosedCooperativeEffectPlan } from "./plan.js";
+import {
+  checkedEffectFixture,
+  createFixtureEffectPlan as createClosedCooperativeEffectPlan,
+} from "./effect.test-support.js";
 
 test("reports every retained cooperative candidate by closed reason", () => {
   const fixture = checkedEffectFixture(`

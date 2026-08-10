@@ -12,6 +12,11 @@ import {
 } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import {
+  createClosedCooperativeEffectPlan,
+  type CooperativeEffectPlan,
+} from "./plan.js";
+
 export interface CheckedEffectFixture {
   readonly source: TargetSourceProgram;
   readonly sourceFile: SourceFile;
@@ -44,6 +49,15 @@ export function checkedEffectFixture(
   );
   assert.ok(sourceFile !== undefined);
   return { source, sourceFile };
+}
+
+export function createFixtureEffectPlan(
+  source: TargetSourceProgram,
+): CooperativeEffectPlan {
+  return createClosedCooperativeEffectPlan(
+    source,
+    (sourceFile) => source.documents.forFile(sourceFile).identity,
+  );
 }
 
 export function visit(

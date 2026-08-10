@@ -130,6 +130,10 @@ function prepareSourceArtifacts(
     input.source,
     sourceFiles,
     profile,
+    (sourceFile) => sourceArtifactPath(
+      input,
+      input.source.documents.forFile(sourceFile).fileName,
+    ),
   );
   if (preparation.kind === "rejected") {
     return Object.freeze({
