@@ -20,6 +20,7 @@ import {
   type ReturnValueFlow,
 } from "./return-value.js";
 import {
+  callableDispatchIsClosed,
   containingAwait,
   containingReturn,
   directContainingCall,
@@ -34,6 +35,7 @@ import {
   createCallableValueFlow,
   type CallableValueFlow,
 } from "./value-flow.js";
+import { sameSelectedType } from "./synchronous.js";
 
 interface MutableCallable {
   readonly declaration: Node;
@@ -89,6 +91,7 @@ export function createClosedCooperativeEffectPlan(
     candidates,
     calls,
     valueFlow,
+    returnFlow,
     optimized,
   );
   const returnTypes = valueFlow.settledReturnTypes(optimized);
@@ -214,7 +217,7 @@ function isSupportedAsyncCallable(
 ): boolean {
   const functionDeclaration = source.ast.is.IsFunctionDeclaration(node);
   const method = source.ast.is.IsMethodDeclaration(node) &&
-    methodDispatchIsClosed(source, node);
+    callableDispatchIsClosed(source, node);
   const functionExpression = source.ast.is.IsFunctionExpression(node);
   const arrowFunction = source.ast.is.IsArrowFunction(node);
   if (
@@ -232,19 +235,6 @@ function isSupportedAsyncCallable(
     ? source.ast.as.AsFunctionExpression(node)
     : source.ast.as.AsArrowFunction(node);
   return parsed?.AsteriskToken === undefined && parsed?.FullSignature === undefined;
-}
-
-function methodDispatchIsClosed(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  if (source.ast.hasModifierKind(declaration, "static")) {
-    return true;
-  }
-  const dispatch = source.navigation.memberDispatch(declaration);
-  return dispatch !== undefined &&
-    !dispatch.overridesBase &&
-    !dispatch.hasDerivedOverride;
 }
 
 function collectCalls(
@@ -274,6 +264,7 @@ function classifyAwaitDependencies(
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
   valueFlow: CallableValueFlow,
+  returnFlow: ReturnValueFlow,
   node: Node,
 ): void {
   if (!source.ast.is.IsAwaitExpression(node)) {
@@ -291,7 +282,7 @@ function classifyAwaitDependencies(
     return;
   }
   const resolution = valueFlow.resolutionFor(call);
-  if (resolution === undefined || !resolution.closed) {
+  if (call === undefined || resolution === undefined || !resolution.closed) {
     blockCooperativeEffect(
       owner,
       "unresolved-call",
@@ -306,6 +297,15 @@ function classifyAwaitDependencies(
       return;
     }
     owner.dependencies.add(candidate);
+  }
+  if (
+    resolution.synchronousDeclarations.length !== 0 &&
+    !returnFlow.callResultIsDefinitelyNonThenable(
+      call,
+      resolution.synchronousDeclarations,
+    )
+  ) {
+    blockCooperativeEffect(owner, "promise-observed", call);
   }
 }
 
@@ -350,7 +350,15 @@ function classifyReturnDependencies(
         }
         owner.dependencies.add(candidate);
       }
-      return;
+      if (
+        resolution.synchronousDeclarations.length === 0 ||
+        returnFlow.callResultIsDefinitelyNonThenable(
+          returnedCall,
+          resolution.synchronousDeclarations,
+        )
+      ) {
+        return;
+      }
     }
   }
   if (!returnFlow.isDefinitelyNonThenable(expression)) {
@@ -415,7 +423,14 @@ function classifyProgramEvidence(
 ): void {
   const tracked = indexCandidateSymbols(source, candidates.values());
   forEachProgramNode(source, (node) => {
-    classifyAwaitDependencies(source, candidates, calls, valueFlow, node);
+    classifyAwaitDependencies(
+      source,
+      candidates,
+      calls,
+      valueFlow,
+      returnFlow,
+      node,
+    );
     classifyReturnDependencies(
       source,
       candidates,
@@ -514,6 +529,7 @@ function collectSettledAwaits(
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
   valueFlow: CallableValueFlow,
+  returnFlow: ReturnValueFlow,
   optimized: ReadonlySet<Node>,
 ): ReadonlySet<Node> {
   const awaits = new Set<Node>();
@@ -539,48 +555,20 @@ function collectSettledAwaits(
       (direct === undefined && (resolution === undefined || !resolution.closed)) ||
       dependencies.some((declaration) =>
         candidates.has(declaration) && !optimized.has(declaration)
-      )
+      ) ||
+      (direct === undefined &&
+        resolution !== undefined &&
+        resolution.synchronousDeclarations.length !== 0 &&
+        !returnFlow.callResultIsDefinitelyNonThenable(
+          call,
+          resolution.synchronousDeclarations,
+        ))
     ) {
       return;
     }
     awaits.add(node);
   });
   return awaits;
-}
-
-function sameSelectedType(
-  semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
-  left: Type | undefined,
-  right: Type | undefined,
-): boolean {
-  if (left === undefined || right === undefined) {
-    return false;
-  }
-  if (left === right) {
-    return true;
-  }
-  if (
-    (semantics.isNumberLike(left) && semantics.isNumberLike(right)) ||
-    (semantics.isStringLike(left) && semantics.isStringLike(right)) ||
-    (semantics.isBooleanLike(left) && semantics.isBooleanLike(right)) ||
-    (semantics.isBigIntLike(left) && semantics.isBigIntLike(right)) ||
-    (semantics.isVoidLike(left) && semantics.isVoidLike(right))
-  ) {
-    return true;
-  }
-  if (
-    !semantics.isTypeReference(left) ||
-    !semantics.isTypeReference(right) ||
-    semantics.getTypeReferenceTarget(left) !== semantics.getTypeReferenceTarget(right)
-  ) {
-    return false;
-  }
-  const leftArguments = semantics.getTypeArguments(left);
-  const rightArguments = semantics.getTypeArguments(right);
-  return leftArguments.length === rightArguments.length &&
-    leftArguments.every((argument, index) =>
-      sameSelectedType(semantics, argument, rightArguments[index])
-    );
 }
 
 function enclosingCandidate(

@@ -6,8 +6,15 @@ import {
   type ReturnAliasFlow,
 } from "./return-alias.js";
 import {
+  objectLiteralIsDefinitelyNonThenable,
   projectConstructionIsDefinitelyNonThenable,
 } from "./return-construction.js";
+import {
+  createReturnCallFlow,
+  type ReturnCallFlow,
+  type ReturnProofScope,
+  type ReturnProofValue,
+} from "./return-call.js";
 import {
   createReturnProjectionFlow,
   type ReturnProjectionFlow,
@@ -21,6 +28,10 @@ import { typeExposesCallableThen } from "./synchronous.js";
 
 export interface ReturnValueFlow {
   isDefinitelyNonThenable(expression: Node): boolean;
+  callResultIsDefinitelyNonThenable(
+    call: Node,
+    declarations: readonly Node[],
+  ): boolean;
 }
 
 interface MutableReturnBinding {
@@ -57,16 +68,45 @@ export function createReturnValueFlow(
     nodes,
     directCallDeclaration,
   );
+  const calls = createReturnCallFlow(source);
   auditReturnBindings(source, bindings, aliases, bindingNodes);
-  const results = new Map<Node, boolean>();
+  const rootScope: ReturnProofScope = Object.freeze({
+    inputs: new Map(),
+    root: true,
+  });
+  const results = new Map<ReturnProofScope, Map<Node, boolean>>();
+  const prove = (
+    value: ReturnProofValue,
+    pendingDeclarations: Set<Node>,
+    pendingBindings: Set<Node>,
+  ): boolean => expressionIsDefinitelyNonThenableWithin(
+    source,
+    value,
+    bindings,
+    projections,
+    calls,
+    results,
+    pendingDeclarations,
+    pendingBindings,
+  );
   return Object.freeze({
     isDefinitelyNonThenable(expression: Node): boolean {
-      return expressionIsDefinitelyNonThenableWithin(
-        source,
-        expression,
-        bindings,
-        projections,
-        results,
+      return prove(
+        { expression, scope: rootScope },
+        new Set(),
+        new Set(),
+      );
+    },
+    callResultIsDefinitelyNonThenable(
+      call: Node,
+      declarations: readonly Node[],
+    ): boolean {
+      const pendingBindings = new Set<Node>();
+      return calls.isDefinitelyNonThenable(
+        { expression: call, scope: rootScope },
+        declarations,
+        (value, pendingDeclarations) =>
+          prove(value, pendingDeclarations, pendingBindings),
         new Set(),
       );
     },
@@ -112,12 +152,15 @@ export function expressionIsDefinitelyNonThenable(
 
 function expressionIsDefinitelyNonThenableWithin(
   source: TargetSourceProgram,
-  expression: Node,
+  value: ReturnProofValue,
   bindings: ReadonlyMap<Node, MutableReturnBinding>,
   projections: ReturnProjectionFlow,
-  results: Map<Node, boolean>,
-  pending: Set<Node>,
+  calls: ReturnCallFlow,
+  results: Map<ReturnProofScope, Map<Node, boolean>>,
+  pendingDeclarations: Set<Node>,
+  pendingBindings: Set<Node>,
 ): boolean {
+  const expression = value.expression;
   if (expressionIsDefinitelyNonThenable(source, expression)) {
     return true;
   }
@@ -131,29 +174,59 @@ function expressionIsDefinitelyNonThenableWithin(
       conditional.WhenFalse !== undefined &&
       expressionIsDefinitelyNonThenableWithin(
         source,
-        conditional.WhenTrue,
+        { expression: conditional.WhenTrue, scope: value.scope },
         bindings,
         projections,
+        calls,
         results,
-        pending,
+        pendingDeclarations,
+        pendingBindings,
       ) &&
       expressionIsDefinitelyNonThenableWithin(
         source,
-        conditional.WhenFalse,
+        { expression: conditional.WhenFalse, scope: value.scope },
         bindings,
         projections,
+        calls,
         results,
-        pending,
+        pendingDeclarations,
+        pendingBindings,
       );
   }
-  if (projections.isDefinitelyNonThenable(root, (input) =>
+  const callDeclaration = source.ast.is.IsCallExpression(root)
+    ? calls.directDeclaration(root)
+    : undefined;
+  if (
+    callDeclaration !== undefined &&
+    calls.isDefinitelyNonThenable(
+      { expression: root, scope: value.scope },
+      [callDeclaration],
+      (input, nextPendingDeclarations) =>
+        expressionIsDefinitelyNonThenableWithin(
+          source,
+          input,
+          bindings,
+          projections,
+          calls,
+          results,
+          nextPendingDeclarations,
+          pendingBindings,
+        ),
+      pendingDeclarations,
+    )
+  ) {
+    return true;
+  }
+  if (value.scope.root && projections.isDefinitelyNonThenable(root, (input) =>
     expressionIsDefinitelyNonThenableWithin(
       source,
-      input,
+      { expression: input, scope: value.scope },
       bindings,
       projections,
+      calls,
       results,
-      pending,
+      pendingDeclarations,
+      pendingBindings,
     )
   )) {
     return true;
@@ -162,30 +235,52 @@ function expressionIsDefinitelyNonThenableWithin(
     return false;
   }
   const declaration = source.navigation.sourceReferenceFor(root)?.declaration;
+  const scopedInput = declaration === undefined
+    ? undefined
+    : value.scope.inputs.get(declaration);
+  if (scopedInput !== undefined) {
+    return expressionIsDefinitelyNonThenableWithin(
+      source,
+      scopedInput,
+      bindings,
+      projections,
+      calls,
+      results,
+      pendingDeclarations,
+      pendingBindings,
+    );
+  }
   const binding = declaration === undefined ? undefined : bindings.get(declaration);
   if (binding === undefined || !binding.closed) {
     return false;
   }
-  const existing = results.get(binding.declaration);
+  const scopeResults = results.get(value.scope);
+  const existing = scopeResults?.get(binding.declaration);
   if (existing !== undefined) {
     return existing;
   }
-  if (pending.has(binding.declaration)) {
+  if (pendingBindings.has(binding.declaration)) {
     return false;
   }
-  pending.add(binding.declaration);
+  pendingBindings.add(binding.declaration);
   const result = binding.inputs.every((input) =>
     expressionIsDefinitelyNonThenableWithin(
       source,
-      input,
+      { expression: input, scope: value.scope },
       bindings,
       projections,
+      calls,
       results,
-      pending,
+      pendingDeclarations,
+      pendingBindings,
     )
   );
-  pending.delete(binding.declaration);
-  results.set(binding.declaration, result);
+  pendingBindings.delete(binding.declaration);
+  if (scopeResults === undefined) {
+    results.set(value.scope, new Map([[binding.declaration, result]]));
+  } else {
+    scopeResults.set(binding.declaration, result);
+  }
   return result;
 }
 
@@ -486,23 +581,4 @@ function transparentChild(
   return source.ast.is.IsNonNullExpression(node)
     ? source.ast.as.AsNonNullExpression(node)?.Expression
     : undefined;
-}
-
-function objectLiteralIsDefinitelyNonThenable(
-  source: TargetSourceProgram,
-  expression: Node,
-): boolean {
-  const properties = source.ast.as.AsObjectLiteralExpression(expression)
-    ?.Properties?.Nodes;
-  return properties !== undefined && properties.every((property) => {
-    if (property === undefined || source.ast.is.IsSpreadAssignment(property)) {
-      return false;
-    }
-    const name = source.ast.name(property);
-    if (name === undefined || source.ast.is.IsComputedPropertyName(name)) {
-      return false;
-    }
-    const text = source.ast.text(name);
-    return text !== "then" && text !== "__proto__";
-  });
 }

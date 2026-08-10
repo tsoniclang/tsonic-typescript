@@ -11,12 +11,13 @@ import {
   transparentExpression,
 } from "./syntax.js";
 import {
-  callableIsDefinitelySynchronous,
-  resolvedCallIsDefinitelySynchronous,
+  callableUsesSynchronousTransport,
+  resolvedCallUsesSynchronousTransport,
 } from "./synchronous.js";
 
 export interface CallableValueResolution {
   readonly dependencies: readonly Node[];
+  readonly synchronousDeclarations: readonly Node[];
   readonly closed: boolean;
 }
 
@@ -35,6 +36,7 @@ export interface CallableValueFlow {
 
 interface MutableResolution {
   readonly dependencies: Set<Node>;
+  readonly synchronousDeclarations: Set<Node>;
   closed: boolean;
 }
 
@@ -152,8 +154,8 @@ function resolveCall(
     if (candidates.has(declaration)) {
       return resolutionWith(declaration);
     }
-    if (resolvedCallIsDefinitelySynchronous(source, call)) {
-      return emptyResolution();
+    if (resolvedCallUsesSynchronousTransport(source, call)) {
+      return synchronousResolutionWith(declaration);
     }
   }
   const expression = source.ast.as.AsCallExpression(call)?.Expression;
@@ -193,8 +195,8 @@ function resolveDeclaration(
   if (candidates.has(declaration)) {
     return resolutionWith(declaration);
   }
-  if (callableIsDefinitelySynchronous(source, declaration)) {
-    return emptyResolution();
+  if (callableUsesSynchronousTransport(source, declaration)) {
+    return synchronousResolutionWith(declaration);
   }
   const values = inputs.values.get(declaration);
   if (values === undefined || !inputs.closed.has(declaration)) {
@@ -268,8 +270,8 @@ function resolveExpression(
       allowedCandidateReferences.add(root);
       return resolutionWith(root);
     }
-    return callableIsDefinitelySynchronous(source, root)
-      ? emptyResolution()
+    return callableUsesSynchronousTransport(source, root)
+      ? synchronousResolutionWith(root)
       : unresolved();
   }
   const referenceNode = source.ast.is.IsPropertyAccessExpression(root)
@@ -348,15 +350,35 @@ function exactSymbolsAt(
 }
 
 function emptyResolution(): MutableResolution {
-  return { dependencies: new Set(), closed: true };
+  return {
+    dependencies: new Set(),
+    synchronousDeclarations: new Set(),
+    closed: true,
+  };
 }
 
 function unresolved(): MutableResolution {
-  return { dependencies: new Set(), closed: false };
+  return {
+    dependencies: new Set(),
+    synchronousDeclarations: new Set(),
+    closed: false,
+  };
 }
 
 function resolutionWith(dependency: Node): MutableResolution {
-  return { dependencies: new Set([dependency]), closed: true };
+  return {
+    dependencies: new Set([dependency]),
+    synchronousDeclarations: new Set(),
+    closed: true,
+  };
+}
+
+function synchronousResolutionWith(declaration: Node): MutableResolution {
+  return {
+    dependencies: new Set(),
+    synchronousDeclarations: new Set([declaration]),
+    closed: true,
+  };
 }
 
 function mergeResolution(
@@ -367,6 +389,9 @@ function mergeResolution(
   for (const dependency of source.dependencies) {
     target.dependencies.add(dependency);
   }
+  for (const declaration of source.synchronousDeclarations) {
+    target.synchronousDeclarations.add(declaration);
+  }
 }
 
 function sealResolution(
@@ -374,6 +399,9 @@ function sealResolution(
 ): CallableValueResolution {
   return Object.freeze({
     dependencies: Object.freeze([...resolution.dependencies]),
+    synchronousDeclarations: Object.freeze([
+      ...resolution.synchronousDeclarations,
+    ]),
     closed: resolution.closed,
   });
 }

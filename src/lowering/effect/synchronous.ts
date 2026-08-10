@@ -4,21 +4,19 @@ import type {
   TargetSourceProgram,
 } from "@tsonic/target-api";
 
-export function resolvedCallIsDefinitelySynchronous(
+export function resolvedCallUsesSynchronousTransport(
   source: TargetSourceProgram,
   call: Node,
 ): boolean {
   const semantics = source.semantics.forNode(call);
   const signature = semantics.getResolvedSignature(call);
   const declaration = semantics.getSignatureDeclaration(signature);
-  const returnType = semantics.getReturnTypeOfSignature(signature);
   return declaration !== undefined &&
-    !source.ast.hasModifierKind(declaration, "async") &&
-    returnType !== undefined &&
-    !typeMaySuspend(semantics, returnType);
+    source.ast.body(declaration) !== undefined &&
+    !source.ast.hasModifierKind(declaration, "async");
 }
 
-export function callableIsDefinitelySynchronous(
+export function callableUsesSynchronousTransport(
   source: TargetSourceProgram,
   declaration: Node,
 ): boolean {
@@ -29,19 +27,7 @@ export function callableIsDefinitelySynchronous(
   ) {
     return false;
   }
-  const semantics = source.semantics.forNode(declaration);
-  const type = semantics.getTypeAtLocation(
-    source.ast.name(declaration) ?? declaration,
-  );
-  if (type === undefined) {
-    return false;
-  }
-  const signatures = semantics.getCallSignatures(type);
-  return signatures.length !== 0 && signatures.every((signature) => {
-    const returnType = semantics.getReturnTypeOfSignature(signature);
-    return returnType !== undefined &&
-      !typeMaySuspend(semantics, returnType);
-  });
+  return true;
 }
 
 export function typeMaySuspend(
@@ -118,6 +104,42 @@ export function typeMayBeCallable(
   type: Type,
 ): boolean {
   return typeCanBeCalled(semantics, type, new Set());
+}
+
+export function sameSelectedType(
+  semantics: SourceFileSemantics,
+  left: Type | undefined,
+  right: Type | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return false;
+  }
+  if (left === right) {
+    return true;
+  }
+  if (
+    (semantics.isNumberLike(left) && semantics.isNumberLike(right)) ||
+    (semantics.isStringLike(left) && semantics.isStringLike(right)) ||
+    (semantics.isBooleanLike(left) && semantics.isBooleanLike(right)) ||
+    (semantics.isBigIntLike(left) && semantics.isBigIntLike(right)) ||
+    (semantics.isVoidLike(left) && semantics.isVoidLike(right))
+  ) {
+    return true;
+  }
+  if (
+    !semantics.isTypeReference(left) ||
+    !semantics.isTypeReference(right) ||
+    semantics.getTypeReferenceTarget(left) !==
+      semantics.getTypeReferenceTarget(right)
+  ) {
+    return false;
+  }
+  const leftArguments = semantics.getTypeArguments(left);
+  const rightArguments = semantics.getTypeArguments(right);
+  return leftArguments.length === rightArguments.length &&
+    leftArguments.every((argument, index) =>
+      sameSelectedType(semantics, argument, rightArguments[index])
+    );
 }
 
 function typeCanBeCalled(

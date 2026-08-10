@@ -34,6 +34,22 @@ export function isFunctionLike(
     source.ast.is.IsSetAccessorDeclaration(node);
 }
 
+export function callableDispatchIsClosed(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  if (!source.ast.is.IsMethodDeclaration(declaration)) {
+    return true;
+  }
+  if (source.ast.hasModifierKind(declaration, "static")) {
+    return true;
+  }
+  const dispatch = source.navigation.memberDispatch(declaration);
+  return dispatch !== undefined &&
+    !dispatch.overridesBase &&
+    !dispatch.hasDerivedOverride;
+}
+
 export function containingAwait(
   source: TargetSourceProgram,
   call: Node,

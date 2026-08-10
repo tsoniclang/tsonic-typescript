@@ -28,6 +28,25 @@ export function projectConstructionIsDefinitelyNonThenable(
     !constructorReturnsObject(source, constructor);
 }
 
+export function objectLiteralIsDefinitelyNonThenable(
+  source: TargetSourceProgram,
+  expression: Node,
+): boolean {
+  const properties = source.ast.as.AsObjectLiteralExpression(expression)
+    ?.Properties?.Nodes;
+  return properties !== undefined && properties.every((property) => {
+    if (property === undefined || source.ast.is.IsSpreadAssignment(property)) {
+      return false;
+    }
+    const name = source.ast.name(property);
+    if (name === undefined || source.ast.is.IsComputedPropertyName(name)) {
+      return false;
+    }
+    const text = source.ast.text(name);
+    return text !== "then" && text !== "__proto__";
+  });
+}
+
 function constructorReturnsObject(
   source: TargetSourceProgram,
   constructor: Node,
