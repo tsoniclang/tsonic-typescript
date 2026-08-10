@@ -28,16 +28,19 @@ export const result = await settled();
         reason: "escaping-callable",
         directCallableCount: 1,
         retainedCallableCount: 1,
+        directExamples: [authored("escaped")],
       },
       {
         reason: "promise-producing-return",
         directCallableCount: 1,
         retainedCallableCount: 1,
+        directExamples: [authored("promiseValue")],
       },
       {
         reason: "unresolved-call",
         directCallableCount: 1,
         retainedCallableCount: 2,
+        directExamples: [authored("boundary")],
       },
     ],
     propagation: {
@@ -46,4 +49,23 @@ export const result = await settled();
       work: 7,
     },
   });
+
+  function authored(name: string) {
+    const declaration = [...fixture.source.navigation.sourceFiles]
+      .flatMap((sourceFile) => fixture.source.ast.children(sourceFile))
+      .find((node) => fixture.source.ast.text(fixture.source.ast.name(node)) === name);
+    assert.ok(declaration !== undefined);
+    const occurrence = fixture.source.documents.occurrenceFor(declaration);
+    assert.equal(occurrence.kind, "authored");
+    if (occurrence.kind !== "authored") {
+      assert.fail("effect fixture declaration must be authored");
+    }
+    return {
+      kind: "authored" as const,
+      documentIdentity: occurrence.document.identity,
+      start: occurrence.start,
+      end: occurrence.end,
+      syntaxKind: occurrence.syntaxKind,
+    };
+  }
 });

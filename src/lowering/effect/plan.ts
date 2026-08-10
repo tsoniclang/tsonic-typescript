@@ -10,6 +10,7 @@ import { propagateEffectBlockers } from "./blocker-propagation.js";
 import {
   blockCooperativeEffect,
   type CooperativeEffectFallbackReason,
+  type CooperativeEffectFallbackOccurrence,
   type CooperativeEffectPlanSummary,
   summarizeCooperativeEffects,
 } from "./fallback.js";
@@ -33,6 +34,7 @@ import {
 interface MutableCallable {
   readonly declaration: Node;
   readonly sourceFile: SourceFile;
+  readonly occurrence: CooperativeEffectFallbackOccurrence;
   readonly innerType: Type;
   readonly transportType: Type;
   readonly dependencies: Set<MutableCallable>;
@@ -158,6 +160,7 @@ function collectCandidates(
     candidates.set(node, {
       declaration: node,
       sourceFile,
+      occurrence: fallbackOccurrence(source, node),
       innerType,
       transportType: returnType,
       dependencies: new Set(),
@@ -166,6 +169,25 @@ function collectCandidates(
     });
   });
   return candidates;
+}
+
+function fallbackOccurrence(
+  source: TargetSourceProgram,
+  node: Node,
+): CooperativeEffectFallbackOccurrence {
+  const occurrence = source.documents.occurrenceFor(node);
+  return occurrence.kind === "authored"
+    ? Object.freeze({
+        kind: "authored",
+        documentIdentity: occurrence.document.identity,
+        start: occurrence.start,
+        end: occurrence.end,
+        syntaxKind: occurrence.syntaxKind,
+      })
+    : Object.freeze({
+        kind: "synthetic",
+        syntaxKind: occurrence.syntaxKind,
+      });
 }
 
 function isSupportedAsyncCallable(

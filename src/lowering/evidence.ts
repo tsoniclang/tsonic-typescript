@@ -24,6 +24,7 @@ export interface OptimizationPropagatedReasonCount<Reason extends string> {
   readonly reason: Reason;
   readonly directCount: number;
   readonly retainedCount: number;
+  readonly directExamples: readonly import("./effect/fallback.js").CooperativeEffectFallbackOccurrence[];
 }
 
 export type PointerOptimizationEvidence =
@@ -147,6 +148,7 @@ function effectEvidence(
         reason: entry.reason,
         directCount: entry.directCallableCount,
         retainedCount: entry.retainedCallableCount,
+        directExamples: entry.directExamples,
       })
     )),
     propagation: Object.freeze({
