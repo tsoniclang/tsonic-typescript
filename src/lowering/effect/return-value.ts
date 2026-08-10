@@ -217,12 +217,40 @@ function auditReturnBindings(
       if (
         binding.returnedReferences.has(node) ||
         isSelfAssignmentValue(source, node, binding.declaration) ||
+        isAwaitedSelfAssignmentInput(source, node, binding.declaration) ||
         isNullishIdentityObservation(source, node)
       ) {
         return;
       }
       binding.closed = false;
     });
+  }
+}
+
+function isAwaitedSelfAssignmentInput(
+  source: TargetSourceProgram,
+  reference: Node,
+  declaration: Node,
+): boolean {
+  let current = reference;
+  for (;;) {
+    const parent = source.ast.parent(current);
+    if (parent === undefined || isFunctionLike(source, parent)) {
+      return false;
+    }
+    if (source.ast.is.IsBinaryExpression(parent)) {
+      const binary = source.ast.as.AsBinaryExpression(parent);
+      if (
+        binary?.Right !== current ||
+        source.ast.operatorKindName(parent) !== "KindEqualsToken" ||
+        !isReferenceTo(source, binary.Left, declaration)
+      ) {
+        return false;
+      }
+      const value = transparentExpression(source, binary.Right);
+      return value !== undefined && source.ast.is.IsAwaitExpression(value);
+    }
+    current = parent;
   }
 }
 

@@ -149,6 +149,118 @@ export class Slot {
   );
 });
 
+test("settles a closed singleton callable field", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+class State {
+  declare callback: (() => Awaitable<number>) | undefined;
+  count = 0;
+}
+export const state = new State();
+state.callback = undefined;
+state.callback = async (): Promise<number> => 41;
+export async function invoke(): Promise<number> {
+  return (await state.callback!()) + state.count + 1;
+}
+export const result = await invoke();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 2);
+  assert.equal(result.awaitCount, 2);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+});
+
+test("settles an imported closed singleton callable field", () => {
+  const fixture = checkedEffectFixture(`
+import { state } from "./state.js";
+state.callback = undefined;
+state.callback = async (): Promise<number> => 41;
+export async function invoke(): Promise<number> {
+  return (await state.callback!()) + 1;
+}
+export const result = await invoke();
+`, {
+    "/src/state.ts": `
+export type Awaitable<T> = T | PromiseLike<T>;
+class State {
+  declare callback: (() => Awaitable<number>) | undefined;
+}
+export const state = new State();
+`,
+  });
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+
+  assert.equal(
+    results.reduce((total, result) => total + result.callableCount, 0),
+    2,
+  );
+  assert.equal(
+    results.reduce((total, result) => total + result.awaitCount, 0),
+    2,
+  );
+  assert.equal(
+    results.reduce(
+      (total, result) =>
+        total + countAsyncCallables(fixture.source, result.sourceFile),
+      0,
+    ),
+    0,
+  );
+});
+
+test("keeps a singleton callable field canonical when its instance escapes", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+declare function expose(value: object): void;
+class State {
+  declare callback: (() => Awaitable<number>) | undefined;
+}
+export const state = new State();
+state.callback = async (): Promise<number> => 42;
+expose(state);
+async function invoke(): Promise<number> { return await state.callback!(); }
+export const result = await invoke();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+});
+
+test("keeps a singleton callable field canonical after another construction", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+class State {
+  declare callback: (() => Awaitable<number>) | undefined;
+}
+export const state = new State();
+const other = new State();
+state.callback = async (): Promise<number> => 42;
+other.callback = state.callback;
+async function invoke(): Promise<number> { return await state.callback!(); }
+export const result = await invoke();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+});
+
 test("settles a closed callable field through a mutable local", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;

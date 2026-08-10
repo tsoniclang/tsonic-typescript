@@ -1,10 +1,7 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import {
-  directContainingCall,
-  forEachProgramNode,
-} from "./syntax.js";
+import { directContainingCall } from "./syntax.js";
 
 export interface ParameterUses {
   readonly dependencies: ReadonlyMap<Node, ReadonlySet<Node>>;
@@ -15,15 +12,16 @@ export function indexParameterUses(
   source: TargetSourceProgram,
   parameters: Iterable<Node>,
   destinations: ReadonlySet<Node>,
+  nodes: readonly Node[],
 ): ParameterUses {
   const tracked = new Set(parameters);
   const allDeclarations = new Set([...tracked, ...destinations]);
   const symbols = indexDeclarationSymbols(source, allDeclarations);
   const dependencies = new Map<Node, Set<Node>>();
   const invalid = new Set<Node>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (!source.ast.is.IsIdentifier(node)) {
-      return;
+      continue;
     }
     const parameter = declarationForSymbols(source, symbols, node);
     if (
@@ -31,13 +29,13 @@ export function indexParameterUses(
       node === source.ast.name(parameter) ||
       invalid.has(parameter)
     ) {
-      return;
+      continue;
     }
     if (
       directContainingCall(source, node) !== undefined ||
       isCallablePresenceObservation(source, node)
     ) {
-      return;
+      continue;
     }
     const destination = trackedInputDestination(
       source,
@@ -47,7 +45,7 @@ export function indexParameterUses(
     );
     if (destination === undefined) {
       invalid.add(parameter);
-      return;
+      continue;
     }
     let targets = dependencies.get(parameter);
     if (targets === undefined) {
@@ -55,7 +53,7 @@ export function indexParameterUses(
       dependencies.set(parameter, targets);
     }
     targets.add(destination);
-  });
+  }
   return { dependencies, invalid };
 }
 

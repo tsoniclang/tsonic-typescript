@@ -157,6 +157,34 @@ export const result = await aggregate(true);
   );
 });
 
+test("settles an accumulator consumed by its awaited replacement", () => {
+  const fixture = checkedEffectFixture(`
+interface Result { readonly value: number }
+async function replace(_value: Result | undefined): Promise<Result> {
+  return { value: 42 };
+}
+async function value(): Promise<Result | undefined> {
+  let result: Result | undefined = undefined;
+  result = await replace(result);
+  result = result;
+  return result;
+}
+export const result = await value();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 2);
+  assert.equal(result.awaitCount, 2);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
 test("preserves a local return value exposed to an unknown call", () => {
   const fixture = checkedEffectFixture(`
 interface Result { readonly value: number }

@@ -12,7 +12,6 @@ import {
 } from "./callable-input-reference.js";
 import {
   directContainingCall,
-  forEachProgramNode,
   isModuleForwardingReference,
 } from "./syntax.js";
 
@@ -24,9 +23,10 @@ interface ReferenceCounts {
 export function collectCallableLocals(
   source: TargetSourceProgram,
   excluded: ReadonlySet<Node>,
+  nodes: readonly Node[],
 ): Map<Node, Node[]> {
   const locals = new Map<Node, Node[]>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     const name = source.ast.name(node);
     const initializer = source.ast.is.IsVariableDeclaration(node)
       ? source.ast.as.AsVariableDeclaration(node)?.Initializer
@@ -50,10 +50,10 @@ export function collectCallableLocals(
       (!callableDeclarationAllowsSynchronousValue(source, node) &&
         !inferredImmutableCallable)
     ) {
-      return;
+      continue;
     }
     locals.set(node, initializer === undefined ? [] : [initializer]);
-  });
+  }
   return locals;
 }
 

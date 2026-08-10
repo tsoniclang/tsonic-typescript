@@ -14,8 +14,8 @@ import {
 } from "./callable-input-reference.js";
 import type { ParameterUses } from "./callable-input-reference.js";
 import {
+  collectProgramNodes,
   directContainingCall,
-  forEachProgramNode,
   isModuleForwardingReference,
 } from "./syntax.js";
 import {
@@ -23,6 +23,7 @@ import {
   collectCallableLocals,
 } from "./local-inputs.js";
 import { closeDependencyCandidates } from "./dependency-closure.js";
+import { collectClosedSingletonCallableFields } from "./singleton-fields.js";
 import { typeMaySuspend } from "./synchronous.js";
 import { createCallableStorageContracts } from "./storage-contracts.js";
 import type { CallableStorageContract } from "./storage-contracts.js";
@@ -52,9 +53,17 @@ export function collectCallableStorageInputs(
   source: TargetSourceProgram,
   excludedDeclarations: ReadonlySet<Node>,
 ): CallableStorageInputs {
-  const fields = collectPrivateConstructorFields(source);
-  const parameters = collectCallableParameters(source);
-  const localValues = collectCallableLocals(source, excludedDeclarations);
+  const nodes = collectProgramNodes(source);
+  const fields = new Set([
+    ...collectPrivateConstructorFields(source, nodes),
+    ...collectClosedSingletonCallableFields(source, nodes),
+  ]);
+  const parameters = collectCallableParameters(source, nodes);
+  const localValues = collectCallableLocals(
+    source,
+    excludedDeclarations,
+    nodes,
+  );
   const locals = new Set(localValues.keys());
   const storageDeclarations = new Set([
     ...parameters.keys(),
@@ -66,10 +75,10 @@ export function collectCallableStorageInputs(
   const fieldValues = new Map<Node, Node[]>();
   const invalidOwners = new Set<Node>();
 
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     const invocation = invocationAt(source, node);
     if (invocation === undefined) {
-      return;
+      continue;
     }
     collectInvocationInputs(
       source,
@@ -80,7 +89,7 @@ export function collectCallableStorageInputs(
       fieldValues,
       invalidOwners,
     );
-  });
+  }
 
   const parameterClosure = closeParameters(
     source,
@@ -88,6 +97,7 @@ export function collectCallableStorageInputs(
     fields,
     locals,
     invalidOwners,
+    nodes,
   );
   const preliminaryParameters = parameterClosure.declarations;
 
@@ -100,7 +110,7 @@ export function collectCallableStorageInputs(
   for (const local of locals) {
     localCounts.set(local, { total: 0, admitted: 0 });
   }
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     auditFieldUse(
       source,
       node,
@@ -120,7 +130,7 @@ export function collectCallableStorageInputs(
       storageSymbols,
       storageDestinations,
     );
-  });
+  }
 
   const candidateFields = new Set<Node>();
   for (const [field, counts] of fieldCounts) {
@@ -212,15 +222,16 @@ function closeStorageDeclarations(
 
 function collectPrivateConstructorFields(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
 ): ReadonlySet<Node> {
   const fields = new Set<Node>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (
       !source.ast.is.IsParameterDeclaration(node) ||
       !isParameterProperty(source, node) ||
       !callableDeclarationAllowsSynchronousValue(source, node)
     ) {
-      return;
+      continue;
     }
     const constructor = source.ast.parent(node);
     if (
@@ -230,20 +241,21 @@ function collectPrivateConstructorFields(
     ) {
       fields.add(node);
     }
-  });
+  }
   return fields;
 }
 function collectCallableParameters(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
 ): ReadonlyMap<Node, Node> {
   const parameters = new Map<Node, Node>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (
       !source.ast.is.IsParameterDeclaration(node) ||
       isParameterProperty(source, node) ||
       !callableDeclarationAllowsSynchronousValue(source, node)
     ) {
-      return;
+      continue;
     }
     const owner = source.ast.parent(node);
     if (
@@ -254,7 +266,7 @@ function collectCallableParameters(
     ) {
       parameters.set(node, owner);
     }
-  });
+  }
   return parameters;
 }
 
@@ -304,15 +316,16 @@ function closeParameters(
   fields: ReadonlySet<Node>,
   locals: ReadonlySet<Node>,
   invalidOwners: ReadonlySet<Node>,
+  nodes: readonly Node[],
 ): ClosedParameters {
   const ownerCounts = new Map<Node, ReferenceCounts>();
   for (const owner of parameters.values()) {
     ownerCounts.set(owner, { total: 0, admitted: 0 });
   }
   const ownerSymbols = indexDeclarationSymbols(source, ownerCounts.keys());
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     auditCallableOwnerReference(source, node, ownerCounts, ownerSymbols);
-  });
+  }
   const closed = new Set<Node>();
   for (const [parameter, owner] of parameters) {
     const counts = ownerCounts.get(owner);
@@ -329,6 +342,7 @@ function closeParameters(
     source,
     parameters.keys(),
     new Set([...fields, ...locals]),
+    nodes,
   );
   for (const parameter of uses.invalid) {
     closed.delete(parameter);

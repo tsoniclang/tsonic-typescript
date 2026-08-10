@@ -221,6 +221,16 @@ export function forEachProgramNode(
   }
 }
 
+export function collectProgramNodes(
+  source: TargetSourceProgram,
+): readonly Node[] {
+  const nodes: Node[] = [];
+  forEachProgramNode(source, (node) => {
+    nodes.push(node);
+  });
+  return Object.freeze(nodes);
+}
+
 function isTransparentExpression(
   source: TargetSourceProgram,
   node: Node,
