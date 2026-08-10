@@ -54,7 +54,7 @@ export function createCooperativeEffectRewriteSession(
       if (returnTypes.has(original)) {
         const innerType = plan.source.ast.typeArguments(updated)[0];
         if (innerType === undefined || consumedReturnTypes.has(original)) {
-          throw new Error("planned callable-container contract lost its exact AST shape");
+          throw new Error("planned callable contract lost its exact AST shape");
         }
         consumedReturnTypes.add(original);
         return innerType;
@@ -92,7 +92,7 @@ export function createCooperativeEffectRewriteSession(
       assertExactConsumption("await", awaits, consumedAwaits);
       assertExactConsumption("async modifier", asyncModifiers, consumedModifiers);
       assertExactConsumption(
-        "callable-container return type",
+        "callable return type",
         returnTypes,
         consumedReturnTypes,
       );

@@ -1,7 +1,10 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { callableDeclarationAllowsSynchronousValue } from "./callable-contract.js";
+import {
+  callableDeclarationAllowsSynchronousValue,
+  callableDeclarationSynchronousReturnTypes,
+} from "./callable-contract.js";
 import {
   declarationForSymbols,
   indexDeclarationSymbols,
@@ -20,6 +23,12 @@ import { typeMaySuspend } from "./synchronous.js";
 export interface CallableObjectInputs {
   readonly values: ReadonlyMap<Node, readonly Node[]>;
   readonly closed: ReadonlySet<Node>;
+  readonly contracts: readonly CallableObjectContract[];
+}
+
+export interface CallableObjectContract {
+  readonly declaration: Node;
+  readonly returnTypes: readonly Node[];
 }
 
 interface ReferenceCounts {
@@ -108,9 +117,16 @@ export function collectCallableObjectInputs(
       values.set(field, Object.freeze([...inputs]));
     }
   }
+  const contracts = [...closedFields].flatMap((field) => {
+    const returnTypes = callableDeclarationSynchronousReturnTypes(source, field);
+    return returnTypes === undefined
+      ? []
+      : [Object.freeze({ declaration: field, returnTypes })];
+  });
   return Object.freeze({
     values,
     closed: new Set([...closedParameters, ...closedFields]),
+    contracts: Object.freeze(contracts),
   });
 }
 function collectPrivateConstructorFields(

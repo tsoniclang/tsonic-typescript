@@ -45,6 +45,14 @@ export const result = await invoke();
     ),
     0,
   );
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, (node) => {
+      const reference = fixture.source.ast.as.AsTypeReferenceNode(node);
+      return reference !== undefined &&
+        fixture.source.ast.text(reference.TypeName) === "Awaitable";
+    }),
+    1,
+  );
 });
 
 test("keeps a callable field open when its factory escapes", () => {

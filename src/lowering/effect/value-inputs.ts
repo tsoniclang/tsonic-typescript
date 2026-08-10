@@ -6,6 +6,7 @@ import {
   type CallableCollectionContract,
 } from "./collection-inputs.js";
 import { collectCallableObjectInputs } from "./object-inputs.js";
+import type { CallableObjectContract } from "./object-inputs.js";
 import {
   directContainingCall,
   forEachProgramNode,
@@ -17,6 +18,7 @@ export interface CallableValueInputs {
   readonly values: ReadonlyMap<Node, readonly Node[]>;
   readonly closed: ReadonlySet<Node>;
   readonly contracts: readonly CallableCollectionContract[];
+  readonly objectContracts: readonly CallableObjectContract[];
 }
 
 interface ReferenceCounts {
@@ -168,6 +170,7 @@ export function collectCallableValueInputs(
     ])),
     closed,
     contracts: collections.contracts,
+    objectContracts: objects.contracts,
   });
 }
 

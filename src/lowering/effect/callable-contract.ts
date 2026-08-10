@@ -10,14 +10,58 @@ export function callableDeclarationAllowsSynchronousValue(
   source: TargetSourceProgram,
   declaration: Node,
 ): boolean {
+  return callableDeclarationSynchronousReturnTypes(source, declaration) !==
+    undefined;
+}
+
+export function callableDeclarationSynchronousReturnTypes(
+  source: TargetSourceProgram,
+  declaration: Node,
+): readonly Node[] | undefined {
   const name = source.ast.name(declaration);
   const semantics = source.semantics.forNode(name ?? declaration);
   const type = semantics.getTypeAtLocation(name ?? declaration);
-  return type !== undefined && callableTypeAllowsSynchronousValue(
-    semantics,
-    type,
-    new Set(),
+  if (
+    type === undefined ||
+    !callableTypeAllowsSynchronousValue(semantics, type, new Set())
+  ) {
+    return undefined;
+  }
+  const returnTypes = callableReturnTypeNodes(
+    source,
+    source.ast.typeNode(declaration),
   );
+  return returnTypes.length !== 0 && returnTypes.every((returnType) =>
+      source.ast.is.IsTypeReferenceNode(returnType) &&
+      source.ast.typeArguments(returnType).length === 1
+    )
+    ? Object.freeze(returnTypes)
+    : undefined;
+}
+
+function callableReturnTypeNodes(
+  source: TargetSourceProgram,
+  node: Node | undefined,
+): Node[] {
+  if (node === undefined) {
+    return [];
+  }
+  if (source.ast.is.IsParenthesizedTypeNode(node)) {
+    return callableReturnTypeNodes(
+      source,
+      source.ast.as.AsParenthesizedTypeNode(node)?.Type,
+    );
+  }
+  if (source.ast.is.IsUnionTypeNode(node)) {
+    return source.ast.children(node).flatMap((child) =>
+      callableReturnTypeNodes(source, child)
+    );
+  }
+  if (!source.ast.is.IsFunctionTypeNode(node)) {
+    return [];
+  }
+  const returnType = source.ast.typeNode(node);
+  return returnType === undefined ? [] : [returnType];
 }
 
 function callableTypeAllowsSynchronousValue(

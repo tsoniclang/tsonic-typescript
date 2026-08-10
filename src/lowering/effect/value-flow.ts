@@ -86,6 +86,20 @@ export function createCallableValueFlow(
       resolution: sealResolution(resolution),
     });
   });
+  const objectContractResolutions = inputs.objectContracts.map((contract) =>
+    Object.freeze({
+      returnTypes: contract.returnTypes,
+      resolution: sealResolution(resolveDeclaration(
+        source,
+        contract.declaration,
+        candidates,
+        candidateSymbols,
+        inputs,
+        allowedCandidateReferences,
+        new Set(),
+      )),
+    })
+  );
   const signatureFamilies = Object.freeze(contractResolutions
     .filter(({ resolution }) => resolution.closed)
     .map(({ resolution }) => Object.freeze([...resolution.dependencies]))
@@ -100,12 +114,19 @@ export function createCallableValueFlow(
       return allowedCandidateReferences.has(node);
     },
     settledReturnTypes(optimized: ReadonlySet<Node>) {
-      return Object.freeze(contractResolutions
+      const collectionTypes = contractResolutions
         .filter(({ resolution }) =>
           resolution.closed &&
           resolution.dependencies.every((dependency) => optimized.has(dependency))
         )
-        .map(({ returnType }) => returnType));
+        .map(({ returnType }) => returnType);
+      const objectTypes = objectContractResolutions
+        .filter(({ resolution }) =>
+          resolution.closed &&
+          resolution.dependencies.every((dependency) => optimized.has(dependency))
+        )
+        .flatMap(({ returnTypes }) => returnTypes);
+      return Object.freeze([...collectionTypes, ...objectTypes]);
     },
   });
 }
