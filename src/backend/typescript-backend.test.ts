@@ -45,6 +45,7 @@ test("lowers and prints every checked source file in one batch", () => {
     result.artifacts.map((artifact) => [artifact.kind, artifact.path]),
     [
       ["project", "package.json"],
+      ["asset", "tsonic-typescript-optimization.json"],
       ["source", "a.ts"],
       ["source", "sub/b.ts"],
     ],
@@ -75,8 +76,58 @@ test("orders source artifacts by locale-independent UTF-16 code units", () => {
   assert.deepEqual(result.diagnostics, []);
   assert.deepEqual(
     result.artifacts.map((artifact) => artifact.path),
-    ["package.json", "z.ts", "ä.ts"],
+    ["package.json", "tsonic-typescript-optimization.json", "z.ts", "ä.ts"],
   );
+});
+
+test("emits deterministic immutable optimization evidence", () => {
+  const source = checkedPointerSource();
+  const printer: TypeScriptAstPrinter = {
+    print(batch) {
+      return batch.encodedSourceFiles.map(() => "// printed\n");
+    },
+  };
+
+  const result = createTypeScriptBackend(printer, {
+    pointerFlows: "closed-direct",
+    scalarProjections: "closed-direct",
+    cooperativeEffects: "closed-direct",
+  }).compile(compileInput(source));
+
+  assert.deepEqual(result.diagnostics, []);
+  const artifact = result.artifacts.find((candidate) =>
+    candidate.path === "tsonic-typescript-optimization.json"
+  );
+  assert.ok(artifact !== undefined);
+  assert.equal(artifact.kind, "asset");
+  assert.deepEqual(JSON.parse(artifact.text), {
+    schemaVersion: 1,
+    pointer: {
+      profile: "closed-direct",
+      analyzed: true,
+      componentCount: 1,
+      optimizedComponentCount: 1,
+      optimizedFamilyCount: 0,
+      representations: [{ value: "direct-snapshot", count: 1 }],
+      fallbackReasons: [],
+    },
+    scalar: {
+      profile: "closed-direct",
+      syntacticProjectionCount: 0,
+      optimizedProjectionCount: 0,
+      retainedProjectionCount: 0,
+    },
+    cooperativeEffects: {
+      profile: "closed-direct",
+      analyzed: true,
+      candidateCount: 0,
+      settledCallableCount: 0,
+      retainedCallableCount: 0,
+      settledAwaitCount: 0,
+      fallbackReasons: [],
+      propagation: { vertexCount: 0, edgeCount: 0, workCount: 0 },
+    },
+  });
 });
 
 test("declares the exact runtime package only when pointer lowering demands it", () => {

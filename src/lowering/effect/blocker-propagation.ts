@@ -1,6 +1,10 @@
+import type {
+  CooperativeEffectFallbackReason,
+} from "./fallback.js";
+
 export interface EffectDependencyVertex {
   readonly dependencies: ReadonlySet<EffectDependencyVertex>;
-  blocked: boolean;
+  readonly blockers: Set<CooperativeEffectFallbackReason>;
 }
 
 export interface EffectPropagationEvidence {
@@ -28,7 +32,7 @@ export function propagateEffectBlockers(
       }
     }
   }
-  const pending = all.filter((vertex) => vertex.blocked);
+  const pending = all.filter((vertex) => vertex.blockers.size !== 0);
   for (let index = 0; index < pending.length; index += 1) {
     const blocked = pending[index];
     if (blocked === undefined) {
@@ -36,8 +40,14 @@ export function propagateEffectBlockers(
     }
     for (const dependent of dependents.get(blocked) ?? []) {
       work += 1;
-      if (!dependent.blocked) {
-        dependent.blocked = true;
+      let changed = false;
+      for (const reason of blocked.blockers) {
+        if (!dependent.blockers.has(reason)) {
+          dependent.blockers.add(reason);
+          changed = true;
+        }
+      }
+      if (changed) {
         pending.push(dependent);
       }
     }

@@ -16,6 +16,10 @@ import {
   type CooperativeEffectRewriteResult,
   type CooperativeEffectRewriteSession,
 } from "./effect/transform.js";
+import {
+  createTypeScriptOptimizationEvidence,
+  type TypeScriptOptimizationEvidence,
+} from "./evidence.js";
 
 import {
   createClosedPointerFlowPlan,
@@ -58,6 +62,7 @@ export type TypeScriptLoweringPreparation =
     };
 
 export interface TypeScriptLoweringTransaction {
+  readonly evidence: TypeScriptOptimizationEvidence;
   lower(sourceFile: SourceFile): TypeScriptSourceLoweringResult;
   finish(): void;
 }
@@ -84,6 +89,12 @@ export function prepareTypeScriptLowering(
   const effectPlan = profile.cooperativeEffects === "closed-direct"
     ? createClosedCooperativeEffectPlan(source)
     : undefined;
+  const evidence = createTypeScriptOptimizationEvidence(
+    profile,
+    pointerFlowPlan,
+    scalarPlan,
+    effectPlan?.summary,
+  );
   const plans = new Map<SourceFile, SourceRewritePlan>();
   const failures: TypeScriptSourcePlanningFailure[] = [];
   for (const sourceFile of sourceFiles) {
@@ -119,17 +130,19 @@ export function prepareTypeScriptLowering(
   }
   return Object.freeze({
     kind: "ready",
-    transaction: createTransaction(plans, effectPlan),
+    transaction: createTransaction(plans, effectPlan, evidence),
   });
 }
 
 function createTransaction(
   plans: ReadonlyMap<SourceFile, SourceRewritePlan>,
   effectPlan: CooperativeEffectPlan | undefined,
+  evidence: TypeScriptOptimizationEvidence,
 ): TypeScriptLoweringTransaction {
   const consumed = new Set<SourceFile>();
   let finished = false;
   return Object.freeze({
+    evidence,
     lower(sourceFile: SourceFile): TypeScriptSourceLoweringResult {
       if (finished) {
         throw new Error("TypeScript lowering transaction is already sealed");

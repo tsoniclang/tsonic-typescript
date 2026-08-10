@@ -15,11 +15,13 @@ import {
   canonicalTypeScriptOptimizationProfile,
   type TypeScriptOptimizationProfile,
 } from "../lowering/profile.js";
+import type { TypeScriptOptimizationEvidence } from "../lowering/evidence.js";
 import {
   prepareTypeScriptLowering,
 } from "../lowering/transform.js";
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { createTypeScriptProjectArtifact } from "./project-artifact.js";
+import { createOptimizationEvidenceArtifact } from "./optimization-evidence-artifact.js";
 import {
   printEncodedTypeScriptSources,
   type EncodedTypeScriptSource,
@@ -34,7 +36,7 @@ export function createTypeScriptBackend(
     compile(input: TargetCompileInput): TargetCompileResult {
       try {
         const compiled = compileSourceArtifacts(input, printer, profile);
-        if (compiled.diagnostics.length > 0) {
+        if (compiled.kind === "rejected") {
           return {
             artifacts: [],
             diagnostics: compiled.diagnostics,
@@ -46,6 +48,7 @@ export function createTypeScriptBackend(
               input.runtimeReferences,
               compiled.usesRuntime,
             ),
+            createOptimizationEvidenceArtifact(compiled.evidence),
             ...compiled.artifacts,
           ]),
           diagnostics: [],
@@ -69,38 +72,27 @@ function compileSourceArtifacts(
   input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
   profile: TypeScriptOptimizationProfile,
-): {
-  readonly artifacts: readonly TargetArtifact[];
-  readonly diagnostics: TargetCompileResult["diagnostics"];
-  readonly usesRuntime: boolean;
-} {
+): CompiledSourceArtifacts {
   const prepared = prepareSourceArtifacts(input, profile);
-  if (prepared.diagnostics.length > 0) {
-    return Object.freeze({
-      artifacts: [],
-      diagnostics: prepared.diagnostics,
-      usesRuntime: false,
-    });
+  if (prepared.kind === "rejected") {
+    return prepared;
   }
   const artifacts = printEncodedTypeScriptSources(
     prepared.artifacts,
     printer,
   );
   return Object.freeze({
+    kind: "ready",
     artifacts,
-    diagnostics: [],
     usesRuntime: prepared.usesRuntime,
+    evidence: prepared.evidence,
   });
 }
 
 function prepareSourceArtifacts(
   input: TargetCompileInput,
   profile: TypeScriptOptimizationProfile,
-): {
-  readonly artifacts: readonly EncodedTypeScriptSource[];
-  readonly diagnostics: TargetCompileResult["diagnostics"];
-  readonly usesRuntime: boolean;
-} {
+): PreparedSourceArtifacts {
   const artifacts: EncodedTypeScriptSource[] = [];
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
   let usesRuntime = false;
@@ -130,9 +122,8 @@ function prepareSourceArtifacts(
   });
   if (diagnostics.length !== 0) {
     return Object.freeze({
-      artifacts: [],
+      kind: "rejected",
       diagnostics: Object.freeze(diagnostics),
-      usesRuntime: false,
     });
   }
   const preparation = prepareTypeScriptLowering(
@@ -142,14 +133,13 @@ function prepareSourceArtifacts(
   );
   if (preparation.kind === "rejected") {
     return Object.freeze({
-      artifacts: [],
+      kind: "rejected",
       diagnostics: Object.freeze(preparation.failures.map((failure) =>
         loweringDiagnostic(
           input.source.documents.forFile(failure.sourceFile).fileName,
           failure.message,
         )
       )),
-      usesRuntime: false,
     });
   }
   for (const selected of selectedSources) {
@@ -166,10 +156,34 @@ function prepareSourceArtifacts(
   }
   preparation.transaction.finish();
   return Object.freeze({
+    kind: "ready",
     artifacts: Object.freeze(artifacts),
-    diagnostics: Object.freeze(diagnostics),
     usesRuntime,
+    evidence: preparation.transaction.evidence,
   });
+}
+
+type CompiledSourceArtifacts =
+  | RejectedSourceArtifacts
+  | {
+      readonly kind: "ready";
+      readonly artifacts: readonly TargetArtifact[];
+      readonly usesRuntime: boolean;
+      readonly evidence: TypeScriptOptimizationEvidence;
+    };
+
+type PreparedSourceArtifacts =
+  | RejectedSourceArtifacts
+  | {
+      readonly kind: "ready";
+      readonly artifacts: readonly EncodedTypeScriptSource[];
+      readonly usesRuntime: boolean;
+      readonly evidence: TypeScriptOptimizationEvidence;
+    };
+
+interface RejectedSourceArtifacts {
+  readonly kind: "rejected";
+  readonly diagnostics: TargetCompileResult["diagnostics"];
 }
 
 function loweringDiagnostic(
