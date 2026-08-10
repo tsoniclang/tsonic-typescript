@@ -6,7 +6,6 @@ import type {
 } from "@tsonic/tsts";
 import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
-import { methodDispatchIsClosed } from "../member-dispatch.js";
 import { propagateEffectBlockers } from "./blocker-propagation.js";
 import {
   blockCooperativeEffect,
@@ -218,6 +217,19 @@ function isSupportedAsyncCallable(
     ? source.ast.as.AsFunctionExpression(node)
     : source.ast.as.AsArrowFunction(node);
   return parsed?.AsteriskToken === undefined && parsed?.FullSignature === undefined;
+}
+
+function methodDispatchIsClosed(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  if (source.ast.hasModifierKind(declaration, "static")) {
+    return true;
+  }
+  const dispatch = source.navigation.memberDispatch(declaration);
+  return dispatch !== undefined &&
+    !dispatch.overridesBase &&
+    !dispatch.hasDerivedOverride;
 }
 
 function collectCalls(
