@@ -63,6 +63,92 @@ export const result = await invoke();
   );
 });
 
+test("settles a closed callable field through an exact location", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+class Location<T> { constructor(public value: T) {} }
+class Slot {
+  private constructor(public callback: (() => Awaitable<number>) | undefined) {}
+  static make(callback: (() => Awaitable<number>) | undefined): Slot {
+    return new Slot(callback);
+  }
+  static zero(): Slot { return Slot.make(undefined); }
+  static copy(source: Slot): Slot { return Slot.make(source.callback); }
+}
+const slot = new Location(Slot.zero());
+slot.value.callback = async (): Promise<number> => 41;
+export async function invoke(): Promise<number> {
+  let callback: (() => Awaitable<number>) | undefined = slot.value.callback;
+  return (await callback!()) + 1;
+}
+export const result = await invoke();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 2);
+  assert.equal(result.awaitCount, 2);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+});
+
+test("settles a closed callable field across checked source files", () => {
+  const fixture = checkedEffectFixture(`
+import { type Awaitable, Location, Slot } from "./slot.js";
+const slot = new Location(Slot.zero());
+slot.value.callback = async (): Promise<number> => 41;
+export async function invoke(): Promise<number> {
+  let callback: (() => Awaitable<number>) | undefined = slot.value.callback;
+  return (await callback!()) + 1;
+}
+export const result = await invoke();
+`, {
+    "/src/slot.ts": `
+export type Awaitable<T> = T | PromiseLike<T>;
+export class Location<T> { constructor(public value: T) {} }
+export class Slot {
+  private constructor(public callback: (() => Awaitable<number>) | undefined) {}
+  static make(callback: (() => Awaitable<number>) | undefined): Slot {
+    return new Slot(callback);
+  }
+  static zero(): Slot { return Slot.make(undefined); }
+  static copy(source: Slot): Slot { return Slot.make(source.callback); }
+}
+`,
+  });
+
+  const storage = collectCallableStorageInputs(fixture.source, new Set());
+  assert.deepEqual(
+    [...storage.closed].map((node) => fixture.source.ast.text(
+      fixture.source.ast.name(node),
+    )).sort(),
+    ["callback", "callback", "callback"],
+  );
+  const plan = createFixtureEffectPlan(fixture.source);
+  const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+
+  assert.equal(
+    results.reduce((total, result) => total + result.callableCount, 0),
+    2,
+  );
+  assert.equal(
+    results.reduce((total, result) => total + result.awaitCount, 0),
+    2,
+  );
+  assert.equal(
+    results.reduce(
+      (total, result) =>
+        total + countAsyncCallables(fixture.source, result.sourceFile),
+      0,
+    ),
+    0,
+  );
+});
+
 test("settles a closed callable field through a mutable local", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;

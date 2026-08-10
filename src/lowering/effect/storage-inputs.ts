@@ -22,6 +22,7 @@ import {
   auditCallableLocalUse,
   collectCallableLocals,
 } from "./local-inputs.js";
+import { closeDependencyCandidates } from "./dependency-closure.js";
 import { typeMaySuspend } from "./synchronous.js";
 import { createCallableStorageContracts } from "./storage-contracts.js";
 import type { CallableStorageContract } from "./storage-contracts.js";
@@ -203,21 +204,10 @@ function closeStorageDeclarations(
   parameterDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
   storageDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
 ): Set<Node> {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const declaration of [...candidates]) {
-      const destinations = [
-        ...(parameterDestinations.get(declaration) ?? []),
-        ...(storageDestinations.get(declaration) ?? []),
-      ];
-      if (destinations.some((destination) => !candidates.has(destination))) {
-        candidates.delete(declaration);
-        changed = true;
-      }
-    }
-  }
-  return candidates;
+  return new Set(closeDependencyCandidates(
+    candidates,
+    [parameterDestinations, storageDestinations],
+  ));
 }
 
 function collectPrivateConstructorFields(
@@ -340,23 +330,17 @@ function closeParameters(
     parameters.keys(),
     new Set([...fields, ...locals]),
   );
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const parameter of [...closed]) {
-      if (
-        uses.invalid.has(parameter) ||
-        [...(uses.dependencies.get(parameter) ?? [])].some(
-          (dependency) =>
-            parameters.has(dependency) && !closed.has(dependency),
-        )
-      ) {
-        closed.delete(parameter);
-        changed = true;
-      }
-    }
+  for (const parameter of uses.invalid) {
+    closed.delete(parameter);
   }
-  return { declarations: closed, uses };
+  return {
+    declarations: closeDependencyCandidates(
+      closed,
+      [uses.dependencies],
+      (dependency) => parameters.has(dependency),
+    ),
+    uses,
+  };
 }
 
 function auditCallableOwnerReference(
