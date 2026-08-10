@@ -6,6 +6,10 @@ import type {
 } from "@tsonic/tsts";
 import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  optimizationOccurrence,
+  type SourceIdentityResolver,
+} from "../occurrence.js";
 import { propagateEffectBlockers } from "./blocker-propagation.js";
 import {
   blockCooperativeEffect,
@@ -57,7 +61,7 @@ export interface CooperativeEffectPlan {
 
 export function createClosedCooperativeEffectPlan(
   source: TargetSourceProgram,
-  sourceIdentityFor: (sourceFile: SourceFile) => string,
+  sourceIdentityFor: SourceIdentityResolver,
 ): CooperativeEffectPlan {
   const candidates = collectCandidates(source, sourceIdentityFor);
   const calls = collectCalls(source, candidates);
@@ -119,7 +123,7 @@ export function createClosedCooperativeEffectPlan(
 
 function collectCandidates(
   source: TargetSourceProgram,
-  sourceIdentityFor: (sourceFile: SourceFile) => string,
+  sourceIdentityFor: SourceIdentityResolver,
 ): Map<Node, MutableCallable> {
   const candidates = new Map<Node, MutableCallable>();
   forEachProgramNode(source, (node) => {
@@ -162,7 +166,7 @@ function collectCandidates(
     const candidate: MutableCallable = {
       declaration: node,
       sourceFile,
-      occurrence: fallbackOccurrence(source, node, sourceIdentityFor),
+      occurrence: optimizationOccurrence(source, node, sourceIdentityFor),
       innerType,
       dependencies: new Set(),
       directBlockers: new Set(),
@@ -171,26 +175,6 @@ function collectCandidates(
     candidates.set(node, candidate);
   });
   return candidates;
-}
-
-function fallbackOccurrence(
-  source: TargetSourceProgram,
-  node: Node,
-  sourceIdentityFor: (sourceFile: SourceFile) => string,
-): CooperativeEffectFallbackOccurrence {
-  const occurrence = source.documents.occurrenceFor(node);
-  return occurrence.kind === "authored"
-    ? Object.freeze({
-        kind: "authored",
-        documentIdentity: sourceIdentityFor(occurrence.document.sourceFile),
-        start: occurrence.start,
-        end: occurrence.end,
-        syntaxKind: occurrence.syntaxKind,
-      })
-    : Object.freeze({
-        kind: "synthetic",
-        syntaxKind: occurrence.syntaxKind,
-      });
 }
 
 function isSupportedAsyncCallable(

@@ -5,12 +5,10 @@ import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import {
-  createClosedPointerFlowPlan,
-  type PointerFlowRepresentation,
-} from "./flow-plan.js";
+import type { PointerFlowRepresentation } from "./flow-plan.js";
 import {
   checkedPointerFixture,
+  createFixturePointerFlowPlan as createClosedPointerFlowPlan,
   visit,
 } from "./pointer.test-support.js";
 

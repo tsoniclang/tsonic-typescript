@@ -1,4 +1,5 @@
 import type { PointerFlowBlocker } from "./pointer/flow-graph.js";
+import type { OptimizationOccurrence } from "./occurrence.js";
 import type {
   ClosedPointerFlowPlan,
   PointerFlowRepresentation,
@@ -15,9 +16,10 @@ export interface OptimizationCount<Value extends string> {
   readonly count: number;
 }
 
-export interface OptimizationReasonCount<Reason extends string> {
+export interface OptimizationReasonEvidence<Reason extends string> {
   readonly reason: Reason;
   readonly count: number;
+  readonly examples: readonly OptimizationOccurrence[];
 }
 
 export interface OptimizationPropagatedReasonCount<Reason extends string> {
@@ -39,7 +41,7 @@ export type PointerOptimizationEvidence =
       readonly optimizedComponentCount: number;
       readonly optimizedFamilyCount: number;
       readonly representations: readonly OptimizationCount<PointerFlowRepresentation>[];
-      readonly fallbackReasons: readonly OptimizationReasonCount<PointerFlowBlocker>[];
+      readonly fallbackReasons: readonly OptimizationReasonEvidence<PointerFlowBlocker>[];
     };
 
 export interface ScalarOptimizationEvidence {
@@ -70,7 +72,7 @@ export type CooperativeEffectOptimizationEvidence =
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly pointer: PointerOptimizationEvidence;
   readonly scalar: ScalarOptimizationEvidence;
   readonly cooperativeEffects: CooperativeEffectOptimizationEvidence;
@@ -83,7 +85,7 @@ export function createTypeScriptOptimizationEvidence(
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     pointer: pointerEvidence(profile, pointerPlan),
     scalar: Object.freeze({
       profile: profile.scalarProjections,
@@ -117,9 +119,7 @@ function pointerEvidence(
     representations: countValues(
       plan.components.map((component) => component.representation),
     ),
-    fallbackReasons: countReasons(
-      plan.components.flatMap((component) => component.blockers),
-    ),
+    fallbackReasons: plan.fallbackReasons,
   });
 }
 
@@ -163,12 +163,6 @@ function countValues<Value extends string>(
   values: readonly Value[],
 ): readonly OptimizationCount<Value>[] {
   return counted(values).map(([value, count]) => Object.freeze({ value, count }));
-}
-
-function countReasons<Reason extends string>(
-  reasons: readonly Reason[],
-): readonly OptimizationReasonCount<Reason>[] {
-  return counted(reasons).map(([reason, count]) => Object.freeze({ reason, count }));
 }
 
 function counted<Value extends string>(

@@ -7,10 +7,10 @@ import type {
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { createClosedPointerFlowPlan } from "./flow-plan.js";
 import {
   checkedPointerFixture,
   countCallsNamed,
+  createFixturePointerFlowPlan as createClosedPointerFlowPlan,
   visit,
 } from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";

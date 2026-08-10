@@ -1,4 +1,8 @@
 import type { EffectPropagationEvidence } from "./blocker-propagation.js";
+import {
+  compareOptimizationOccurrences,
+  type OptimizationOccurrence,
+} from "../occurrence.js";
 
 export const cooperativeEffectFallbackReasons = Object.freeze([
   "escaping-callable",
@@ -18,18 +22,7 @@ export interface CooperativeEffectFallbackEvidence {
   readonly directExamples: readonly CooperativeEffectFallbackOccurrence[];
 }
 
-export type CooperativeEffectFallbackOccurrence =
-  | {
-      readonly kind: "authored";
-      readonly documentIdentity: string;
-      readonly start: number;
-      readonly end: number;
-      readonly syntaxKind: string;
-    }
-  | {
-      readonly kind: "synthetic";
-      readonly syntaxKind: string;
-    };
+export type CooperativeEffectFallbackOccurrence = OptimizationOccurrence;
 
 export interface CooperativeEffectPlanSummary {
   readonly candidateCount: number;
@@ -92,7 +85,7 @@ export function summarizeCooperativeEffects(
           retainedCallableCount,
           directExamples: Object.freeze(
             [...directExamples.get(reason) ?? []]
-              .sort(compareOccurrence)
+              .sort(compareOptimizationOccurrences)
               .slice(0, 8),
           ),
         })];
@@ -105,19 +98,4 @@ export function summarizeCooperativeEffects(
     fallbackReasons: Object.freeze(fallbackReasons),
     propagation,
   });
-}
-
-function compareOccurrence(
-  left: CooperativeEffectFallbackOccurrence,
-  right: CooperativeEffectFallbackOccurrence,
-): number {
-  const leftKey = occurrenceKey(left);
-  const rightKey = occurrenceKey(right);
-  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
-}
-
-function occurrenceKey(occurrence: CooperativeEffectFallbackOccurrence): string {
-  return occurrence.kind === "authored"
-    ? `${occurrence.documentIdentity}\0${String(occurrence.start).padStart(12, "0")}\0${String(occurrence.end).padStart(12, "0")}\0${occurrence.syntaxKind}`
-    : `\uffff\0${occurrence.syntaxKind}`;
 }

@@ -83,8 +83,8 @@ complete fallback for open, escaping, potentially nil, identity-observed,
 unsafe, indirect, or otherwise unproved flows.
 
 The target optimization `optimizations.pointerFlows: "closed-direct"` lets the
-backend create one whole-program plan with
-`createClosedPointerFlowPlan(source)` and supply that plan while lowering every
+backend create one whole-program plan from the checked source and its stable
+target-relative document identities, then supply that plan while lowering every
 source file. Lowering does not read configuration; omitting the plan always
 selects canonical `Location<T>`.
 

@@ -31,6 +31,11 @@ import {
 import { createTargetSourceProgram } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import {
+  createClosedPointerFlowPlan,
+  type ClosedPointerFlowPlan,
+} from "./flow-plan.js";
+
 export const pointerMarkerModule = "./markers.js";
 
 const pointerMarkerSemantics = [{
@@ -82,6 +87,15 @@ export function checkedPointerFixture(
     sourceText,
     additionalFiles,
     createSourceSemanticsExtension({ modules: pointerMarkerSemantics }),
+  );
+}
+
+export function createFixturePointerFlowPlan(
+  source: TargetSourceProgram,
+): ClosedPointerFlowPlan {
+  return createClosedPointerFlowPlan(
+    source,
+    (sourceFile) => source.documents.forFile(sourceFile).identity,
   );
 }
 

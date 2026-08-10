@@ -17,11 +17,11 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { createClosedPointerFlowPlan } from "./flow-plan.js";
 import {
   checkedPointerFixture,
   checkedPointerFixtureWithValueSemantics,
   countCallsNamed,
+  createFixturePointerFlowPlan as createClosedPointerFlowPlan,
   importModules,
   variableDeclarationNamed,
   visit,

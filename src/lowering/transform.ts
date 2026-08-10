@@ -81,7 +81,7 @@ export function prepareTypeScriptLowering(
 ): TypeScriptLoweringPreparation {
   assertExactSourceMembership(source, sourceFiles);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
-    ? createClosedPointerFlowPlan(source)
+    ? createClosedPointerFlowPlan(source, sourceIdentityFor)
     : undefined;
   const scalarPlan = createScalarRepresentationPlan(
     source,

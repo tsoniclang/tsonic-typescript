@@ -7,6 +7,12 @@ import type {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
+  compareOptimizationOccurrences,
+  optimizationOccurrence,
+  type OptimizationOccurrence,
+  type SourceIdentityResolver,
+} from "../occurrence.js";
+import {
   censusPointerFlows,
   collectPointerFlowNodes,
 } from "./flow-census.js";
@@ -33,12 +39,19 @@ export interface PointerFlowComponentSummary {
   readonly blockers: readonly PointerFlowBlocker[];
 }
 
+export interface PointerFlowFallbackEvidence {
+  readonly reason: PointerFlowBlocker;
+  readonly count: number;
+  readonly examples: readonly OptimizationOccurrence[];
+}
+
 export interface ClosedPointerFlowPlan {
   owns(source: TargetSourceProgram): boolean;
   representationFor(node: Node | undefined): PointerFlowRepresentation;
   readonly components: readonly PointerFlowComponentSummary[];
   readonly optimizedComponentCount: number;
   readonly optimizedFamilyCount: number;
+  readonly fallbackReasons: readonly PointerFlowFallbackEvidence[];
 }
 
 interface PointerFlowDecision {
@@ -48,6 +61,7 @@ interface PointerFlowDecision {
 
 export function createClosedPointerFlowPlan(
   source: TargetSourceProgram,
+  sourceIdentityFor: SourceIdentityResolver,
 ): ClosedPointerFlowPlan {
   const nodes = collectPointerFlowNodes(source);
   const components = censusPointerFlows(source, nodes);
@@ -60,6 +74,10 @@ export function createClosedPointerFlowPlan(
     familyPlan.representations,
   );
   const summaries: PointerFlowComponentSummary[] = [];
+  const fallbackReasons = new Map<
+    PointerFlowBlocker,
+    { count: number; examples: OptimizationOccurrence[] }
+  >();
   let optimizedComponentCount = 0;
   for (const component of components) {
     const decision = selectRepresentation(source, component);
@@ -83,6 +101,13 @@ export function createClosedPointerFlowPlan(
       pointerTypeCount: component.pointerTypes.length,
       blockers: decision.blockers,
     }));
+    appendFallbackEvidence(
+      source,
+      sourceIdentityFor,
+      component,
+      decision.blockers,
+      fallbackReasons,
+    );
   }
   const frozenSummaries = Object.freeze(summaries);
   return Object.freeze({
@@ -97,7 +122,59 @@ export function createClosedPointerFlowPlan(
     components: frozenSummaries,
     optimizedComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
+    fallbackReasons: sealFallbackEvidence(fallbackReasons),
   });
+}
+
+function appendFallbackEvidence(
+  source: TargetSourceProgram,
+  sourceIdentityFor: SourceIdentityResolver,
+  component: PointerFlowComponent,
+  blockers: readonly PointerFlowBlocker[],
+  fallback: Map<
+    PointerFlowBlocker,
+    { count: number; examples: OptimizationOccurrence[] }
+  >,
+): void {
+  if (blockers.length === 0) {
+    return;
+  }
+  const example = component.vertices
+    .map((vertex) =>
+      optimizationOccurrence(source, vertex.node, sourceIdentityFor)
+    )
+    .sort(compareOptimizationOccurrences)[0];
+  if (example === undefined) {
+    throw new Error("pointer flow component has no source occurrence");
+  }
+  for (const blocker of blockers) {
+    const existing = fallback.get(blocker);
+    if (existing === undefined) {
+      fallback.set(blocker, { count: 1, examples: [example] });
+    } else {
+      existing.count += 1;
+      existing.examples.push(example);
+    }
+  }
+}
+
+function sealFallbackEvidence(
+  fallback: ReadonlyMap<
+    PointerFlowBlocker,
+    { readonly count: number; readonly examples: OptimizationOccurrence[] }
+  >,
+): readonly PointerFlowFallbackEvidence[] {
+  return Object.freeze([...fallback]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([reason, evidence]) => Object.freeze({
+      reason,
+      count: evidence.count,
+      examples: Object.freeze(
+        [...evidence.examples]
+          .sort(compareOptimizationOccurrences)
+          .slice(0, 8),
+      ),
+    })));
 }
 
 function selectRepresentation(
