@@ -4,6 +4,7 @@ import type {
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { methodDispatchIsClosed } from "../member-dispatch.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type {
   PointerFlowGraph,
@@ -215,17 +216,16 @@ export function isOptimizableFunctionDeclaration(
   const functionDeclaration = source.ast.is.IsFunctionDeclaration(owner)
     ? source.ast.as.AsFunctionDeclaration(owner)
     : undefined;
-  const staticMethod = source.ast.is.IsMethodDeclaration(owner) &&
-      source.ast.hasModifierKind(owner, "static")
+  const closedMethod = methodDispatchIsClosed(source, owner)
     ? source.ast.as.AsMethodDeclaration(owner)
     : undefined;
   if (
-    (functionDeclaration === undefined && staticMethod === undefined) ||
+    (functionDeclaration === undefined && closedMethod === undefined) ||
     source.ast.body(owner) === undefined
   ) {
     return false;
   }
-  const declaration = functionDeclaration ?? staticMethod;
+  const declaration = functionDeclaration ?? closedMethod;
   if (declaration?.AsteriskToken !== undefined) {
     return false;
   }
