@@ -15,7 +15,10 @@ import {
   summarizeCooperativeEffects,
 } from "./fallback.js";
 import { createCooperativeEffectPlanLifecycle } from "./lifecycle.js";
-import { expressionIsDefinitelyNonThenable } from "./return-value.js";
+import {
+  createReturnValueFlow,
+  type ReturnValueFlow,
+} from "./return-value.js";
 import {
   containingAwait,
   containingReturn,
@@ -67,7 +70,8 @@ export function createClosedCooperativeEffectPlan(
     source,
     new Set(candidates.keys()),
   );
-  classifyProgramEvidence(source, candidates, calls, valueFlow);
+  const returnFlow = createReturnValueFlow(source);
+  classifyProgramEvidence(source, candidates, calls, valueFlow, returnFlow);
   classifyCallUses(source, candidates, calls, valueFlow);
   const propagation = propagateEffectBlockers(candidates.values());
   const optimized = new Set(
@@ -281,6 +285,7 @@ function classifyReturnDependencies(
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
   valueFlow: CallableValueFlow,
+  returnFlow: ReturnValueFlow,
   node: Node,
 ): void {
   if (!source.ast.is.IsReturnStatement(node)) {
@@ -319,7 +324,7 @@ function classifyReturnDependencies(
       return;
     }
   }
-  if (!expressionIsDefinitelyNonThenable(source, expression)) {
+  if (!returnFlow.isDefinitelyNonThenable(expression)) {
     blockCooperativeEffect(owner, "promise-producing-return", expression);
   }
 }
@@ -377,11 +382,19 @@ function classifyProgramEvidence(
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
   valueFlow: CallableValueFlow,
+  returnFlow: ReturnValueFlow,
 ): void {
   const tracked = indexCandidateSymbols(source, candidates.values());
   forEachProgramNode(source, (node) => {
     classifyAwaitDependencies(source, candidates, calls, valueFlow, node);
-    classifyReturnDependencies(source, candidates, calls, valueFlow, node);
+    classifyReturnDependencies(
+      source,
+      candidates,
+      calls,
+      valueFlow,
+      returnFlow,
+      node,
+    );
     if (!source.ast.is.IsIdentifier(node)) {
       return;
     }

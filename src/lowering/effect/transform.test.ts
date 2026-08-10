@@ -132,6 +132,72 @@ export const result = await aggregate();
   );
 });
 
+test("settles an exact local return accumulator", () => {
+  const fixture = checkedEffectFixture(`
+async function leaf(): Promise<number> { return 41; }
+async function aggregate(selected: boolean): Promise<[number, undefined]> {
+  let result: [number, undefined] = [0, undefined];
+  if (selected) result = [await leaf(), undefined];
+  result = result;
+  return result;
+}
+export const result = await aggregate(true);
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 2);
+  assert.equal(result.awaitCount, 2);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
+test("preserves a local return value exposed to an unknown call", () => {
+  const fixture = checkedEffectFixture(`
+interface Result { readonly value: number }
+declare function expose(value: Result): void;
+async function value(): Promise<Result> {
+  const result: Result = { value: 42 };
+  expose(result);
+  return result;
+}
+export const result = await value();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(result.awaitCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
+test("preserves a local return value produced by an open call", () => {
+  const fixture = checkedEffectFixture(`
+interface Result { readonly value: number }
+declare function produce(): Result;
+async function value(): Promise<Result> {
+  const result = produce();
+  return result;
+}
+export const result = await value();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(result.awaitCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
 test("preserves aggregate returns whose construction may provide then", () => {
   const fixture = checkedEffectFixture(`
 const base = { value: 41 };
