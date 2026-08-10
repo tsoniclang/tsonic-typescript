@@ -51,10 +51,14 @@ not invoked and no artifact is published.
 
 `optimizations.cooperativeEffects: "closed-direct"` removes cooperative
 `Promise` transport only from a complete, exact call component with no
-provider, indirect-call, escaping-callable, promise-forwarding, or unresolved
-boundary. The plan resolves calls through checked signatures, settles
-recursive components together, and rewrites each selected declaration,
-return contract, and dependent `await` in one transaction. For example,
+provider, escaping-callable, promise-forwarding, thenable, or unresolved
+boundary. In addition to direct calls, the plan can close an indirect call
+through a readonly constructor property only when every construction, stored
+callable producer, and property use is exact and non-escaping. Spread
+construction, inheritance, property extraction, or one suspending producer
+preserves the entire family. The plan resolves calls through checked
+signatures, settles recursive components together, and rewrites each selected
+declaration, return contract, and dependent `await` in one transaction. For example,
 `async function answer(): Promise<number> { return 42 }` becomes
 `function answer(): number { return 42 }`, and an exact `await answer()` use
 becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`

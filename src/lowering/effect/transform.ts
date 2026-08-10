@@ -4,9 +4,13 @@ import type {
 } from "@tsonic/tsts";
 import {
   AsAwaitExpression,
+  AsArrowFunction,
   AsFunctionDeclaration,
+  AsFunctionExpression,
   AsMethodDeclaration,
+  NodeFactory_UpdateArrowFunction,
   NodeFactory_UpdateFunctionDeclaration,
+  NodeFactory_UpdateFunctionExpression,
   NodeFactory_UpdateMethodDeclaration,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
@@ -135,6 +139,35 @@ function settleCallable(
       innerTypeNode,
       method.FullSignature,
       method.Body,
+    ));
+  }
+  const arrow = AsArrowFunction(updated);
+  if (arrow !== undefined) {
+    return requiredNode(NodeFactory_UpdateArrowFunction(
+      factory,
+      arrow,
+      arrow.modifiers,
+      arrow.TypeParameters,
+      arrow.Parameters,
+      innerTypeNode,
+      arrow.FullSignature,
+      arrow.EqualsGreaterThanToken,
+      arrow.Body,
+    ));
+  }
+  const expression = AsFunctionExpression(updated);
+  if (expression !== undefined) {
+    return requiredNode(NodeFactory_UpdateFunctionExpression(
+      factory,
+      expression,
+      expression.modifiers,
+      expression.AsteriskToken,
+      expression.name,
+      expression.TypeParameters,
+      expression.Parameters,
+      innerTypeNode,
+      expression.FullSignature,
+      expression.Body,
     ));
   }
   throw new Error("planned cooperative callable changed declaration kind");

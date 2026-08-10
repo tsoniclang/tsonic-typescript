@@ -145,7 +145,7 @@ export function directContainingCall(
     if (
       source.ast.is.IsPropertyAccessExpression(parent) ||
       source.ast.is.IsElementAccessExpression(parent) ||
-      source.ast.is.IsParenthesizedExpression(parent)
+      isTransparentExpression(source, parent, current)
     ) {
       current = parent;
       continue;

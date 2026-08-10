@@ -19,6 +19,10 @@ import {
   isFunctionLike,
   isModuleForwardingReference,
 } from "./syntax.js";
+import {
+  createCallableValueFlow,
+  type CallableValueFlow,
+} from "./value-flow.js";
 
 interface MutableCallable {
   readonly declaration: Node;
@@ -45,15 +49,25 @@ export function createClosedCooperativeEffectPlan(
 ): CooperativeEffectPlan {
   const candidates = collectCandidates(source);
   const calls = collectCalls(source, candidates);
-  classifyProgramEvidence(source, candidates, calls);
-  classifyCallUses(source, candidates, calls);
+  const valueFlow = createCallableValueFlow(
+    source,
+    new Set(candidates.keys()),
+  );
+  classifyProgramEvidence(source, candidates, calls, valueFlow);
+  classifyCallUses(source, candidates, calls, valueFlow);
   propagateEffectBlockers(candidates.values());
   const optimized = new Set(
     [...candidates.values()]
       .filter((candidate) => !candidate.blocked)
       .map((candidate) => candidate.declaration),
   );
-  const awaits = collectSettledAwaits(source, calls, optimized);
+  const awaits = collectSettledAwaits(
+    source,
+    candidates,
+    calls,
+    valueFlow,
+    optimized,
+  );
   const files = new Map<SourceFile, CooperativeEffectFilePlan>();
   for (const sourceFile of source.navigation.sourceFiles) {
     files.set(sourceFile, Object.freeze({
@@ -94,14 +108,15 @@ function collectCandidates(
       return;
     }
     const typeNode = source.ast.typeNode(node);
-    const typeArguments = source.ast.typeArguments(typeNode);
-    const innerTypeNode = typeArguments[0];
     if (
       typeNode === undefined ||
-      !source.ast.is.IsTypeReferenceNode(typeNode) ||
-      typeArguments.length !== 1 ||
-      innerTypeNode === undefined
+      !source.ast.is.IsTypeReferenceNode(typeNode)
     ) {
+      return;
+    }
+    const typeArguments = source.ast.typeArguments(typeNode);
+    const innerTypeNode = typeArguments[0];
+    if (typeArguments.length !== 1 || innerTypeNode === undefined) {
       return;
     }
     const semantics = source.semantics.forNode(node);
@@ -143,8 +158,10 @@ function isSupportedAsyncCallable(
   const functionDeclaration = source.ast.is.IsFunctionDeclaration(node);
   const staticMethod = source.ast.is.IsMethodDeclaration(node) &&
     source.ast.hasModifierKind(node, "static");
+  const functionExpression = source.ast.is.IsFunctionExpression(node);
+  const arrowFunction = source.ast.is.IsArrowFunction(node);
   if (
-    (!functionDeclaration && !staticMethod) ||
+    (!functionDeclaration && !staticMethod && !functionExpression && !arrowFunction) ||
     !source.ast.hasModifierKind(node, "async") ||
     source.ast.body(node) === undefined
   ) {
@@ -152,7 +169,11 @@ function isSupportedAsyncCallable(
   }
   const parsed = functionDeclaration
     ? source.ast.as.AsFunctionDeclaration(node)
-    : source.ast.as.AsMethodDeclaration(node);
+    : staticMethod
+    ? source.ast.as.AsMethodDeclaration(node)
+    : functionExpression
+    ? source.ast.as.AsFunctionExpression(node)
+    : source.ast.as.AsArrowFunction(node);
   return parsed?.AsteriskToken === undefined && parsed?.FullSignature === undefined;
 }
 
@@ -182,6 +203,7 @@ function classifyAwaitDependencies(
   source: TargetSourceProgram,
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
+  valueFlow: CallableValueFlow,
   node: Node,
 ): void {
   if (!source.ast.is.IsAwaitExpression(node)) {
@@ -194,17 +216,30 @@ function classifyAwaitDependencies(
   const expression = source.ast.as.AsAwaitExpression(node)?.Expression;
   const call = exactCallExpression(source, expression);
   const dependency = call === undefined ? undefined : calls.get(call);
-  if (dependency === undefined) {
+  if (dependency !== undefined) {
+    owner.dependencies.add(dependency);
+    return;
+  }
+  const resolution = valueFlow.resolutionFor(call);
+  if (resolution === undefined || !resolution.closed) {
     owner.blocked = true;
     return;
   }
-  owner.dependencies.add(dependency);
+  for (const declaration of resolution.dependencies) {
+    const candidate = candidates.get(declaration);
+    if (candidate === undefined) {
+      owner.blocked = true;
+      return;
+    }
+    owner.dependencies.add(candidate);
+  }
 }
 
 function classifyReturnDependencies(
   source: TargetSourceProgram,
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
+  valueFlow: CallableValueFlow,
   node: Node,
 ): void {
   if (!source.ast.is.IsReturnStatement(node)) {
@@ -234,6 +269,20 @@ function classifyReturnDependencies(
     );
     return;
   }
+  if (returnedCall !== undefined) {
+    const resolution = valueFlow.resolutionFor(returnedCall);
+    if (resolution !== undefined && resolution.closed) {
+      for (const declaration of resolution.dependencies) {
+        const candidate = candidates.get(declaration);
+        if (candidate === undefined) {
+          owner.blocked = true;
+          return;
+        }
+        owner.dependencies.add(candidate);
+      }
+      return;
+    }
+  }
   owner.blocked ||= !expressionFitsInnerType(source, expression, owner.innerType);
 }
 
@@ -241,6 +290,7 @@ function classifyCallUses(
   source: TargetSourceProgram,
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
+  valueFlow: CallableValueFlow,
 ): void {
   for (const [call, candidate] of calls) {
     if (
@@ -257,17 +307,43 @@ function classifyCallUses(
     }
     candidate.blocked = true;
   }
+  for (const { call, resolution } of valueFlow.calls) {
+    if (calls.has(call) || resolution.dependencies.length === 0) {
+      continue;
+    }
+    if (
+      resolution.closed &&
+      containingAwait(source, call) !== undefined
+    ) {
+      continue;
+    }
+    const owner = enclosingCandidate(source, candidates, call);
+    if (
+      resolution.closed &&
+      owner !== undefined &&
+      containingReturn(source, call) !== undefined
+    ) {
+      continue;
+    }
+    for (const declaration of resolution.dependencies) {
+      const candidate = candidates.get(declaration);
+      if (candidate !== undefined) {
+        candidate.blocked = true;
+      }
+    }
+  }
 }
 
 function classifyProgramEvidence(
   source: TargetSourceProgram,
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
+  valueFlow: CallableValueFlow,
 ): void {
   const tracked = indexCandidateSymbols(source, candidates.values());
   forEachProgramNode(source, (node) => {
-    classifyAwaitDependencies(source, candidates, calls, node);
-    classifyReturnDependencies(source, candidates, calls, node);
+    classifyAwaitDependencies(source, candidates, calls, valueFlow, node);
+    classifyReturnDependencies(source, candidates, calls, valueFlow, node);
     if (!source.ast.is.IsIdentifier(node)) {
       return;
     }
@@ -275,7 +351,8 @@ function classifyProgramEvidence(
     if (
       candidate === undefined ||
       node === source.ast.name(candidate.declaration) ||
-      isModuleForwardingReference(source, node)
+      isModuleForwardingReference(source, node) ||
+      valueFlow.allowsCandidateReference(node)
     ) {
       return;
     }
@@ -284,6 +361,16 @@ function classifyProgramEvidence(
       candidate.blocked = true;
     }
   });
+  for (const candidate of candidates.values()) {
+    if (
+      (source.ast.is.IsArrowFunction(candidate.declaration) ||
+        source.ast.is.IsFunctionExpression(candidate.declaration)) &&
+      !valueFlow.allowsCandidateReference(candidate.declaration) &&
+      directContainingCall(source, candidate.declaration) === undefined
+    ) {
+      candidate.blocked = true;
+    }
+  }
 }
 
 function indexCandidateSymbols(
@@ -340,19 +427,40 @@ function exactSymbolsAt(
 
 function collectSettledAwaits(
   source: TargetSourceProgram,
+  candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
+  valueFlow: CallableValueFlow,
   optimized: ReadonlySet<Node>,
 ): ReadonlySet<Node> {
   const awaits = new Set<Node>();
-  for (const [call, candidate] of calls) {
-    if (!optimized.has(candidate.declaration)) {
-      continue;
+  forEachProgramNode(source, (node) => {
+    if (!source.ast.is.IsAwaitExpression(node)) {
+      return;
     }
-    const awaitExpression = containingAwait(source, call);
-    if (awaitExpression !== undefined) {
-      awaits.add(awaitExpression);
+    const call = exactCallExpression(
+      source,
+      source.ast.as.AsAwaitExpression(node)?.Expression,
+    );
+    if (call === undefined) {
+      return;
     }
-  }
+    const direct = calls.get(call);
+    const resolution = direct === undefined
+      ? valueFlow.resolutionFor(call)
+      : undefined;
+    const dependencies = direct === undefined
+      ? resolution?.dependencies ?? []
+      : [direct.declaration];
+    if (
+      (direct === undefined && (resolution === undefined || !resolution.closed)) ||
+      dependencies.some((declaration) =>
+        candidates.has(declaration) && !optimized.has(declaration)
+      )
+    ) {
+      return;
+    }
+    awaits.add(node);
+  });
   return awaits;
 }
 

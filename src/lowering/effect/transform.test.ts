@@ -183,3 +183,167 @@ export const result = await value();
 
   assert.ok(queries < 8, `expected bounded source-reference queries, got ${queries}`);
 });
+
+test("settles every concrete producer of a readonly callable wrapper", () => {
+  const fixture = checkedEffectFixture(`
+class Callback {
+  constructor(readonly value: (() => number | Promise<number>) | undefined) {}
+}
+async function base(): Promise<number> { return 40; }
+const callback = new Callback(async (): Promise<number> => (await base()) + 1);
+async function invoke(): Promise<number> { return (await callback.value!()) + 1; }
+export const result = await invoke();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 3);
+  assert.equal(result.awaitCount, 3);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
+test("keeps a callable-wrapper family canonical when one producer may suspend", () => {
+  const fixture = checkedEffectFixture(`
+declare function remote(): Promise<number>;
+class Callback {
+  constructor(readonly value: (() => number | Promise<number>) | undefined) {}
+}
+const callback = new Callback(async (): Promise<number> => await remote());
+async function invoke(): Promise<number> { return await callback.value!(); }
+export const result = await invoke();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+});
+
+test("rejects a callable wrapper whose constructor escapes the closed program", () => {
+  const fixture = checkedEffectFixture(`
+class Callback {
+  constructor(readonly value: (() => number | Promise<number>) | undefined) {}
+}
+const Constructor = Callback;
+const callback = new Constructor(async (): Promise<number> => 42);
+async function invoke(): Promise<number> { return await callback.value!(); }
+export const result = await invoke();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+});
+
+test("rejects a callable wrapper whose stored callable escapes", () => {
+  const fixture = checkedEffectFixture(`
+class Callback {
+  constructor(readonly value: (() => number | Promise<number>) | undefined) {}
+}
+const callback = new Callback(async (): Promise<number> => 42);
+export const escaped = callback.value;
+async function invoke(): Promise<number> { return await callback.value!(); }
+export const result = await invoke();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+});
+
+test("rejects spread construction and runtime class inheritance", () => {
+  for (const sourceText of [
+    `
+class Callback {
+  constructor(readonly value: (() => number | Promise<number>) | undefined) {}
+}
+const values: [() => Promise<number>] = [async () => 42];
+const callback = new Callback(...values);
+async function invoke(): Promise<number> { return await callback.value!(); }
+export const result = await invoke();
+`,
+    `
+class Callback {
+  constructor(readonly value: (() => number | Promise<number>) | undefined) {}
+}
+class Derived extends Callback {}
+const callback = new Callback(async (): Promise<number> => 42);
+async function invoke(): Promise<number> { return await callback.value!(); }
+export const result = await invoke();
+`,
+  ]) {
+    const fixture = checkedEffectFixture(sourceText);
+    const plan = createClosedCooperativeEffectPlan(fixture.source);
+    const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+    plan.finish();
+
+    assert.equal(result.callableCount, 0);
+    assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+  }
+});
+
+test("keeps an await of a synchronous promise-returning declaration", () => {
+  const fixture = checkedEffectFixture(`
+function remote(): Promise<number> { return Promise.resolve(42); }
+async function invoke(): Promise<number> { return await remote(); }
+export const result = await invoke();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(result.awaitCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
+test("keeps a callable producer used by a discarded indirect call", () => {
+  const fixture = checkedEffectFixture(`
+class Callback {
+  constructor(readonly value: (() => void | Promise<void>) | undefined) {}
+}
+const callback = new Callback(async (): Promise<void> => { throw new Error("boom"); });
+export function discard(): void { callback.value!(); }
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
+test("settles an indirect call with a proven synchronous producer", () => {
+  const fixture = checkedEffectFixture(`
+class Callback {
+  constructor(readonly value: (() => number | Promise<number>) | undefined) {}
+}
+const callback = new Callback((): number => 42);
+async function invoke(): Promise<number> { return await callback.value!(); }
+export const result = await invoke();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 1);
+  assert.equal(result.awaitCount, 2);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+});
