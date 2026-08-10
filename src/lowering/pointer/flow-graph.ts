@@ -103,28 +103,6 @@ export class PointerFlowGraph {
     }
   }
 
-  nodesInBlockedComponents(): ReadonlySet<Node> {
-    const blockedRoots = new Set<PointerFlowVertex>();
-    for (const vertex of this.#vertices.values()) {
-      if (vertex.blockerOccurrences.size !== 0) {
-        blockedRoots.add(this.root(vertex));
-      }
-    }
-    return new Set(
-      [...this.#vertices.values()]
-        .filter((vertex) => blockedRoots.has(this.root(vertex)))
-        .map((vertex) => vertex.node),
-    );
-  }
-
-  connected(
-    left: PointerFlowVertex | undefined,
-    right: PointerFlowVertex | undefined,
-  ): boolean {
-    return left !== undefined && right !== undefined &&
-      this.root(left) === this.root(right);
-  }
-
   components(): readonly PointerFlowComponent[] {
     const groups = new Map<PointerFlowVertex, PointerFlowVertex[]>();
     for (const vertex of this.#vertices.values()) {
