@@ -1,0 +1,61 @@
+import type { Node, Type } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api";
+
+import { isFunctionLike } from "./syntax.js";
+
+export function projectConstructionIsDefinitelyNonThenable(
+  source: TargetSourceProgram,
+  expression: Node,
+  type: Type,
+): boolean {
+  const semantics = source.semantics.forNode(expression);
+  if (semantics.couldContainTypeVariables(type)) {
+    return false;
+  }
+  const signature = semantics.getResolvedSignature(expression);
+  const constructor = semantics.getSignatureDeclaration(signature);
+  if (
+    constructor === undefined ||
+    !source.ast.is.IsConstructorDeclaration(constructor) ||
+    source.ast.body(constructor) === undefined
+  ) {
+    return false;
+  }
+  const classDeclaration = source.ast.parent(constructor);
+  return classDeclaration !== undefined &&
+    source.ast.is.IsClassDeclaration(classDeclaration) &&
+    source.ast.extendsHeritageElements(classDeclaration).length === 0 &&
+    !constructorReturnsObject(source, constructor);
+}
+
+function constructorReturnsObject(
+  source: TargetSourceProgram,
+  constructor: Node,
+): boolean {
+  const body = source.ast.body(constructor);
+  if (body === undefined) {
+    return true;
+  }
+  const pending = [body];
+  while (pending.length !== 0) {
+    const node = pending.pop();
+    if (node === undefined) {
+      continue;
+    }
+    if (node !== body && isFunctionLike(source, node)) {
+      continue;
+    }
+    if (
+      source.ast.is.IsReturnStatement(node) &&
+      source.ast.as.AsReturnStatement(node)?.Expression !== undefined
+    ) {
+      return true;
+    }
+    for (const child of source.ast.children(node)) {
+      if (child !== undefined) {
+        pending.push(child);
+      }
+    }
+  }
+  return false;
+}
