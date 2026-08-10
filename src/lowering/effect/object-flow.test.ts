@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { Node } from "@tsonic/tsts";
+
 import {
   countAsyncCallables,
   countNodes,
   checkedEffectFixture,
   createFixtureEffectPlan,
 } from "./effect.test-support.js";
+import { collectCallableObjectInputs } from "./object-inputs.js";
 import { lowerCooperativeEffects } from "./transform.js";
 
 test("settles a closed callable field through an exact factory", () => {
@@ -133,4 +136,41 @@ export const result = await invoke();
 
   assert.equal(result.callableCount, 0);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+});
+
+test("indexes callable parameter uses with bounded whole-program traversals", () => {
+  const families = Array.from({ length: 32 }, (_, index) => `
+class Slot${index} {
+  private constructor(public value: (() => number | PromiseLike<number>) | undefined) {}
+  static make(value: (() => number | PromiseLike<number>) | undefined): Slot${index} {
+    return new Slot${index}(value);
+  }
+}
+const slot${index} = Slot${index}.make(() => ${index});
+const result${index} = slot${index}.value!();
+`).join("\n");
+  const fixture = checkedEffectFixture(families);
+  const nodeCount = countNodes(
+    fixture.source,
+    fixture.sourceFile,
+    () => true,
+  );
+  let childQueries = 0;
+  const source = Object.freeze({
+    ...fixture.source,
+    ast: Object.freeze({
+      ...fixture.source.ast,
+      children(node: Node | undefined) {
+        childQueries += 1;
+        return fixture.source.ast.children(node);
+      },
+    }),
+  });
+
+  collectCallableObjectInputs(source, new Set());
+
+  assert.ok(
+    childQueries < nodeCount * 8,
+    `expected bounded traversals, got ${childQueries} child queries for ${nodeCount} nodes`,
+  );
 });

@@ -3,6 +3,14 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { callableDeclarationAllowsSynchronousValue } from "./callable-contract.js";
 import {
+  declarationForSymbols,
+  indexDeclarationSymbols,
+  indexParameterUses,
+  isCallablePresenceObservation,
+  isTransparentParent,
+  trackedInputDestination,
+} from "./callable-input-reference.js";
+import {
   directContainingCall,
   forEachProgramNode,
   isModuleForwardingReference,
@@ -23,6 +31,7 @@ interface Invocation {
   readonly declaration: Node;
   readonly arguments: readonly Node[];
 }
+
 export function collectCallableObjectInputs(
   source: TargetSourceProgram,
   closedAliases: ReadonlySet<Node>,
@@ -218,46 +227,22 @@ function closeParameters(
       closed.add(parameter);
     }
   }
+  const uses = indexParameterUses(source, parameters.keys(), fields);
   let changed = true;
   while (changed) {
     changed = false;
     for (const parameter of [...closed]) {
-      if (!parameterUsesAreClosed(source, parameter, closed, fields)) {
+      if (
+        uses.invalid.has(parameter) ||
+        [...(uses.dependencies.get(parameter) ?? [])].some(
+          (dependency) => !closed.has(dependency),
+        )
+      ) {
         closed.delete(parameter);
         changed = true;
       }
     }
   }
-  return closed;
-}
-
-function parameterUsesAreClosed(
-  source: TargetSourceProgram,
-  parameter: Node,
-  closedParameters: ReadonlySet<Node>,
-  fields: ReadonlySet<Node>,
-): boolean {
-  const symbols = new Set(exactSymbolsAt(source, source.ast.name(parameter)));
-  let closed = true;
-  forEachProgramNode(source, (node) => {
-    if (!closed || !source.ast.is.IsIdentifier(node)) {
-      return;
-    }
-    if (
-      node === source.ast.name(parameter) ||
-      !exactSymbolsAt(source, node).some((symbol) => symbols.has(symbol))
-    ) {
-      return;
-    }
-    if (
-      directContainingCall(source, node) !== undefined ||
-      isCallablePresenceObservation(source, node) ||
-      flowsIntoTrackedInput(source, node, closedParameters, fields)
-    ) {
-      return;
-    }
-    closed = false;
-  });
   return closed;
 }
 
@@ -340,7 +325,12 @@ function auditFieldUse(
     (directContainingCall(source, node) !== undefined ||
       isCallablePresenceObservation(source, node) ||
       isInitializerOfClosedAlias(source, node, closedAliases) ||
-      flowsIntoTrackedInput(source, node, closedParameters, fields))
+      trackedInputDestination(
+          source,
+          node,
+          closedParameters,
+          fields,
+        ) !== undefined)
   ) {
     counts.admitted += 1;
   }
@@ -386,44 +376,6 @@ function exactAssignedValue(
   return source.ast.as.AsBinaryExpression(parent)?.Right;
 }
 
-function flowsIntoTrackedInput(
-  source: TargetSourceProgram,
-  expression: Node,
-  parameters: ReadonlySet<Node>,
-  fields: ReadonlySet<Node>,
-): boolean {
-  let current = expression;
-  for (;;) {
-    const parent = source.ast.parent(current);
-    if (parent === undefined) {
-      return false;
-    }
-    if (isTransparentParent(source, parent, current)) {
-      current = parent;
-      continue;
-    }
-    if (
-      !source.ast.is.IsCallExpression(parent) &&
-      !source.ast.is.IsNewExpression(parent)
-    ) {
-      return false;
-    }
-    const index = source.ast.arguments(parent).indexOf(current);
-    if (index < 0) {
-      return false;
-    }
-    const semantics = source.semantics.forNode(parent);
-    const declaration = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(parent),
-    );
-    const destination = declaration === undefined
-      ? undefined
-      : source.ast.parameters(declaration)[index];
-    return destination !== undefined &&
-      (parameters.has(destination) || fields.has(destination));
-  }
-}
-
 function isInitializerOfClosedAlias(
   source: TargetSourceProgram,
   expression: Node,
@@ -445,45 +397,6 @@ function isInitializerOfClosedAlias(
   }
 }
 
-function isCallablePresenceObservation(
-  source: TargetSourceProgram,
-  expression: Node,
-): boolean {
-  let current = expression;
-  for (;;) {
-    const parent = source.ast.parent(current);
-    if (parent === undefined) {
-      return false;
-    }
-    if (isTransparentParent(source, parent, current)) {
-      current = parent;
-      continue;
-    }
-    if (
-      !source.ast.is.IsBinaryExpression(parent) ||
-      !new Set([
-        "KindEqualsEqualsToken",
-        "KindExclamationEqualsToken",
-        "KindEqualsEqualsEqualsToken",
-        "KindExclamationEqualsEqualsToken",
-      ]).has(source.ast.operatorKindName(parent) ?? "")
-    ) {
-      return false;
-    }
-    const binary = source.ast.as.AsBinaryExpression(parent);
-    const other = binary?.Left === current
-      ? binary.Right
-      : binary?.Right === current
-      ? binary.Left
-      : undefined;
-    const otherType = other === undefined
-      ? undefined
-      : source.semantics.forNode(other).getTypeAtLocation(other);
-    return other !== undefined && otherType !== undefined &&
-      source.semantics.forNode(other).isNullish(otherType);
-  }
-}
-
 function isParameterProperty(
   source: TargetSourceProgram,
   node: Node,
@@ -494,47 +407,6 @@ function isParameterProperty(
     (["public", "private", "protected", "readonly"] as const).some((modifier) =>
       source.ast.hasModifierKind(node, modifier)
     );
-}
-
-function indexDeclarationSymbols(
-  source: TargetSourceProgram,
-  declarations: Iterable<Node>,
-): ReadonlyMap<Symbol, Node> {
-  const result = new Map<Symbol, Node>();
-  for (const declaration of declarations) {
-    for (const symbol of exactSymbolsAt(source, source.ast.name(declaration))) {
-      result.set(symbol, declaration);
-    }
-  }
-  return result;
-}
-
-function declarationForSymbols(
-  source: TargetSourceProgram,
-  declarations: ReadonlyMap<Symbol, Node>,
-  node: Node,
-): Node | undefined {
-  for (const symbol of exactSymbolsAt(source, node)) {
-    const declaration = declarations.get(symbol);
-    if (declaration !== undefined) {
-      return declaration;
-    }
-  }
-  return undefined;
-}
-
-function exactSymbolsAt(
-  source: TargetSourceProgram,
-  node: Node | undefined,
-): readonly Symbol[] {
-  if (node === undefined) {
-    return [];
-  }
-  const semantics = source.semantics.forNode(node);
-  return [
-    semantics.getSymbolAtLocation(node),
-    semantics.getResolvedSymbol(node),
-  ].filter((symbol): symbol is Symbol => symbol !== undefined);
 }
 
 function isPropertyAccessName(
@@ -566,27 +438,6 @@ function isTypeOnlyReference(source: TargetSourceProgram, node: Node): boolean {
     current = source.ast.parent(current);
   }
   return false;
-}
-
-function isTransparentParent(
-  source: TargetSourceProgram,
-  parent: Node,
-  child: Node,
-): boolean {
-  if (source.ast.is.IsParenthesizedExpression(parent)) {
-    return source.ast.as.AsParenthesizedExpression(parent)?.Expression === child;
-  }
-  if (source.ast.is.IsAsExpression(parent)) {
-    return source.ast.as.AsAsExpression(parent)?.Expression === child;
-  }
-  if (source.ast.is.IsTypeAssertion(parent)) {
-    return source.ast.as.AsTypeAssertion(parent)?.Expression === child;
-  }
-  if (source.ast.is.IsSatisfiesExpression(parent)) {
-    return source.ast.as.AsSatisfiesExpression(parent)?.Expression === child;
-  }
-  return source.ast.is.IsNonNullExpression(parent) &&
-    source.ast.as.AsNonNullExpression(parent)?.Expression === child;
 }
 
 function append(target: Map<Node, Node[]>, key: Node, value: Node): void {
