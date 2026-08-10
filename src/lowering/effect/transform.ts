@@ -110,7 +110,9 @@ function settleCallable(
   if (typeNode === undefined || innerTypeNode === undefined) {
     throw new Error("planned cooperative callable lost its return contract");
   }
-  const functionDeclaration = AsFunctionDeclaration(updated);
+  const functionDeclaration = plan.source.ast.is.IsFunctionDeclaration(updated)
+    ? AsFunctionDeclaration(updated)
+    : undefined;
   if (functionDeclaration !== undefined) {
     return requiredNode(NodeFactory_UpdateFunctionDeclaration(
       factory,
@@ -125,7 +127,9 @@ function settleCallable(
       functionDeclaration.Body,
     ));
   }
-  const method = AsMethodDeclaration(updated);
+  const method = plan.source.ast.is.IsMethodDeclaration(updated)
+    ? AsMethodDeclaration(updated)
+    : undefined;
   if (method !== undefined) {
     return requiredNode(NodeFactory_UpdateMethodDeclaration(
       factory,
@@ -141,7 +145,9 @@ function settleCallable(
       method.Body,
     ));
   }
-  const arrow = AsArrowFunction(updated);
+  const arrow = plan.source.ast.is.IsArrowFunction(updated)
+    ? AsArrowFunction(updated)
+    : undefined;
   if (arrow !== undefined) {
     return requiredNode(NodeFactory_UpdateArrowFunction(
       factory,
@@ -155,7 +161,9 @@ function settleCallable(
       arrow.Body,
     ));
   }
-  const expression = AsFunctionExpression(updated);
+  const expression = plan.source.ast.is.IsFunctionExpression(updated)
+    ? AsFunctionExpression(updated)
+    : undefined;
   if (expression !== undefined) {
     return requiredNode(NodeFactory_UpdateFunctionExpression(
       factory,

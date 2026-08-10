@@ -4,7 +4,9 @@ import { test } from "node:test";
 import type { Node } from "@tsonic/tsts";
 
 import {
+  IsArrowFunction,
   IsAwaitExpression,
+  IsFunctionExpression,
 } from "@tsonic/tsts/target-ast";
 
 import {
@@ -206,6 +208,10 @@ export const result = await invoke();
     countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
     0,
   );
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsArrowFunction),
+    1,
+  );
 });
 
 test("keeps a callable-wrapper family canonical when one producer may suspend", () => {
@@ -374,5 +380,26 @@ export const result = await invoke();
   assert.equal(
     countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
     0,
+  );
+});
+
+test("preserves a settled function expression as an expression", () => {
+  const fixture = checkedEffectFixture(`
+class Callback {
+  constructor(readonly value: (() => number | Promise<number>) | undefined) {}
+}
+const callback = new Callback(async function (): Promise<number> { return 42; });
+async function invoke(): Promise<number> { return await callback.value!(); }
+export const result = await invoke();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 2);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsFunctionExpression),
+    1,
   );
 });
