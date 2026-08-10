@@ -29,7 +29,8 @@ export function resolvePointerExpression(
     );
   }
   const root = transparentExpression(source, expression);
-  const vertex = root !== undefined && operations.has(root)
+  const vertex = root !== undefined &&
+      (operations.has(root) || graph.get(root) !== undefined)
     ? graph.get(root)
     : undefined;
   return blockTypeBearingWrapper(source, graph, expression, vertex);
@@ -132,9 +133,13 @@ export function addTransparentProducer(
   expression: Node | undefined,
   operations: ReadonlyMap<Node, PointerOperationFact>,
   target: Set<Node>,
+  additional?: ReadonlySet<Node>,
 ): void {
   const root = transparentExpression(source, expression);
-  if (root !== undefined && operations.has(root)) {
+  if (
+    root !== undefined &&
+    (operations.has(root) || additional?.has(root) === true)
+  ) {
     target.add(root);
   }
 }
@@ -216,8 +221,7 @@ export function isOptimizableFunctionDeclaration(
     : undefined;
   if (
     (functionDeclaration === undefined && staticMethod === undefined) ||
-    source.ast.body(owner) === undefined ||
-    source.ast.hasModifierKind(owner, "async")
+    source.ast.body(owner) === undefined
   ) {
     return false;
   }
@@ -235,7 +239,7 @@ export function isOptimizableFunctionDeclaration(
       return false;
     }
   }
-  return !containsAwait(source, source.ast.body(owner));
+  return true;
 }
 
 export function isModuleAliasReference(
@@ -284,29 +288,4 @@ export function producesPointer(operation: PointerOperationFact): boolean {
     operation.operation === "allocate" ||
     operation.operation === "bind-pointer" ||
     operation.operation === "project-pointer";
-}
-
-function containsAwait(
-  source: TargetSourceProgram,
-  root: Node | undefined,
-): boolean {
-  if (root === undefined) {
-    return false;
-  }
-  const pending = [root];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined) {
-      continue;
-    }
-    if (source.ast.is.IsAwaitExpression(node)) {
-      return true;
-    }
-    for (const child of source.ast.children(node)) {
-      if (child !== undefined) {
-        pending.push(child);
-      }
-    }
-  }
-  return false;
 }

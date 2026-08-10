@@ -6,7 +6,11 @@ import type {
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { censusPointerFlows } from "./flow-census.js";
+import {
+  censusPointerFlows,
+  collectPointerFlowNodes,
+} from "./flow-census.js";
+import { planDirectReferenceFamilies } from "./flow-families.js";
 import type {
   PointerFlowBlocker,
   PointerFlowComponent,
@@ -34,6 +38,7 @@ export interface ClosedPointerFlowPlan {
   representationFor(node: Node | undefined): PointerFlowRepresentation;
   readonly components: readonly PointerFlowComponentSummary[];
   readonly optimizedComponentCount: number;
+  readonly optimizedFamilyCount: number;
 }
 
 interface PointerFlowDecision {
@@ -44,10 +49,19 @@ interface PointerFlowDecision {
 export function createClosedPointerFlowPlan(
   source: TargetSourceProgram,
 ): ClosedPointerFlowPlan {
-  const representations = new Map<Node, PointerFlowRepresentation>();
+  const nodes = collectPointerFlowNodes(source);
+  const components = censusPointerFlows(source, nodes);
+  const familyPlan = planDirectReferenceFamilies(
+    source,
+    nodes,
+    components,
+  );
+  const representations = new Map<Node, PointerFlowRepresentation>(
+    familyPlan.representations,
+  );
   const summaries: PointerFlowComponentSummary[] = [];
   let optimizedComponentCount = 0;
-  for (const component of censusPointerFlows(source)) {
+  for (const component of components) {
     const decision = selectRepresentation(source, component);
     const { representation } = decision;
     if (representation !== "location") {
@@ -82,6 +96,7 @@ export function createClosedPointerFlowPlan(
     },
     components: frozenSummaries,
     optimizedComponentCount,
+    optimizedFamilyCount: familyPlan.familyCount,
   });
 }
 

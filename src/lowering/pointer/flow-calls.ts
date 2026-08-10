@@ -58,8 +58,12 @@ export function connectPointerCalls(census: PointerCensus): void {
       info.optionalChain ||
       call?.Expression === undefined
     ) {
-      blockAll(graph, argumentVertices);
-      blockSelectedParameters(graph, selectedParameters);
+      blockAll(graph, argumentVertices, "external-boundary");
+      blockSelectedParameters(
+        graph,
+        selectedParameters,
+        "external-boundary",
+      );
       continue;
     }
     const boundParameters = new Set<Node>();
@@ -96,14 +100,21 @@ export function connectPointerCalls(census: PointerCensus): void {
         source.ast.parent(parameterDeclaration) !== selectedDeclaration ||
         census.optimizableFunctions.get(selectedDeclaration) !== true
       ) {
-        graph.block(argumentVertex, "open-call");
-        graph.block(parameterVertex, "open-call");
+        const blocker = callBoundaryBlocker(source, selectedDeclaration);
+        graph.block(argumentVertex, blocker);
+        graph.block(parameterVertex, blocker);
         continue;
       }
       graph.union(argumentVertex, parameterVertex);
       boundParameters.add(parameterDeclaration);
       addTransparentReference(source, argument, census.allowedPointerReferences);
-      addTransparentProducer(source, argument, operations, census.allowedProducerUses);
+      addTransparentProducer(
+        source,
+        argument,
+        operations,
+        census.allowedProducerUses,
+        census.resultExpressions,
+      );
       census.allowedFunctionTargets.add(call.Expression);
       const targetName = source.ast.name(call.Expression);
       if (targetName !== undefined) {
@@ -127,17 +138,31 @@ export function connectPointerCalls(census: PointerCensus): void {
 function blockAll(
   graph: PointerFlowGraph,
   vertices: readonly (PointerFlowVertex | undefined)[],
+  blocker: "external-boundary" | "open-call",
 ): void {
   for (const vertex of vertices) {
-    graph.block(vertex, "open-call");
+    graph.block(vertex, blocker);
   }
 }
 
 function blockSelectedParameters(
   graph: PointerFlowGraph,
   parameters: readonly { readonly parameterDeclaration?: Node }[],
+  blocker: "external-boundary" | "open-call",
 ): void {
   for (const parameter of parameters) {
-    graph.block(graph.get(parameter.parameterDeclaration), "open-call");
+    graph.block(graph.get(parameter.parameterDeclaration), blocker);
   }
+}
+
+function callBoundaryBlocker(
+  source: PointerCensus["source"],
+  declaration: Node | undefined,
+): "external-boundary" | "open-call" {
+  const sourceFile = source.ast.getSourceFile(declaration);
+  return declaration === undefined ||
+      sourceFile === undefined ||
+      source.ast.isDeclarationFile(sourceFile)
+    ? "external-boundary"
+    : "open-call";
 }

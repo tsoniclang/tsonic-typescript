@@ -46,16 +46,23 @@ function auditReferences(census: PointerCensus): void {
     const parameters = declaration === undefined
       ? undefined
       : functionParameters.get(declaration);
-    if (parameters === undefined || node === source.ast.name(declaration)) {
+    const result = declaration === undefined
+      ? undefined
+      : census.functionResults.get(declaration);
+    if (
+      (parameters === undefined && result === undefined) ||
+      node === source.ast.name(declaration)
+    ) {
       continue;
     }
     if (
       !census.allowedFunctionTargets.has(node) &&
       !isModuleAliasReference(source, node)
     ) {
-      for (const parameter of parameters) {
+      for (const parameter of parameters ?? []) {
         graph.block(graph.get(parameter), "indirect-call");
       }
+      graph.block(result?.vertex, "indirect-call");
     }
   }
   for (const [owner, parameters] of functionParameters) {
@@ -127,6 +134,15 @@ function auditProducerUses(census: PointerCensus): void {
     const discarded = parent !== undefined && source.ast.is.IsExpressionStatement(parent);
     if (!discarded && !census.allowedProducerUses.has(operation.call)) {
       graph.block(graph.get(operation.call), "unsupported-flow");
+    }
+  }
+  for (const expression of census.resultExpressions) {
+    const root = transparentExpressionRoot(source, expression);
+    const parent = source.ast.parent(root);
+    const discarded = parent !== undefined &&
+      source.ast.is.IsExpressionStatement(parent);
+    if (!discarded && !census.allowedProducerUses.has(expression)) {
+      graph.block(graph.get(expression), "unsupported-flow");
     }
   }
 }

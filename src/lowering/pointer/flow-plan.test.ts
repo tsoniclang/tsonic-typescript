@@ -428,19 +428,8 @@ const pointer = allocatePointer(2);
   );
 });
 
-test("falls back when a pointer escapes or crosses an async or captured flow", () => {
+test("falls back when a pointer crosses a captured flow", () => {
   const fixtures = [
-    checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer } from "./markers.js";
-function escape(): Pointer<number> { return allocatePointer(1); }
-export const pointer = escape();
-`),
-    checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, loadPointer } from "./markers.js";
-async function read(pointer: Pointer<number>): Promise<number> { return loadPointer(pointer); }
-const pointer = allocatePointer(1);
-export const result = read(pointer);
-`),
     checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
 const pointer: Pointer<number> = allocatePointer(1);

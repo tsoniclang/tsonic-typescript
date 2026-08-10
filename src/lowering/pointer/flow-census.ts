@@ -14,6 +14,12 @@ import {
   type PointerFlowVertex,
 } from "./flow-graph.js";
 import { connectPointerCalls } from "./flow-calls.js";
+import {
+  collectPointerFunctionResults,
+  connectPointerResultCalls,
+  connectPointerReturns,
+  type PointerFunctionResult,
+} from "./flow-results.js";
 import { auditPointerCensus } from "./flow-audit.js";
 import {
   censusPointerReferences,
@@ -37,6 +43,8 @@ export interface PointerCensus {
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
   readonly pointerBindings: ReadonlySet<Node>;
   readonly functionParameters: ReadonlyMap<Node, readonly Node[]>;
+  readonly functionResults: ReadonlyMap<Node, PointerFunctionResult>;
+  readonly resultExpressions: ReadonlySet<Node>;
   readonly optimizableFunctions: ReadonlyMap<Node, boolean>;
   readonly references: PointerReferenceCensus;
   readonly allowedPointerReferences: Set<Node>;
@@ -46,24 +54,45 @@ export interface PointerCensus {
 
 export function censusPointerFlows(
   source: TargetSourceProgram,
+  nodes: readonly Node[] = collectPointerFlowNodes(source),
 ): readonly PointerFlowComponent[] {
-  const nodes = collectProgramNodes(source);
   const graph = new PointerFlowGraph();
   const operations = collectPointerOperations(source, nodes, graph);
   connectLocationIdentities(graph, operations);
   const pointerBindings = collectPointerBindings(source, nodes, graph);
+  const functionResults = collectPointerFunctionResults(source, nodes, graph);
+  const resultExpressions = new Set<Node>();
+  const allowedPointerReferences = new Set<Node>();
+  const allowedProducerUses = new Set<Node>();
+  const allowedFunctionTargets = new Set<Node>();
+  connectPointerResultCalls(
+    source,
+    nodes,
+    graph,
+    operations,
+    functionResults,
+    resultExpressions,
+    allowedFunctionTargets,
+  );
   connectVariableInitializers(
     source,
     nodes,
     graph,
     operations,
     pointerBindings,
+    resultExpressions,
+    allowedProducerUses,
   );
   const functionParameters = groupFunctionParameters(source, pointerBindings);
   const references = censusPointerReferences(
     source,
     nodes,
-    trackedDeclarations(pointerBindings, operations, functionParameters),
+    trackedDeclarations(
+      pointerBindings,
+      operations,
+      functionParameters,
+      functionResults,
+    ),
   );
   const optimizableFunctions = new Map(
     [...functionParameters.keys()].map((owner) => [
@@ -78,14 +107,17 @@ export function censusPointerFlows(
     operations,
     pointerBindings,
     functionParameters,
+    functionResults,
+    resultExpressions,
     optimizableFunctions,
     references,
-    allowedPointerReferences: new Set(),
-    allowedProducerUses: new Set(),
-    allowedFunctionTargets: new Set(),
+    allowedPointerReferences,
+    allowedProducerUses,
+    allowedFunctionTargets,
   };
   connectPointerCalls(census);
   attachPointerOperations(census);
+  connectPointerReturns(census);
   auditPointerCensus(census);
   return graph.components();
 }
@@ -115,7 +147,9 @@ function connectLocationIdentities(
   }
 }
 
-function collectProgramNodes(source: TargetSourceProgram): readonly Node[] {
+export function collectPointerFlowNodes(
+  source: TargetSourceProgram,
+): readonly Node[] {
   const result: Node[] = [];
   const seen = new Set<Node>();
   for (const sourceFile of source.navigation.sourceFiles) {
@@ -192,7 +226,7 @@ function collectPointerBindings(
     const vertex = graph.add(owner);
     bindings.add(owner);
     vertex.pointerTypes.add(node);
-    const pointeeType = source.semantics.forNode(fact.pointee)
+    const pointeeType = source.semantics.forNode(node)
       .getTypeFromTypeNode(fact.pointee);
     if (pointeeType === undefined) {
       vertex.blockers.add("unsupported-pointee");
@@ -261,6 +295,8 @@ function connectVariableInitializers(
   graph: PointerFlowGraph,
   operations: ReadonlyMap<Node, PointerOperationFact>,
   pointerBindings: Set<Node>,
+  resultExpressions: ReadonlySet<Node>,
+  allowedProducerUses: Set<Node>,
 ): void {
   const dependents = new Map<Node, Node[]>();
   for (const node of nodes) {
@@ -268,7 +304,11 @@ function connectVariableInitializers(
       continue;
     }
     const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
-    const sourceNode = pointerInitializerSource(source, operations, initializer);
+    const sourceNode = pointerInitializerSource(
+      source,
+      graph,
+      initializer,
+    );
     if (sourceNode === undefined) {
       if (pointerBindings.has(node)) {
         graph.block(
@@ -287,6 +327,7 @@ function connectVariableInitializers(
   }
   const pending = [
     ...pointerBindings,
+    ...resultExpressions,
     ...[...operations.values()]
       .filter(producesPointer)
       .map((operation) => operation.call),
@@ -306,6 +347,9 @@ function connectVariableInitializers(
       const targetWasKnown = graph.get(targetNode) !== undefined;
       const target = graph.add(targetNode);
       graph.union(target, sourceVertex);
+      if (operations.has(sourceNode) || resultExpressions.has(sourceNode)) {
+        allowedProducerUses.add(sourceNode);
+      }
       pointerBindings.add(targetNode);
       if (!targetWasKnown) {
         pending.push(targetNode);
@@ -316,7 +360,7 @@ function connectVariableInitializers(
 
 function pointerInitializerSource(
   source: TargetSourceProgram,
-  operations: ReadonlyMap<Node, PointerOperationFact>,
+  graph: PointerFlowGraph,
   initializer: Node | undefined,
 ): Node | undefined {
   const reference = transparentReference(source, initializer);
@@ -324,7 +368,7 @@ function pointerInitializerSource(
     return source.navigation.sourceReferenceFor(reference)?.declaration;
   }
   const expression = transparentExpression(source, initializer);
-  return expression !== undefined && operations.has(expression)
+  return expression !== undefined && graph.get(expression) !== undefined
     ? expression
     : undefined;
 }
@@ -333,9 +377,13 @@ function trackedDeclarations(
   pointerBindings: ReadonlySet<Node>,
   operations: ReadonlyMap<Node, PointerOperationFact>,
   functionParameters: ReadonlyMap<Node, readonly Node[]>,
+  functionResults: ReadonlyMap<Node, PointerFunctionResult>,
 ): ReadonlySet<Node> {
   const candidates = new Set(pointerBindings);
   for (const owner of functionParameters.keys()) {
+    candidates.add(owner);
+  }
+  for (const owner of functionResults.keys()) {
     candidates.add(owner);
   }
   for (const operation of operations.values()) {
@@ -406,6 +454,7 @@ function attachPointerOperations(census: PointerCensus): void {
           operation.pointerExpression,
           operations,
           census.allowedProducerUses,
+          census.resultExpressions,
         );
         if (operation.operation === "hash-pointer") {
           graph.block(vertex, "identity-observed");
@@ -436,8 +485,20 @@ function attachPointerOperations(census: PointerCensus): void {
         graph.block(right, "identity-observed");
         addTransparentReference(source, operation.leftExpression, census.allowedPointerReferences);
         addTransparentReference(source, operation.rightExpression, census.allowedPointerReferences);
-        addTransparentProducer(source, operation.leftExpression, operations, census.allowedProducerUses);
-        addTransparentProducer(source, operation.rightExpression, operations, census.allowedProducerUses);
+        addTransparentProducer(
+          source,
+          operation.leftExpression,
+          operations,
+          census.allowedProducerUses,
+          census.resultExpressions,
+        );
+        addTransparentProducer(
+          source,
+          operation.rightExpression,
+          operations,
+          census.allowedProducerUses,
+          census.resultExpressions,
+        );
         break;
       }
       case "project-pointer": {
@@ -455,7 +516,13 @@ function attachPointerOperations(census: PointerCensus): void {
         graph.block(result, "unsupported-producer");
         graph.block(sourceVertex, "unsupported-producer");
         addTransparentReference(source, operation.pointerExpression, census.allowedPointerReferences);
-        addTransparentProducer(source, operation.pointerExpression, operations, census.allowedProducerUses);
+        addTransparentProducer(
+          source,
+          operation.pointerExpression,
+          operations,
+          census.allowedProducerUses,
+          census.resultExpressions,
+        );
         break;
       }
     }
@@ -474,7 +541,13 @@ function attachPointerOperations(census: PointerCensus): void {
     );
     if (sourceVertex !== undefined) {
       addTransparentReference(source, initializer, census.allowedPointerReferences);
-      addTransparentProducer(source, initializer, operations, census.allowedProducerUses);
+      addTransparentProducer(
+        source,
+        initializer,
+        operations,
+        census.allowedProducerUses,
+        census.resultExpressions,
+      );
     }
   }
 }
