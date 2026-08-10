@@ -13,6 +13,7 @@ import {
   isTransparentParent,
   trackedInputDestination,
 } from "./callable-input-reference.js";
+import type { ParameterUses } from "./callable-input-reference.js";
 import {
   directContainingCall,
   forEachProgramNode,
@@ -27,8 +28,13 @@ export interface CallableObjectInputs {
 }
 
 export interface CallableObjectContract {
-  readonly declaration: Node;
+  readonly declarations: readonly Node[];
   readonly returnTypes: readonly Node[];
+}
+
+interface ClosedParameters {
+  readonly declarations: ReadonlySet<Node>;
+  readonly uses: ParameterUses;
 }
 
 interface ReferenceCounts {
@@ -67,14 +73,16 @@ export function collectCallableObjectInputs(
     );
   });
 
-  const closedParameters = closeParameters(
+  const parameterClosure = closeParameters(
     source,
     parameters,
     fields,
     invalidOwners,
   );
+  const preliminaryParameters = parameterClosure.declarations;
 
   const fieldCounts = new Map<Node, ReferenceCounts>();
+  const fieldDestinations = new Map<Node, Set<Node>>();
   for (const field of fields) {
     fieldCounts.set(field, { total: 0, admitted: 0 });
   }
@@ -85,12 +93,13 @@ export function collectCallableObjectInputs(
       fieldCounts,
       fieldValues,
       fields,
-      closedParameters,
+      preliminaryParameters,
       closedAliases,
+      fieldDestinations,
     );
   });
 
-  const closedFields = new Set<Node>();
+  const candidateFields = new Set<Node>();
   for (const [field, counts] of fieldCounts) {
     const constructor = source.ast.parent(field);
     if (
@@ -100,9 +109,20 @@ export function collectCallableObjectInputs(
       counts.admitted !== 0 &&
       fieldValues.has(field)
     ) {
-      closedFields.add(field);
+      candidateFields.add(field);
     }
   }
+  const closedDeclarations = closeObjectDeclarations(
+    new Set([...preliminaryParameters, ...candidateFields]),
+    parameterClosure.uses.dependencies,
+    fieldDestinations,
+  );
+  const closedParameters = new Set([...preliminaryParameters].filter(
+    (parameter) => closedDeclarations.has(parameter),
+  ));
+  const closedFields = new Set([...candidateFields].filter(
+    (field) => closedDeclarations.has(field),
+  ));
 
   const values = new Map<Node, readonly Node[]>();
   for (const parameter of closedParameters) {
@@ -117,18 +137,41 @@ export function collectCallableObjectInputs(
       values.set(field, Object.freeze([...inputs]));
     }
   }
-  const contracts = [...closedFields].flatMap((field) => {
-    const returnTypes = callableDeclarationSynchronousReturnTypes(source, field);
-    return returnTypes === undefined
-      ? []
-      : [Object.freeze({ declaration: field, returnTypes })];
-  });
+  const contracts = createObjectContracts(
+    source,
+    closedDeclarations,
+    parameterClosure.uses.dependencies,
+    fieldDestinations,
+  );
   return Object.freeze({
     values,
     closed: new Set([...closedParameters, ...closedFields]),
     contracts: Object.freeze(contracts),
   });
 }
+
+function closeObjectDeclarations(
+  candidates: Set<Node>,
+  parameterDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
+  fieldDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
+): Set<Node> {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const declaration of [...candidates]) {
+      const destinations = [
+        ...(parameterDestinations.get(declaration) ?? []),
+        ...(fieldDestinations.get(declaration) ?? []),
+      ];
+      if (destinations.some((destination) => !candidates.has(destination))) {
+        candidates.delete(declaration);
+        changed = true;
+      }
+    }
+  }
+  return candidates;
+}
+
 function collectPrivateConstructorFields(
   source: TargetSourceProgram,
 ): ReadonlySet<Node> {
@@ -222,7 +265,7 @@ function closeParameters(
   parameters: ReadonlyMap<Node, Node>,
   fields: ReadonlySet<Node>,
   invalidOwners: ReadonlySet<Node>,
-): Set<Node> {
+): ClosedParameters {
   const ownerCounts = new Map<Node, ReferenceCounts>();
   for (const owner of parameters.values()) {
     ownerCounts.set(owner, { total: 0, admitted: 0 });
@@ -251,7 +294,8 @@ function closeParameters(
       if (
         uses.invalid.has(parameter) ||
         [...(uses.dependencies.get(parameter) ?? [])].some(
-          (dependency) => !closed.has(dependency),
+          (dependency) =>
+            parameters.has(dependency) && !closed.has(dependency),
         )
       ) {
         closed.delete(parameter);
@@ -259,7 +303,7 @@ function closeParameters(
       }
     }
   }
-  return closed;
+  return { declarations: closed, uses };
 }
 
 function auditCallableOwnerReference(
@@ -315,6 +359,7 @@ function auditFieldUse(
   fields: ReadonlySet<Node>,
   closedParameters: ReadonlySet<Node>,
   closedAliases: ReadonlySet<Node>,
+  destinations: Map<Node, Set<Node>>,
 ): void {
   const selected = source.ast.is.IsPropertyAccessExpression(node)
     ? source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
@@ -335,21 +380,84 @@ function auditFieldUse(
     }
     return;
   }
+  if (selected?.accessMode !== "read" || selected.optionalChain) {
+    return;
+  }
+  const destination = trackedInputDestination(
+    source,
+    node,
+    closedParameters,
+    fields,
+  );
   if (
-    selected?.accessMode === "read" &&
-    !selected.optionalChain &&
-    (directContainingCall(source, node) !== undefined ||
-      isCallablePresenceObservation(source, node) ||
-      isInitializerOfClosedAlias(source, node, closedAliases) ||
-      trackedInputDestination(
-          source,
-          node,
-          closedParameters,
-          fields,
-        ) !== undefined)
+    directContainingCall(source, node) !== undefined ||
+    isCallablePresenceObservation(source, node) ||
+    isInitializerOfClosedAlias(source, node, closedAliases) ||
+    destination !== undefined
   ) {
     counts.admitted += 1;
+    if (destination !== undefined) {
+      appendSet(destinations, field, destination);
+    }
   }
+}
+
+function createObjectContracts(
+  source: TargetSourceProgram,
+  declarations: ReadonlySet<Node>,
+  parameterDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
+  fieldDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
+): readonly CallableObjectContract[] {
+  const neighbors = new Map<Node, Set<Node>>();
+  for (const declaration of declarations) {
+    neighbors.set(declaration, new Set());
+  }
+  for (const destinations of [parameterDestinations, fieldDestinations]) {
+    for (const [sourceDeclaration, targets] of destinations) {
+      if (!declarations.has(sourceDeclaration)) {
+        continue;
+      }
+      for (const target of targets) {
+        if (declarations.has(target)) {
+          appendSet(neighbors, sourceDeclaration, target);
+          appendSet(neighbors, target, sourceDeclaration);
+        }
+      }
+    }
+  }
+  const pending = new Set(declarations);
+  const contracts: CallableObjectContract[] = [];
+  while (pending.size !== 0) {
+    const first = pending.values().next().value;
+    if (first === undefined) {
+      throw new Error("callable object component lost its pending declaration");
+    }
+    const component: Node[] = [];
+    const work = [first];
+    pending.delete(first);
+    while (work.length !== 0) {
+      const declaration = work.pop();
+      if (declaration === undefined) {
+        continue;
+      }
+      component.push(declaration);
+      for (const neighbor of neighbors.get(declaration) ?? []) {
+        if (pending.delete(neighbor)) {
+          work.push(neighbor);
+        }
+      }
+    }
+    const returnTypes = component.flatMap((declaration) =>
+      callableDeclarationSynchronousReturnTypes(source, declaration) ?? []
+    );
+    if (returnTypes.length !== 0) {
+      contracts.push(Object.freeze({
+        declarations: Object.freeze(component),
+        returnTypes: Object.freeze(returnTypes),
+      }));
+    }
+  }
+  return Object.freeze(contracts);
 }
 
 function invocationAt(
@@ -462,5 +570,14 @@ function append(target: Map<Node, Node[]>, key: Node, value: Node): void {
     target.set(key, [value]);
   } else {
     values.push(value);
+  }
+}
+
+function appendSet(target: Map<Node, Set<Node>>, key: Node, value: Node): void {
+  const values = target.get(key);
+  if (values === undefined) {
+    target.set(key, new Set([value]));
+  } else {
+    values.add(value);
   }
 }

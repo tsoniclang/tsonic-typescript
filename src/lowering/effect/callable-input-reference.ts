@@ -48,14 +48,12 @@ export function indexParameterUses(
       invalid.add(parameter);
       return;
     }
-    if (tracked.has(destination)) {
-      let targets = dependencies.get(parameter);
-      if (targets === undefined) {
-        targets = new Set();
-        dependencies.set(parameter, targets);
-      }
-      targets.add(destination);
+    let targets = dependencies.get(parameter);
+    if (targets === undefined) {
+      targets = new Set();
+      dependencies.set(parameter, targets);
     }
+    targets.add(destination);
   });
   return { dependencies, invalid };
 }

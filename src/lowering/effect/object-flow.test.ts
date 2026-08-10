@@ -51,7 +51,7 @@ export const result = await invoke();
       return reference !== undefined &&
         fixture.source.ast.text(reference.TypeName) === "Awaitable";
     }),
-    1,
+    0,
   );
 });
 

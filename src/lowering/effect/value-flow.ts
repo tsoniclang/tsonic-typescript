@@ -87,18 +87,24 @@ export function createCallableValueFlow(
     });
   });
   const objectContractResolutions = inputs.objectContracts.map((contract) =>
-    Object.freeze({
-      returnTypes: contract.returnTypes,
-      resolution: sealResolution(resolveDeclaration(
-        source,
-        contract.declaration,
-        candidates,
-        candidateSymbols,
-        inputs,
-        allowedCandidateReferences,
-        new Set(),
-      )),
-    })
+    {
+      const resolution = emptyResolution();
+      for (const declaration of contract.declarations) {
+        mergeResolution(resolution, resolveDeclaration(
+          source,
+          declaration,
+          candidates,
+          candidateSymbols,
+          inputs,
+          allowedCandidateReferences,
+          new Set(),
+        ));
+      }
+      return Object.freeze({
+        returnTypes: contract.returnTypes,
+        resolution: sealResolution(resolution),
+      });
+    }
   );
   const signatureFamilies = Object.freeze(contractResolutions
     .filter(({ resolution }) => resolution.closed)
