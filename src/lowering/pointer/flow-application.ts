@@ -69,7 +69,7 @@ function operationUsesRuntimeValue(
   operation: PointerOperationFact,
   representation: PointerFlowRepresentation,
 ): boolean {
-  return representation === "direct-object"
+  return representation === "direct-object" || representation === "mutable-cell"
     ? operation.operation === "hash-pointer"
     : representation === "location" &&
       operation.operation !== "load" &&

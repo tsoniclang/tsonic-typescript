@@ -104,6 +104,21 @@ export function lowerOptimizedPointerOperation(
     );
   }
   const values = requireNodes(arguments_, operation.operation);
+  if (
+    representation === "direct-object" ||
+    representation === "mutable-cell"
+  ) {
+    const identity = lowerReferenceIdentityOperation(
+      source,
+      factory,
+      operation,
+      values,
+      runtimeAlias,
+    );
+    if (identity !== undefined) {
+      return identity;
+    }
+  }
   if (representation === "direct-snapshot") {
     if (
       operation.operation !== "allocate" &&
@@ -124,22 +139,6 @@ export function lowerOptimizedPointerOperation(
       case "load":
         requireArity(operation.operation, values, 1);
         return values[0];
-      case "equal-pointer":
-        requireArity(operation.operation, values, 2);
-        return strictIdentity(
-          factory,
-          requiredValue(values, 0),
-          requiredValue(values, 1),
-        );
-      case "hash-pointer":
-        requireArity(operation.operation, values, 1);
-        return directObjectHash(
-          source,
-          factory,
-          requiredValue(values, 0),
-          operation.pointerType,
-          runtimeAlias,
-        );
       default:
         throw new PointerLoweringError(
           `direct-object cannot lower ${operation.operation}`,
@@ -176,6 +175,34 @@ export function lowerOptimizedPointerOperation(
         `mutable-cell cannot lower ${operation.operation}`,
       );
   }
+}
+
+function lowerReferenceIdentityOperation(
+  source: TargetSourceProgram,
+  factory: NodeFactory,
+  operation: PointerOperationFact,
+  values: readonly Node[],
+  runtimeAlias: string,
+): Node | undefined {
+  if (operation.operation === "equal-pointer") {
+    requireArity(operation.operation, values, 2);
+    return strictIdentity(
+      factory,
+      requiredValue(values, 0),
+      requiredValue(values, 1),
+    );
+  }
+  if (operation.operation === "hash-pointer") {
+    requireArity(operation.operation, values, 1);
+    return directObjectHash(
+      source,
+      factory,
+      requiredValue(values, 0),
+      operation.pointerType,
+      runtimeAlias,
+    );
+  }
+  return undefined;
 }
 
 function strictIdentity(factory: NodeFactory, left: Node, right: Node): Node {

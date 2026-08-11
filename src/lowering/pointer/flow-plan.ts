@@ -97,13 +97,13 @@ export function createClosedPointerFlowPlan(
     if (representation !== "location") {
       optimizedComponentCount += 1;
       for (const vertex of component.vertices) {
-        representations.set(vertex.node, representation);
+        representations.set(vertex.node, representations.get(vertex.node) ?? representation);
       }
       for (const operation of component.operations) {
-        representations.set(operation, representation);
+        representations.set(operation, representations.get(operation) ?? representation);
       }
       for (const pointerType of component.pointerTypes) {
-        representations.set(pointerType, representation);
+        representations.set(pointerType, representations.get(pointerType) ?? representation);
       }
     }
     summaries.push(Object.freeze({
@@ -269,9 +269,9 @@ function selectRepresentation(
     );
   }
   if (hasStore) {
-    const representation = category === "scalar" && component.producers.every(
-      (producer) => producer.operation === "allocate",
-    )
+    const representation = component.producers.every(
+        (producer) => producer.operation === "allocate",
+      ) && (category === "scalar" || category === "direct-reference")
       ? "mutable-cell"
       : "location";
     return representation === "location"

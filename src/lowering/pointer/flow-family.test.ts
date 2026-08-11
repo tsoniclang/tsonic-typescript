@@ -51,7 +51,7 @@ export const result = invoke(read, holder.pointer);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
 });
 
-test("keeps a class family canonical when pointee storage is replaced", () => {
+test("uses a mutable cell when class pointee storage is replaced", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer, storePointer } from "./markers.js";
 class Box { value = 1; }
@@ -63,7 +63,7 @@ export const result = loadPointer(pointer).value;
   assertAllOperations(
     fixture.source,
     createClosedPointerFlowPlan(fixture.source),
-    "location",
+    "mutable-cell",
   );
 });
 
@@ -224,7 +224,7 @@ export const result = loadPointer(holder.pointer).value;
   assertAllOperations(fixture.source, plan, "direct-object");
 });
 
-test("keeps generic nominal pointees canonical when storage is replaced", () => {
+test("uses mutable cells when generic nominal storage is replaced", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer, storePointer } from "./markers.js";
 class Box<T> { constructor(public value: T) {} }
@@ -237,12 +237,12 @@ export const result = loadPointer(pointer).value;
 `);
   const plan = createClosedPointerFlowPlan(fixture.source);
 
-  assertAllOperations(fixture.source, plan, "location");
+  assertAllOperations(fixture.source, plan, "mutable-cell");
   assert.equal(
-    plan.familyFallbackReasons.find((entry) =>
+    plan.familyFallbackReasons.some((entry) =>
       entry.reason === "pointee-replacement"
-    )?.count,
-    1,
+    ),
+    false,
   );
 });
 
@@ -551,7 +551,7 @@ export const same = equalPointer(left, right);
 function assertAllOperations(
   source: TargetSourceProgram,
   plan: ReturnType<typeof createClosedPointerFlowPlan>,
-  expected: "direct-object" | "location",
+  expected: "direct-object" | "location" | "mutable-cell",
 ): void {
   const operations = pointerOperations(source);
   assert.ok(operations.length > 0);

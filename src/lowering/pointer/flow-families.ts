@@ -20,12 +20,13 @@ import { applyGenericPointerBoundaries } from "./flow-family-generics.js";
 import { nonBijectiveIdentityOccurrences } from "./flow-family-identity.js";
 import {
   blockDirectReferenceFamily as blockFamily,
+  type DirectReferenceFamilyRepresentation,
   type MutableDirectReferenceFamily,
 } from "./flow-family-state.js";
 import { describePointerPointee } from "./pointee-classification.js";
 
 export interface DirectReferenceFamilyPlan {
-  readonly representations: ReadonlyMap<Node, "direct-object">;
+  readonly representations: ReadonlyMap<Node, DirectReferenceFamilyRepresentation>;
   readonly familyCount: number;
   readonly fallbackReasons: readonly DirectReferenceFamilyFallback[];
 }
@@ -58,31 +59,31 @@ export function planDirectReferenceFamilies(
     families,
     operationFamilies,
   );
+  const familyRepresentations = selectFamilyRepresentations(families);
   applyIdentityBoundaries(
     source,
     families,
+    familyRepresentations,
     indexProjectBindingWrites(source, nodes),
   );
-  const representations = new Map<Node, "direct-object">();
+  const representations = new Map<Node, DirectReferenceFamilyRepresentation>();
   const fallbackReasons: FamilyFallbackLedger = new Map();
   let familyCount = 0;
   for (const family of families.values()) {
-    if (family.producerCount === 0) {
-      blockFamily(family, "unsupported-producer", family.identity);
-    }
-    if (family.operations.size === 0) {
-      blockFamily(family, "unsupported-flow", family.identity);
-    }
+    const representation = familyRepresentations.get(family);
     if (family.blockers.size !== 0) {
       appendFamilyFallback(fallbackReasons, family.blockers);
       continue;
     }
+    if (representation === undefined) {
+      throw new Error("unblocked pointer family has no representation");
+    }
     familyCount += 1;
     for (const pointerType of family.pointerTypes) {
-      representations.set(pointerType, "direct-object");
+      representations.set(pointerType, representation);
     }
     for (const operation of family.operations.keys()) {
-      representations.set(operation, "direct-object");
+      representations.set(operation, representation);
     }
   }
   return Object.freeze({
@@ -146,15 +147,10 @@ function collectPointerOperation(
   switch (operation.operation) {
     case "allocate":
     case "address-of":
-      family.producerCount += 1;
-      break;
     case "load":
-      break;
     case "equal-pointer":
     case "hash-pointer":
-      break;
     case "store":
-      blockFamily(family, "pointee-replacement", operation.call);
       break;
     default:
       blockFamily(family, "unsupported-producer", operation.call);
@@ -165,9 +161,16 @@ function collectPointerOperation(
 function applyIdentityBoundaries(
   source: TargetSourceProgram,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  representations: ReadonlyMap<
+    MutableDirectReferenceFamily,
+    DirectReferenceFamilyRepresentation
+  >,
   bindingWrites: ReadonlySet<Node>,
 ): void {
   for (const family of families.values()) {
+    if (representations.get(family) !== "direct-object") {
+      continue;
+    }
     for (const occurrence of nonBijectiveIdentityOccurrences(
       source,
       family.identity,
@@ -201,10 +204,64 @@ function directReferenceFamily(
     pointerTypes: new Set(),
     operations: new Map(),
     blockers: new Map(),
-    producerCount: 0,
   };
   families.set(description.identity, created);
   return created;
+}
+
+function selectFamilyRepresentations(
+  families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+): ReadonlyMap<
+  MutableDirectReferenceFamily,
+  DirectReferenceFamilyRepresentation
+> {
+  const representations = new Map<
+    MutableDirectReferenceFamily,
+    DirectReferenceFamilyRepresentation
+  >();
+  for (const family of families.values()) {
+    let producerCount = 0;
+    let hasAddressedProducer = false;
+    const stores: PointerOperationFact[] = [];
+    for (const operation of family.operations.values()) {
+      switch (operation.operation) {
+        case "allocate":
+          producerCount += 1;
+          break;
+        case "address-of":
+          producerCount += 1;
+          hasAddressedProducer = true;
+          break;
+        case "store":
+          stores.push(operation);
+          break;
+        case "load":
+        case "equal-pointer":
+        case "hash-pointer":
+        case "bind-pointer":
+        case "project-pointer":
+          break;
+      }
+    }
+    if (producerCount === 0) {
+      blockFamily(family, "unsupported-producer", family.identity);
+    }
+    if (family.operations.size === 0) {
+      blockFamily(family, "unsupported-flow", family.identity);
+    }
+    if (stores.length !== 0 && hasAddressedProducer) {
+      for (const store of stores) {
+        blockFamily(family, "pointee-replacement", store.call);
+      }
+    }
+    representations.set(
+      family,
+      stores.length !== 0 && !hasAddressedProducer
+        ? "mutable-cell"
+        : "direct-object",
+    );
+  }
+  return representations;
 }
 
 function applyComponentBoundaries(

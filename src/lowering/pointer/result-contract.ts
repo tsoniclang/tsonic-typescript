@@ -76,7 +76,10 @@ function typedResultIsDefinitelyNonThenable(
     return operation.operation !== "load";
   }
   if (representation === "mutable-cell") {
-    return operation.operation === "allocate" || operation.operation === "store";
+    return operation.operation === "allocate" ||
+      operation.operation === "store" ||
+      operation.operation === "equal-pointer" ||
+      operation.operation === "hash-pointer";
   }
   switch (operation.operation) {
     case "address-of":
