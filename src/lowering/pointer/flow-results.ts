@@ -12,6 +12,7 @@ import type {
 } from "@tsonic/target-api";
 
 import type { PointerCensus } from "./flow-census.js";
+import type { PointerCallableAliases } from "./flow-callable-aliases.js";
 import type {
   PointerFlowGraph,
   PointerFlowVertex,
@@ -24,9 +25,6 @@ import {
   transparentExpression,
   transparentExpressionRoot,
 } from "./flow-syntax.js";
-import {
-  indexPointerTrackedReferences,
-} from "./flow-references.js";
 
 export interface PointerFunctionResult {
   readonly owner: Node;
@@ -83,18 +81,15 @@ export function connectPointerResultCalls(
   results: ReadonlyMap<Node, PointerFunctionResult>,
   resultExpressions: Set<Node>,
   allowedFunctionTargets: Set<Node>,
+  callableAliases: PointerCallableAliases,
 ): void {
-  const references = indexPointerTrackedReferences(
-    source,
-    new Set(results.keys()),
-  );
   for (const node of nodes) {
     if (!source.ast.is.IsCallExpression(node) || operations.has(node)) {
       continue;
     }
     const call = source.ast.as.AsCallExpression(node);
     const target = transparentExpression(source, call?.Expression);
-    const directDeclaration = references.referenceFor(target)?.declaration;
+    const directDeclaration = callableAliases.ownerForTarget(target);
     const directResult = directDeclaration === undefined
       ? undefined
       : results.get(directDeclaration);

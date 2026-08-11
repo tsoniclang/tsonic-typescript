@@ -13,6 +13,10 @@ import {
   type PointerFlowComponent,
   type PointerFlowVertex,
 } from "./flow-graph.js";
+import {
+  analyzePointerCallableAliases,
+  type PointerCallableAliases,
+} from "./flow-callable-aliases.js";
 import { connectPointerCalls } from "./flow-calls.js";
 import {
   collectPointerFunctionResults,
@@ -46,6 +50,7 @@ export interface PointerCensus {
   readonly functionResults: ReadonlyMap<Node, PointerFunctionResult>;
   readonly resultExpressions: ReadonlySet<Node>;
   readonly optimizableFunctions: ReadonlyMap<Node, boolean>;
+  readonly callableAliases: PointerCallableAliases;
   readonly references: PointerReferenceCensus;
   readonly allowedPointerReferences: Set<Node>;
   readonly allowedProducerUses: Set<Node>;
@@ -65,6 +70,27 @@ export function censusPointerFlows(
   const allowedPointerReferences = new Set<Node>();
   const allowedProducerUses = new Set<Node>();
   const allowedFunctionTargets = new Set<Node>();
+  const functionParameters = groupFunctionParameters(source, pointerBindings);
+  const optimizableFunctions = new Map(
+    [...functionParameters.keys()].map((owner) => [
+      owner,
+      isOptimizableFunctionDeclaration(source, owner),
+    ]),
+  );
+  const callableOwners = new Set<Node>(functionResults.keys());
+  for (const [owner, optimizable] of optimizableFunctions) {
+    if (optimizable) {
+      callableOwners.add(owner);
+    }
+  }
+  const callableAliases = analyzePointerCallableAliases(
+    source,
+    nodes,
+    callableOwners,
+  );
+  for (const reference of callableAliases.allowedReferences) {
+    allowedFunctionTargets.add(reference);
+  }
   connectPointerResultCalls(
     source,
     nodes,
@@ -73,6 +99,7 @@ export function censusPointerFlows(
     functionResults,
     resultExpressions,
     allowedFunctionTargets,
+    callableAliases,
   );
   connectVariableInitializers(
     source,
@@ -83,7 +110,6 @@ export function censusPointerFlows(
     resultExpressions,
     allowedProducerUses,
   );
-  const functionParameters = groupFunctionParameters(source, pointerBindings);
   const references = censusPointerReferences(
     source,
     nodes,
@@ -93,12 +119,6 @@ export function censusPointerFlows(
       functionParameters,
       functionResults,
     ),
-  );
-  const optimizableFunctions = new Map(
-    [...functionParameters.keys()].map((owner) => [
-      owner,
-      isOptimizableFunctionDeclaration(source, owner),
-    ]),
   );
   const census: PointerCensus = {
     source,
@@ -110,6 +130,7 @@ export function censusPointerFlows(
     functionResults,
     resultExpressions,
     optimizableFunctions,
+    callableAliases,
     references,
     allowedPointerReferences,
     allowedProducerUses,
@@ -118,8 +139,28 @@ export function censusPointerFlows(
   connectPointerCalls(census);
   attachPointerOperations(census);
   connectPointerReturns(census);
+  applyCallableAliasBoundaries(census);
   auditPointerCensus(census);
   return graph.components();
+}
+
+function applyCallableAliasBoundaries(census: PointerCensus): void {
+  for (const boundary of census.callableAliases.boundaries) {
+    for (const occurrence of boundary.occurrences) {
+      for (const parameter of census.functionParameters.get(boundary.owner) ?? []) {
+        census.graph.block(
+          census.graph.get(parameter),
+          "indirect-call",
+          occurrence,
+        );
+      }
+      census.graph.block(
+        census.functionResults.get(boundary.owner)?.vertex,
+        "indirect-call",
+        occurrence,
+      );
+    }
+  }
 }
 
 function connectLocationIdentities(

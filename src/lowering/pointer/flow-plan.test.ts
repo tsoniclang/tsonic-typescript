@@ -152,15 +152,8 @@ export const result = loadPointer(pointer).value;
   assert.equal(countCallsNamed(fixture.source, result.sourceFile, "loadPointer"), 0);
 });
 
-test("falls back for indirect, identity-observed, and potentially nil flows", () => {
+test("falls back for identity-observed and potentially nil flows", () => {
   const fixtures = [
-    checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, loadPointer } from "./markers.js";
-function read(pointer: Pointer<number>): number { return loadPointer(pointer); }
-const indirect = read;
-const pointer: Pointer<number> = allocatePointer(1);
-export const result = indirect(pointer);
-`),
     checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, hashPointer } from "./markers.js";
 const pointer: Pointer<number> = allocatePointer(1);

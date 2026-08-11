@@ -33,9 +33,11 @@ export function connectPointerCalls(census: PointerCensus): void {
       (value) => value !== undefined,
     );
     const directTarget = transparentReference(source, call?.Expression);
-    const directDeclaration = directTarget === undefined
+    const directDeclaration = census.callableAliases.ownerForTarget(
+      call?.Expression,
+    ) ?? (directTarget === undefined
       ? source.navigation.sourceReferenceFor(call?.Expression)?.declaration
-      : census.references.referenceFor(directTarget)?.declaration;
+      : census.references.referenceFor(directTarget)?.declaration);
     if (
       !hasKnownPointerArgument &&
       (directDeclaration === undefined ||
@@ -98,6 +100,7 @@ export function connectPointerCalls(census: PointerCensus): void {
         parameter?.rest === true ||
         parameter?.acceptsOmission === true ||
         selectedDeclaration === undefined ||
+        selectedDeclaration !== directDeclaration ||
         source.ast.parent(parameterDeclaration) !== selectedDeclaration ||
         census.optimizableFunctions.get(selectedDeclaration) !== true
       ) {

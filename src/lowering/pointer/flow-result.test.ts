@@ -60,8 +60,10 @@ test("keeps a pointer result canonical when its callable escapes", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
 function make(): Pointer<number> { return allocatePointer(1); }
+function consume(callback: () => Pointer<number>): void { void callback(); }
 const selected = make;
-const pointer = selected();
+const pointer = make();
+consume(selected);
 export const result = loadPointer(pointer);
 `);
   const plan = createClosedPointerFlowPlan(fixture.source);
