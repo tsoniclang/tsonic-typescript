@@ -1,4 +1,4 @@
-import type { Node, PointerOperationFact, Symbol } from "@tsonic/tsts";
+import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import {
   IsDecorator,
 } from "@tsonic/tsts/target-ast";
@@ -10,6 +10,7 @@ export function nonBijectiveIdentityOccurrences(
   source: TargetSourceProgram,
   familyIdentity: Node,
   operations: Iterable<PointerOperationFact>,
+  bindingWrites: ReadonlySet<Node>,
 ): readonly Node[] {
   const operationsList = [...operations];
   if (!operationsList.some(isIdentityObservation)) {
@@ -17,7 +18,7 @@ export function nonBijectiveIdentityOccurrences(
   }
   const proof: FreshFamilyProof = {
     activeFactories: new Set(),
-    bindingChanges: new Map(),
+    bindingWrites,
     factoryResults: new Map(),
   };
   const failures: Node[] = [];
@@ -41,7 +42,7 @@ export function nonBijectiveIdentityOccurrences(
 
 interface FreshFamilyProof {
   readonly activeFactories: Set<Node>;
-  readonly bindingChanges: Map<Symbol, boolean>;
+  readonly bindingWrites: ReadonlySet<Node>;
   readonly factoryResults: Map<Node, boolean>;
 }
 
@@ -104,7 +105,7 @@ function isFreshNewExpression(
     reference === undefined ||
     !reference.project ||
     reference.declaration !== familyIdentity ||
-    !isStableFamily(source, familyIdentity, reference.symbol, proof)
+    !isStableFamily(source, familyIdentity, proof)
   ) {
     return false;
   }
@@ -156,8 +157,8 @@ function isFreshFactoryCall(
     source.ast.modifiers(methodReference.declaration).some((modifier) =>
       IsDecorator(modifier)
     ) ||
-    !isStableFamily(source, familyIdentity, familyReference.symbol, proof) ||
-    bindingCanChange(source, methodReference.symbol, proof)
+    !isStableFamily(source, familyIdentity, proof) ||
+    proof.bindingWrites.has(methodReference.declaration)
   ) {
     return false;
   }
@@ -204,28 +205,11 @@ function isFreshFactoryCall(
 function isStableFamily(
   source: TargetSourceProgram,
   familyIdentity: Node,
-  familySymbol: Symbol,
   proof: FreshFamilyProof,
 ): boolean {
   return source.ast.extendsHeritageElements(familyIdentity).length === 0 &&
     !source.ast.modifiers(familyIdentity).some((modifier) => IsDecorator(modifier)) &&
-    !bindingCanChange(source, familySymbol, proof);
-}
-
-function bindingCanChange(
-  source: TargetSourceProgram,
-  symbol: Symbol,
-  proof: FreshFamilyProof,
-): boolean {
-  const cached = proof.bindingChanges.get(symbol);
-  if (cached !== undefined || proof.bindingChanges.has(symbol)) {
-    return cached ?? false;
-  }
-  const changes = source.navigation.sourceFiles.some((sourceFile) =>
-    source.navigation.bindingWritesWithin(symbol, sourceFile).length !== 0
-  );
-  proof.bindingChanges.set(symbol, changes);
-  return changes;
+    !proof.bindingWrites.has(familyIdentity);
 }
 
 function containsReplacementReturn(

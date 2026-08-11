@@ -434,6 +434,32 @@ export const same = equalPointer(left, right);
   );
 });
 
+test("finds an exact factory write across a project import", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer } from "./markers.js";
+import { Box } from "./box.js";
+Box.create = () => Box.shared;
+const left: Pointer<Box> = allocatePointer(Box.create());
+const right: Pointer<Box> = allocatePointer(Box.create());
+export const same = equalPointer(left, right);
+`, {
+    "/src/box.ts": `export class Box {
+  static readonly shared = new Box();
+  static create(): Box { return new Box(); }
+}
+`,
+  });
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "location");
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "non-bijective-identity"
+    )?.count,
+    1,
+  );
+});
+
 test("emits direct pointer equality as strict object identity", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, equalPointer } from "./markers.js";

@@ -9,6 +9,7 @@ import type {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type { PointerFlowComponent } from "./flow-graph.js";
+import { indexProjectBindingWrites } from "./flow-binding-writes.js";
 import {
   appendFamilyFallback,
   sealFamilyFallback,
@@ -57,7 +58,11 @@ export function planDirectReferenceFamilies(
     families,
     operationFamilies,
   );
-  applyIdentityBoundaries(source, families);
+  applyIdentityBoundaries(
+    source,
+    families,
+    indexProjectBindingWrites(source, nodes),
+  );
   const representations = new Map<Node, "direct-object">();
   const fallbackReasons: FamilyFallbackLedger = new Map();
   let familyCount = 0;
@@ -160,12 +165,14 @@ function collectPointerOperation(
 function applyIdentityBoundaries(
   source: TargetSourceProgram,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  bindingWrites: ReadonlySet<Node>,
 ): void {
   for (const family of families.values()) {
     for (const occurrence of nonBijectiveIdentityOccurrences(
       source,
       family.identity,
       family.operations.values(),
+      bindingWrites,
     )) {
       blockFamily(family, "non-bijective-identity", occurrence);
     }
