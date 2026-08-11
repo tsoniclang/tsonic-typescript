@@ -18,13 +18,13 @@ import { GenericInvoker } from "./generic.js";
 class Box { value = 1; }
 const pointer: Pointer<Box> = allocatePointer(new Box());
 const replace = (value: Pointer<Box>): void => storePointer(value, new Box());
-GenericInvoker.invoke<Box>(replace, pointer);
+GenericInvoker.invoke<Box>(replace);
 export const result = loadPointer(pointer).value;
 `, {
     "/src/generic.ts": `import type { Pointer } from "./markers.js";
 export class GenericInvoker {
-  static invoke<T>(callback: (pointer: Pointer<T>) => void, pointer: Pointer<T>): void {
-    callback(pointer);
+  static invoke<T>(callback: (pointer: Pointer<T>) => void): void {
+    void callback;
   }
 }
 `,

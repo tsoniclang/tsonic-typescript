@@ -20,13 +20,14 @@ import { applyGenericPointerBoundaries } from "./flow-family-generics.js";
 import { nonBijectiveIdentityOccurrences } from "./flow-family-identity.js";
 import {
   blockDirectReferenceFamily as blockFamily,
+  type DirectReferenceFamilyDecision,
   type DirectReferenceFamilyRepresentation,
   type MutableDirectReferenceFamily,
 } from "./flow-family-state.js";
 import { describePointerPointee } from "./pointee-classification.js";
 
 export interface DirectReferenceFamilyPlan {
-  readonly representations: ReadonlyMap<Node, DirectReferenceFamilyRepresentation>;
+  readonly representations: ReadonlyMap<Node, DirectReferenceFamilyDecision>;
   readonly familyCount: number;
   readonly fallbackReasons: readonly DirectReferenceFamilyFallback[];
 }
@@ -67,13 +68,21 @@ export function planDirectReferenceFamilies(
     familyRepresentations,
     indexProjectBindingWrites(source, nodes),
   );
-  const representations = new Map<Node, DirectReferenceFamilyRepresentation>();
+  const representations = new Map<Node, DirectReferenceFamilyDecision>();
   const fallbackReasons: FamilyFallbackLedger = new Map();
   let familyCount = 0;
   for (const family of families.values()) {
     const representation = familyRepresentations.get(family);
     if (family.blockers.size !== 0) {
       appendFamilyFallback(fallbackReasons, family.blockers);
+      if (family.canonicalBlockers.size !== 0) {
+        for (const pointerType of family.pointerTypes) {
+          representations.set(pointerType, "location");
+        }
+        for (const operation of family.operations.keys()) {
+          representations.set(operation, "location");
+        }
+      }
       continue;
     }
     if (representation === undefined) {
@@ -240,6 +249,7 @@ function directReferenceFamily(
     pointerTypes: new Set(),
     operations: new Map(),
     blockers: new Map(),
+    canonicalBlockers: new Set(),
   };
   families.set(description.identity, created);
   return created;

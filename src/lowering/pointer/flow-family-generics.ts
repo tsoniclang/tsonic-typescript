@@ -13,8 +13,8 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type { PointerFlowBlocker } from "./flow-graph.js";
 import {
-  blockDirectReferenceFamily,
   type MutableDirectReferenceFamily,
+  requireCanonicalDirectReferenceFamily,
 } from "./flow-family-state.js";
 import { transparentExpression } from "./flow-syntax.js";
 import { describePointerPointee } from "./pointee-classification.js";
@@ -48,7 +48,11 @@ export function applyGenericPointerBoundaries(
           authoredType,
         )
       ) {
-        blockDirectReferenceFamily(family, "generic-storage", operand);
+        requireCanonicalDirectReferenceFamily(
+          family,
+          "generic-storage",
+          operand,
+        );
       }
     }
   }
@@ -82,6 +86,13 @@ export function applyGenericPointerBoundaries(
         source,
         node,
         binding.selectedParameterType,
+        families,
+        "generic-call",
+      );
+      blockSelectedPointerFamilies(
+        source,
+        node,
+        binding.selectedArgumentType,
         families,
         "generic-call",
       );
@@ -161,7 +172,7 @@ function blockSelectedPointerFamilies(
     return;
   }
   for (const family of selectedPointerFamilies(source, anchor, type, families)) {
-    blockDirectReferenceFamily(family, blocker, anchor);
+    requireCanonicalDirectReferenceFamily(family, blocker, anchor);
   }
 }
 
@@ -173,7 +184,7 @@ function selectedPointerFamilies(
 ): ReadonlySet<MutableDirectReferenceFamily> {
   const result = new Set<MutableDirectReferenceFamily>();
   const seen = new Set<Type>();
-  const pending = [type];
+  const pending: (Type | undefined)[] = [type];
   const semantics = source.semantics.forNode(anchor);
   while (pending.length > 0) {
     const current = pending.pop();
@@ -206,6 +217,18 @@ function selectedPointerFamilies(
     }
     if (arguments_ !== undefined) {
       pending.push(...arguments_);
+    }
+    for (const signature of [
+      ...semantics.getCallSignatures(current),
+      ...semantics.getConstructSignatures(current),
+    ]) {
+      if (signature === undefined) {
+        continue;
+      }
+      pending.push(semantics.getReturnTypeOfSignature(signature));
+      for (const parameter of semantics.getSignatureParameters(signature)) {
+        pending.push(semantics.getTypeOfSymbol(parameter));
+      }
     }
   }
   return result;

@@ -6,11 +6,16 @@ export type DirectReferenceFamilyRepresentation =
   | "direct-object"
   | "mutable-cell";
 
+export type DirectReferenceFamilyDecision =
+  | DirectReferenceFamilyRepresentation
+  | "location";
+
 export interface MutableDirectReferenceFamily {
   readonly identity: Node;
   readonly pointerTypes: Set<Node>;
   readonly operations: Map<Node, PointerOperationFact>;
   readonly blockers: Map<PointerFlowBlocker, Set<Node>>;
+  readonly canonicalBlockers: Set<PointerFlowBlocker>;
 }
 
 export function blockDirectReferenceFamily(
@@ -24,4 +29,13 @@ export function blockDirectReferenceFamily(
   } else {
     existing.add(occurrence);
   }
+}
+
+export function requireCanonicalDirectReferenceFamily(
+  family: MutableDirectReferenceFamily,
+  reason: PointerFlowBlocker,
+  occurrence: Node,
+): void {
+  blockDirectReferenceFamily(family, reason, occurrence);
+  family.canonicalBlockers.add(reason);
 }
