@@ -24,6 +24,10 @@ import type {
   PointerFlowComponent,
 } from "./flow-graph.js";
 import { describePointerPointee } from "./pointee-classification.js";
+import {
+  planPointerProjectionFusions,
+  type PointerProjectionFusion,
+} from "./projection-fusion.js";
 
 export type { PointerFlowBlocker } from "./flow-graph.js";
 
@@ -50,9 +54,13 @@ export interface PointerFlowFallbackEvidence {
 export interface ClosedPointerFlowPlan {
   owns(source: TargetSourceProgram): boolean;
   representationFor(node: Node | undefined): PointerFlowRepresentation;
+  projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
+  ownsFusedProjection(node: Node): boolean;
   readonly components: readonly PointerFlowComponentSummary[];
   readonly optimizedComponentCount: number;
   readonly optimizedFamilyCount: number;
+  readonly optimizedProjectionReadCount: number;
+  readonly optimizedProjectionStoreCount: number;
   readonly fallbackReasons: readonly PointerFlowFallbackEvidence[];
   readonly familyFallbackReasons: readonly PointerFlowFallbackEvidence[];
 }
@@ -112,6 +120,11 @@ export function createClosedPointerFlowPlan(
       fallbackReasons,
     );
   }
+  const projectionFusions = planPointerProjectionFusions(
+    source,
+    nodes,
+    (node) => (representations.get(node) ?? "location") === "location",
+  );
   const frozenSummaries = Object.freeze(summaries);
   return Object.freeze({
     owns(candidate: TargetSourceProgram): boolean {
@@ -122,9 +135,17 @@ export function createClosedPointerFlowPlan(
         ? "location"
         : representations.get(node) ?? "location";
     },
+    projectionFusionFor(node: Node): PointerProjectionFusion | undefined {
+      return projectionFusions.fusionForConsumer(node);
+    },
+    ownsFusedProjection(node: Node): boolean {
+      return projectionFusions.ownsProjection(node);
+    },
     components: frozenSummaries,
     optimizedComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
+    optimizedProjectionReadCount: projectionFusions.readCount,
+    optimizedProjectionStoreCount: projectionFusions.storeCount,
     fallbackReasons: sealFallbackEvidence(fallbackReasons),
     familyFallbackReasons: sealFamilyFallbackEvidence(
       source,

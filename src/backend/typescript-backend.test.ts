@@ -101,13 +101,15 @@ test("emits deterministic immutable optimization evidence", () => {
   assert.ok(artifact !== undefined);
   assert.equal(artifact.kind, "asset");
   assert.deepEqual(JSON.parse(artifact.text), {
-    schemaVersion: 3,
+    schemaVersion: 4,
     pointer: {
       profile: "closed-direct",
       analyzed: true,
       componentCount: 1,
       optimizedComponentCount: 1,
       optimizedFamilyCount: 0,
+      optimizedProjectionReadCount: 0,
+      optimizedProjectionStoreCount: 0,
       representations: [{ value: "direct-snapshot", count: 1 }],
       fallbackReasons: [],
       familyFallbackReasons: [],

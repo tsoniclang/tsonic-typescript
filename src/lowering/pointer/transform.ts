@@ -46,6 +46,7 @@ import {
   lowerOptimizedPointerOperation,
   lowerOptimizedPointerType,
 } from "./representation-ast.js";
+import { lowerPointerProjectionFusion } from "./projection-fusion-ast.js";
 import {
   prependRuntimeImport,
 } from "./runtime-ast.js";
@@ -260,6 +261,18 @@ function rewriteNode(
   const operation = plan.operations.get(original);
   if (operation !== undefined) {
     consumed.operations.add(original);
+    const projectionFusion = plan.flowPlan?.projectionFusionFor(original);
+    if (projectionFusion !== undefined) {
+      return lowerPointerProjectionFusion(
+        source,
+        factory,
+        projectionFusion,
+        finalNodes,
+      );
+    }
+    if (plan.flowPlan?.ownsFusedProjection(original) === true) {
+      return updated;
+    }
     const optimized = lowerOptimizedPointerOperation(
       source,
       factory,

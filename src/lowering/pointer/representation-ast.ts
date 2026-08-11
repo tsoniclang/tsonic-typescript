@@ -34,6 +34,7 @@ import type { NodeFactory } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { PointerLoweringError } from "./diagnostic.js";
+import { pointerTypeCanBeUndefined } from "./nullability.js";
 import type { PointerFlowRepresentation } from "./flow-plan.js";
 import { runtimeCall } from "./runtime-ast.js";
 
@@ -198,7 +199,7 @@ function directObjectHash(
   pointerType: Type,
   runtimeAlias: string,
 ): Node {
-  if (!typeCanBeUndefined(source, pointer, pointerType)) {
+  if (!pointerTypeCanBeUndefined(source, pointer, pointerType)) {
     return hashObject(factory, pointer, runtimeAlias);
   }
   const parameterName = "$pointer";
@@ -297,17 +298,6 @@ function hashObject(
     [],
     [runtimeCall(factory, runtimeAlias, "rawPointer", [], [pointer])],
   );
-}
-
-function typeCanBeUndefined(
-  source: TargetSourceProgram,
-  anchor: Node,
-  type: Type,
-): boolean {
-  const semantics = source.semantics.forNode(anchor);
-  return semantics.isNullish(type) ||
-    semantics.isUnion(type) && semantics.getUnionOrIntersectionTypes(type)
-      .some((member) => member !== undefined && semantics.isNullish(member));
 }
 
 function undefinedExpression(factory: NodeFactory): Node {

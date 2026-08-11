@@ -17,7 +17,10 @@ import { PointerLoweringError } from "./diagnostic.js";
 import type {
   ClosedPointerFlowPlan,
 } from "./flow-plan.js";
-import { pointerOperationUsesRuntimeValue } from "./flow-application.js";
+import {
+  pointerOperationIsFused,
+  pointerOperationUsesRuntimeValue,
+} from "./flow-application.js";
 import { planPointerMarkerUsage } from "./marker-usage.js";
 
 export interface LocalLocationBinding {
@@ -99,10 +102,12 @@ export function createPointerLoweringPlan(
         );
       }
       operations.set(node, operation);
-      usesRuntimeValue ||= pointerOperationUsesRuntimeValue(
-        operation,
-        flowPlan,
-      );
+      if (!pointerOperationIsFused(flowPlan, node)) {
+        usesRuntimeValue ||= pointerOperationUsesRuntimeValue(
+          operation,
+          flowPlan,
+        );
+      }
       selectedMarkerRoots.push(requireCallTarget(source, node));
     }
     const rawPointerOperation = source.sourceFacts.getFact(
