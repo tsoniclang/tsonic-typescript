@@ -1,4 +1,4 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node, Signature, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
@@ -11,23 +11,56 @@ export function resolvedCallUsesSynchronousTransport(
   const semantics = source.semantics.forNode(call);
   const signature = semantics.getResolvedSignature(call);
   const declaration = semantics.getSignatureDeclaration(signature);
-  return declaration !== undefined &&
-    source.ast.body(declaration) !== undefined &&
-    !source.ast.hasModifierKind(declaration, "async");
+  return declarationUsesSynchronousBody(source, declaration) ||
+    (declarationHasTrustedContract(source, declaration) &&
+      resolvedSignatureResultIsIntrinsic(semantics, signature));
+}
+
+export function resolvedCallResultIsIntrinsicallyNonThenable(
+  source: TargetSourceProgram,
+  call: Node,
+): boolean {
+  const semantics = source.semantics.forNode(call);
+  const signature = semantics.getResolvedSignature(call);
+  return declarationHasTrustedContract(
+    source,
+    semantics.getSignatureDeclaration(signature),
+  ) && resolvedSignatureResultIsIntrinsic(semantics, signature);
+}
+
+export function callableContractResultIsIntrinsicallyNonThenable(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  if (!declarationHasTrustedContract(source, declaration)) {
+    return false;
+  }
+  const selected = source.ast.name(declaration) ?? declaration;
+  const semantics = source.semantics.forNode(selected);
+  const type = semantics.getTypeAtLocation(selected);
+  if (type === undefined) {
+    return false;
+  }
+  const signatures = semantics.getCallSignatures(type);
+  return signatures.length !== 0 && signatures.every((signature) =>
+    resolvedSignatureResultIsIntrinsic(semantics, signature)
+  );
 }
 
 export function callableUsesSynchronousTransport(
   source: TargetSourceProgram,
   declaration: Node,
 ): boolean {
-  if (
-    !isCallableDeclaration(source, declaration) ||
-    source.ast.body(declaration) === undefined ||
-    source.ast.hasModifierKind(declaration, "async")
-  ) {
+  if (declarationUsesSynchronousBody(source, declaration)) {
+    return true;
+  }
+  if (source.ast.hasModifierKind(declaration, "async")) {
     return false;
   }
-  return true;
+  return callableContractResultIsIntrinsicallyNonThenable(
+    source,
+    declaration,
+  );
 }
 
 export function typeMaySuspend(
@@ -226,4 +259,70 @@ function isCallableDeclaration(
     source.ast.is.IsFunctionExpression(node) ||
     source.ast.is.IsArrowFunction(node) ||
     source.ast.is.IsMethodDeclaration(node);
+}
+
+function declarationUsesSynchronousBody(
+  source: TargetSourceProgram,
+  declaration: Node | undefined,
+): boolean {
+  return declaration !== undefined &&
+    isCallableDeclaration(source, declaration) &&
+    source.ast.body(declaration) !== undefined &&
+    !source.ast.hasModifierKind(declaration, "async");
+}
+
+function declarationHasTrustedContract(
+  source: TargetSourceProgram,
+  declaration: Node | undefined,
+): declaration is Node {
+  if (declaration === undefined) {
+    return false;
+  }
+  const sourceFile = source.ast.getSourceFile(declaration);
+  return sourceFile !== undefined && source.ast.isDeclarationFile(sourceFile);
+}
+
+function resolvedSignatureResultIsIntrinsic(
+  semantics: SourceFileSemantics,
+  signature: Signature | undefined,
+): boolean {
+  const result = semantics.getReturnTypeOfSignature(signature);
+  return result !== undefined &&
+    typeIsIntrinsicallyNonThenable(semantics, result, new Set());
+}
+
+function typeIsIntrinsicallyNonThenable(
+  semantics: SourceFileSemantics,
+  type: Type,
+  pending: Set<Type>,
+): boolean {
+  if (
+    pending.has(type) ||
+    semantics.isAny(type) ||
+    semantics.isUnknown(type) ||
+    semantics.couldContainTypeVariables(type)
+  ) {
+    return false;
+  }
+  if (
+    semantics.isNever(type) ||
+    semantics.isVoidLike(type) ||
+    semantics.isNullish(type) ||
+    semantics.isStringLike(type) ||
+    semantics.isNumberLike(type) ||
+    semantics.isBooleanLike(type) ||
+    semantics.isBigIntLike(type)
+  ) {
+    return true;
+  }
+  if (!semantics.isUnion(type)) {
+    return false;
+  }
+  pending.add(type);
+  const intrinsic = semantics.getUnionOrIntersectionTypes(type).every((member) =>
+    member !== undefined &&
+    typeIsIntrinsicallyNonThenable(semantics, member, pending)
+  );
+  pending.delete(type);
+  return intrinsic;
 }

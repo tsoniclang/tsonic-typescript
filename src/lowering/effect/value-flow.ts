@@ -289,7 +289,7 @@ function resolveExpression(
     return resolutionWith(candidate);
   }
   const reference = source.navigation.sourceReferenceFor(referenceNode);
-  return reference === undefined || !reference.project
+  return reference === undefined
     ? unresolved()
     : resolveDeclaration(
       source,

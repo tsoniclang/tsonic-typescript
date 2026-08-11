@@ -5,6 +5,10 @@ import {
   callableDispatchIsClosed,
   isFunctionLike,
 } from "./syntax.js";
+import {
+  callableContractResultIsIntrinsicallyNonThenable,
+  resolvedCallResultIsIntrinsicallyNonThenable,
+} from "./synchronous.js";
 
 export interface ReturnProofScope {
   readonly inputs: ReadonlyMap<Node, ReturnProofValue>;
@@ -55,12 +59,28 @@ export function createReturnCallFlow(
     ): boolean {
       if (
         !source.ast.is.IsCallExpression(value.expression) ||
-        declarations.length === 0 ||
         source.ast.arguments(value.expression).some((argument) =>
           source.ast.is.IsSpreadElement(argument)
         )
       ) {
         return false;
+      }
+      if (resolvedCallResultIsIntrinsicallyNonThenable(
+        source,
+        value.expression,
+      )) {
+        return true;
+      }
+      if (declarations.length === 0) {
+        return false;
+      }
+      if (declarations.every((declaration) =>
+        callableContractResultIsIntrinsicallyNonThenable(
+          source,
+          declaration,
+        )
+      )) {
+        return true;
       }
       return declarations.every((declaration) =>
         declarationResultIsDefinitelyNonThenable(
