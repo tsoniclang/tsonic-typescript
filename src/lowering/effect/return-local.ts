@@ -1,15 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import {
-  createReturnAliasFlow,
-  type ReturnAliasFlow,
-} from "./return-alias.js";
+import { isTransparentParent } from "./callable-input-reference.js";
 import {
   isFunctionLike,
   transparentExpression,
 } from "./syntax.js";
-import { isTransparentParent } from "./callable-input-reference.js";
 
 export interface ReturnLocalBinding {
   readonly declaration: Node;
@@ -26,6 +22,7 @@ interface MutableReturnBinding {
   readonly returnedReferences: Set<Node>;
   readonly inputs: Node[];
   readonly assignmentOperations: Set<Node>;
+  readonly identityNeighbors: Set<Node>;
   closed: boolean;
 }
 
@@ -33,44 +30,36 @@ export function createReturnLocalFlow(
   source: TargetSourceProgram,
   nodes: readonly Node[],
 ): ReturnLocalFlow {
-  const bindings = collectReturnBindings(source, nodes);
-  const bindingNodes = collectReturnBindingNodes(source, bindings);
-  const aliases = createReturnAliasFlow(
-    source,
-    new Map(
-      [...bindings].map(([declaration, binding]) => [
-        declaration,
-        binding.owner,
-      ]),
-    ),
-    bindingNodes,
-    (reference, rootDeclaration) =>
-      isAwaitedSelfAssignmentInput(source, reference, rootDeclaration) ||
-      isNullishIdentityObservation(source, reference),
-  );
-  auditReturnBindings(source, bindings, aliases, bindingNodes);
+  const roots = collectReturnRoots(source, nodes);
+  const ownerNodes = collectOwnerNodes(source, roots);
+  const candidates = collectOwnerBindings(source, ownerNodes, roots);
+  collectBindingInputs(source, candidates, ownerNodes);
+  connectIdentityBindings(source, candidates);
+  const selected = selectIdentityComponents(roots, candidates);
+  const components = indexIdentityComponents(selected);
+  auditBindingUses(source, selected, components, ownerNodes);
+  closeRejectedComponents(selected, components);
   return Object.freeze({
     bindingFor(identifier: Node): ReturnLocalBinding | undefined {
       const declaration = source.navigation.sourceReferenceFor(identifier)?.declaration;
-      const binding = declaration === undefined ? undefined : bindings.get(declaration);
+      const binding = declaration === undefined ? undefined : selected.get(declaration);
       return binding?.closed === true ? binding : undefined;
     },
   });
 }
 
-function collectReturnBindings(
+function collectReturnRoots(
   source: TargetSourceProgram,
   nodes: readonly Node[],
 ): ReadonlyMap<Node, MutableReturnBinding> {
-  const bindings = new Map<Node, MutableReturnBinding>();
+  const roots = new Map<Node, MutableReturnBinding>();
   for (const node of nodes) {
     if (!source.ast.is.IsReturnStatement(node)) {
       continue;
     }
     const expression = source.ast.as.AsReturnStatement(node)?.Expression;
-    for (const referenceNode of directReturnReferences(source, expression)) {
-      const declaration = source.navigation.sourceReferenceFor(referenceNode)
-        ?.declaration;
+    for (const reference of directReturnReferences(source, expression)) {
+      const declaration = source.navigation.sourceReferenceFor(reference)?.declaration;
       const owner = declaration === undefined
         ? undefined
         : containingFunction(source, declaration);
@@ -83,30 +72,63 @@ function collectReturnBindings(
       ) {
         continue;
       }
-      const existing = bindings.get(declaration);
-      if (existing === undefined) {
-        const initializer = source.ast.as.AsVariableDeclaration(declaration)
-          ?.Initializer;
-        bindings.set(declaration, {
-          declaration,
-          owner,
-          returnedReferences: new Set([referenceNode]),
-          inputs: initializer === undefined ? [] : [initializer],
-          assignmentOperations: new Set(),
-          closed: true,
-        });
-      } else {
-        existing.returnedReferences.add(referenceNode);
+      const existing = roots.get(declaration);
+      if (existing !== undefined) {
+        existing.returnedReferences.add(reference);
+        continue;
       }
+      roots.set(declaration, createBinding(source, declaration, owner, reference));
     }
   }
-  return bindings;
+  return roots;
 }
 
-function auditReturnBindings(
+function collectOwnerBindings(
+  source: TargetSourceProgram,
+  nodes: readonly Node[],
+  roots: ReadonlyMap<Node, MutableReturnBinding>,
+): ReadonlyMap<Node, MutableReturnBinding> {
+  const result = new Map(roots);
+  const owners = new Set([...roots.values()].map((binding) => binding.owner));
+  for (const node of nodes) {
+    if (
+      result.has(node) ||
+      !source.ast.is.IsVariableDeclaration(node) ||
+      !source.ast.is.IsIdentifier(source.ast.name(node))
+    ) {
+      continue;
+    }
+    const owner = containingFunction(source, node);
+    if (owner !== undefined && owners.has(owner)) {
+      result.set(node, createBinding(source, node, owner));
+    }
+  }
+  return result;
+}
+
+function createBinding(
+  source: TargetSourceProgram,
+  declaration: Node,
+  owner: Node,
+  returnedReference?: Node,
+): MutableReturnBinding {
+  const initializer = source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
+  return {
+    declaration,
+    owner,
+    returnedReferences: new Set(
+      returnedReference === undefined ? [] : [returnedReference],
+    ),
+    inputs: initializer === undefined ? [] : [initializer],
+    assignmentOperations: new Set(),
+    identityNeighbors: new Set(),
+    closed: true,
+  };
+}
+
+function collectBindingInputs(
   source: TargetSourceProgram,
   bindings: ReadonlyMap<Node, MutableReturnBinding>,
-  aliases: ReturnAliasFlow,
   nodes: readonly Node[],
 ): void {
   for (const node of nodes) {
@@ -115,24 +137,110 @@ function auditReturnBindings(
     }
     const declaration = source.navigation.sourceReferenceFor(node)?.declaration;
     const binding = declaration === undefined ? undefined : bindings.get(declaration);
-    if (binding === undefined || node === source.ast.name(declaration)) {
-      continue;
-    }
-    const assignment = directAssignmentAtReference(source, node);
-    if (assignment !== undefined) {
-      if (!binding.assignmentOperations.has(assignment.operation)) {
-        binding.assignmentOperations.add(assignment.operation);
-        if (!isReferenceTo(source, assignment.value, binding.declaration)) {
-          binding.inputs.push(assignment.value);
-        }
-      }
-      continue;
-    }
+    const assignment = binding === undefined
+      ? undefined
+      : directAssignmentAtReference(source, node);
     if (
+      binding === undefined ||
+      assignment === undefined ||
+      binding.assignmentOperations.has(assignment.operation)
+    ) {
+      continue;
+    }
+    binding.assignmentOperations.add(assignment.operation);
+    if (!isReferenceTo(source, assignment.value, binding.declaration)) {
+      binding.inputs.push(assignment.value);
+    }
+  }
+}
+
+function connectIdentityBindings(
+  source: TargetSourceProgram,
+  bindings: ReadonlyMap<Node, MutableReturnBinding>,
+): void {
+  for (const destination of bindings.values()) {
+    for (const input of destination.inputs) {
+      for (const reference of directIdentityReferences(source, input)) {
+        const declaration = source.navigation.sourceReferenceFor(reference)?.declaration;
+        const sourceBinding = declaration === undefined
+          ? undefined
+          : bindings.get(declaration);
+        if (sourceBinding?.owner !== destination.owner) {
+          continue;
+        }
+        destination.identityNeighbors.add(sourceBinding.declaration);
+        sourceBinding.identityNeighbors.add(destination.declaration);
+      }
+    }
+  }
+}
+
+function selectIdentityComponents(
+  roots: ReadonlyMap<Node, MutableReturnBinding>,
+  candidates: ReadonlyMap<Node, MutableReturnBinding>,
+): ReadonlyMap<Node, MutableReturnBinding> {
+  const selected = new Map<Node, MutableReturnBinding>();
+  const pending = [...roots.keys()];
+  while (pending.length !== 0) {
+    const declaration = pending.pop();
+    if (declaration === undefined || selected.has(declaration)) {
+      continue;
+    }
+    const binding = candidates.get(declaration);
+    if (binding === undefined) {
+      continue;
+    }
+    selected.set(declaration, binding);
+    pending.push(...binding.identityNeighbors);
+  }
+  return selected;
+}
+
+function indexIdentityComponents(
+  bindings: ReadonlyMap<Node, MutableReturnBinding>,
+): ReadonlyMap<Node, Node> {
+  const result = new Map<Node, Node>();
+  for (const declaration of bindings.keys()) {
+    if (result.has(declaration)) {
+      continue;
+    }
+    const pending = [declaration];
+    while (pending.length !== 0) {
+      const member = pending.pop();
+      if (member === undefined || result.has(member) || !bindings.has(member)) {
+        continue;
+      }
+      result.set(member, declaration);
+      pending.push(...bindings.get(member)?.identityNeighbors ?? []);
+    }
+  }
+  return result;
+}
+
+function auditBindingUses(
+  source: TargetSourceProgram,
+  bindings: ReadonlyMap<Node, MutableReturnBinding>,
+  components: ReadonlyMap<Node, Node>,
+  nodes: readonly Node[],
+): void {
+  for (const node of nodes) {
+    if (!source.ast.is.IsIdentifier(node)) {
+      continue;
+    }
+    const declaration = source.navigation.sourceReferenceFor(node)?.declaration;
+    const binding = declaration === undefined ? undefined : bindings.get(declaration);
+    if (
+      binding === undefined ||
+      node === source.ast.name(binding.declaration) ||
+      directAssignmentAtReference(source, node) !== undefined ||
       binding.returnedReferences.has(node) ||
-      isSelfAssignmentValue(source, node, binding.declaration) ||
-      isAwaitedSelfAssignmentInput(source, node, binding.declaration) ||
-      aliases.acceptsInitializer(node, binding.declaration) ||
+      directIdentityDestination(source, node, bindings) !== undefined ||
+      isAwaitedComponentReplacement(
+        source,
+        node,
+        binding.declaration,
+        components,
+      ) ||
       isNullishIdentityObservation(source, node)
     ) {
       continue;
@@ -141,36 +249,92 @@ function auditReturnBindings(
   }
 }
 
-function collectReturnBindingNodes(
-  source: TargetSourceProgram,
+function closeRejectedComponents(
   bindings: ReadonlyMap<Node, MutableReturnBinding>,
-): readonly Node[] {
-  const result = new Set<Node>();
-  const owners = new Set(
-    [...bindings.values()].map((binding) => binding.owner),
-  );
-  for (const owner of owners) {
-    const pending = [owner];
-    while (pending.length !== 0) {
-      const node = pending.pop();
-      if (node === undefined || result.has(node)) {
-        continue;
-      }
-      result.add(node);
-      for (const child of source.ast.children(node)) {
-        if (child !== undefined) {
-          pending.push(child);
-        }
-      }
+  components: ReadonlyMap<Node, Node>,
+): void {
+  const rejected = new Set<Node>();
+  for (const binding of bindings.values()) {
+    const component = components.get(binding.declaration);
+    if (!binding.closed && component !== undefined) {
+      rejected.add(component);
     }
   }
-  return [...result];
+  for (const binding of bindings.values()) {
+    const component = components.get(binding.declaration);
+    if (component !== undefined && rejected.has(component)) {
+      binding.closed = false;
+    }
+  }
 }
 
-function isAwaitedSelfAssignmentInput(
+function directIdentityReferences(
+  source: TargetSourceProgram,
+  expression: Node,
+): readonly Node[] {
+  const root = transparentExpression(source, expression);
+  if (root === undefined) {
+    return [];
+  }
+  if (source.ast.is.IsIdentifier(root)) {
+    return [root];
+  }
+  if (!source.ast.is.IsConditionalExpression(root)) {
+    return [];
+  }
+  const conditional = source.ast.as.AsConditionalExpression(root);
+  return [conditional?.WhenTrue, conditional?.WhenFalse].flatMap((branch) =>
+    branch === undefined ? [] : directIdentityReferences(source, branch)
+  );
+}
+
+function directIdentityDestination(
+  source: TargetSourceProgram,
+  reference: Node,
+  bindings: ReadonlyMap<Node, MutableReturnBinding>,
+): Node | undefined {
+  let current = reference;
+  for (;;) {
+    const parent = source.ast.parent(current);
+    if (parent === undefined) {
+      return undefined;
+    }
+    if (
+      isTransparentParent(source, parent, current) ||
+      isConditionalBranch(source, parent, current)
+    ) {
+      current = parent;
+      continue;
+    }
+    if (source.ast.is.IsVariableDeclaration(parent)) {
+      return source.ast.as.AsVariableDeclaration(parent)?.Initializer === current &&
+          bindings.has(parent)
+        ? parent
+        : undefined;
+    }
+    if (!source.ast.is.IsBinaryExpression(parent)) {
+      return undefined;
+    }
+    const binary = source.ast.as.AsBinaryExpression(parent);
+    const destination = binary?.Right === current &&
+        source.ast.operatorKindName(parent) === "KindEqualsToken"
+      ? transparentExpression(source, binary.Left)
+      : undefined;
+    const declaration = destination !== undefined &&
+        source.ast.is.IsIdentifier(destination)
+      ? source.navigation.sourceReferenceFor(destination)?.declaration
+      : undefined;
+    return declaration !== undefined && bindings.has(declaration)
+      ? declaration
+      : undefined;
+  }
+}
+
+function isAwaitedComponentReplacement(
   source: TargetSourceProgram,
   reference: Node,
   declaration: Node,
+  components: ReadonlyMap<Node, Node>,
 ): boolean {
   let current = reference;
   for (;;) {
@@ -178,20 +342,60 @@ function isAwaitedSelfAssignmentInput(
     if (parent === undefined || isFunctionLike(source, parent)) {
       return false;
     }
-    if (source.ast.is.IsBinaryExpression(parent)) {
-      const binary = source.ast.as.AsBinaryExpression(parent);
-      if (
-        binary?.Right !== current ||
-        source.ast.operatorKindName(parent) !== "KindEqualsToken" ||
-        !isReferenceTo(source, binary.Left, declaration)
-      ) {
-        return false;
-      }
-      const value = transparentExpression(source, binary.Right);
-      return value !== undefined && source.ast.is.IsAwaitExpression(value);
+    if (!source.ast.is.IsBinaryExpression(parent)) {
+      current = parent;
+      continue;
     }
-    current = parent;
+    const binary = source.ast.as.AsBinaryExpression(parent);
+    const destination = binary?.Right === current &&
+        source.ast.operatorKindName(parent) === "KindEqualsToken"
+      ? transparentExpression(source, binary.Left)
+      : undefined;
+    const destinationDeclaration = destination !== undefined &&
+        source.ast.is.IsIdentifier(destination)
+      ? source.navigation.sourceReferenceFor(destination)?.declaration
+      : undefined;
+    const value = transparentExpression(source, binary?.Right);
+    return destinationDeclaration !== undefined &&
+      components.get(destinationDeclaration) === components.get(declaration) &&
+      value !== undefined &&
+      source.ast.is.IsAwaitExpression(value);
   }
+}
+
+function isConditionalBranch(
+  source: TargetSourceProgram,
+  parent: Node,
+  child: Node,
+): boolean {
+  if (!source.ast.is.IsConditionalExpression(parent)) {
+    return false;
+  }
+  const conditional = source.ast.as.AsConditionalExpression(parent);
+  return conditional?.WhenTrue === child || conditional?.WhenFalse === child;
+}
+
+function collectOwnerNodes(
+  source: TargetSourceProgram,
+  bindings: ReadonlyMap<Node, MutableReturnBinding>,
+): readonly Node[] {
+  const result = new Set<Node>();
+  const pending = [...new Set(
+    [...bindings.values()].map((binding) => binding.owner),
+  )];
+  while (pending.length !== 0) {
+    const node = pending.pop();
+    if (node === undefined || result.has(node)) {
+      continue;
+    }
+    result.add(node);
+    for (const child of source.ast.children(node)) {
+      if (child !== undefined) {
+        pending.push(child);
+      }
+    }
+  }
+  return [...result];
 }
 
 function directReturnReferences(
@@ -242,30 +446,6 @@ function directAssignmentAtReference(
     }
     if (!isTransparentParent(source, parent, current)) {
       return undefined;
-    }
-    current = parent;
-  }
-}
-
-function isSelfAssignmentValue(
-  source: TargetSourceProgram,
-  reference: Node,
-  declaration: Node,
-): boolean {
-  let current = reference;
-  for (;;) {
-    const parent = source.ast.parent(current);
-    if (parent === undefined) {
-      return false;
-    }
-    if (source.ast.is.IsBinaryExpression(parent)) {
-      const binary = source.ast.as.AsBinaryExpression(parent);
-      return binary?.Right === current &&
-        source.ast.operatorKindName(parent) === "KindEqualsToken" &&
-        isReferenceTo(source, binary.Left, declaration);
-    }
-    if (!isTransparentParent(source, parent, current)) {
-      return false;
     }
     current = parent;
   }
