@@ -107,7 +107,7 @@ function blockTypeBearingWrapper(
     }
     if (
       source.ast.is.IsBinaryExpression(current) &&
-      source.ast.operatorKindName(current) === "KindQuestionQuestionToken"
+      isNeverFallback(source, current)
     ) {
       current = source.ast.as.AsBinaryExpression(current)?.Left;
       continue;
@@ -185,13 +185,31 @@ export function transparentExpression(
     }
     if (
       source.ast.is.IsBinaryExpression(current) &&
-      source.ast.operatorKindName(current) === "KindQuestionQuestionToken"
+      isNeverFallback(source, current)
     ) {
       current = source.ast.as.AsBinaryExpression(current)?.Left;
       continue;
     }
     return current;
   }
+}
+
+function isNeverFallback(
+  source: TargetSourceProgram,
+  node: Node,
+): boolean {
+  if (
+    source.ast.operatorKindName(node) !== "KindQuestionQuestionToken"
+  ) {
+    return false;
+  }
+  const fallback = source.ast.as.AsBinaryExpression(node)?.Right;
+  const fallbackType = fallback === undefined
+    ? undefined
+    : source.semantics.forNode(fallback).getTypeAtLocation(fallback);
+  return fallback !== undefined &&
+    fallbackType !== undefined &&
+    source.semantics.forNode(fallback).isNever(fallbackType);
 }
 
 export function transparentExpressionRoot(

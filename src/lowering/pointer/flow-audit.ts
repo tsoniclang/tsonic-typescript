@@ -1,7 +1,10 @@
-import type { PointerOperationFact } from "@tsonic/tsts";
+import type { Node, PointerOperationFact } from "@tsonic/tsts";
 
 import type { PointerCensus } from "./flow-census.js";
+import { PointerLoweringError } from "./diagnostic.js";
 import {
+  addTransparentProducer,
+  addTransparentReference,
   enclosingFunction,
   isModuleAliasReference,
   producesPointer,
@@ -11,8 +14,8 @@ import {
 } from "./flow-syntax.js";
 
 export function auditPointerCensus(census: PointerCensus): void {
+  connectBindingReassignments(census);
   auditReferences(census);
-  auditBindingReassignments(census);
   auditAddressedStorage(census);
   auditProducerUses(census);
 }
@@ -74,8 +77,16 @@ function auditReferences(census: PointerCensus): void {
   }
 }
 
-function auditBindingReassignments(census: PointerCensus): void {
-  const { source, graph, references } = census;
+function connectBindingReassignments(census: PointerCensus): void {
+  const {
+    source,
+    graph,
+    references,
+    operations,
+    allowedPointerReferences,
+    allowedProducerUses,
+    resultExpressions,
+  } = census;
   for (const binding of census.pointerBindings) {
     const name = source.ast.name(binding);
     const reference = references.referenceFor(name);
@@ -84,9 +95,73 @@ function auditBindingReassignments(census: PointerCensus): void {
       continue;
     }
     for (const write of references.writesFor(reference.declaration)) {
-      graph.block(graph.get(binding), "pointer-rebinding", write);
+      const assignment = source.ast.is.IsBinaryExpression(write)
+        ? source.ast.as.AsBinaryExpression(write)
+        : undefined;
+      const left = transparentReference(source, assignment?.Left);
+      const right = assignment?.Right;
+      const leftReference = references.referenceFor(left);
+      const plainAssignment = source.ast.operatorKindName(write) ===
+        "KindEqualsToken";
+      const rightVertex = plainAssignment
+        ? resolvePointerExpression(
+            source,
+            references,
+            graph,
+            operations,
+            right,
+          )
+        : undefined;
+      if (
+        !plainAssignment ||
+        left === undefined ||
+        leftReference?.declaration !== binding ||
+        right === undefined ||
+        !assignmentResultIsDiscarded(source, write) ||
+        (rightVertex === undefined && !isExactNullishOrNeverValue(source, right))
+      ) {
+        graph.block(graph.get(binding), "pointer-rebinding", write);
+        continue;
+      }
+      const bindingVertex = graph.get(binding);
+      if (bindingVertex === undefined) {
+        throw new PointerLoweringError(
+          "tracked pointer binding lost its flow vertex",
+        );
+      }
+      if (rightVertex !== undefined) {
+        graph.union(bindingVertex, rightVertex);
+        addTransparentReference(source, right, allowedPointerReferences);
+        addTransparentProducer(
+          source,
+          right,
+          operations,
+          allowedProducerUses,
+          resultExpressions,
+        );
+      }
+      allowedPointerReferences.add(left);
     }
   }
+}
+
+function assignmentResultIsDiscarded(
+  source: PointerCensus["source"],
+  assignment: Node,
+): boolean {
+  const root = transparentExpressionRoot(source, assignment);
+  const parent = source.ast.parent(root);
+  return parent !== undefined && source.ast.is.IsExpressionStatement(parent);
+}
+
+function isExactNullishOrNeverValue(
+  source: PointerCensus["source"],
+  expression: Node,
+): boolean {
+  const semantics = source.semantics.forNode(expression);
+  const type = semantics.getTypeAtLocation(expression);
+  return type !== undefined &&
+    (semantics.isNullish(type) || semantics.isNever(type));
 }
 
 function auditAddressedStorage(census: PointerCensus): void {
