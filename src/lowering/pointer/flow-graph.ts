@@ -7,6 +7,7 @@ import type {
 export type PointerFlowBlocker =
   | "addressed-storage-may-change"
   | "captured-parameter"
+  | "checker-never"
   | "declaration-boundary"
   | "external-boundary"
   | "generic-call"

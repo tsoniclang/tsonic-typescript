@@ -16,7 +16,6 @@ import {
   blockDirectReferenceFamily,
   type MutableDirectReferenceFamily,
 } from "./flow-family-state.js";
-import { indexExactDeclarations } from "./flow-references.js";
 import { transparentExpression } from "./flow-syntax.js";
 import { describePointerPointee } from "./pointee-classification.js";
 
@@ -26,8 +25,6 @@ export function applyGenericPointerBoundaries(
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
   operationFamilies: ReadonlyMap<Node, MutableDirectReferenceFamily>,
 ): void {
-  const boundaries = collectGenericPointerBoundaries(source, nodes);
-  const callables = indexExactDeclarations(source, boundaries.callables);
   for (const [operationNode, family] of operationFamilies) {
     const operation = source.sourceFacts.getFact(
       operationNode,
@@ -60,12 +57,6 @@ export function applyGenericPointerBoundaries(
       !source.ast.is.IsCallExpression(node) ||
       operationFamilies.has(node)
     ) {
-      continue;
-    }
-    const callExpression = source.ast.as.AsCallExpression(node)?.Expression;
-    const target = transparentExpression(source, callExpression);
-    const targetReference = source.ast.name(target) ?? target;
-    if (callables.declarationFor(targetReference) === undefined) {
       continue;
     }
     const semantics = source.semantics.forNode(node);
@@ -134,119 +125,6 @@ function pointerOperands(operation: PointerOperationFact): readonly Node[] {
     case "bind-pointer":
       return [];
   }
-}
-
-function collectGenericPointerBoundaries(
-  source: TargetSourceProgram,
-  nodes: readonly Node[],
-): Readonly<{ callables: ReadonlySet<Node> }> {
-  const callables = new Set<Node>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsTypeReferenceNode(node)) {
-      continue;
-    }
-    const fact = source.sourceFacts.getFact(node, pointerFactKey);
-    if (fact === undefined) {
-      continue;
-    }
-    const semantics = source.semantics.forNode(node);
-    const pointee = semantics.getTypeFromTypeNode(fact.pointee);
-    if (
-      pointee === undefined ||
-      !semantics.couldContainTypeVariables(pointee)
-    ) {
-      continue;
-    }
-    const description = describePointerPointee(source, node, pointee);
-    if (description?.category === "direct-reference") {
-      continue;
-    }
-    const owner = typedDeclarationOwner(source, node);
-    if (owner !== undefined) {
-      const callable = signatureCallableOwner(source, owner, node);
-      if (callable !== undefined) {
-        callables.add(callable);
-      }
-    }
-  }
-  return Object.freeze({ callables });
-}
-
-function signatureCallableOwner(
-  source: TargetSourceProgram,
-  owner: Node,
-  pointerType: Node,
-): Node | undefined {
-  for (
-    let current: Node | undefined = owner;
-    current !== undefined && !source.ast.is.IsSourceFile(current);
-    current = source.ast.parent(current)
-  ) {
-    if (!isCallableDeclaration(source, current)) {
-      continue;
-    }
-    const inParameter = source.ast.parameters(current).some((parameter) =>
-      parameter !== undefined && containsNode(source, parameter, pointerType)
-    );
-    const returnType = source.ast.typeNode(current);
-    return inParameter ||
-        returnType !== undefined && containsNode(source, returnType, pointerType)
-      ? current
-      : undefined;
-  }
-  return undefined;
-}
-
-function isCallableDeclaration(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  return source.ast.is.IsFunctionDeclaration(node) ||
-    source.ast.is.IsFunctionExpression(node) ||
-    source.ast.is.IsArrowFunction(node) ||
-    source.ast.is.IsMethodDeclaration(node) ||
-    source.ast.is.IsConstructorDeclaration(node) ||
-    source.ast.is.IsGetAccessorDeclaration(node) ||
-    source.ast.is.IsSetAccessorDeclaration(node);
-}
-
-function typedDeclarationOwner(
-  source: TargetSourceProgram,
-  pointerType: Node,
-): Node | undefined {
-  for (
-    let current = source.ast.parent(pointerType);
-    current !== undefined && !source.ast.is.IsSourceFile(current);
-    current = source.ast.parent(current)
-  ) {
-    const type = source.ast.typeNode(current);
-    if (type !== undefined && containsNode(source, type, pointerType)) {
-      return current;
-    }
-  }
-  return undefined;
-}
-
-function containsNode(
-  source: TargetSourceProgram,
-  root: Node,
-  expected: Node,
-): boolean {
-  const pending = [root];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === expected) {
-      return true;
-    }
-    if (node !== undefined) {
-      for (const child of source.ast.children(node)) {
-        if (child !== undefined) {
-          pending.push(child);
-        }
-      }
-    }
-  }
-  return false;
 }
 
 function authoredTypeContainsRepresentationVaryingPointer(

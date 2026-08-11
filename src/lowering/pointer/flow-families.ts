@@ -53,6 +53,7 @@ export function planDirectReferenceFamilies(
     families,
     operationFamilies,
   );
+  applyCheckerBoundaries(source, operationFamilies);
   applyComponentBoundaries(
     source,
     components,
@@ -91,6 +92,41 @@ export function planDirectReferenceFamilies(
     familyCount,
     fallbackReasons: sealFamilyFallback(fallbackReasons),
   });
+}
+
+function applyCheckerBoundaries(
+  source: TargetSourceProgram,
+  operationFamilies: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+): void {
+  for (const [node, family] of operationFamilies) {
+    const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
+    if (operation === undefined) {
+      continue;
+    }
+    for (const expression of pointerExpressions(operation)) {
+      const semantics = source.semantics.forNode(expression);
+      const type = semantics.getTypeAtLocation(expression);
+      if (type !== undefined && semantics.isNever(type)) {
+        blockFamily(family, "checker-never", expression);
+      }
+    }
+  }
+}
+
+function pointerExpressions(operation: PointerOperationFact): readonly Node[] {
+  switch (operation.operation) {
+    case "load":
+    case "store":
+    case "hash-pointer":
+    case "project-pointer":
+      return [operation.pointerExpression];
+    case "equal-pointer":
+      return [operation.leftExpression, operation.rightExpression];
+    case "address-of":
+    case "allocate":
+    case "bind-pointer":
+      return [];
+  }
 }
 
 function collectPointerType(
