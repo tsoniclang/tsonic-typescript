@@ -13,6 +13,8 @@ import {
   AsParameterDeclaration,
   AsPropertyAccessExpression,
   AsPropertyDeclaration,
+  AsTypeAliasDeclaration,
+  AsTypeReferenceNode,
   IsBlock,
   IsClassDeclaration,
   IsClassStaticBlockDeclaration,
@@ -31,6 +33,16 @@ import {
 
 export type ScalarRepresentationProfile = "preserve" | "closed-direct";
 
+export type ScalarPrimitiveKind =
+  | "bigint"
+  | "boolean"
+  | "number"
+  | "string";
+
+export type ScalarProjectionResultType =
+  | { readonly kind: "authored"; readonly node: Node }
+  | { readonly kind: "primitive"; readonly primitive: ScalarPrimitiveKind };
+
 export interface ScalarProjectionPlan {
   readonly access: Node;
   readonly construction: Node;
@@ -39,7 +51,7 @@ export interface ScalarProjectionPlan {
   readonly classDeclaration: Node;
   readonly constructorDeclaration: Node;
   readonly fieldDeclaration: Node;
-  readonly resultTypeNode: Node;
+  readonly resultType: ScalarProjectionResultType;
 }
 
 export interface ScalarRepresentationPlan {
@@ -55,8 +67,8 @@ export interface ScalarRepresentationPlan {
 interface TransparentClassProof {
   readonly constructorDeclaration: Node;
   readonly parameterDeclaration: Node;
-  readonly selectedType: Type;
   readonly resultTypeNode: Node;
+  readonly portableResultType?: ScalarPrimitiveKind;
 }
 
 const noProjections = Object.freeze([]) as readonly ScalarProjectionPlan[];
@@ -70,6 +82,7 @@ export function createScalarRepresentationPlan(
   }
   let syntacticProjectionCount = 0;
   const classProofs = new Map<Node, TransparentClassProof | undefined>();
+  const portableScalarKinds = new Map<Node, ScalarPrimitiveKind | undefined>();
   const projections: ScalarProjectionPlan[] = [];
   forEachProgramNode(source, (node) => {
     if (!isSyntacticProjection(node)) {
@@ -77,7 +90,12 @@ export function createScalarRepresentationPlan(
     }
     syntacticProjectionCount += 1;
     if (profile === "closed-direct") {
-      const projection = resolveProjection(source, node, classProofs);
+      const projection = resolveProjection(
+        source,
+        node,
+        classProofs,
+        portableScalarKinds,
+      );
       if (projection !== undefined) {
         projections.push(projection);
       }
@@ -181,6 +199,7 @@ function resolveProjection(
   source: TargetSourceProgram,
   node: Node,
   classProofs: Map<Node, TransparentClassProof | undefined>,
+  portableScalarKinds: Map<Node, ScalarPrimitiveKind | undefined>,
 ): ScalarProjectionPlan | undefined {
   const access = AsPropertyAccessExpression(node);
   const construction = access?.Expression === undefined
@@ -201,31 +220,49 @@ function resolveProjection(
   if (
     reference === undefined ||
     !reference.project ||
-    !IsClassDeclaration(reference.declaration) ||
-    source.ast.getSourceFile(reference.declaration) !==
-      source.ast.getSourceFile(node)
+    !IsClassDeclaration(reference.declaration)
   ) {
     return undefined;
   }
   const classDeclaration = reference.declaration;
-  const sourceFile = source.ast.getSourceFile(classDeclaration);
-  if (
-    sourceFile === undefined ||
-    source.navigation.bindingWritesWithin(reference.symbol, sourceFile).length !== 0
-  ) {
+  const classSourceFile = source.ast.getSourceFile(classDeclaration);
+  const useSourceFile = source.ast.getSourceFile(node);
+  if (classSourceFile === undefined || useSourceFile === undefined) {
     return undefined;
   }
+  const sameSourceFile = classSourceFile === useSourceFile;
   let classProof = classProofs.get(classDeclaration);
   if (!classProofs.has(classDeclaration)) {
-    classProof = proveTransparentClass(source, classDeclaration);
+    classProof = proveTransparentClass(
+      source,
+      classDeclaration,
+      portableScalarKinds,
+    );
     classProofs.set(classDeclaration, classProof);
   }
   if (classProof === undefined) {
     return undefined;
   }
+  let resultType: ScalarProjectionResultType;
+  if (sameSourceFile) {
+    resultType = Object.freeze({
+      kind: "authored",
+      node: classProof.resultTypeNode,
+    });
+  } else {
+    const portable = classProof.portableResultType;
+    if (portable === undefined) {
+      return undefined;
+    }
+    resultType = Object.freeze({ kind: "primitive", primitive: portable });
+  }
 
   const semantics = source.semantics.forNode(node);
   const property = semantics.getResolvedPropertyAccessInfo(node);
+  const call = semantics.getResolvedCallInfo(construction);
+  const selectedParameter = call?.sourceSelectedSignatureParameters[0];
+  const argumentBinding = call?.sourceArgumentBindings[0];
+  const sourceArgument = call?.sourceArguments[0];
   if (
     property === undefined ||
     property.expression !== node ||
@@ -234,18 +271,34 @@ function resolveProjection(
     property.accessMode !== "read" ||
     property.optionalChain ||
     property.callCallee ||
+    call?.outcome !== "applicable" ||
+    call.call !== construction ||
+    call.optionalChain ||
+    call.sourceSelectedSignatureKind !== "resolved" ||
+    semantics.getSignatureDeclaration(call.selectedSignature) !==
+      classProof.constructorDeclaration ||
+    call.sourceSelectedSignatureParameters.length !== 1 ||
+    selectedParameter === undefined ||
+    selectedParameter.parameterIndex !== 0 ||
+    selectedParameter.parameterDeclaration !== classProof.parameterDeclaration ||
+    selectedParameter.authoredTypeNode !== classProof.resultTypeNode ||
+    call.sourceArguments.length !== 1 ||
+    sourceArgument?.expression !== argument ||
+    call.sourceArgumentBindings.length !== 1 ||
+    argumentBinding === undefined ||
+    argumentBinding.sourceArgumentIndex !== 0 ||
+    argumentBinding.effectiveArgumentIndex !== 0 ||
+    argumentBinding.sourceForm !== "value" ||
+    argumentBinding.sourceParameterIndex !== 0 ||
+    argumentBinding.sourceParameterForm !== "parameter" ||
     semantics.getTypeRelationship(
       property.sourceReadType,
-      classProof.selectedType,
+      selectedParameter.selectedType,
+    ) !== "identical" ||
+    semantics.getTypeRelationship(
+      argumentBinding.selectedParameterType,
+      selectedParameter.selectedType,
     ) !== "identical"
-  ) {
-    return undefined;
-  }
-  const signature = semantics.getResolvedSignature(construction);
-  if (
-    signature === undefined ||
-    semantics.getSignatureDeclaration(signature) !==
-      classProof.constructorDeclaration
   ) {
     return undefined;
   }
@@ -257,13 +310,14 @@ function resolveProjection(
     classDeclaration,
     constructorDeclaration: classProof.constructorDeclaration,
     fieldDeclaration: classProof.parameterDeclaration,
-    resultTypeNode: classProof.resultTypeNode,
+    resultType,
   });
 }
 
 function proveTransparentClass(
   source: TargetSourceProgram,
   declaration: Node,
+  portableScalarKinds: Map<Node, ScalarPrimitiveKind | undefined>,
 ): TransparentClassProof | undefined {
   const classDeclaration = AsClassDeclaration(declaration);
   if (
@@ -274,6 +328,20 @@ function proveTransparentClass(
     source.ast.hasModifierKind(declaration, "abstract") ||
     source.ast.hasModifierKind(declaration, "ambient") ||
     !classMembersAreProjectionSafe(source, declaration)
+  ) {
+    return undefined;
+  }
+  const classReference = source.navigation.sourceReferenceFor(
+    classDeclaration.name,
+  );
+  if (
+    classReference === undefined ||
+    !classReference.project ||
+    classReference.declaration !== declaration ||
+    source.navigation.bindingWritesWithin(
+      classReference.symbol,
+      classReference.sourceFile,
+    ).length !== 0
   ) {
     return undefined;
   }
@@ -334,14 +402,26 @@ function proveTransparentClass(
     return undefined;
   }
   const semantics = source.semantics.forNode(declaration);
-  if (!isScalarType(semantics, selectedParameter.selectedType)) {
+  const scalarKind = scalarPrimitiveKind(
+    semantics,
+    selectedParameter.selectedType,
+  );
+  if (scalarKind === undefined) {
     return undefined;
   }
+  const portableKind = portableScalarKind(
+    source,
+    parameter.Type,
+    portableScalarKinds,
+  );
+  const portableResultType = portableKind === scalarKind
+    ? portableKind
+    : undefined;
   return Object.freeze({
     constructorDeclaration,
     parameterDeclaration,
-    selectedType: selectedParameter.selectedType,
     resultTypeNode: parameter.Type,
+    ...(portableResultType === undefined ? {} : { portableResultType }),
   });
 }
 
@@ -381,14 +461,96 @@ function classMembersAreProjectionSafe(
   return true;
 }
 
-function isScalarType(
+function scalarPrimitiveKind(
   semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
   type: Type,
-): boolean {
-  return semantics.isNumberLike(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type);
+): ScalarPrimitiveKind | undefined {
+  if (semantics.isNumberLike(type)) {
+    return "number";
+  }
+  if (semantics.isStringLike(type)) {
+    return "string";
+  }
+  if (semantics.isBooleanLike(type)) {
+    return "boolean";
+  }
+  return semantics.isBigIntLike(type) ? "bigint" : undefined;
+}
+
+function portableScalarKind(
+  source: TargetSourceProgram,
+  authoredType: Node,
+  knownKinds: Map<Node, ScalarPrimitiveKind | undefined>,
+): ScalarPrimitiveKind | undefined {
+  if (knownKinds.has(authoredType)) {
+    return knownKinds.get(authoredType);
+  }
+  const visited = new Set<Node>();
+  const path: Node[] = [];
+  let current: Node | undefined = authoredType;
+  let result: ScalarPrimitiveKind | undefined;
+  while (current !== undefined) {
+    if (knownKinds.has(current)) {
+      result = knownKinds.get(current);
+      break;
+    }
+    if (visited.has(current)) {
+      break;
+    }
+    visited.add(current);
+    path.push(current);
+    if (source.ast.is.IsParenthesizedTypeNode(current)) {
+      current = source.ast.as.AsParenthesizedTypeNode(current)?.Type;
+      continue;
+    }
+    const keyword = primitiveKindName(source.ast.kindName(current));
+    if (keyword !== undefined) {
+      result = keyword;
+      break;
+    }
+    const reference = AsTypeReferenceNode(current);
+    if (
+      reference === undefined ||
+      (reference.TypeArguments?.Nodes.length ?? 0) !== 0
+    ) {
+      break;
+    }
+    const declaration = source.navigation.sourceReferenceFor(
+      reference.TypeName,
+    )?.declaration;
+    if (declaration === undefined) {
+      break;
+    }
+    const alias = AsTypeAliasDeclaration(declaration);
+    if (
+      alias?.Type === undefined ||
+      source.ast.typeParameters(declaration).length !== 0
+    ) {
+      break;
+    }
+    current = alias.Type;
+  }
+  for (const node of path) {
+    knownKinds.set(node, result);
+  }
+  return result;
+}
+
+function primitiveKindName(
+  kind: string | undefined,
+): ScalarPrimitiveKind | undefined {
+  switch (kind) {
+    case "KindBigIntKeyword":
+      return "bigint";
+    case "KindBooleanKeyword":
+      return "boolean";
+    case "KindNumberKeyword":
+      return "number";
+    case "KindStringKeyword":
+      return "string";
+    default:
+      return undefined;
+  }
 }
 
 function hasDecorator(source: TargetSourceProgram, node: Node): boolean {

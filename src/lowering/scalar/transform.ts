@@ -5,9 +5,14 @@ import type {
 import {
   AsNewExpression,
   AsPropertyAccessExpression,
+  KindBigIntKeyword,
+  KindBooleanKeyword,
   KindCommaToken,
+  KindNumberKeyword,
+  KindStringKeyword,
   NewAsExpression,
   NewBinaryExpression,
+  NewKeywordTypeNode,
   NewParenthesizedExpression,
   NewToken,
   NewVoidExpression,
@@ -21,6 +26,7 @@ import type {
 import type {
   ScalarRepresentationPlan,
   ScalarRepresentationProfile,
+  ScalarProjectionResultType,
 } from "./plan.js";
 
 export interface ScalarRepresentationRewriteResult {
@@ -79,7 +85,7 @@ export function createScalarRepresentationRewriter(
         factory,
         target,
         argument,
-        projection.resultTypeNode,
+        projection.resultType,
       );
     },
     finish(transformed: SourceFile): ScalarRepresentationRewriteResult {
@@ -120,7 +126,7 @@ function projectScalarValue(
   factory: NodeFactory,
   constructorTarget: Node,
   argument: Node,
-  resultTypeNode: Node,
+  resultType: ScalarProjectionResultType,
 ): Node {
   const sequence = requiredNode(
     NewBinaryExpression(
@@ -141,12 +147,32 @@ function projectScalarValue(
     "scalar construction evaluation parentheses",
   );
   const projected = requiredNode(
-    NewAsExpression(factory, parenthesized, resultTypeNode),
+    NewAsExpression(factory, parenthesized, resultTypeNode(factory, resultType)),
     "scalar projection type preservation",
   );
   return requiredNode(
     NewParenthesizedExpression(factory, projected),
     "scalar projection use-site precedence",
+  );
+}
+
+function resultTypeNode(
+  factory: NodeFactory,
+  resultType: ScalarProjectionResultType,
+): Node {
+  if (resultType.kind === "authored") {
+    return resultType.node;
+  }
+  const kind = resultType.primitive === "number"
+    ? KindNumberKeyword
+    : resultType.primitive === "string"
+    ? KindStringKeyword
+    : resultType.primitive === "boolean"
+    ? KindBooleanKeyword
+    : KindBigIntKeyword;
+  return requiredNode(
+    NewKeywordTypeNode(factory, kind),
+    "scalar projection primitive type",
   );
 }
 

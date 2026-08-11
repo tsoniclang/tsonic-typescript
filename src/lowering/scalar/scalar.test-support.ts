@@ -21,11 +21,13 @@ export function checkedScalarFixture(
   sourceText: string,
   options: {
     readonly experimentalDecorators?: boolean;
+    readonly additionalFiles?: Readonly<Record<string, string>>;
   } = {},
 ): CheckedScalarFixture {
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files: {
+      ...options.additionalFiles,
       "/src/index.ts": sourceText,
     },
     rootFiles: ["/src/index.ts"],
