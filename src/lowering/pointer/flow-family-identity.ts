@@ -15,6 +15,11 @@ export function nonBijectiveIdentityOccurrences(
   if (!operationsList.some(isIdentityObservation)) {
     return Object.freeze([]);
   }
+  const proof: FreshFamilyProof = {
+    activeFactories: new Set(),
+    bindingChanges: new Map(),
+    factoryResults: new Map(),
+  };
   const failures: Node[] = [];
   for (const operation of operationsList) {
     if (operation.operation === "address-of") {
@@ -25,12 +30,19 @@ export function nonBijectiveIdentityOccurrences(
         source,
         familyIdentity,
         operation.initialExpression,
+        proof,
       )
     ) {
       failures.push(operation.initialExpression);
     }
   }
   return Object.freeze(failures);
+}
+
+interface FreshFamilyProof {
+  readonly activeFactories: Set<Node>;
+  readonly bindingChanges: Map<Symbol, boolean>;
+  readonly factoryResults: Map<Node, boolean>;
 }
 
 function isIdentityObservation(operation: PointerOperationFact): boolean {
@@ -42,10 +54,45 @@ function isFreshFamilyConstruction(
   source: TargetSourceProgram,
   familyIdentity: Node,
   expression: Node,
+  proof: FreshFamilyProof,
+): boolean {
+  return isFreshFamilyValue(
+    source,
+    familyIdentity,
+    expression,
+    proof,
+  );
+}
+
+function isFreshFamilyValue(
+  source: TargetSourceProgram,
+  familyIdentity: Node,
+  expression: Node,
+  proof: FreshFamilyProof,
 ): boolean {
   const constructionNode = transparentExpression(source, expression);
+  if (constructionNode === undefined) {
+    return false;
+  }
+  if (source.ast.is.IsNewExpression(constructionNode)) {
+    return isFreshNewExpression(source, familyIdentity, constructionNode, proof);
+  }
+  return source.ast.is.IsCallExpression(constructionNode) &&
+    isFreshFactoryCall(
+      source,
+      familyIdentity,
+      constructionNode,
+      proof,
+    );
+}
+
+function isFreshNewExpression(
+  source: TargetSourceProgram,
+  familyIdentity: Node,
+  constructionNode: Node,
+  proof: FreshFamilyProof,
+): boolean {
   if (
-    constructionNode === undefined ||
     !source.ast.is.IsNewExpression(constructionNode)
   ) {
     return false;
@@ -57,9 +104,7 @@ function isFreshFamilyConstruction(
     reference === undefined ||
     !reference.project ||
     reference.declaration !== familyIdentity ||
-    source.ast.extendsHeritageElements(familyIdentity).length !== 0 ||
-    source.ast.modifiers(familyIdentity).some((modifier) => IsDecorator(modifier)) ||
-    classBindingCanChange(source, reference.symbol)
+    !isStableFamily(source, familyIdentity, reference.symbol, proof)
   ) {
     return false;
   }
@@ -80,13 +125,107 @@ function isFreshFamilyConstruction(
     !containsReplacementReturn(source, body);
 }
 
-function classBindingCanChange(
+function isFreshFactoryCall(
+  source: TargetSourceProgram,
+  familyIdentity: Node,
+  callNode: Node,
+  proof: FreshFamilyProof,
+): boolean {
+  const call = source.ast.as.AsCallExpression(callNode);
+  const target = transparentExpression(source, call?.Expression);
+  if (
+    target === undefined ||
+    !source.ast.is.IsPropertyAccessExpression(target)
+  ) {
+    return false;
+  }
+  const property = source.ast.as.AsPropertyAccessExpression(target);
+  const receiver = transparentExpression(source, property?.Expression);
+  const familyReference = source.navigation.sourceReferenceFor(receiver);
+  const methodReference = source.navigation.sourceReferenceFor(target);
+  if (
+    familyReference === undefined ||
+    !familyReference.project ||
+    familyReference.declaration !== familyIdentity ||
+    methodReference === undefined ||
+    !methodReference.project ||
+    !source.ast.is.IsMethodDeclaration(methodReference.declaration) ||
+    source.ast.parent(methodReference.declaration) !== familyIdentity ||
+    !source.ast.hasModifierKind(methodReference.declaration, "static") ||
+    source.ast.hasModifierKind(methodReference.declaration, "async") ||
+    source.ast.modifiers(methodReference.declaration).some((modifier) =>
+      IsDecorator(modifier)
+    ) ||
+    !isStableFamily(source, familyIdentity, familyReference.symbol, proof) ||
+    bindingCanChange(source, methodReference.symbol, proof)
+  ) {
+    return false;
+  }
+  const method = source.ast.as.AsMethodDeclaration(methodReference.declaration);
+  const body = source.ast.body(methodReference.declaration);
+  const statements = source.ast.statements(body);
+  const returnStatement = statements.length === 1 && statements[0] !== undefined &&
+      source.ast.is.IsReturnStatement(statements[0])
+    ? source.ast.as.AsReturnStatement(statements[0])
+    : undefined;
+  const returned = returnStatement?.Expression;
+  const semantics = source.semantics.forNode(callNode);
+  const callInfo = semantics.getResolvedCallInfo(callNode);
+  if (
+    method === undefined ||
+    method.AsteriskToken !== undefined ||
+    body === undefined ||
+    returned === undefined ||
+    callInfo?.outcome !== "applicable" ||
+    callInfo.sourceSelectedSignatureKind !== "resolved" ||
+    callInfo.optionalChain ||
+    semantics.getSignatureDeclaration(callInfo.selectedSignature) !==
+      methodReference.declaration ||
+    proof.activeFactories.has(methodReference.declaration)
+  ) {
+    return false;
+  }
+  const cached = proof.factoryResults.get(methodReference.declaration);
+  if (cached !== undefined || proof.factoryResults.has(methodReference.declaration)) {
+    return cached ?? false;
+  }
+  proof.activeFactories.add(methodReference.declaration);
+  const fresh = isFreshFamilyValue(
+    source,
+    familyIdentity,
+    returned,
+    proof,
+  );
+  proof.activeFactories.delete(methodReference.declaration);
+  proof.factoryResults.set(methodReference.declaration, fresh);
+  return fresh;
+}
+
+function isStableFamily(
+  source: TargetSourceProgram,
+  familyIdentity: Node,
+  familySymbol: Symbol,
+  proof: FreshFamilyProof,
+): boolean {
+  return source.ast.extendsHeritageElements(familyIdentity).length === 0 &&
+    !source.ast.modifiers(familyIdentity).some((modifier) => IsDecorator(modifier)) &&
+    !bindingCanChange(source, familySymbol, proof);
+}
+
+function bindingCanChange(
   source: TargetSourceProgram,
   symbol: Symbol,
+  proof: FreshFamilyProof,
 ): boolean {
-  return source.navigation.sourceFiles.some((sourceFile) =>
+  const cached = proof.bindingChanges.get(symbol);
+  if (cached !== undefined || proof.bindingChanges.has(symbol)) {
+    return cached ?? false;
+  }
+  const changes = source.navigation.sourceFiles.some((sourceFile) =>
     source.navigation.bindingWritesWithin(symbol, sourceFile).length !== 0
   );
+  proof.bindingChanges.set(symbol, changes);
+  return changes;
 }
 
 function containsReplacementReturn(

@@ -134,10 +134,14 @@ The closed planner can select only these exact representations:
   does not replace the pointee through the pointer.
 
 An identity-observing class family can still use the object itself only when
-every pointer producer is `allocatePointer(new ExactClass(...))` and the target
-proves each construction returns a fresh object. Addressed storage, allocating
-an existing object, inheritance, class decorators, class-binding writes, and a
-constructor that can return a replacement object all retain `Location<T>`.
+every pointer producer receives a value proven fresh. The proof accepts an
+exact `new ExactClass(...)` or an exact resolved call to a stable static method
+on that class whose sole statement returns another proven-fresh value. Factory
+proofs may compose recursively, but cycles fail closed; names such as `make` or
+`create` have no meaning. Addressed storage, allocating an existing object,
+shared or branching factory returns, factory/class binding writes, inheritance,
+decorators, and a constructor that can return a replacement object all retain
+`Location<T>`.
 Within that proven bijection, pointer equality is object `===` and pointer
 hashing uses the runtime's stable object-identity hash. A nullable hash input is
 captured once before its nil branch, so lowering cannot duplicate evaluation.

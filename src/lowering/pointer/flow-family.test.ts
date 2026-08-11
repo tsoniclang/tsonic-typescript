@@ -312,6 +312,128 @@ export const result = [
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 2);
 });
 
+test("uses exact fresh static factories for pointer identity", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer, loadPointer } from "./markers.js";
+class Box {
+  private constructor(public value: number) {}
+  static create(value: number): Box { return new Box(value); }
+  static zero(): Box { return Box.create(0); }
+}
+const first: Pointer<Box> = allocatePointer(Box.zero());
+const alias = first;
+const second: Pointer<Box> = allocatePointer(Box.create(1));
+export const result = [
+  loadPointer(first).value,
+  equalPointer(first, alias),
+  equalPointer(first, second),
+];
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assert.equal(plan.optimizedFamilyCount, 1);
+  assertAllOperations(fixture.source, plan, "direct-object");
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "allocatePointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "equalPointer"), 0);
+});
+
+test("rejects static factories whose result can share identity", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer } from "./markers.js";
+class Box {
+  static readonly shared = new Box();
+  static create(): Box { return Box.shared; }
+}
+const left: Pointer<Box> = allocatePointer(Box.create());
+const right: Pointer<Box> = allocatePointer(Box.create());
+export const same = equalPointer(left, right);
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "location");
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "non-bijective-identity"
+    )?.count,
+    1,
+  );
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "non-bijective-identity"
+    )?.examples.length,
+    2,
+  );
+});
+
+test("rejects a fresh factory when its exact member binding changes", () => {
+  const unchanged = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer } from "./markers.js";
+class Box {
+  static readonly shared = new Box();
+  static create(): Box { return new Box(); }
+}
+const left: Pointer<Box> = allocatePointer(Box.create());
+const right: Pointer<Box> = allocatePointer(Box.create());
+export const same = equalPointer(left, right);
+`);
+  assertAllOperations(
+    unchanged.source,
+    createClosedPointerFlowPlan(unchanged.source),
+    "direct-object",
+  );
+
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer } from "./markers.js";
+class Box {
+  static readonly shared = new Box();
+  static create(): Box { return new Box(); }
+}
+Box.create = () => Box.shared;
+const left: Pointer<Box> = allocatePointer(Box.create());
+const right: Pointer<Box> = allocatePointer(Box.create());
+export const same = equalPointer(left, right);
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "location");
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "non-bijective-identity"
+    )?.count,
+    1,
+  );
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "non-bijective-identity"
+    )?.examples.length,
+    2,
+  );
+});
+
+test("rejects recursive factory proofs without guessing freshness", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer } from "./markers.js";
+class Box {
+  static first(): Box { return Box.second(); }
+  static second(): Box { return Box.first(); }
+}
+const left: Pointer<Box> = allocatePointer(Box.first());
+const right: Pointer<Box> = allocatePointer(Box.second());
+export const same = equalPointer(left, right);
+`);
+  const plan = createClosedPointerFlowPlan(fixture.source);
+
+  assertAllOperations(fixture.source, plan, "location");
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "non-bijective-identity"
+    )?.count,
+    1,
+  );
+});
+
 test("emits direct pointer equality as strict object identity", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, equalPointer } from "./markers.js";
