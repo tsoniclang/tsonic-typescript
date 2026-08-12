@@ -169,6 +169,9 @@ proved semantics permit it:
 - preserve GoToTS-owned source-derived declaration and module names, and use
   the same rule for target-created private declarations;
 - add a readable semantic qualifier only for a real collision; and
+- reserve every target-created lexical binding against every authored and
+  generated binding visible at its insertion point, including parameters of
+  synthetic closures; and
 - keep digests and internal identities in manifests/evidence, never ordinary
   declaration names or module paths. A canonical naming violation is reported
   to GoToTS rather than hidden by a target rename.

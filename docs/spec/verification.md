@@ -79,7 +79,10 @@ inspected. The gate rejects, unless an exact typed necessity row owns it:
 Collision fixtures prove readable deterministic semantic qualification. A
 canonical declaration/module naming failure is attributed to GoToTS; a
 target-created private naming failure is attributed to this target. The same
-input and profile reproduce byte-identical source and evidence.
+input and profile reproduce byte-identical source and evidence. A fixture
+places each preferred target-private binding name in an enclosing authored
+scope and proves that the target chooses a distinct deterministic name; this
+includes bindings introduced inside synthetic closures.
 
 ## Product Performance Gate
 
