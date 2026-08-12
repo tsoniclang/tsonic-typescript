@@ -33,6 +33,7 @@ import {
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import type { GeneratedBindingName } from "../generated-names.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
 import type { PointerFlowRepresentation } from "./flow-plan.js";
@@ -91,7 +92,8 @@ export function lowerOptimizedPointerOperation(
   operation: PointerOperationFact,
   updated: Node,
   representation: PointerFlowRepresentation,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
+  nullableHashParameterName: GeneratedBindingName | undefined,
 ): Node | undefined {
   if (representation === "location") {
     return undefined;
@@ -103,7 +105,11 @@ export function lowerOptimizedPointerOperation(
       `${operation.operation} optimized flow lost its exact call arguments`,
     );
   }
-  const values = requireNodes(arguments_, operation.operation);
+  const values = simplifyDisprovedNilGuards(
+    source,
+    operation,
+    requireNodes(arguments_, operation.operation),
+  );
   if (
     representation === "direct-object" ||
     representation === "mutable-cell"
@@ -114,6 +120,7 @@ export function lowerOptimizedPointerOperation(
       operation,
       values,
       runtimeAlias,
+      nullableHashParameterName,
     );
     if (identity !== undefined) {
       return identity;
@@ -177,12 +184,65 @@ export function lowerOptimizedPointerOperation(
   }
 }
 
+function simplifyDisprovedNilGuards(
+  source: TargetSourceProgram,
+  operation: PointerOperationFact,
+  values: readonly Node[],
+): readonly Node[] {
+  const pointerOperands = operation.operation === "equal-pointer"
+    ? [operation.leftExpression, operation.rightExpression]
+    : operation.operation === "load" ||
+        operation.operation === "store" ||
+        operation.operation === "hash-pointer"
+    ? [operation.pointerExpression]
+    : [];
+  if (pointerOperands.length === 0) {
+    return values;
+  }
+  const simplified = [...values];
+  for (let index = 0; index < pointerOperands.length; index += 1) {
+    const original = pointerOperands[index];
+    const updated = simplified[index];
+    if (original !== undefined && updated !== undefined) {
+      simplified[index] = disprovedNilGuardValue(source, original, updated);
+    }
+  }
+  return simplified;
+}
+
+function disprovedNilGuardValue(
+  source: TargetSourceProgram,
+  original: Node,
+  updated: Node,
+): Node {
+  if (source.ast.operatorKindName(original) !== "KindQuestionQuestionToken") {
+    return updated;
+  }
+  const originalBinary = source.ast.as.AsBinaryExpression(original);
+  const updatedBinary = source.ast.as.AsBinaryExpression(updated);
+  const fallback = originalBinary?.Right;
+  const fallbackType = fallback === undefined
+    ? undefined
+    : source.semantics.forNode(fallback).getTypeAtLocation(fallback);
+  if (
+    fallback === undefined ||
+    fallbackType === undefined ||
+    !source.semantics.forNode(fallback).isNever(fallbackType) ||
+    source.ast.operatorKindName(updated) !== "KindQuestionQuestionToken" ||
+    updatedBinary?.Left === undefined
+  ) {
+    return updated;
+  }
+  return updatedBinary.Left;
+}
+
 function lowerReferenceIdentityOperation(
   source: TargetSourceProgram,
   factory: NodeFactory,
   operation: PointerOperationFact,
   values: readonly Node[],
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
+  nullableHashParameterName: GeneratedBindingName | undefined,
 ): Node | undefined {
   if (operation.operation === "equal-pointer") {
     requireArity(operation.operation, values, 2);
@@ -200,6 +260,7 @@ function lowerReferenceIdentityOperation(
       requiredValue(values, 0),
       operation.pointerType,
       runtimeAlias,
+      nullableHashParameterName,
     );
   }
   return undefined;
@@ -224,18 +285,23 @@ function directObjectHash(
   factory: NodeFactory,
   pointer: Node,
   pointerType: Type,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
+  parameterName: GeneratedBindingName | undefined,
 ): Node {
   if (!pointerTypeCanBeUndefined(source, pointer, pointerType)) {
     return hashObject(factory, pointer, runtimeAlias);
   }
-  const parameterName = "$pointer";
+  if (parameterName === undefined) {
+    throw new PointerLoweringError(
+      "nullable direct pointer hash has no reserved parameter binding",
+    );
+  }
   const parameter = requiredNode(
     NewParameterDeclaration(
       factory,
       undefined,
       undefined,
-      NewIdentifier(factory, parameterName),
+      NewIdentifier(factory, parameterName.text),
       undefined,
       requiredNode(
         NewUnionTypeNode(
@@ -316,7 +382,7 @@ function directObjectHash(
 function hashObject(
   factory: NodeFactory,
   pointer: Node,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node {
   return runtimeCall(
     factory,
@@ -337,8 +403,14 @@ function undefinedExpression(factory: NodeFactory): Node {
   );
 }
 
-function requiredIdentifier(factory: NodeFactory, name: string): Node {
-  return requiredNode(NewIdentifier(factory, name), `identifier ${name}`);
+function requiredIdentifier(
+  factory: NodeFactory,
+  name: GeneratedBindingName,
+): Node {
+  return requiredNode(
+    NewIdentifier(factory, name.text),
+    `identifier ${name.text}`,
+  );
 }
 
 function mutableCell(factory: NodeFactory, initial: Node): Node {

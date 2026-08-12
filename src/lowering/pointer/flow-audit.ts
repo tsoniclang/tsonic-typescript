@@ -1,4 +1,5 @@
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
+import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
 import type { PointerCensus } from "./flow-census.js";
 import { PointerLoweringError } from "./diagnostic.js";
@@ -22,10 +23,12 @@ export function auditPointerCensus(census: PointerCensus): void {
 
 function auditReferences(census: PointerCensus): void {
   const { source, graph, functionParameters, references } = census;
-  for (const node of census.nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  const candidates = census.program.nodesOfKind(KindIdentifier);
+  for (const node of census.ledger.candidates(
+    "flow-census",
+    "pointer-audit-reference",
+    candidates,
+  )) {
     const reference = references.referenceFor(node);
     const declaration = reference?.declaration;
     const vertex = graph.get(declaration);
@@ -63,14 +66,21 @@ function auditReferences(census: PointerCensus): void {
       !isModuleAliasReference(source, node)
     ) {
       for (const parameter of parameters ?? []) {
+        census.ledger.record("flow-census");
         graph.block(graph.get(parameter), "indirect-call", node);
       }
       graph.block(result?.vertex, "indirect-call", node);
     }
   }
+  census.ledger.assertCandidateCount(
+    "pointer-audit-reference",
+    candidates.length,
+  );
   for (const [owner, parameters] of functionParameters) {
+    census.ledger.record("flow-census");
     if (census.optimizableFunctions.get(owner) !== true) {
       for (const parameter of parameters) {
+        census.ledger.record("flow-census");
         graph.block(graph.get(parameter), "open-call", owner);
       }
     }
@@ -88,6 +98,7 @@ function connectBindingReassignments(census: PointerCensus): void {
     resultExpressions,
   } = census;
   for (const binding of census.pointerBindings) {
+    census.ledger.record("flow-census");
     const name = source.ast.name(binding);
     const reference = references.referenceFor(name);
     if (reference === undefined) {
@@ -95,6 +106,7 @@ function connectBindingReassignments(census: PointerCensus): void {
       continue;
     }
     for (const write of references.writesFor(reference.declaration)) {
+      census.ledger.record("flow-census");
       const assignment = source.ast.is.IsBinaryExpression(write)
         ? source.ast.as.AsBinaryExpression(write)
         : undefined;
@@ -139,6 +151,14 @@ function connectBindingReassignments(census: PointerCensus): void {
           allowedProducerUses,
           resultExpressions,
         );
+      } else if (isExactNullishOrNeverValue(source, right)) {
+        const type = source.semantics.forNode(right).getTypeAtLocation(right);
+        if (
+          type !== undefined &&
+          source.semantics.forNode(right).isNullish(type)
+        ) {
+          graph.block(bindingVertex, "nil-capable", right);
+        }
       }
       allowedPointerReferences.add(left);
     }
@@ -167,6 +187,7 @@ function isExactNullishOrNeverValue(
 function auditAddressedStorage(census: PointerCensus): void {
   const { source, graph } = census;
   for (const operation of census.operations.values()) {
+    census.ledger.record("flow-census");
     if (operation.operation !== "address-of") {
       continue;
     }
@@ -198,6 +219,7 @@ function addressedStorageIsStable(
 function auditProducerUses(census: PointerCensus): void {
   const { source, graph } = census;
   for (const operation of census.operations.values()) {
+    census.ledger.record("flow-census");
     if (!producesPointer(operation)) {
       continue;
     }
@@ -216,6 +238,7 @@ function auditProducerUses(census: PointerCensus): void {
     }
   }
   for (const expression of census.resultExpressions) {
+    census.ledger.record("flow-census");
     const root = transparentExpressionRoot(source, expression);
     const parent = source.ast.parent(root);
     const discarded = parent !== undefined &&

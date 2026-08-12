@@ -45,6 +45,11 @@ representation only when every affected definition and reference is rewritten
 and observable source behavior remains exact. An optimization that needs a
 local exception instead reopens its representation owner.
 
+Every target-created lexical binding is reserved by the canonical source-file
+name owner against all authored and previously generated bindings visible at
+its insertion point. This includes parameters inside synthetic closures; a
+counter or supposedly private prefix is not collision proof.
+
 ## Coordinated Repository Scope
 
 This workstream may modify only GoToTS and the TypeScript target. Any change to

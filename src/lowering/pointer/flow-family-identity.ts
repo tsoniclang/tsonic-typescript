@@ -5,24 +5,33 @@ import {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { transparentExpression } from "./flow-syntax.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export function nonBijectiveIdentityOccurrences(
   source: TargetSourceProgram,
   familyIdentity: Node,
   operations: Iterable<PointerOperationFact>,
   hasBindingWrite: (declaration: Node | undefined) => boolean,
+  ledger: PointerPlanningLedger,
 ): readonly Node[] {
   const operationsList = [...operations];
-  if (!operationsList.some(isIdentityObservation)) {
+  let observesIdentity = false;
+  for (const operation of operationsList) {
+    ledger.record("direct-family");
+    observesIdentity ||= isIdentityObservation(operation);
+  }
+  if (!observesIdentity) {
     return Object.freeze([]);
   }
   const proof: FreshFamilyProof = {
     activeFactories: new Set(),
     hasBindingWrite,
     factoryResults: new Map(),
+    ledger,
   };
   const failures: Node[] = [];
   for (const operation of operationsList) {
+    ledger.record("direct-family");
     if (operation.operation === "address-of") {
       failures.push(operation.call);
     } else if (
@@ -44,6 +53,7 @@ interface FreshFamilyProof {
   readonly activeFactories: Set<Node>;
   readonly hasBindingWrite: (declaration: Node | undefined) => boolean;
   readonly factoryResults: Map<Node, boolean>;
+  readonly ledger: PointerPlanningLedger;
 }
 
 function isIdentityObservation(operation: PointerOperationFact): boolean {
@@ -71,6 +81,7 @@ function isFreshFamilyValue(
   expression: Node,
   proof: FreshFamilyProof,
 ): boolean {
+  proof.ledger.record("direct-family");
   const constructionNode = transparentExpression(source, expression);
   if (constructionNode === undefined) {
     return false;
@@ -93,6 +104,7 @@ function isFreshNewExpression(
   constructionNode: Node,
   proof: FreshFamilyProof,
 ): boolean {
+  proof.ledger.record("direct-family");
   if (
     !source.ast.is.IsNewExpression(constructionNode)
   ) {
@@ -109,9 +121,11 @@ function isFreshNewExpression(
   ) {
     return false;
   }
-  const constructors = source.ast.members(familyIdentity).filter((member) =>
-    member !== undefined && source.ast.is.IsConstructorDeclaration(member)
-  );
+  const members = source.ast.members(familyIdentity);
+  const constructors = members.filter((member) => {
+    proof.ledger.record("direct-family");
+    return member !== undefined && source.ast.is.IsConstructorDeclaration(member);
+  });
   if (constructors.length === 0) {
     return true;
   }
@@ -123,7 +137,7 @@ function isFreshNewExpression(
     body !== undefined &&
     signature !== undefined &&
     semantics.getSignatureDeclaration(signature) === constructor &&
-    !containsReplacementReturn(source, body);
+    !containsReplacementReturn(source, body, proof.ledger);
 }
 
 function isFreshFactoryCall(
@@ -132,6 +146,7 @@ function isFreshFactoryCall(
   callNode: Node,
   proof: FreshFamilyProof,
 ): boolean {
+  proof.ledger.record("direct-family");
   const call = source.ast.as.AsCallExpression(callNode);
   const target = transparentExpression(source, call?.Expression);
   if (
@@ -165,6 +180,7 @@ function isFreshFactoryCall(
   const method = source.ast.as.AsMethodDeclaration(methodReference.declaration);
   const body = source.ast.body(methodReference.declaration);
   const statements = source.ast.statements(body);
+  proof.ledger.record("direct-family");
   const returnStatement = statements.length === 1 && statements[0] !== undefined &&
       source.ast.is.IsReturnStatement(statements[0])
     ? source.ast.as.AsReturnStatement(statements[0])
@@ -207,6 +223,7 @@ function isStableFamily(
   familyIdentity: Node,
   proof: FreshFamilyProof,
 ): boolean {
+  proof.ledger.record("direct-family");
   return source.ast.extendsHeritageElements(familyIdentity).length === 0 &&
     !source.ast.modifiers(familyIdentity).some((modifier) => IsDecorator(modifier)) &&
     !proof.hasBindingWrite(familyIdentity);
@@ -215,9 +232,11 @@ function isStableFamily(
 function containsReplacementReturn(
   source: TargetSourceProgram,
   root: Node,
+  ledger: PointerPlanningLedger,
 ): boolean {
   const pending = [root];
   while (pending.length !== 0) {
+    ledger.record("direct-family");
     const node = pending.pop();
     if (node === undefined) {
       continue;
@@ -229,6 +248,7 @@ function containsReplacementReturn(
       return true;
     }
     for (const child of source.ast.children(node)) {
+      ledger.record("direct-family");
       if (child !== undefined) {
         pending.push(child);
       }

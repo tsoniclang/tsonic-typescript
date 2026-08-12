@@ -13,8 +13,13 @@ import type {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type {
+  GeneratedBindingName,
+  SourceFileGeneratedNames,
+} from "../generated-names.js";
 import { validateAddressableStorage } from "./addressability.js";
 import { PointerLoweringError } from "./diagnostic.js";
+import { validatePointerOperationFact } from "./operation-contract.js";
 import type {
   ClosedPointerFlowPlan,
 } from "./flow-plan.js";
@@ -23,14 +28,16 @@ import {
   pointerOperationUsesRuntimeValue,
 } from "./flow-application.js";
 import { planPointerMarkerUsage } from "./marker-usage.js";
+import { pointerTypeCanBeUndefined } from "./nullability.js";
+import { validatePointerFact } from "./type-contract.js";
 
 export interface LocalLocationBinding {
   readonly kind: "variable";
   readonly declaration: Node;
   readonly addressOperands: ReadonlySet<Node>;
   readonly sourceName: string;
-  readonly locationName: string;
-  readonly writeName: string;
+  readonly locationName: GeneratedBindingName;
+  readonly writeName: GeneratedBindingName;
 }
 
 export interface ParameterLocationBinding {
@@ -39,8 +46,8 @@ export interface ParameterLocationBinding {
   readonly addressOperands: ReadonlySet<Node>;
   readonly body: Node;
   readonly sourceName: string;
-  readonly locationName: string;
-  readonly writeName: string;
+  readonly locationName: GeneratedBindingName;
+  readonly writeName: GeneratedBindingName;
 }
 
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
@@ -63,7 +70,8 @@ export interface PointerLoweringPlan {
   readonly addressBindings: ReadonlyMap<Node, LocationBinding>;
   readonly removableMarkerDeclarations: ReadonlySet<Node>;
   readonly flowPlan: ClosedPointerFlowPlan | undefined;
-  readonly runtimeAlias: string;
+  readonly runtimeAlias: GeneratedBindingName;
+  readonly nullableHashParameterNames: ReadonlyMap<Node, GeneratedBindingName>;
   readonly usesRuntimeValue: boolean;
 }
 
@@ -79,8 +87,14 @@ export function createPointerLoweringPlan(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
   program: TargetProgramIndex,
+  generatedNames: SourceFileGeneratedNames,
   flowPlan?: ClosedPointerFlowPlan,
 ): PointerLoweringPlan {
+  if (generatedNames.sourceFile !== sourceFile) {
+    throw new PointerLoweringError(
+      "pointer planning received generated names for another source file",
+    );
+  }
   if (flowPlan !== undefined && !flowPlan.owns(source)) {
     throw new PointerLoweringError(
       "pointer flow plan belongs to a different checked source program",
@@ -103,6 +117,7 @@ export function createPointerLoweringPlan(
           "pointer operation fact is not uniquely attached to its exact call",
         );
       }
+      validatePointerOperationFact(source, operation);
       operations.set(node, operation);
       if (!pointerOperationIsFused(flowPlan, node)) {
         usesRuntimeValue ||= pointerOperationUsesRuntimeValue(
@@ -130,10 +145,9 @@ export function createPointerLoweringPlan(
       usesRuntimeValue = true;
       selectedMarkerRoots.push(requireCallTarget(source, node));
     }
-    if (
-      source.ast.is.IsTypeReferenceNode(node) &&
-      source.sourceFacts.getFact(node, pointerFactKey) !== undefined
-    ) {
+    const pointerFact = source.sourceFacts.getFact(node, pointerFactKey);
+    if (source.ast.is.IsTypeReferenceNode(node) && pointerFact !== undefined) {
+      validatePointerFact(source, node, pointerFact);
       pointerTypes.add(node);
       const typeReference = source.ast.as.AsTypeReferenceNode(node);
       if (typeReference?.TypeName === undefined) {
@@ -176,12 +190,11 @@ export function createPointerLoweringPlan(
   const localBindingsByStatement = new Map<Node, LocalLocationBinding[]>();
   const prologueBindingsByBody = new Map<Node, LocationBinding[]>();
   const addressBindings = new Map<Node, LocationBinding>();
-  const usedNames = collectIdentifierNames(source, nodes);
   const mutableBindings = [...bindingsByDeclaration.values()].sort(
     (left, right) => source.ast.pos(left.declaration) - source.ast.pos(right.declaration),
   );
   for (const binding of mutableBindings) {
-    const sealed = sealLocationBinding(source, binding, usedNames);
+    const sealed = sealLocationBinding(source, binding, generatedNames);
     if (sealed.kind === "variable") {
       localBindings.set(sealed.declaration, sealed);
       const declarationKind = source.ast.variableDeclarationKind(
@@ -237,6 +250,24 @@ export function createPointerLoweringPlan(
     nodes,
     selectedMarkerRoots,
   );
+  const runtimeAlias = generatedNames.reserve("tsonicTypeScriptRuntime");
+  const nullableHashParameterNames = new Map<Node, GeneratedBindingName>();
+  for (const operation of operations.values()) {
+    if (
+      operation.operation === "hash-pointer" &&
+      flowPlan?.representationFor(operation.call) === "direct-object" &&
+      pointerTypeCanBeUndefined(
+        source,
+        operation.pointerExpression,
+        operation.pointerType,
+      )
+    ) {
+      nullableHashParameterNames.set(
+        operation.call,
+        generatedNames.reserve("$pointer"),
+      );
+    }
+  }
   return Object.freeze({
     sourceFile,
     operations,
@@ -249,7 +280,8 @@ export function createPointerLoweringPlan(
     addressBindings,
     removableMarkerDeclarations: markerUsage.removableDeclarations,
     flowPlan,
-    runtimeAlias: selectRuntimeAlias(source, nodes),
+    runtimeAlias,
+    nullableHashParameterNames,
     usesRuntimeValue,
   });
 }
@@ -370,7 +402,7 @@ function valueStorageRoot(
 function sealLocationBinding(
   source: TargetSourceProgram,
   binding: MutableLocationBinding,
-  usedNames: Set<string>,
+  generatedNames: SourceFileGeneratedNames,
 ): LocationBinding {
   if (binding.kind === "variable") {
     if (binding.sourceName === undefined) {
@@ -383,14 +415,8 @@ function sealLocationBinding(
       declaration: binding.declaration,
       addressOperands: binding.addressOperands,
       sourceName: binding.sourceName,
-      locationName: selectGeneratedName(
-        `${binding.sourceName}$location`,
-        usedNames,
-      ),
-      writeName: selectGeneratedName(
-        `${binding.sourceName}$next`,
-        usedNames,
-      ),
+      locationName: generatedNames.reserve(`${binding.sourceName}$location`),
+      writeName: generatedNames.reserve(`${binding.sourceName}$next`),
     });
   }
   if (binding.body === undefined || binding.sourceName === undefined) {
@@ -411,38 +437,9 @@ function sealLocationBinding(
     addressOperands: binding.addressOperands,
     body: binding.body,
     sourceName: binding.sourceName,
-    locationName: selectGeneratedName(
-      `${binding.sourceName}$location`,
-      usedNames,
-    ),
-    writeName: selectGeneratedName(
-      `${binding.sourceName}$next`,
-      usedNames,
-    ),
+    locationName: generatedNames.reserve(`${binding.sourceName}$location`),
+    writeName: generatedNames.reserve(`${binding.sourceName}$next`),
   });
-}
-
-function collectIdentifierNames(
-  source: TargetSourceProgram,
-  nodes: readonly Node[],
-): Set<string> {
-  return new Set(nodes
-    .filter((node) => source.ast.is.IsIdentifier(node))
-    .map((node) => source.ast.text(node)));
-}
-
-function selectGeneratedName(base: string, usedNames: Set<string>): string {
-  if (!usedNames.has(base)) {
-    usedNames.add(base);
-    return base;
-  }
-  for (let suffix = 2; ; suffix += 1) {
-    const candidate = `${base}${suffix}`;
-    if (!usedNames.has(candidate)) {
-      usedNames.add(candidate);
-      return candidate;
-    }
-  }
 }
 
 function isNodeWithin(
@@ -533,25 +530,4 @@ function requireStatementListOwner(
   throw new PointerLoweringError(
     "addressed let binding requires a statement-list owner",
   );
-}
-
-function selectRuntimeAlias(
-  source: TargetSourceProgram,
-  nodes: readonly Node[],
-): string {
-  const identifiers = new Set(
-    nodes
-      .filter((node) => source.ast.is.IsIdentifier(node))
-      .map((node) => source.ast.text(node)),
-  );
-  const base = "tsonicTypeScriptRuntime";
-  if (!identifiers.has(base)) {
-    return base;
-  }
-  for (let suffix = 2; ; suffix += 1) {
-    const candidate = `${base}${suffix}`;
-    if (!identifiers.has(candidate)) {
-      return candidate;
-    }
-  }
 }

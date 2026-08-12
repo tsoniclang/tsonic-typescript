@@ -16,6 +16,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import type { GeneratedBindingName } from "../generated-names.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type { LocationBinding } from "./plan.js";
 import { runtimeCall } from "./runtime-ast.js";
@@ -23,12 +24,12 @@ import { runtimeCall } from "./runtime-ast.js";
 export function createBoundLocationDeclaration(
   factory: NodeFactory,
   binding: LocationBinding,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node {
   return requiredNode(
     NewVariableDeclaration(
       factory,
-      requiredIdentifier(factory, binding.locationName),
+      requiredGeneratedIdentifier(factory, binding.locationName),
       undefined,
       undefined,
       runtimeCall(
@@ -57,7 +58,7 @@ export function createBoundLocationDeclaration(
 export function createBoundLocationStatement(
   factory: NodeFactory,
   binding: LocationBinding,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node {
   const declarations = requiredNode(
     NewVariableDeclarationList(
@@ -103,7 +104,7 @@ function createWriteClosure(
       factory,
       undefined,
       undefined,
-      requiredIdentifier(factory, binding.writeName),
+      requiredGeneratedIdentifier(factory, binding.writeName),
       undefined,
       undefined,
       undefined,
@@ -117,7 +118,7 @@ function createWriteClosure(
       requiredIdentifier(factory, binding.sourceName),
       undefined,
       NewToken(factory, KindEqualsToken),
-      requiredIdentifier(factory, binding.writeName),
+      requiredGeneratedIdentifier(factory, binding.writeName),
     ),
     "bound location write assignment",
   );
@@ -138,6 +139,13 @@ function createWriteClosure(
 
 function requiredIdentifier(factory: NodeFactory, name: string): Node {
   return requiredNode(NewIdentifier(factory, name), `identifier ${name}`);
+}
+
+function requiredGeneratedIdentifier(
+  factory: NodeFactory,
+  name: GeneratedBindingName,
+): Node {
+  return requiredIdentifier(factory, name.text);
 }
 
 function requiredNode(node: Node | undefined, subject: string): Node {

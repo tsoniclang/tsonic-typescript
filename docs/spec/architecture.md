@@ -90,6 +90,28 @@ Omitting a field selects canonical open-world-safe behavior. A closed-program
 profile may change an exported representation only after every affected
 definition, reference, caller, alias, and observable operation is joined.
 
+### Canonical Pointer Input Contract
+
+Pointer lowering consumes one frozen canonical contract; it does not infer Go
+meaning or recognize marker spelling. `Pointer<T> | undefined` and the exact
+`address-of`, `allocate`, `load`, `store`, `equal-pointer`, `hash-pointer`,
+`bind-pointer`, and `project-pointer` facts preserve the source pointee type,
+nil shape, storage/location identity, provider read/write binding,
+representation projections, and operands.
+Every pointer-bearing definition, parameter, result, reference, caller, alias,
+and storage occurrence belongs to one exact connected component before a
+representation is selected.
+
+The target may select plain `T`, one `{ value: T }` cell, or the represented
+class object only by rewriting that complete component atomically. Escaping,
+nullable, identity-observed, unsafe, indirect, lifetime-sensitive, provider,
+or unresolved components retain canonical `Pointer<T>`. Hash, provider bind,
+and pointee projection occurrences join the component and retain canonical
+representation unless their complete observations are independently proved
+exact. A changed source
+signature or marker/fact contract is rejected upstream; this target has no
+adapter, allowlist, spelling rule, or alternate signature store.
+
 The decision order is:
 
 1. identify the complete connected semantic flow;
@@ -147,6 +169,9 @@ proved semantics permit it:
 - preserve GoToTS-owned source-derived declaration and module names, and use
   the same rule for target-created private declarations;
 - add a readable semantic qualifier only for a real collision; and
+- reserve every target-created lexical binding against every authored and
+  generated binding visible at its insertion point, including parameters of
+  synthetic closures; and
 - keep digests and internal identities in manifests/evidence, never ordinary
   declaration names or module paths. A canonical naming violation is reported
   to GoToTS rather than hidden by a target rename.

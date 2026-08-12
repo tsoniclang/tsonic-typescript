@@ -20,6 +20,8 @@ export type PointerFlowBlocker =
   | "open-call"
   | "pointee-replacement"
   | "pointer-rebinding"
+  | "projection-observed"
+  | "provider-binding"
   | "unsupported-flow"
   | "unsupported-pointee"
   | "unsupported-producer";
@@ -56,8 +58,14 @@ export interface PointerPointeeEvidence {
 export class PointerFlowGraph {
   readonly #vertices = new Map<Node, PointerFlowVertex>();
   readonly #parents = new Map<PointerFlowVertex, PointerFlowVertex>();
+  #operationCount = 0;
+
+  get operationCount(): number {
+    return this.#operationCount;
+  }
 
   add(node: Node): PointerFlowVertex {
+    this.#operationCount += 1;
     const existing = this.#vertices.get(node);
     if (existing !== undefined) {
       return existing;
@@ -80,6 +88,7 @@ export class PointerFlowGraph {
   }
 
   union(left: PointerFlowVertex, right: PointerFlowVertex): void {
+    this.#operationCount += 1;
     const leftRoot = this.root(left);
     const rightRoot = this.root(right);
     if (leftRoot === rightRoot) {
@@ -93,6 +102,7 @@ export class PointerFlowGraph {
     blocker: PointerFlowBlocker,
     occurrence: Node,
   ): void {
+    this.#operationCount += 1;
     if (vertex === undefined) {
       return;
     }
@@ -107,6 +117,7 @@ export class PointerFlowGraph {
   components(): readonly PointerFlowComponent[] {
     const groups = new Map<PointerFlowVertex, PointerFlowVertex[]>();
     for (const vertex of this.#vertices.values()) {
+      this.#operationCount += 1;
       const root = this.root(vertex);
       const group = groups.get(root);
       if (group === undefined) {
@@ -115,12 +126,17 @@ export class PointerFlowGraph {
         group.push(vertex);
       }
     }
-    return Object.freeze([...groups.values()].map(sealComponent));
+    return Object.freeze([...groups.values()].map((vertices) =>
+      sealComponent(vertices, () => {
+        this.#operationCount += 1;
+      })
+    ));
   }
 
   private root(vertex: PointerFlowVertex): PointerFlowVertex {
     let root = vertex;
     for (;;) {
+      this.#operationCount += 1;
       const parent = this.#parents.get(root);
       if (parent === undefined || parent === root) {
         break;
@@ -129,6 +145,7 @@ export class PointerFlowGraph {
     }
     let current = vertex;
     while (current !== root) {
+      this.#operationCount += 1;
       const parent = this.#parents.get(current);
       this.#parents.set(current, root);
       if (parent === undefined || parent === current) {
@@ -142,6 +159,7 @@ export class PointerFlowGraph {
 
 function sealComponent(
   vertices: readonly PointerFlowVertex[],
+  record: () => void,
 ): PointerFlowComponent {
   const operations = new Set<Node>();
   const pointerTypes = new Set<Node>();
@@ -149,18 +167,21 @@ function sealComponent(
   const producers = new Set<PointerOperationFact>();
   const blockerOccurrences = new Map<PointerFlowBlocker, Set<Node>>();
   for (const vertex of vertices) {
-    append(operations, vertex.operations);
-    append(pointerTypes, vertex.pointerTypes);
+    record();
+    append(operations, vertex.operations, record);
+    append(pointerTypes, vertex.pointerTypes, record);
     for (const [type, anchor] of vertex.pointees) {
+      record();
       pointees.set(type, anchor);
     }
-    append(producers, vertex.producers);
+    append(producers, vertex.producers, record);
     for (const [reason, occurrences] of vertex.blockerOccurrences) {
+      record();
       const existing = blockerOccurrences.get(reason);
       if (existing === undefined) {
         blockerOccurrences.set(reason, new Set(occurrences));
       } else {
-        append(existing, occurrences);
+        append(existing, occurrences, record);
       }
     }
   }
@@ -183,8 +204,13 @@ function sealComponent(
   });
 }
 
-function append<T>(target: Set<T>, source: ReadonlySet<T>): void {
+function append<T>(
+  target: Set<T>,
+  source: ReadonlySet<T>,
+  record: () => void,
+): void {
   for (const value of source) {
+    record();
     target.add(value);
   }
 }

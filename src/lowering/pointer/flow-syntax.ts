@@ -10,6 +10,7 @@ import type {
   PointerFlowVertex,
 } from "./flow-graph.js";
 import type { PointerReferenceCensus } from "./flow-references.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export function resolvePointerExpression(
   source: TargetSourceProgram,
@@ -29,10 +30,11 @@ export function resolvePointerExpression(
     );
   }
   const root = transparentExpression(source, expression);
-  const vertex = root !== undefined &&
-      (operations.has(root) || graph.get(root) !== undefined)
-    ? graph.get(root)
-    : undefined;
+  const operation = root === undefined ? undefined : operations.get(root);
+  const vertex = root === undefined ||
+      operation !== undefined && !producesPointer(operation)
+    ? undefined
+    : graph.get(root);
   return blockTypeBearingWrapper(source, graph, expression, vertex);
 }
 
@@ -136,9 +138,11 @@ export function addTransparentProducer(
   additional?: ReadonlySet<Node>,
 ): void {
   const root = transparentExpression(source, expression);
+  const operation = root === undefined ? undefined : operations.get(root);
   if (
     root !== undefined &&
-    (operations.has(root) || additional?.has(root) === true)
+    (operation !== undefined && producesPointer(operation) ||
+      additional?.has(root) === true)
   ) {
     target.add(root);
   }
@@ -229,6 +233,7 @@ export function transparentExpressionRoot(
 export function isOptimizableFunctionDeclaration(
   source: TargetSourceProgram,
   owner: Node,
+  planning?: PointerPlanningLedger,
 ): boolean {
   const functionDeclaration = source.ast.is.IsFunctionDeclaration(owner)
     ? source.ast.as.AsFunctionDeclaration(owner)
@@ -248,6 +253,7 @@ export function isOptimizableFunctionDeclaration(
     return false;
   }
   for (const parameter of source.ast.parameters(owner)) {
+    planning?.record("flow-census");
     const parsed = source.ast.as.AsParameterDeclaration(parameter);
     if (
       parsed?.DotDotDotToken !== undefined ||

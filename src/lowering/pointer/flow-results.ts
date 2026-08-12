@@ -1,6 +1,3 @@
-import {
-  pointerFactKey,
-} from "@tsonic/tsts";
 import type {
   Node,
   PointerOperationFact,
@@ -16,11 +13,13 @@ import {
   KindFunctionDeclaration,
   KindFunctionExpression,
   KindMethodDeclaration,
+  KindReturnStatement,
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { PointerCensus } from "./flow-census.js";
 import type { PointerCallableAliases } from "./flow-callable-aliases.js";
+import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type {
   PointerFlowGraph,
   PointerFlowVertex,
@@ -33,6 +32,8 @@ import {
   transparentExpression,
   transparentExpressionRoot,
 } from "./flow-syntax.js";
+import { recordPointerTypeFacts } from "./flow-type-census.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export interface PointerFunctionResult {
   readonly owner: Node;
@@ -44,31 +45,46 @@ export interface PointerFunctionResult {
 export function collectPointerFunctionResults(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  facts: PointerTypedFactLedger,
   graph: PointerFlowGraph,
+  classifiedPointerTypes: Set<Node>,
+  planning: PointerPlanningLedger,
 ): ReadonlyMap<Node, PointerFunctionResult> {
   const results = new Map<Node, PointerFunctionResult>();
-  for (const owner of program.nodesOfKinds([
+  const candidates = program.nodesOfKinds([
     KindFunctionDeclaration,
     KindMethodDeclaration,
     KindFunctionExpression,
     KindArrowFunction,
-  ])) {
-    if (!isOptimizableFunctionDeclaration(source, owner)) {
+  ]);
+  for (const owner of planning.candidates(
+    "flow-census",
+    "function-result",
+    candidates,
+  )) {
+    if (!isOptimizableFunctionDeclaration(source, owner, planning)) {
       continue;
     }
     const returnType = source.ast.typeNode(owner);
     const pointerType = returnType === undefined
       ? undefined
-      : directPointerResultType(source, owner, returnType);
+      : directPointerResultType(source, owner, returnType, facts, planning);
     if (pointerType === undefined) {
       continue;
     }
-    const fact = source.sourceFacts.getFact(pointerType, pointerFactKey);
+    const fact = facts.pointerFactFor(pointerType);
     if (fact === undefined) {
       continue;
     }
     const vertex = graph.add(pointerType);
-    vertex.pointerTypes.add(pointerType);
+    recordPointerTypeFacts(
+      source,
+      facts,
+      pointerType,
+      vertex,
+      classifiedPointerTypes,
+      planning,
+    );
     const pointeeType = source.semantics.forNode(pointerType)
       .getTypeFromTypeNode(fact.pointee);
     if (pointeeType === undefined) {
@@ -83,6 +99,7 @@ export function collectPointerFunctionResults(
       asynchronous: source.ast.hasModifierKind(owner, "async"),
     }));
   }
+  planning.assertCandidateCount("function-result", candidates.length);
   return results;
 }
 
@@ -95,8 +112,14 @@ export function connectPointerResultCalls(
   resultExpressions: Set<Node>,
   allowedFunctionTargets: Set<Node>,
   callableAliases: PointerCallableAliases,
+  planning: PointerPlanningLedger,
 ): void {
-  for (const node of program.nodesOfKind(KindCallExpression)) {
+  const candidates = program.nodesOfKind(KindCallExpression);
+  for (const node of planning.candidates(
+    "flow-census",
+    "result-call",
+    candidates,
+  )) {
     if (operations.has(node)) {
       continue;
     }
@@ -142,6 +165,7 @@ export function connectPointerResultCalls(
       allowedFunctionTargets.add(targetName);
     }
   }
+  planning.assertCandidateCount("result-call", candidates.length);
 }
 
 export function connectPointerReturns(census: PointerCensus): void {
@@ -152,11 +176,13 @@ export function connectPointerReturns(census: PointerCensus): void {
     functionResults,
     resultExpressions,
   } = census;
-  for (const node of census.nodes) {
-    if (!source.ast.is.IsReturnStatement(node)) {
-      continue;
-    }
-    const owner = enclosingFunction(source, node);
+  const candidates = census.program.nodesOfKind(KindReturnStatement);
+  for (const node of census.ledger.candidates(
+    "flow-census",
+    "pointer-return",
+    candidates,
+  )) {
+    const owner = enclosingFunction(source, node, census.ledger);
     const result = owner === undefined ? undefined : functionResults.get(owner);
     if (result === undefined) {
       continue;
@@ -172,6 +198,7 @@ export function connectPointerReturns(census: PointerCensus): void {
       expressionType !== undefined &&
       source.semantics.forNode(expression).isNullish(expressionType)
     ) {
+      graph.block(result.vertex, "nil-capable", expression);
       continue;
     }
     const returned = resolvePointerExpression(
@@ -195,28 +222,33 @@ export function connectPointerReturns(census: PointerCensus): void {
       resultExpressions,
     );
   }
+  census.ledger.assertCandidateCount("pointer-return", candidates.length);
 }
 
 function directPointerResultType(
   source: TargetSourceProgram,
   owner: Node,
   returnType: Node,
+  facts: PointerTypedFactLedger,
+  planning: PointerPlanningLedger,
 ): Node | undefined {
   const pointerTypes: Node[] = [];
   const pending = [returnType];
   while (pending.length > 0) {
+    planning.record("flow-census");
     const node = pending.pop();
     if (node === undefined) {
       continue;
     }
     if (
       source.ast.is.IsTypeReferenceNode(node) &&
-      source.sourceFacts.getFact(node, pointerFactKey) !== undefined
+      facts.pointerFactFor(node) !== undefined
     ) {
       pointerTypes.push(node);
       continue;
     }
     for (const child of source.ast.children(node)) {
+      planning.record("flow-census");
       if (child !== undefined) {
         pending.push(child);
       }
@@ -287,9 +319,11 @@ function awaitedCallResult(
 function enclosingFunction(
   source: TargetSourceProgram,
   node: Node,
+  planning: PointerPlanningLedger,
 ): Node | undefined {
   let current = source.ast.parent(node);
   while (current !== undefined) {
+    planning.record("flow-census");
     if (
       source.ast.is.IsFunctionDeclaration(current) ||
       source.ast.is.IsFunctionExpression(current) ||

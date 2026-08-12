@@ -32,6 +32,7 @@ import {
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
 import type { FinalNodeLookup } from "../final-nodes.js";
+import type { GeneratedBindingName } from "../generated-names.js";
 
 import { createBoundLocationStatement } from "./bound-location-ast.js";
 import { PointerLoweringError } from "./diagnostic.js";
@@ -97,7 +98,7 @@ export function wrapExpressionLocationBody(
   factory: NodeFactory,
   expression: Node,
   bindings: readonly LocationBinding[],
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
   consume: (binding: LocationBinding) => void,
 ): Node {
   const prologue = bindings.map((binding) => {
@@ -125,7 +126,7 @@ function expandVariableStatement(
   original: Node,
   updated: Node,
   bindings: readonly LocalLocationBinding[],
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
   finalNodes: FinalNodeLookup,
   consume: (binding: LocationBinding) => void,
 ): readonly Node[] {

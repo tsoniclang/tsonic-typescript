@@ -26,6 +26,10 @@ import {
   type FinalNodeLookup,
 } from "../final-nodes.js";
 import {
+  createProgramGeneratedNames,
+  type SourceFileGeneratedNames,
+} from "../generated-names.js";
+import {
   createTargetProgramIndex,
   type TargetProgramIndex,
 } from "../program-index.js";
@@ -74,7 +78,15 @@ export function lowerPointers(
     bindingWrites: false,
     memberDispatch: false,
   });
-  const plan = createPointerLoweringPlan(source, sourceFile, program, flowPlan);
+  const generatedNames = createProgramGeneratedNames(source, program)
+    .forFile(sourceFile);
+  const plan = createPointerLoweringPlan(
+    source,
+    sourceFile,
+    program,
+    generatedNames,
+    flowPlan,
+  );
   return applyPointerLoweringPlan(source, plan);
 }
 
@@ -126,12 +138,19 @@ export function createPointerRewriteSession(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
   program: TargetProgramIndex,
+  generatedNames: SourceFileGeneratedNames,
   flowPlan: ClosedPointerFlowPlan | undefined,
   finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
   return createPointerRewriteSessionForPlan(
     source,
-    createPointerLoweringPlan(source, sourceFile, program, flowPlan),
+    createPointerLoweringPlan(
+      source,
+      sourceFile,
+      program,
+      generatedNames,
+      flowPlan,
+    ),
     finalNodes,
   );
 }
@@ -188,7 +207,7 @@ function pointerLoweringResult(
     rawPointerOperationCount: consumed.rawPointerOperations.size,
     rawPointerTypeCount: consumed.rawPointerTypes.size,
     locationBindingCount: consumed.locationBindings.size,
-    runtimeAlias: usesRuntime ? plan.runtimeAlias : undefined,
+    runtimeAlias: usesRuntime ? plan.runtimeAlias.text : undefined,
   });
 }
 
@@ -289,6 +308,7 @@ function rewriteNode(
       updated,
       pointerFlowRepresentation(plan, original),
       plan.runtimeAlias,
+      plan.nullableHashParameterNames.get(original),
     );
     if (optimized !== undefined) {
       return optimized;

@@ -1,11 +1,10 @@
-import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
-import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
-import type { TargetProgramIndex } from "../program-index.js";
+import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import { transparentExpression } from "./flow-syntax.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 type ProjectionOperation = Extract<
   PointerOperationFact,
@@ -38,15 +37,16 @@ export interface PointerProjectionFusionPlan {
 
 export function planPointerProjectionFusions(
   source: TargetSourceProgram,
-  program: TargetProgramIndex,
+  facts: PointerTypedFactLedger,
   isCanonicalLocation: (node: Node) => boolean,
+  ledger: PointerPlanningLedger,
 ): PointerProjectionFusionPlan {
   const byConsumer = new Map<Node, PointerProjectionFusion>();
   const projections = new Set<Node>();
   let readCount = 0;
   let storeCount = 0;
-  for (const node of program.nodesOfKind(KindCallExpression)) {
-    const consumer = source.sourceFacts.getFact(node, pointerOperationFactKey);
+  for (const { node, fact: consumer } of facts.operationEntries) {
+    ledger.record("projection");
     if (
       consumer?.operation !== "load" &&
       consumer?.operation !== "store"
@@ -59,7 +59,7 @@ export function planPointerProjectionFusions(
     );
     const projection = projectionCall === undefined
       ? undefined
-      : source.sourceFacts.getFact(projectionCall, pointerOperationFactKey);
+      : facts.operationFor(projectionCall);
     if (
       projection?.operation !== "project-pointer" ||
       projection.call !== projectionCall ||

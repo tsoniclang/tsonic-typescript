@@ -15,6 +15,11 @@ export interface PointerMarkerUsagePlan {
   readonly removableDeclarations: ReadonlySet<Node>;
 }
 
+export interface ExactPointerSelection {
+  readonly node: Node;
+  readonly marker?: SourceMarkerFact;
+}
+
 export function planPointerMarkerUsage(
   source: TargetSourceProgram,
   nodes: readonly Node[],
@@ -25,36 +30,19 @@ export function planPointerMarkerUsage(
   const selectedNamespaceReceivers = new Set<Node>();
 
   for (const root of selectedRoots) {
-    let selectedMarkerCount = 0;
-    for (const occurrence of descendants(source, root)) {
-      const marker = source.sourceFacts.getFact(
-        occurrence,
-        sourceMarkerFactKey,
-      );
-      const selectedPointerType = source.sourceFacts.getFact(
-        occurrence,
-        pointerFactKey,
-      ) !== undefined || source.sourceFacts.getFact(
-        occurrence,
-        rawPointerFactKey,
-      ) !== undefined;
-      if (
-        (marker !== undefined && isPointerMarker(marker)) ||
-        selectedPointerType
-      ) {
-        selectedOccurrences.add(occurrence);
-        selectedMarkerCount += 1;
-      }
-      const reference = source.navigation.sourceReferenceFor(occurrence);
+    const selections = exactPointerSelections(source, root);
+    for (const selection of selections) {
+      selectedOccurrences.add(selection.node);
+      const reference = source.navigation.sourceReferenceFor(selection.node);
       if (
         reference !== undefined &&
         source.ast.is.IsNamespaceImport(reference.declaration)
       ) {
         selectedNamespaceBindings.add(reference.declaration);
-        selectedNamespaceReceivers.add(occurrence);
+        selectedNamespaceReceivers.add(selection.node);
       }
     }
-    if (selectedMarkerCount === 0) {
+    if (selections.length === 0) {
       throw new PointerLoweringError(
         "selected pointer operation has no exact source-marker occurrence",
       );
@@ -112,6 +100,29 @@ export function planPointerMarkerUsage(
   }
 
   return Object.freeze({ removableDeclarations });
+}
+
+export function exactPointerSelections(
+  source: TargetSourceProgram,
+  root: Node,
+): readonly ExactPointerSelection[] {
+  const selections: ExactPointerSelection[] = [];
+  for (const node of descendants(source, root)) {
+    const marker = source.sourceFacts.getFact(node, sourceMarkerFactKey);
+    const selectedPointerType = source.sourceFacts.getFact(
+      node,
+      pointerFactKey,
+    ) !== undefined || source.sourceFacts.getFact(
+      node,
+      rawPointerFactKey,
+    ) !== undefined;
+    if (marker !== undefined && isPointerMarker(marker)) {
+      selections.push(Object.freeze({ node, marker }));
+    } else if (selectedPointerType) {
+      selections.push(Object.freeze({ node }));
+    }
+  }
+  return Object.freeze(selections);
 }
 
 function markerDeclarationOwner(

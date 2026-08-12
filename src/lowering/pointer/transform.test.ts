@@ -118,11 +118,12 @@ import { addressOf, loadPointer, storePointer } from "./markers.js";
 export function update(
   value: number,
   value$location: string,
-): [number, number, string] {
+  value$next: string,
+): [number, number, string, string] {
   const pointer: Pointer<number> = addressOf(value);
   value += 1;
   storePointer(pointer, loadPointer(pointer) + 1);
-  return [value, loadPointer(pointer), value$location];
+  return [value, loadPointer(pointer), value$location, value$next];
 }
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
@@ -140,6 +141,10 @@ export function update(
   assert.equal(
     countPropertyAccessesNamed(fixture.source, result.sourceFile, "value"),
     3,
+  );
+  assert.equal(
+    countParametersNamed(fixture.source, result.sourceFile, "value$next2"),
+    1,
   );
 });
 
@@ -314,6 +319,24 @@ export type NumberPointer = Pointer<number>;
   );
 });
 
+test("reserves a type-only runtime namespace against authored names", () => {
+  const fixture = checkedFixture(`import type { Pointer } from "./markers.js";
+
+const tsonicTypeScriptRuntime = "source binding";
+export type NumberPointer = Pointer<number>;
+export const sourceBinding = tsonicTypeScriptRuntime;
+`);
+  const result = lowerPointers(fixture.source, fixture.sourceFile);
+
+  assert.equal(result.operationCount, 0);
+  assert.equal(result.pointerTypeCount, 1);
+  assert.equal(result.runtimeAlias, "tsonicTypeScriptRuntime2");
+  assert.equal(
+    runtimeImportPhase(fixture.source, result.sourceFile),
+    KindTypeKeyword,
+  );
+});
+
 function functionDeclarationNamed(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
@@ -389,6 +412,23 @@ function countPropertyAccessesNamed(
     }
     const access = AsPropertyAccessExpression(node);
     if (access !== undefined && source.ast.text(access.name) === name) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function countParametersNamed(
+  source: TargetSourceProgram,
+  sourceFile: SourceFile,
+  name: string,
+): number {
+  let count = 0;
+  visit(source, sourceFile, (node) => {
+    if (
+      source.ast.is.IsParameterDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === name
+    ) {
       count += 1;
     }
   });

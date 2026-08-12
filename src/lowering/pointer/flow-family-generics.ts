@@ -1,6 +1,4 @@
 import {
-  pointerFactKey,
-  pointerOperationFactKey,
   sourceMarkerFactKey,
 } from "@tsonic/tsts";
 import type {
@@ -13,6 +11,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type { PointerFlowBlocker } from "./flow-graph.js";
 import {
   type MutableDirectReferenceFamily,
@@ -20,22 +19,24 @@ import {
 } from "./flow-family-state.js";
 import { transparentExpression } from "./flow-syntax.js";
 import { describePointerPointee } from "./pointee-classification.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export function applyGenericPointerBoundaries(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  facts: PointerTypedFactLedger,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
   operationFamilies: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  ledger: PointerPlanningLedger,
 ): void {
   for (const [operationNode, family] of operationFamilies) {
-    const operation = source.sourceFacts.getFact(
-      operationNode,
-      pointerOperationFactKey,
-    );
+    ledger.record("direct-family");
+    const operation = facts.operationFor(operationNode);
     if (operation === undefined) {
       continue;
     }
     for (const operand of pointerOperands(operation)) {
+      ledger.record("direct-family");
       const reference = source.navigation.sourceReferenceFor(
         transparentExpression(source, operand),
       );
@@ -48,6 +49,8 @@ export function applyGenericPointerBoundaries(
           source,
           operand,
           authoredType,
+          facts,
+          ledger,
         )
       ) {
         requireCanonicalDirectReferenceFamily(
@@ -59,6 +62,7 @@ export function applyGenericPointerBoundaries(
     }
   }
   for (const node of program.nodesOfKind(KindCallExpression)) {
+    ledger.record("direct-family");
     if (operationFamilies.has(node)) {
       continue;
     }
@@ -68,6 +72,7 @@ export function applyGenericPointerBoundaries(
       continue;
     }
     for (const binding of call.sourceArgumentBindings) {
+      ledger.record("direct-family");
       const parameter = call.sourceSelectedSignatureParameters[
         binding.sourceParameterIndex
       ];
@@ -77,6 +82,8 @@ export function applyGenericPointerBoundaries(
           source,
           node,
           parameter.authoredTypeNode,
+          facts,
+          ledger,
         )
       ) {
         continue;
@@ -87,6 +94,7 @@ export function applyGenericPointerBoundaries(
         binding.selectedParameterType,
         families,
         "generic-call",
+        ledger,
       );
       blockSelectedPointerFamilies(
         source,
@@ -94,6 +102,7 @@ export function applyGenericPointerBoundaries(
         binding.selectedArgumentType,
         families,
         "generic-call",
+        ledger,
       );
     }
     const selectedDeclaration = semantics.getSignatureDeclaration(
@@ -108,6 +117,8 @@ export function applyGenericPointerBoundaries(
         source,
         node,
         returnType,
+        facts,
+        ledger,
       )
     ) {
       blockSelectedPointerFamilies(
@@ -116,6 +127,7 @@ export function applyGenericPointerBoundaries(
         call.sourceResultType,
         families,
         "generic-call",
+        ledger,
       );
     }
   }
@@ -141,10 +153,13 @@ function authoredTypeContainsRepresentationVaryingPointer(
   source: TargetSourceProgram,
   anchor: Node,
   authoredType: Node,
+  facts: PointerTypedFactLedger,
+  ledger: PointerPlanningLedger,
 ): boolean {
   const semantics = source.semantics.forNode(anchor);
   for (const subject of semantics.getAuthoredTypeFactSubjects(authoredType)) {
-    const fact = source.sourceFacts.getFact(subject, pointerFactKey);
+    ledger.record("direct-family");
+    const fact = facts.pointerFactFor(subject);
     if (fact === undefined) {
       continue;
     }
@@ -166,11 +181,19 @@ function blockSelectedPointerFamilies(
   type: Type | undefined,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
   blocker: PointerFlowBlocker,
+  ledger: PointerPlanningLedger,
 ): void {
   if (type === undefined) {
     return;
   }
-  for (const family of selectedPointerFamilies(source, anchor, type, families)) {
+  for (const family of selectedPointerFamilies(
+    source,
+    anchor,
+    type,
+    families,
+    ledger,
+  )) {
+    ledger.record("direct-family");
     requireCanonicalDirectReferenceFamily(family, blocker, anchor);
   }
 }
@@ -180,12 +203,14 @@ function selectedPointerFamilies(
   anchor: Node,
   type: Type,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  ledger: PointerPlanningLedger,
 ): ReadonlySet<MutableDirectReferenceFamily> {
   const result = new Set<MutableDirectReferenceFamily>();
   const seen = new Set<Type>();
   const pending: (Type | undefined)[] = [type];
   const semantics = source.semantics.forNode(anchor);
   while (pending.length > 0) {
+    ledger.record("direct-family");
     const current = pending.pop();
     if (current === undefined || seen.has(current)) {
       continue;
@@ -193,6 +218,7 @@ function selectedPointerFamilies(
     seen.add(current);
     if (semantics.isUnion(current) || semantics.isIntersection(current)) {
       for (const member of semantics.getUnionOrIntersectionTypes(current)) {
+        ledger.record("direct-family");
         if (member !== undefined) {
           pending.push(member);
         }
@@ -200,7 +226,11 @@ function selectedPointerFamilies(
       continue;
     }
     const arguments_ = semantics.getEffectiveTypeArguments(current);
-    if (selectedTypeIsPointer(source, semantics.getTypeFactSubjects(current))) {
+    if (selectedTypeIsPointer(
+      source,
+      semantics.getTypeFactSubjects(current),
+      ledger,
+    )) {
       const pointee = arguments_?.length === 1 ? arguments_[0] : undefined;
       const description = pointee === undefined
         ? undefined
@@ -221,11 +251,13 @@ function selectedPointerFamilies(
       ...semantics.getCallSignatures(current),
       ...semantics.getConstructSignatures(current),
     ]) {
+      ledger.record("direct-family");
       if (signature === undefined) {
         continue;
       }
       pending.push(semantics.getReturnTypeOfSignature(signature));
       for (const parameter of semantics.getSignatureParameters(signature)) {
+        ledger.record("direct-family");
         pending.push(semantics.getTypeOfSymbol(parameter));
       }
     }
@@ -236,9 +268,14 @@ function selectedPointerFamilies(
 function selectedTypeIsPointer(
   source: TargetSourceProgram,
   subjects: readonly ExtensionFactSubject[],
+  ledger: PointerPlanningLedger,
 ): boolean {
-  return subjects.some((subject) => {
+  for (const subject of subjects) {
+    ledger.record("direct-family");
     const marker = source.sourceFacts.getFact(subject, sourceMarkerFactKey);
-    return marker?.kind === "type-marker" && marker.marker === "pointer";
-  });
+    if (marker?.kind === "type-marker" && marker.marker === "pointer") {
+      return true;
+    }
+  }
+  return false;
 }

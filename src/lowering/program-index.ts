@@ -21,6 +21,7 @@ export interface TargetProgramIndexOperations {
   readonly nodeVisits: number;
   readonly childEdges: number;
   readonly kindEntries: number;
+  readonly identifierEntries: number;
   readonly bindingCandidates: number;
   readonly bindingWrites: number;
   readonly heritageEdges: number;
@@ -32,6 +33,8 @@ export interface TargetProgramIndex {
   readonly nodes: readonly Node[];
   readonly operations: TargetProgramIndexOperations;
   nodesFor(sourceFile: SourceFile): readonly Node[];
+  hasAuthoredIdentifierName(sourceFile: SourceFile, name: string): boolean;
+  authoredIdentifierNameCount(sourceFile: SourceFile): number;
   nodesOfKind(kind: Kind): readonly Node[];
   nodesOfKinds(kinds: readonly Kind[]): readonly Node[];
   hasBindingWrite(declaration: Node | undefined): boolean;
@@ -44,10 +47,12 @@ interface NodeCensus {
   readonly sourceFiles: readonly SourceFile[];
   readonly nodes: readonly Node[];
   readonly byFile: ReadonlyMap<SourceFile, readonly Node[]>;
+  readonly identifierNamesByFile: ReadonlyMap<SourceFile, ReadonlySet<string>>;
   readonly byKind: ReadonlyMap<Kind, readonly Node[]>;
   readonly orderByKind: ReadonlyMap<Kind, Uint32Array>;
   readonly potentialBindingReferences: readonly Node[];
   readonly childEdges: number;
+  readonly identifierEntries: number;
 }
 
 interface BindingWriteIndex {
@@ -81,6 +86,7 @@ export function createTargetProgramIndex(
     nodeVisits: census.nodes.length,
     childEdges: census.childEdges,
     kindEntries: census.nodes.length,
+    identifierEntries: census.identifierEntries,
     bindingCandidates: writes.candidateCount,
     bindingWrites: writes.writeCount,
     heritageEdges: dispatch.heritageEdges,
@@ -93,6 +99,12 @@ export function createTargetProgramIndex(
     operations,
     nodesFor(sourceFile: SourceFile): readonly Node[] {
       return census.byFile.get(sourceFile) ?? noNodes;
+    },
+    hasAuthoredIdentifierName(sourceFile: SourceFile, name: string): boolean {
+      return census.identifierNamesByFile.get(sourceFile)?.has(name) === true;
+    },
+    authoredIdentifierNameCount(sourceFile: SourceFile): number {
+      return census.identifierNamesByFile.get(sourceFile)?.size ?? 0;
     },
     nodesOfKind(kind: Kind): readonly Node[] {
       return census.byKind.get(kind) ?? noNodes;
@@ -170,10 +182,13 @@ function collectNodeCensus(source: TargetSourceProgram): NodeCensus {
   const byKind = new Map<Kind, Node[]>();
   const orderByKind = new Map<Kind, number[]>();
   const byFile = new Map<SourceFile, readonly Node[]>();
+  const identifierNamesByFile = new Map<SourceFile, ReadonlySet<string>>();
   const potentialBindingReferences: Node[] = [];
+  let identifierEntries = 0;
   let childEdges = 0;
   for (const sourceFile of sourceFiles) {
     const fileNodes: Node[] = [];
+    const identifierNames = new Set<string>();
     const pending: Node[] = [sourceFile];
     while (pending.length !== 0) {
       const node = pending.pop();
@@ -206,6 +221,10 @@ function collectNodeCensus(source: TargetSourceProgram): NodeCensus {
       ) {
         potentialBindingReferences.push(node);
       }
+      if (kind === KindIdentifier) {
+        identifierEntries += 1;
+        identifierNames.add(source.ast.text(node));
+      }
       const children = source.ast.children(node);
       for (let index = children.length - 1; index >= 0; index -= 1) {
         const child = children[index];
@@ -216,6 +235,7 @@ function collectNodeCensus(source: TargetSourceProgram): NodeCensus {
       }
     }
     byFile.set(sourceFile, Object.freeze(fileNodes));
+    identifierNamesByFile.set(sourceFile, identifierNames);
   }
   const sealedKinds = new Map<Kind, readonly Node[]>();
   const sealedOrders = new Map<Kind, Uint32Array>();
@@ -227,10 +247,12 @@ function collectNodeCensus(source: TargetSourceProgram): NodeCensus {
     sourceFiles,
     nodes: Object.freeze(nodes),
     byFile,
+    identifierNamesByFile,
     byKind: sealedKinds,
     orderByKind: sealedOrders,
     potentialBindingReferences: Object.freeze(potentialBindingReferences),
     childEdges,
+    identifierEntries,
   });
 }
 
