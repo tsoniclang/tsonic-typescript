@@ -12,7 +12,15 @@ import type {
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { validateAddressableStorage } from "./addressability.js";
 import { PointerLoweringError } from "./diagnostic.js";
+import type {
+  ClosedPointerFlowPlan,
+} from "./flow-plan.js";
+import {
+  pointerOperationIsFused,
+  pointerOperationUsesRuntimeValue,
+} from "./flow-application.js";
 import { planPointerMarkerUsage } from "./marker-usage.js";
 
 export interface LocalLocationBinding {
@@ -37,6 +45,7 @@ export interface ParameterLocationBinding {
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
 
 export interface PointerLoweringPlan {
+  readonly sourceFile: SourceFile;
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
   readonly pointerTypes: ReadonlySet<Node>;
   readonly rawPointerOperations: ReadonlyMap<Node, RawPointerOperationFact>;
@@ -52,6 +61,7 @@ export interface PointerLoweringPlan {
   >;
   readonly addressBindings: ReadonlyMap<Node, LocationBinding>;
   readonly removableMarkerDeclarations: ReadonlySet<Node>;
+  readonly flowPlan: ClosedPointerFlowPlan | undefined;
   readonly runtimeAlias: string;
   readonly usesRuntimeValue: boolean;
 }
@@ -67,7 +77,13 @@ interface MutableLocationBinding {
 export function createPointerLoweringPlan(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
+  flowPlan?: ClosedPointerFlowPlan,
 ): PointerLoweringPlan {
+  if (flowPlan !== undefined && !flowPlan.owns(source)) {
+    throw new PointerLoweringError(
+      "pointer flow plan belongs to a different checked source program",
+    );
+  }
   const nodes = collectNodes(source, sourceFile);
   const operations = new Map<Node, PointerOperationFact>();
   const pointerTypes = new Set<Node>();
@@ -86,7 +102,12 @@ export function createPointerLoweringPlan(
         );
       }
       operations.set(node, operation);
-      usesRuntimeValue = true;
+      if (!pointerOperationIsFused(flowPlan, node)) {
+        usesRuntimeValue ||= pointerOperationUsesRuntimeValue(
+          operation,
+          flowPlan,
+        );
+      }
       selectedMarkerRoots.push(requireCallTarget(source, node));
     }
     const rawPointerOperation = source.sourceFacts.getFact(
@@ -140,7 +161,11 @@ export function createPointerLoweringPlan(
     }
   }
   for (const operation of operations.values()) {
-    if (operation.operation === "address-of") {
+    if (
+      operation.operation === "address-of" &&
+      (flowPlan?.representationFor(operation.call) ?? "location") === "location"
+    ) {
+      validateAddressableStorage(source, operation.storageExpression);
       collectAddressBinding(source, sourceFile, operation, bindingsByDeclaration);
     }
   }
@@ -211,6 +236,7 @@ export function createPointerLoweringPlan(
     selectedMarkerRoots,
   );
   return Object.freeze({
+    sourceFile,
     operations,
     pointerTypes,
     rawPointerOperations,
@@ -220,6 +246,7 @@ export function createPointerLoweringPlan(
     prologueBindingsByBody,
     addressBindings,
     removableMarkerDeclarations: markerUsage.removableDeclarations,
+    flowPlan,
     runtimeAlias: selectRuntimeAlias(source, nodes),
     usesRuntimeValue,
   });

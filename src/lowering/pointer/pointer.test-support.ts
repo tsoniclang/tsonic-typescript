@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import {
   createCompilerSessionFromFiles,
   createSourceSemanticsExtension,
+  structFactKey,
 } from "@tsonic/tsts";
 import type {
+  CompilerExtension,
   Node,
   SourceFile,
+  SourceAnalysisContext,
   SourceSemanticsModule,
 } from "@tsonic/tsts";
 import {
@@ -19,6 +22,7 @@ import {
   AsVariableDeclaration,
   IsCallExpression,
   IsExportDeclaration,
+  IsIdentifier,
   IsImportClause,
   IsImportDeclaration,
   IsNamedImports,
@@ -27,6 +31,13 @@ import {
 } from "@tsonic/tsts/target-ast";
 import { createTargetSourceProgram } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+
+import { collectTargetProgramNodes } from "../program-nodes.js";
+
+import {
+  createClosedPointerFlowPlan,
+  type ClosedPointerFlowPlan,
+} from "./flow-plan.js";
 
 export const pointerMarkerModule = "./markers.js";
 
@@ -75,6 +86,53 @@ export function checkedPointerFixture(
   sourceText: string,
   additionalFiles: Readonly<Record<string, string>> = {},
 ): CheckedPointerFixture {
+  return checkedPointerFixtureWithExtension(
+    sourceText,
+    additionalFiles,
+    createSourceSemanticsExtension({ modules: pointerMarkerSemantics }),
+  );
+}
+
+export function createFixturePointerFlowPlan(
+  source: TargetSourceProgram,
+): ClosedPointerFlowPlan {
+  return createClosedPointerFlowPlan(
+    source,
+    collectTargetProgramNodes(source),
+    (sourceFile) => source.documents.forFile(sourceFile).identity,
+  );
+}
+
+export function checkedPointerFixtureWithValueSemantics(
+  sourceText: string,
+  typeName: string,
+): CheckedPointerFixture {
+  const sourceSemantics = createSourceSemanticsExtension({
+    modules: pointerMarkerSemantics,
+  });
+  const extension: CompilerExtension = Object.freeze({
+    ...sourceSemantics,
+    analyzeSource(context: SourceAnalysisContext): void {
+      sourceSemantics.analyzeSource?.(context);
+      const declaration = findNamedTypeDeclaration(context, typeName);
+      assert.equal(
+        context.facts.set(
+          declaration,
+          structFactKey,
+          Object.freeze({ valueType: true }),
+        ),
+        "inserted",
+      );
+    },
+  });
+  return checkedPointerFixtureWithExtension(sourceText, {}, extension);
+}
+
+function checkedPointerFixtureWithExtension(
+  sourceText: string,
+  additionalFiles: Readonly<Record<string, string>>,
+  extension: CompilerExtension,
+): CheckedPointerFixture {
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files: {
@@ -90,9 +148,7 @@ export function checkedPointerFixture(
       target: "es2022",
     },
     extensionHostOptions: {
-      extensions: [createSourceSemanticsExtension({
-        modules: pointerMarkerSemantics,
-      })],
+      extensions: [extension],
     },
   });
   const checked = session.checkSource();
@@ -103,6 +159,34 @@ export function checkedPointerFixture(
     source,
     sourceFile: sourceFileNamed(source, "/src/index.ts"),
   };
+}
+
+function findNamedTypeDeclaration(
+  context: SourceAnalysisContext,
+  typeName: string,
+): Node {
+  const sourceFile = context.source.getSourceFile("/src/index.ts");
+  assert.ok(sourceFile !== undefined);
+  const pending: Node[] = [sourceFile];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) {
+      continue;
+    }
+    if (
+      (context.source.ast.is.IsInterfaceDeclaration(node) ||
+        context.source.ast.is.IsClassDeclaration(node)) &&
+      context.source.ast.text(context.source.ast.name(node)) === typeName
+    ) {
+      return node;
+    }
+    for (const child of context.source.ast.children(node)) {
+      if (child !== undefined) {
+        pending.push(child);
+      }
+    }
+  }
+  assert.fail(`Missing direct-reference type declaration '${typeName}'.`);
 }
 
 export function sourceFileNamed(
@@ -239,9 +323,13 @@ export function countCallsNamed(
     const property = IsPropertyAccessExpression(expression)
       ? AsPropertyAccessExpression(expression)
       : undefined;
-    const actual = property?.name === undefined
-      ? source.ast.text(expression)
-      : source.ast.text(property.name);
+    const selectedName = property?.name ?? (IsIdentifier(expression)
+      ? expression
+      : undefined);
+    if (selectedName === undefined) {
+      return;
+    }
+    const actual = source.ast.text(selectedName);
     if (actual === name) {
       count += 1;
     }

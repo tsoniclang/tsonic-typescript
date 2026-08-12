@@ -6,19 +6,66 @@ export type {
   TypeScriptAstPrinterOptions,
   TypeScriptTargetOptions,
 } from "./config/options.js";
+export {
+  canonicalTypeScriptOptimizationProfile,
+} from "./lowering/profile.js";
+export type {
+  TypeScriptOptimizationProfile,
+  TypeScriptPointerFlowProfile,
+  TypeScriptScalarProjectionProfile,
+} from "./lowering/profile.js";
+export {
+  prepareTypeScriptLowering,
+} from "./lowering/transform.js";
+export type {
+  TypeScriptLoweringPreparation,
+  TypeScriptLoweringTransaction,
+  TypeScriptSourceLoweringResult,
+  TypeScriptSourcePlanningFailure,
+} from "./lowering/transform.js";
 export { PointerLoweringError } from "./lowering/pointer/diagnostic.js";
 export {
+  createClosedPointerFlowPlan,
+} from "./lowering/pointer/flow-plan.js";
+export type {
+  ClosedPointerFlowPlan,
+  PointerFlowBlocker,
+  PointerFlowComponentSummary,
+  PointerFlowRepresentation,
+} from "./lowering/pointer/flow-plan.js";
+export {
+  createPointerRewriteSession,
   lowerPointers,
 } from "./lowering/pointer/transform.js";
 export type {
   PointerLoweringResult,
+  PointerRewriteSession,
 } from "./lowering/pointer/transform.js";
+export {
+  createScalarRepresentationPlan,
+} from "./lowering/scalar/plan.js";
+export type {
+  ScalarProjectionPlan,
+  ScalarRepresentationPlan,
+  ScalarRepresentationProfile,
+} from "./lowering/scalar/plan.js";
+export {
+  createScalarRepresentationRewriter,
+  lowerScalarRepresentations,
+} from "./lowering/scalar/transform.js";
+export type {
+  ScalarRepresentationRewriter,
+  ScalarRepresentationRewriteResult,
+} from "./lowering/scalar/transform.js";
 export {
   createExternalAstPrinter,
   decodePrinterResponse,
   encodePrinterRequest,
 } from "./print/ast-printer.js";
-export type { TypeScriptAstPrinter } from "./print/ast-printer.js";
+export type {
+  TypeScriptAstPrinter,
+  TypeScriptPrinterBatch,
+} from "./print/ast-printer.js";
 export {
   createTypeScriptTargetPack,
   typeScriptTargetId,

@@ -15,6 +15,9 @@ reopens its shared owner.
 
 ## Governing Architecture
 
+`docs/spec/` is authoritative for target architecture, performance selection,
+human-shaped output, and verification.
+
 TSTS owns source checking, the exact TS-Go-contract AST, canonical marker
 selection, and finalized semantic facts. This target consumes those exact node
 identities and transforms the same tree into another TS-Go-contract AST.
@@ -42,6 +45,13 @@ representation only when every affected definition and reference is rewritten
 and observable source behavior remains exact. An optimization that needs a
 local exception instead reopens its representation owner.
 
+## Coordinated Repository Scope
+
+This workstream may modify only GoToTS and the TypeScript target. Any change to
+TSTS, Tsonic core, another Tsonic target, or any other repository requires the
+user's explicit approval before editing. Read-only inspection may establish a
+published contract; it does not grant change ownership.
+
 ## Project Structure
 
 - `src/config/` owns target-specific external configuration validation.
@@ -52,7 +62,9 @@ local exception instead reopens its representation owner.
 - `src/index.ts` exports only the supported public target surface.
 
 Nest by semantic owner as the project grows. Do not create `util`, `helper`,
-`common`, `legacy`, `compat`, `fallback`, or version-suffixed paths.
+`common`, `legacy`, `compat`, catch-all fallback, or version-suffixed paths.
+Typed canonical-retention evidence belongs to the semantic family that made
+the decision; it is not a second lowering route.
 
 ## Verification
 
@@ -65,3 +77,8 @@ Keep maintained files focused and below 600 physical lines. Use `apply_patch`
 for edits, never `git stash`, never force-push, and never delete remote branches
 or tags. Work on feature branches and use `.temp/` only for ignored scratch
 evidence. Only the coordinator runs heavy suites.
+
+Parallel agents are forbidden unless the user explicitly authorizes them for
+the specific task. When authorized, every worker uses a separate worktree; the
+coordinator reviews and integrates every change and alone runs combined and
+heavy verification.

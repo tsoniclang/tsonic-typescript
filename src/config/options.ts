@@ -1,5 +1,10 @@
 import type { TargetSelection } from "@tsonic/target-api";
 
+import {
+  canonicalTypeScriptOptimizationProfile,
+  type TypeScriptOptimizationProfile,
+} from "../lowering/profile.js";
+
 export interface TypeScriptAstPrinterOptions {
   readonly executable: string;
   readonly arguments: readonly string[];
@@ -7,6 +12,7 @@ export interface TypeScriptAstPrinterOptions {
 
 export interface TypeScriptTargetOptions {
   readonly printer: TypeScriptAstPrinterOptions;
+  readonly optimizations: TypeScriptOptimizationProfile;
 }
 
 export function readTypeScriptTargetOptions(
@@ -18,7 +24,7 @@ export function readTypeScriptTargetOptions(
   }
   rejectUnknownKeys(
     options,
-    new Set(["printer"]),
+    new Set(["printer", "optimizations"]),
     "TypeScript target options",
   );
   const printer = options["printer"];
@@ -50,12 +56,61 @@ export function readTypeScriptTargetOptions(
       }
       return argument;
     });
+  const optimizations = readOptimizationOptions(options["optimizations"]);
   return Object.freeze({
     printer: Object.freeze({
       executable,
       arguments: Object.freeze(arguments_),
     }),
+    optimizations,
   });
+}
+
+function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile {
+  if (value === undefined) {
+    return canonicalTypeScriptOptimizationProfile();
+  }
+  if (!isRecord(value)) {
+    throw new Error("TypeScript target option 'optimizations' must be an object");
+  }
+  rejectUnknownKeys(
+    value,
+    new Set(["pointerFlows", "scalarProjections", "cooperativeEffects"]),
+    "TypeScript target optimizations",
+  );
+  return Object.freeze({
+    pointerFlows: readClosedChoice(
+      value["pointerFlows"],
+      "pointerFlows",
+      "location",
+    ),
+    scalarProjections: readClosedChoice(
+      value["scalarProjections"],
+      "scalarProjections",
+      "preserve",
+    ),
+    cooperativeEffects: readClosedChoice(
+      value["cooperativeEffects"],
+      "cooperativeEffects",
+      "preserve",
+    ),
+  });
+}
+
+function readClosedChoice<Canonical extends string>(
+  value: unknown,
+  name: string,
+  canonical: Canonical,
+): Canonical | "closed-direct" {
+  if (value === undefined || value === canonical) {
+    return canonical;
+  }
+  if (value === "closed-direct") {
+    return value;
+  }
+  throw new Error(
+    `TypeScript target optimization '${name}' must be '${canonical}' or 'closed-direct'`,
+  );
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

@@ -9,6 +9,8 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import type { FinalNodeLookup } from "../final-nodes.js";
+
 import { PointerLoweringError } from "./diagnostic.js";
 import { locationBindingExpression } from "./location-binding.js";
 import type { PointerLoweringPlan } from "./plan.js";
@@ -20,7 +22,7 @@ export function lowerAddressOf(
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
   updatedStorage: Node,
   plan: PointerLoweringPlan,
-  updatedNodes: ReadonlyMap<Node, Node>,
+  finalNodes: FinalNodeLookup,
 ): Node {
   if (source.ast.is.IsIdentifier(operation.storageExpression)) {
     const binding = plan.addressBindings.get(operation.storageExpression);
@@ -53,14 +55,13 @@ export function lowerAddressOf(
         "addressed property has no exact original name",
       );
     }
-    requireAddressablePropertyName(source, originalProperty.name);
     const parentLocation = lowerValueParentLocation(
       source,
       factory,
       originalProperty.Expression,
       property.Expression,
       plan,
-      updatedNodes,
+      finalNodes,
     );
     return runtimeCall(
       factory,
@@ -106,7 +107,7 @@ export function lowerAddressOf(
       originalElement.Expression,
       element.Expression,
       plan,
-      updatedNodes,
+      finalNodes,
     );
     return runtimeCall(
       factory,
@@ -129,7 +130,7 @@ function lowerValueParentLocation(
   original: Node | undefined,
   updated: Node,
   plan: PointerLoweringPlan,
-  updatedNodes: ReadonlyMap<Node, Node>,
+  finalNodes: FinalNodeLookup,
 ): Node | undefined {
   if (original === undefined) {
     throw new PointerLoweringError(
@@ -144,7 +145,7 @@ function lowerValueParentLocation(
   }
   const operation = plan.operations.get(original);
   if (operation?.operation === "load") {
-    const pointer = updatedNodes.get(operation.pointerExpression);
+    const pointer = finalNodes.forOriginal(operation.pointerExpression);
     if (pointer === undefined) {
       throw new PointerLoweringError(
         "addressed pointer-load parent lacks its exact transformed pointer",
@@ -166,14 +167,13 @@ function lowerValueParentLocation(
         "addressed value path lost an exact property segment",
       );
     }
-    requireAddressablePropertyName(source, originalProperty.name);
     const parent = lowerValueParentLocation(
       source,
       factory,
       originalProperty.Expression,
       updatedProperty.Expression,
       plan,
-      updatedNodes,
+      finalNodes,
     );
     const key = requiredNode(
       NewStringLiteral(factory, source.ast.text(originalProperty.name), 0),
@@ -210,7 +210,7 @@ function lowerValueParentLocation(
     originalElement.Expression,
     updatedElement.Expression,
     plan,
-    updatedNodes,
+    finalNodes,
   );
   return runtimeCall(
     factory,
@@ -219,17 +219,6 @@ function lowerValueParentLocation(
     [],
     [parent ?? updatedElement.Expression, updatedElement.ArgumentExpression],
   );
-}
-
-function requireAddressablePropertyName(
-  source: TargetSourceProgram,
-  name: Node,
-): void {
-  if (source.ast.is.IsPrivateIdentifier(name)) {
-    throw new PointerLoweringError(
-      "address-of does not support private field storage",
-    );
-  }
 }
 
 function requiredNode(node: Node | undefined, subject: string): Node {
