@@ -10,7 +10,15 @@ import type {
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api";
+import {
+  KindArrowFunction,
+  KindCallExpression,
+  KindFunctionDeclaration,
+  KindFunctionExpression,
+  KindMethodDeclaration,
+} from "@tsonic/tsts/target-ast";
 
+import type { TargetProgramIndex } from "../program-index.js";
 import type { PointerCensus } from "./flow-census.js";
 import type { PointerCallableAliases } from "./flow-callable-aliases.js";
 import type {
@@ -35,11 +43,16 @@ export interface PointerFunctionResult {
 
 export function collectPointerFunctionResults(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   graph: PointerFlowGraph,
 ): ReadonlyMap<Node, PointerFunctionResult> {
   const results = new Map<Node, PointerFunctionResult>();
-  for (const owner of nodes) {
+  for (const owner of program.nodesOfKinds([
+    KindFunctionDeclaration,
+    KindMethodDeclaration,
+    KindFunctionExpression,
+    KindArrowFunction,
+  ])) {
     if (!isOptimizableFunctionDeclaration(source, owner)) {
       continue;
     }
@@ -75,7 +88,7 @@ export function collectPointerFunctionResults(
 
 export function connectPointerResultCalls(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   graph: PointerFlowGraph,
   operations: ReadonlyMap<Node, PointerOperationFact>,
   results: ReadonlyMap<Node, PointerFunctionResult>,
@@ -83,8 +96,8 @@ export function connectPointerResultCalls(
   allowedFunctionTargets: Set<Node>,
   callableAliases: PointerCallableAliases,
 ): void {
-  for (const node of nodes) {
-    if (!source.ast.is.IsCallExpression(node) || operations.has(node)) {
+  for (const node of program.nodesOfKind(KindCallExpression)) {
+    if (operations.has(node)) {
       continue;
     }
     const call = source.ast.as.AsCallExpression(node);

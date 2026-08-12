@@ -12,7 +12,7 @@ import {
 } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { collectTargetProgramNodes } from "../program-nodes.js";
+import { createTargetProgramIndex } from "../program-index.js";
 import {
   createClosedCooperativeEffectPlan,
   type CooperativeEffectPlan,
@@ -57,7 +57,10 @@ export function createFixtureEffectPlan(
 ): CooperativeEffectPlan {
   return createClosedCooperativeEffectPlan(
     source,
-    collectTargetProgramNodes(source),
+    createTargetProgramIndex(source, {
+      bindingWrites: false,
+      memberDispatch: true,
+    }),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
   );
 }

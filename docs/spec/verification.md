@@ -28,10 +28,14 @@ Every representation family must provide:
 ## Planner Proof
 
 The shared target-program index is independently reconciled against the
-original checked tree. Tests delete, duplicate, mis-parent, and misclassify
-nodes and edges. Dispatch tests cover base/derived overrides, static and
-instance members, private members, computed names, declaration-only members,
-unresolved calls, recursion, and multiple calls on one line.
+original checked tree. Tests delete and duplicate census rows, mis-parent a
+node into another source-file partition, misclassify kind partitions, omit or
+duplicate binding-write rows, and alter dispatch answers. Dispatch tests
+cover cross-file base/derived overrides, static and instance members, private
+members, computed names, properties, accessors, overload declarations,
+declaration-only members, and external heritage. Binding-write tests cover
+assignment, compound assignment, update, destructuring, iteration, property,
+and read-only occurrences.
 
 A scaling fixture doubles nodes and edges while keeping shape constant. Actual
 index/planner operation counts must grow proportionally; a quadratic control

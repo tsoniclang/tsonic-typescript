@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   callableDispatchIsClosed,
@@ -37,6 +38,7 @@ export interface ReturnCallFlow {
 
 export function createReturnCallFlow(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
 ): ReturnCallFlow {
   const directDeclarations = new Map<Node, Node | null>();
   const returns = new Map<Node, readonly (Node | undefined)[]>();
@@ -47,7 +49,7 @@ export function createReturnCallFlow(
       if (existing !== undefined) {
         return existing ?? undefined;
       }
-      const declaration = directProjectCallDeclaration(source, call);
+      const declaration = directProjectCallDeclaration(source, program, call);
       directDeclarations.set(call, declaration ?? null);
       return declaration;
     },
@@ -85,6 +87,7 @@ export function createReturnCallFlow(
       return declarations.every((declaration) =>
         declarationResultIsDefinitelyNonThenable(
           source,
+          program,
           value,
           declaration,
           expressionProof,
@@ -99,6 +102,7 @@ export function createReturnCallFlow(
 
 function declarationResultIsDefinitelyNonThenable(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   callValue: ReturnProofValue,
   declaration: Node,
   expressionProof: ReturnExpressionProof,
@@ -108,7 +112,7 @@ function declarationResultIsDefinitelyNonThenable(
 ): boolean {
   if (
     !source.navigation.isProjectDeclaration(declaration) ||
-    !callableDeclarationIsInspectable(source, declaration) ||
+    !callableDeclarationIsInspectable(source, program, declaration) ||
     pendingDeclarations.has(declaration)
   ) {
     return false;
@@ -159,12 +163,13 @@ function declarationResultIsDefinitelyNonThenable(
 
 function callableDeclarationIsInspectable(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   declaration: Node,
 ): boolean {
   if (
     source.ast.body(declaration) === undefined ||
     source.ast.hasModifierKind(declaration, "async") ||
-    !callableDispatchIsClosed(source, declaration)
+    !callableDispatchIsClosed(source, program, declaration)
   ) {
     return false;
   }
@@ -264,6 +269,7 @@ function directReturnExpressions(
 
 function directProjectCallDeclaration(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   call: Node,
 ): Node | undefined {
   if (!source.ast.is.IsCallExpression(call)) {
@@ -275,7 +281,7 @@ function directProjectCallDeclaration(
   );
   return declaration !== undefined &&
       source.navigation.isProjectDeclaration(declaration) &&
-      callableDeclarationIsInspectable(source, declaration)
+      callableDeclarationIsInspectable(source, program, declaration)
     ? declaration
     : undefined;
 }

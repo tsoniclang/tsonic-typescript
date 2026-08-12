@@ -13,7 +13,8 @@ import {
 
 import {
   canonicalTypeScriptOptimizationProfile,
-  type TypeScriptOptimizationProfile,
+  createTypeScriptOptimizationProfile,
+  type TypeScriptOptimizationProfileInput,
 } from "../lowering/profile.js";
 import type { TypeScriptOptimizationEvidence } from "../lowering/evidence.js";
 import {
@@ -30,8 +31,9 @@ import { compareSourceDocumentIdentities } from "./source-order.js";
 
 export function createTypeScriptBackend(
   printer: TypeScriptAstPrinter,
-  profile: TypeScriptOptimizationProfile = canonicalTypeScriptOptimizationProfile(),
+  profileInput: TypeScriptOptimizationProfileInput = canonicalTypeScriptOptimizationProfile(),
 ): TargetBackend {
+  const profile = createTypeScriptOptimizationProfile(profileInput);
   return {
     compile(input: TargetCompileInput): TargetCompileResult {
       try {
@@ -71,7 +73,7 @@ export function createTypeScriptBackend(
 function compileSourceArtifacts(
   input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
-  profile: TypeScriptOptimizationProfile,
+  profile: TypeScriptOptimizationProfileInput,
 ): CompiledSourceArtifacts {
   const prepared = prepareSourceArtifacts(input, profile);
   if (prepared.kind === "rejected") {
@@ -91,7 +93,7 @@ function compileSourceArtifacts(
 
 function prepareSourceArtifacts(
   input: TargetCompileInput,
-  profile: TypeScriptOptimizationProfile,
+  profile: TypeScriptOptimizationProfileInput,
 ): PreparedSourceArtifacts {
   const artifacts: EncodedTypeScriptSource[] = [];
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];

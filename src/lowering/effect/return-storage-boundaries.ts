@@ -1,6 +1,22 @@
 import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindArrayLiteralExpression,
+  KindAsExpression,
+  KindCallExpression,
+  KindConditionalExpression,
+  KindElementAccessExpression,
+  KindIdentifier,
+  KindNewExpression,
+  KindNonNullExpression,
+  KindObjectLiteralExpression,
+  KindParenthesizedExpression,
+  KindPropertyAccessExpression,
+  KindSatisfiesExpression,
+  KindTypeAssertionExpression,
+} from "@tsonic/tsts/target-ast";
 
+import type { TargetProgramIndex } from "../program-index.js";
 import { isTransparentParent } from "./callable-input-reference.js";
 
 export interface ReturnStorageOwnerBinding {
@@ -16,7 +32,7 @@ type StorageDestination =
 
 export function auditReturnStorageOwnerBoundaries(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
   bindings: ReadonlyMap<Node, ReturnStorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
@@ -37,7 +53,7 @@ export function auditReturnStorageOwnerBoundaries(
   rejectOpenStorageValues(source, bindings, owners);
   auditInvocations(
     source,
-    nodes,
+    program,
     owners,
     ownersFor,
     typeOwners,
@@ -46,7 +62,7 @@ export function auditReturnStorageOwnerBoundaries(
   );
   auditValueFlows(
     source,
-    nodes,
+    program,
     owners,
     bindings,
     storageDeclarationFor,
@@ -65,17 +81,17 @@ export function auditReturnStorageOwnerBoundaries(
 
 function auditInvocations(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
   ownersFor: (node: Node) => ReadonlySet<Node>,
   typeOwners: Map<Type, ReadonlySet<Node>>,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
 ): void {
-  for (const node of nodes) {
-    if (!source.ast.is.IsCallExpression(node) && !source.ast.is.IsNewExpression(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKinds([
+    KindCallExpression,
+    KindNewExpression,
+  ])) {
     const semantics = source.semantics.forNode(node);
     const declaration = semantics.getSignatureDeclaration(
       semantics.getResolvedSignature(node),
@@ -126,7 +142,7 @@ function auditInvocations(
 
 function auditValueFlows(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
   bindings: ReadonlyMap<Node, ReturnStorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
@@ -135,10 +151,21 @@ function auditValueFlows(
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
 ): void {
-  for (const node of nodes) {
-    if (!valueExpressionCanWiden(source, node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKinds([
+    KindIdentifier,
+    KindCallExpression,
+    KindNewExpression,
+    KindPropertyAccessExpression,
+    KindElementAccessExpression,
+    KindConditionalExpression,
+    KindArrayLiteralExpression,
+    KindObjectLiteralExpression,
+    KindParenthesizedExpression,
+    KindAsExpression,
+    KindTypeAssertionExpression,
+    KindSatisfiesExpression,
+    KindNonNullExpression,
+  ])) {
     const carried = ownersFor(node);
     if (carried.size === 0) {
       continue;
@@ -494,10 +521,7 @@ function parameterPropertyIsOpen(
   return owner === undefined || !owners.has(owner);
 }
 
-function invocationReceiver(
-  source: TargetSourceProgram,
-  call: Node,
-): Node | undefined {
+function invocationReceiver(source: TargetSourceProgram, call: Node): Node | undefined {
   const expression = source.ast.as.AsCallExpression(call)?.Expression;
   if (expression === undefined) {
     return undefined;
@@ -507,6 +531,24 @@ function invocationReceiver(
   }
   return source.ast.is.IsElementAccessExpression(expression)
     ? source.ast.as.AsElementAccessExpression(expression)?.Expression
+    : undefined;
+}
+
+function transparentChild(source: TargetSourceProgram, node: Node): Node | undefined {
+  if (source.ast.is.IsParenthesizedExpression(node)) {
+    return source.ast.as.AsParenthesizedExpression(node)?.Expression;
+  }
+  if (source.ast.is.IsAsExpression(node)) {
+    return source.ast.as.AsAsExpression(node)?.Expression;
+  }
+  if (source.ast.is.IsTypeAssertion(node)) {
+    return source.ast.as.AsTypeAssertion(node)?.Expression;
+  }
+  if (source.ast.is.IsSatisfiesExpression(node)) {
+    return source.ast.as.AsSatisfiesExpression(node)?.Expression;
+  }
+  return source.ast.is.IsNonNullExpression(node)
+    ? source.ast.as.AsNonNullExpression(node)?.Expression
     : undefined;
 }
 
@@ -554,44 +596,4 @@ function appendOwnerDependency(
   } else {
     destinations.add(destination);
   }
-}
-
-function valueExpressionCanWiden(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  return source.ast.is.IsIdentifier(node) ||
-    source.ast.is.IsCallExpression(node) ||
-    source.ast.is.IsNewExpression(node) ||
-    source.ast.is.IsPropertyAccessExpression(node) ||
-    source.ast.is.IsElementAccessExpression(node) ||
-    source.ast.is.IsConditionalExpression(node) ||
-    source.ast.is.IsArrayLiteralExpression(node) ||
-    source.ast.is.IsObjectLiteralExpression(node) ||
-    source.ast.is.IsParenthesizedExpression(node) ||
-    source.ast.is.IsAsExpression(node) ||
-    source.ast.is.IsTypeAssertion(node) ||
-    source.ast.is.IsSatisfiesExpression(node) ||
-    source.ast.is.IsNonNullExpression(node);
-}
-
-function transparentChild(
-  source: TargetSourceProgram,
-  node: Node,
-): Node | undefined {
-  if (source.ast.is.IsParenthesizedExpression(node)) {
-    return source.ast.as.AsParenthesizedExpression(node)?.Expression;
-  }
-  if (source.ast.is.IsAsExpression(node)) {
-    return source.ast.as.AsAsExpression(node)?.Expression;
-  }
-  if (source.ast.is.IsTypeAssertion(node)) {
-    return source.ast.as.AsTypeAssertion(node)?.Expression;
-  }
-  if (source.ast.is.IsSatisfiesExpression(node)) {
-    return source.ast.as.AsSatisfiesExpression(node)?.Expression;
-  }
-  return source.ast.is.IsNonNullExpression(node)
-    ? source.ast.as.AsNonNullExpression(node)?.Expression
-    : undefined;
 }

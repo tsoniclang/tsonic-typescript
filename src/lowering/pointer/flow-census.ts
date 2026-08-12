@@ -7,6 +7,13 @@ import type {
   PointerOperationFact,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindCallExpression,
+  KindTypeReference,
+  KindVariableDeclaration,
+} from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   PointerFlowGraph,
@@ -59,13 +66,14 @@ export interface PointerCensus {
 
 export function censusPointerFlows(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): readonly PointerFlowComponent[] {
+  const nodes = program.nodes;
   const graph = new PointerFlowGraph();
-  const operations = collectPointerOperations(source, nodes, graph);
+  const operations = collectPointerOperations(source, program, graph);
   connectLocationIdentities(graph, operations);
-  const pointerBindings = collectPointerBindings(source, nodes, graph);
-  const functionResults = collectPointerFunctionResults(source, nodes, graph);
+  const pointerBindings = collectPointerBindings(source, program, graph);
+  const functionResults = collectPointerFunctionResults(source, program, graph);
   const resultExpressions = new Set<Node>();
   const allowedPointerReferences = new Set<Node>();
   const allowedProducerUses = new Set<Node>();
@@ -85,7 +93,7 @@ export function censusPointerFlows(
   }
   const callableAliases = analyzePointerCallableAliases(
     source,
-    nodes,
+    program,
     callableOwners,
   );
   for (const reference of callableAliases.allowedReferences) {
@@ -93,7 +101,7 @@ export function censusPointerFlows(
   }
   connectPointerResultCalls(
     source,
-    nodes,
+    program,
     graph,
     operations,
     functionResults,
@@ -103,7 +111,7 @@ export function censusPointerFlows(
   );
   connectVariableInitializers(
     source,
-    nodes,
+    program,
     graph,
     operations,
     pointerBindings,
@@ -112,7 +120,7 @@ export function censusPointerFlows(
   );
   const references = censusPointerReferences(
     source,
-    nodes,
+    program,
     trackedDeclarations(
       pointerBindings,
       operations,
@@ -190,11 +198,11 @@ function connectLocationIdentities(
 
 function collectPointerOperations(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   graph: PointerFlowGraph,
 ): ReadonlyMap<Node, PointerOperationFact> {
   const operations = new Map<Node, PointerOperationFact>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindCallExpression)) {
     const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
     if (operation === undefined) {
       continue;
@@ -222,11 +230,11 @@ function collectPointerOperations(
 
 function collectPointerBindings(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   graph: PointerFlowGraph,
 ): Set<Node> {
   const bindings = new Set<Node>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindTypeReference)) {
     if (!source.ast.is.IsTypeReferenceNode(node)) {
       continue;
     }
@@ -306,7 +314,7 @@ function pointerTypeOwnsDeclaration(
 
 function connectVariableInitializers(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   graph: PointerFlowGraph,
   operations: ReadonlyMap<Node, PointerOperationFact>,
   pointerBindings: Set<Node>,
@@ -314,7 +322,7 @@ function connectVariableInitializers(
   allowedProducerUses: Set<Node>,
 ): void {
   const dependents = new Map<Node, Node[]>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindVariableDeclaration)) {
     if (!source.ast.is.IsVariableDeclaration(node)) {
       continue;
     }

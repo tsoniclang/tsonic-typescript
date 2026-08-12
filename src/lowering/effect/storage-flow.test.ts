@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import type { Node } from "@tsonic/tsts";
 
-import { collectTargetProgramNodes } from "../program-nodes.js";
+import { createTargetProgramIndex } from "../program-index.js";
 import {
   countAsyncCallables,
   countNodes,
@@ -121,7 +121,10 @@ export class Slot {
 
   const storage = collectCallableStorageInputs(
     fixture.source,
-    collectTargetProgramNodes(fixture.source),
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: true,
+    }),
     new Set(),
   );
   assert.deepEqual(
@@ -465,7 +468,10 @@ const result${index} = slot${index}.value!();
 
   collectCallableStorageInputs(
     source,
-    collectTargetProgramNodes(source),
+    createTargetProgramIndex(source, {
+      bindingWrites: false,
+      memberDispatch: true,
+    }),
     new Set(),
   );
 

@@ -12,6 +12,7 @@ import {
   type OptimizationOccurrence,
   type SourceIdentityResolver,
 } from "../occurrence.js";
+import type { TargetProgramIndex } from "../program-index.js";
 import {
   censusPointerFlows,
 } from "./flow-census.js";
@@ -72,13 +73,13 @@ interface PointerFlowDecision {
 
 export function createClosedPointerFlowPlan(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   sourceIdentityFor: SourceIdentityResolver,
 ): ClosedPointerFlowPlan {
-  const components = censusPointerFlows(source, nodes);
+  const components = censusPointerFlows(source, program);
   const familyPlan = planDirectReferenceFamilies(
     source,
-    nodes,
+    program,
     components,
   );
   const representations = new Map<Node, PointerFlowRepresentation>(
@@ -121,7 +122,7 @@ export function createClosedPointerFlowPlan(
   }
   const projectionFusions = planPointerProjectionFusions(
     source,
-    nodes,
+    program,
     (node) => (representations.get(node) ?? "location") === "location",
   );
   const frozenSummaries = Object.freeze(summaries);

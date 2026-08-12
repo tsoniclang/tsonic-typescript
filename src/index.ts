@@ -8,9 +8,12 @@ export type {
 } from "./config/options.js";
 export {
   canonicalTypeScriptOptimizationProfile,
+  createTypeScriptOptimizationProfile,
 } from "./lowering/profile.js";
 export type {
+  TypeScriptCooperativeEffectProfile,
   TypeScriptOptimizationProfile,
+  TypeScriptOptimizationProfileInput,
   TypeScriptPointerFlowProfile,
   TypeScriptScalarProjectionProfile,
 } from "./lowering/profile.js";

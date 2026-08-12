@@ -1,5 +1,13 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindClassDeclaration,
+  KindElementAccessExpression,
+  KindIdentifier,
+  KindNewExpression,
+  KindPropertyAccessExpression,
+} from "@tsonic/tsts/target-ast";
+import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   declarationForSymbols,
@@ -34,20 +42,20 @@ interface MutableStorageBinding {
 
 export function createReturnStorageFlow(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ReturnStorageFlow {
-  const owners = collectClosedOwners(source, nodes);
+  const owners = collectClosedOwners(source, program);
   const bindings = collectStorageBindings(source, owners);
-  collectConstructorInputs(source, nodes, bindings);
-  auditStorageReferences(source, nodes, bindings);
+  collectConstructorInputs(source, program, bindings);
+  auditStorageReferences(source, program, bindings);
   auditReturnStorageOwnerBoundaries(
     source,
-    nodes,
+    program,
     owners,
     bindings,
     (expression) => selectedStorageDeclaration(source, expression),
   );
-  const flow = closeReturnStorageFlow(source, nodes, bindings);
+  const flow = closeReturnStorageFlow(source, program, bindings);
   return Object.freeze({
     bindingFor(expression: Node): ReturnStorageBinding | undefined {
       const declaration = selectedStorageDeclaration(source, expression);
@@ -60,7 +68,7 @@ export function createReturnStorageFlow(
 
 function closeReturnStorageFlow(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   bindings: ReadonlyMap<Node, MutableStorageBinding>,
 ): ClosedReturnStorageFlow {
   const storage = new Map<Node, ReturnStorageBinding>();
@@ -77,7 +85,7 @@ function closeReturnStorageFlow(
     storage,
     parameters: createReturnParameterFlow(
       source,
-      nodes,
+      program,
       [...storage.values()].flatMap((binding) => binding.inputs),
       storageDeclarations,
       (expression) => selectedStorageDeclaration(source, expression),
@@ -87,12 +95,11 @@ function closeReturnStorageFlow(
 
 function collectClosedOwners(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ReadonlySet<Node> {
   const owners = new Set<Node>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindClassDeclaration)) {
     if (
-      !source.ast.is.IsClassDeclaration(node) ||
       !source.navigation.isProjectDeclaration(node) ||
       source.ast.extendsHeritageElements(node).length !== 0 ||
       source.ast.hasModifierKind(node, "abstract") ||
@@ -201,13 +208,10 @@ function storageInitializer(
 
 function collectConstructorInputs(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   bindings: ReadonlyMap<Node, MutableStorageBinding>,
 ): void {
-  for (const node of nodes) {
-    if (!source.ast.is.IsNewExpression(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindNewExpression)) {
     const semantics = source.semantics.forNode(node);
     const constructor = semantics.getSignatureDeclaration(
       semantics.getResolvedSignature(node),
@@ -242,11 +246,15 @@ function collectConstructorInputs(
 
 function auditStorageReferences(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   bindings: ReadonlyMap<Node, MutableStorageBinding>,
 ): void {
   const symbols = indexDeclarationSymbols(source, bindings.keys());
-  for (const node of nodes) {
+  for (const node of program.nodesOfKinds([
+    KindIdentifier,
+    KindPropertyAccessExpression,
+    KindElementAccessExpression,
+  ])) {
     const selected = selectedStorageDeclaration(source, node);
     const selectedBinding = selected === undefined ? undefined : bindings.get(selected);
     if (selectedBinding !== undefined) {

@@ -12,7 +12,7 @@ import {
 } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { collectTargetProgramNodes } from "../program-nodes.js";
+import { createTargetProgramIndex } from "../program-index.js";
 import {
   createScalarRepresentationPlan,
   type ScalarRepresentationPlan,
@@ -30,7 +30,10 @@ export function createFixtureScalarRepresentationPlan(
 ): ScalarRepresentationPlan {
   return createScalarRepresentationPlan(
     source,
-    collectTargetProgramNodes(source),
+    createTargetProgramIndex(source, {
+      bindingWrites: true,
+      memberDispatch: false,
+    }),
     profile,
   );
 }

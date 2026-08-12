@@ -35,8 +35,11 @@ import {
   type PointerLoweringResult,
   type PointerRewriteSession,
 } from "./pointer/transform.js";
-import type { TypeScriptOptimizationProfile } from "./profile.js";
-import { collectTargetProgramNodes } from "./program-nodes.js";
+import {
+  createTypeScriptOptimizationProfile,
+  type TypeScriptOptimizationProfileInput,
+} from "./profile.js";
+import { createTargetProgramIndex } from "./program-index.js";
 import {
   createScalarRepresentationPlan,
 } from "./scalar/plan.js";
@@ -81,32 +84,45 @@ interface SourceRewritePlan {
   readonly effect?: CooperativeEffectRewriteSession;
 }
 
+interface SourceIdentityIndex {
+  readonly membership: readonly string[];
+  forFile(sourceFile: SourceFile): string;
+}
+
 export function prepareTypeScriptLowering(
   source: TargetSourceProgram,
   sourceFiles: readonly SourceFile[],
-  profile: TypeScriptOptimizationProfile,
+  profileInput: TypeScriptOptimizationProfileInput,
   sourceIdentityFor: (sourceFile: SourceFile) => string,
 ): TypeScriptLoweringPreparation {
   assertExactSourceMembership(source, sourceFiles);
-  const nodes = collectTargetProgramNodes(source);
+  const profile = createTypeScriptOptimizationProfile(profileInput);
+  const identities = collectSourceIdentities(sourceFiles, sourceIdentityFor);
+  const program = createTargetProgramIndex(source, {
+    bindingWrites: profile.pointerFlows === "closed-direct" ||
+      profile.scalarProjections === "closed-direct",
+    memberDispatch: profile.cooperativeEffects === "closed-direct",
+  });
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
-    ? createClosedPointerFlowPlan(source, nodes, sourceIdentityFor)
+    ? createClosedPointerFlowPlan(source, program, identities.forFile)
     : undefined;
   const scalarPlan = createScalarRepresentationPlan(
     source,
-    nodes,
+    program,
     profile.scalarProjections,
   );
   const effectPlan = profile.cooperativeEffects === "closed-direct"
     ? createClosedCooperativeEffectPlan(
         source,
-        nodes,
-        sourceIdentityFor,
+        program,
+        identities.forFile,
         createPointerResultContract(source, pointerFlowPlan),
       )
     : undefined;
   const evidence = createTypeScriptOptimizationEvidence(
     profile,
+    identities.membership,
+    program.operations,
     pointerFlowPlan,
     scalarPlan,
     effectPlan?.summary,
@@ -121,6 +137,7 @@ export function prepareTypeScriptLowering(
         pointer: createPointerRewriteSession(
           source,
           sourceFile,
+          program,
           pointerFlowPlan,
           finalNodes,
         ),
@@ -151,6 +168,41 @@ export function prepareTypeScriptLowering(
     kind: "ready",
     transaction: createTransaction(plans, effectPlan, evidence),
   });
+}
+
+function collectSourceIdentities(
+  sourceFiles: readonly SourceFile[],
+  sourceIdentityFor: (sourceFile: SourceFile) => string,
+): SourceIdentityIndex {
+  const byFile = new Map(
+    sourceFiles.map((sourceFile) => [
+      sourceFile,
+      sourceIdentityFor(sourceFile),
+    ] as const),
+  );
+  const membership = [...byFile.values()].sort(compareText);
+  if (
+    membership.some((identity) => identity.length === 0) ||
+    new Set(membership).size !== membership.length
+  ) {
+    throw new Error(
+      "TypeScript lowering requires one non-empty identity per checked source file",
+    );
+  }
+  return Object.freeze({
+    membership: Object.freeze(membership),
+    forFile(sourceFile: SourceFile): string {
+      const identity = byFile.get(sourceFile);
+      if (identity === undefined) {
+        throw new Error("TypeScript lowering requested a foreign source identity");
+      }
+      return identity;
+    },
+  });
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function createTransaction(

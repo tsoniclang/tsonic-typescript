@@ -1,5 +1,11 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindCallExpression,
+  KindIdentifier,
+  KindNewExpression,
+} from "@tsonic/tsts/target-ast";
+import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   declarationForSymbols,
@@ -27,12 +33,12 @@ interface InvocationInputs {
 
 export function createReturnParameterFlow(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   seedExpressions: readonly Node[],
   storageDeclarations: ReadonlySet<Node>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
 ): ReturnParameterFlow {
-  const invocationInputs = collectInvocationInputs(source, nodes);
+  const invocationInputs = collectInvocationInputs(source, program);
   const parameters = collectReachableParameters(
     source,
     seedExpressions,
@@ -40,7 +46,7 @@ export function createReturnParameterFlow(
   );
   const valid = auditParameterFlows(
     source,
-    nodes,
+    program,
     parameters,
     invocationInputs.invalidOwners,
     storageDeclarations,
@@ -70,14 +76,14 @@ export function createReturnParameterFlow(
 
 function collectInvocationInputs(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): InvocationInputs {
   const values = new Map<Node, Node[]>();
   const invalidOwners = new Set<Node>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsCallExpression(node) && !source.ast.is.IsNewExpression(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKinds([
+    KindCallExpression,
+    KindNewExpression,
+  ])) {
     const semantics = source.semantics.forNode(node);
     const owner = semantics.getSignatureDeclaration(
       semantics.getResolvedSignature(node),
@@ -170,7 +176,7 @@ function referencedParameters(
 
 function auditParameterFlows(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   parameters: ReadonlySet<Node>,
   invalidOwners: ReadonlySet<Node>,
   storageDeclarations: ReadonlySet<Node>,
@@ -183,20 +189,17 @@ function auditParameterFlows(
     if (
       owner === undefined ||
       invalidOwners.has(owner) ||
-      !callableDispatchIsClosed(source, owner)
+      !callableDispatchIsClosed(source, program, owner)
     ) {
       valid.delete(parameter);
     } else {
       owners.add(owner);
     }
   }
-  auditOwnerReferences(source, nodes, owners, valid);
+  auditOwnerReferences(source, program, owners, valid);
   const symbols = indexDeclarationSymbols(source, parameters);
   const destinations = new Map<Node, Set<Node>>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     const declaration = declarationForSymbols(source, symbols, node);
     if (
       declaration === undefined ||
@@ -251,15 +254,12 @@ function closeInvalidParameters(
 
 function auditOwnerReferences(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
   validParameters: Set<Node>,
 ): void {
   const symbols = indexDeclarationSymbols(source, owners);
-  for (const node of nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     const owner = declarationForSymbols(source, symbols, node);
     if (
       owner === undefined ||

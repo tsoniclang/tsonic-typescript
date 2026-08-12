@@ -18,6 +18,7 @@ import {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { createFinalNodeJournal } from "../final-nodes.js";
+import { createTargetProgramIndex } from "../program-index.js";
 
 import {
   checkedPointerFixture,
@@ -376,6 +377,10 @@ export const result = loadPointer(pointer);
   const session = createPointerRewriteSession(
     fixture.source,
     fixture.sourceFile,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: true,
+      memberDispatch: false,
+    }),
     flowPlan,
     finalNodes,
   );

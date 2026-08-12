@@ -2,6 +2,7 @@ import type { TargetSelection } from "@tsonic/target-api";
 
 import {
   canonicalTypeScriptOptimizationProfile,
+  createTypeScriptOptimizationProfile,
   type TypeScriptOptimizationProfile,
 } from "../lowering/profile.js";
 
@@ -78,7 +79,7 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
     new Set(["pointerFlows", "scalarProjections", "cooperativeEffects"]),
     "TypeScript target optimizations",
   );
-  return Object.freeze({
+  return createTypeScriptOptimizationProfile({
     pointerFlows: readClosedChoice(
       value["pointerFlows"],
       "pointerFlows",

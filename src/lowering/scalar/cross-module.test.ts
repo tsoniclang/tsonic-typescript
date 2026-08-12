@@ -160,7 +160,7 @@ export const result = new Scalar(42).value;
   );
 });
 
-test("proves one imported class once for a linear projection family", () => {
+test("does not rescan an imported class for each projection", () => {
   const projectionCount = 128;
   const fixture = checkedScalarFixture(`import { Scalar } from "./scalar.js";
 export const result = [${Array.from(
@@ -183,7 +183,7 @@ export const result = [${Array.from(
 
   const plan = createScalarRepresentationPlan(measured, "closed-direct");
   assert.equal(plan.projectionCount, projectionCount);
-  assert.equal(bindingWriteQueries, 1);
+  assert.equal(bindingWriteQueries, 0);
 });
 
 function findNode(

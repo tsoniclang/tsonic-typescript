@@ -46,7 +46,7 @@ validated target profile and complete source membership
                          |
                          v
 one immutable target-program index
-  (nodes, declarations, references, imports, dispatch, storage, calls)
+  (exact nodes/source files, syntax-kind partitions, shared flow answers)
                          |
                          v
 family plans over complete connected flows
@@ -66,14 +66,18 @@ legacy compilers.
 ## Program Index
 
 Whole-program families consume one immutable index built once from the
-original checked tree. It contains only target-side navigation needed by more
-than one family: stable document/node identity, declarations, exact references,
-imports, signatures, class/member hierarchy, dispatch, storage, call, and
-alias edges.
+original checked tree. It contains only target-side coordination needed by
+more than one family. The current shared denominator is exact node/source-file
+membership in source preorder, immutable syntax-kind partitions, canonical
+binding-write joins, and canonical project-member dispatch. Optional facets
+are built only when the selected profile has a consumer.
 
 The index is coordination state, not a second semantic model. TSTS facts remain
-the semantic authority. Family-specific facts stay in their family. A query
-whose answer is needed once remains local instead of expanding the index.
+the semantic authority. Canonical declaration, reference, import, signature,
+call, and alias queries remain at their existing navigation owner unless more
+than one family needs one materialized answer. Family-specific facts stay in
+their family. A query whose answer is needed once remains local instead of
+expanding the index.
 
 Index construction and family planning must be proportional to nodes plus
 relevant edges. Repeated whole-program scans, per-candidate hierarchy walks,
@@ -202,9 +206,11 @@ switch has one JSON owner and one normalized identity. Product configuration,
 CLI resolution, and target defaults must converge on that same typed profile;
 ambient environment state does not select an optimization.
 
-The immutable evidence artifact binds the normalized profile, input semantic
-digest, selected/retained decisions, typed reasons, source membership, runtime
-contract, and target output membership.
+The immutable evidence artifact binds the canonical profile identity, exact
+source membership, selected/retained decisions, typed reasons, index and
+planner work counts, runtime contract, and target output membership. Input
+semantic and output-membership digests are added only at the layer that owns
+those canonical values; they are not fabricated by lowering.
 
 ## Complexity And Failure
 

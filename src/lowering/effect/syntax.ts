@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetProgramIndex } from "../program-index.js";
 
 export function exactReturnedCall(
   source: TargetSourceProgram,
@@ -36,6 +37,7 @@ export function isFunctionLike(
 
 export function callableDispatchIsClosed(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   declaration: Node,
 ): boolean {
   if (!source.ast.is.IsMethodDeclaration(declaration)) {
@@ -44,7 +46,7 @@ export function callableDispatchIsClosed(
   if (source.ast.hasModifierKind(declaration, "static")) {
     return true;
   }
-  const dispatch = source.navigation.memberDispatch(declaration);
+  const dispatch = program.memberDispatch(declaration);
   return dispatch !== undefined &&
     !dispatch.overridesBase &&
     !dispatch.hasDerivedOverride;

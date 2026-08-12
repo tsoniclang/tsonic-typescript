@@ -29,7 +29,9 @@ import {
   IsSemicolonClassElement,
   IsSetAccessorDeclaration,
   IsSpreadElement,
+  KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
+import type { TargetProgramIndex } from "../program-index.js";
 
 export type ScalarRepresentationProfile = "preserve" | "closed-direct";
 
@@ -75,7 +77,7 @@ const noProjections = Object.freeze([]) as readonly ScalarProjectionPlan[];
 
 export function createScalarRepresentationPlan(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   profile: ScalarRepresentationProfile,
 ): ScalarRepresentationPlan {
   if (profile !== "preserve" && profile !== "closed-direct") {
@@ -85,7 +87,7 @@ export function createScalarRepresentationPlan(
   const classProofs = new Map<Node, TransparentClassProof | undefined>();
   const portableScalarKinds = new Map<Node, ScalarPrimitiveKind | undefined>();
   const projections: ScalarProjectionPlan[] = [];
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindPropertyAccessExpression)) {
     if (!isSyntacticProjection(node)) {
       continue;
     }
@@ -93,6 +95,7 @@ export function createScalarRepresentationPlan(
     if (profile === "closed-direct") {
       const projection = resolveProjection(
         source,
+        program,
         node,
         classProofs,
         portableScalarKinds,
@@ -175,6 +178,7 @@ function isSyntacticProjection(node: Node): boolean {
 
 function resolveProjection(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   node: Node,
   classProofs: Map<Node, TransparentClassProof | undefined>,
   portableScalarKinds: Map<Node, ScalarPrimitiveKind | undefined>,
@@ -213,6 +217,7 @@ function resolveProjection(
   if (!classProofs.has(classDeclaration)) {
     classProof = proveTransparentClass(
       source,
+      program,
       classDeclaration,
       portableScalarKinds,
     );
@@ -294,6 +299,7 @@ function resolveProjection(
 
 function proveTransparentClass(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   declaration: Node,
   portableScalarKinds: Map<Node, ScalarPrimitiveKind | undefined>,
 ): TransparentClassProof | undefined {
@@ -316,10 +322,7 @@ function proveTransparentClass(
     classReference === undefined ||
     !classReference.project ||
     classReference.declaration !== declaration ||
-    source.navigation.bindingWritesWithin(
-      classReference.symbol,
-      classReference.sourceFile,
-    ).length !== 0
+    program.bindingWritesFor(declaration).length !== 0
   ) {
     return undefined;
   }

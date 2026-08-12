@@ -6,6 +6,7 @@ import type {
 } from "./pointer/flow-plan.js";
 import type { TypeScriptOptimizationProfile } from "./profile.js";
 import type { ScalarRepresentationPlan } from "./scalar/plan.js";
+import type { TargetProgramIndexOperations } from "./program-index.js";
 import type {
   CooperativeEffectFallbackReason,
   CooperativeEffectPlanSummary,
@@ -75,7 +76,10 @@ export type CooperativeEffectOptimizationEvidence =
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 6;
+  readonly profileIdentity: string;
+  readonly sourceMembership: readonly string[];
+  readonly programIndex: TargetProgramIndexOperations;
   readonly pointer: PointerOptimizationEvidence;
   readonly scalar: ScalarOptimizationEvidence;
   readonly cooperativeEffects: CooperativeEffectOptimizationEvidence;
@@ -83,12 +87,17 @@ export interface TypeScriptOptimizationEvidence {
 
 export function createTypeScriptOptimizationEvidence(
   profile: TypeScriptOptimizationProfile,
+  sourceMembership: readonly string[],
+  programIndex: TargetProgramIndexOperations,
   pointerPlan: ClosedPointerFlowPlan | undefined,
   scalarPlan: ScalarRepresentationPlan,
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 4 as const,
+    schemaVersion: 6 as const,
+    profileIdentity: profile.identity,
+    sourceMembership: Object.freeze([...sourceMembership]),
+    programIndex,
     pointer: pointerEvidence(profile, pointerPlan),
     scalar: Object.freeze({
       profile: profile.scalarProjections,
