@@ -8,6 +8,7 @@ import {
   AsFunctionDeclaration,
   AsFunctionExpression,
   AsMethodDeclaration,
+  AsUnionTypeNode,
   NodeFactory_UpdateArrowFunction,
   NodeFactory_UpdateFunctionDeclaration,
   NodeFactory_UpdateFunctionExpression,
@@ -20,6 +21,7 @@ import type {
 } from "@tsonic/tsts/target-ast";
 
 import type { CooperativeEffectPlan } from "./plan.js";
+import type { CallableReturnRewrite } from "./callable-contract.js";
 
 export interface CooperativeEffectRewriteResult {
   readonly sourceFile: SourceFile;
@@ -40,7 +42,12 @@ export function createCooperativeEffectRewriteSession(
   const callables = new Set(file.callables);
   const awaits = new Set(file.awaits);
   const asyncModifiers = new Set(file.asyncModifiers);
-  const returnTypes = new Set(file.returnTypes);
+  const returnTypes = new Map(
+    file.returnTypes.map((rewrite) => [rewrite.target, rewrite] as const),
+  );
+  if (returnTypes.size !== file.returnTypes.length) {
+    throw new Error("cooperative-effect return contract was planned twice");
+  }
   const consumedCallables = new Set<Node>();
   const consumedAwaits = new Set<Node>();
   const consumedModifiers = new Set<Node>();
@@ -51,13 +58,14 @@ export function createCooperativeEffectRewriteSession(
       if (finished) {
         throw new Error("cooperative-effect rewriter is already finished");
       }
-      if (returnTypes.has(original)) {
-        const innerType = plan.source.ast.typeArguments(updated)[0];
-        if (innerType === undefined || consumedReturnTypes.has(original)) {
+      const returnType = returnTypes.get(original);
+      if (returnType !== undefined) {
+        const replacement = selectedReturnType(plan, updated, returnType);
+        if (replacement === undefined || consumedReturnTypes.has(original)) {
           throw new Error("planned callable contract lost its exact AST shape");
         }
         consumedReturnTypes.add(original);
-        return innerType;
+        return replacement;
       }
       if (asyncModifiers.has(original)) {
         if (consumedModifiers.has(original)) {
@@ -93,7 +101,7 @@ export function createCooperativeEffectRewriteSession(
       assertExactConsumption("async modifier", asyncModifiers, consumedModifiers);
       assertExactConsumption(
         "callable return type",
-        returnTypes,
+        new Set(returnTypes.keys()),
         consumedReturnTypes,
       );
       plan.finishFile(sourceFile);
@@ -104,6 +112,17 @@ export function createCooperativeEffectRewriteSession(
       });
     },
   });
+}
+
+function selectedReturnType(
+  plan: CooperativeEffectPlan,
+  updated: Node,
+  rewrite: CallableReturnRewrite,
+): Node | undefined {
+  if (rewrite.selection.kind === "type-argument") {
+    return plan.source.ast.typeArguments(updated)[rewrite.selection.index];
+  }
+  return AsUnionTypeNode(updated)?.Types?.Nodes[rewrite.selection.index];
 }
 
 export function lowerCooperativeEffects(

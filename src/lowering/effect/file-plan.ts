@@ -4,12 +4,13 @@ import type {
 } from "@tsonic/tsts";
 import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { CallableReturnRewrite } from "./callable-contract.js";
 
 export interface CooperativeEffectFilePlan {
   readonly callables: readonly Node[];
   readonly awaits: readonly Node[];
   readonly asyncModifiers: readonly Node[];
-  readonly returnTypes: readonly Node[];
+  readonly returnTypes: readonly CallableReturnRewrite[];
 }
 
 export interface CooperativeEffectFileCandidate {
@@ -21,7 +22,7 @@ interface MutableCooperativeEffectFilePlan {
   readonly callables: Node[];
   readonly awaits: Node[];
   readonly asyncModifiers: Node[];
-  readonly returnTypes: Node[];
+  readonly returnTypes: CallableReturnRewrite[];
 }
 
 export function createCooperativeEffectFilePlans(
@@ -29,7 +30,7 @@ export function createCooperativeEffectFilePlans(
   candidates: Iterable<CooperativeEffectFileCandidate>,
   optimized: ReadonlySet<Node>,
   awaits: Iterable<Node>,
-  returnTypes: Iterable<Node>,
+  returnTypes: Iterable<CallableReturnRewrite>,
 ): ReadonlyMap<SourceFile, CooperativeEffectFilePlan> {
   const mutable = new Map<SourceFile, MutableCooperativeEffectFilePlan>();
   for (const sourceFile of source.navigation.sourceFiles) {
@@ -55,8 +56,8 @@ export function createCooperativeEffectFilePlans(
   for (const node of awaits) {
     filePlanForNode(source, mutable, node).awaits.push(node);
   }
-  for (const node of returnTypes) {
-    filePlanForNode(source, mutable, node).returnTypes.push(node);
+  for (const rewrite of returnTypes) {
+    filePlanForNode(source, mutable, rewrite.target).returnTypes.push(rewrite);
   }
   return new Map(
     [...mutable].map(([sourceFile, file]) => [

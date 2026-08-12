@@ -10,12 +10,14 @@ import {
 } from "./value-inputs.js";
 import {
   exactCallableTarget,
+  isFunctionLike,
   transparentExpression,
 } from "./syntax.js";
 import {
   callableUsesSynchronousTransport,
   resolvedCallUsesSynchronousTransport,
 } from "./synchronous.js";
+import type { CallableReturnRewrite } from "./callable-contract.js";
 
 export interface CallableValueResolution {
   readonly dependencies: readonly Node[];
@@ -33,7 +35,9 @@ export interface CallableValueFlow {
   readonly signatureFamilies: readonly (readonly Node[])[];
   resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
   allowsCandidateReference(node: Node): boolean;
-  settledReturnTypes(optimized: ReadonlySet<Node>): readonly Node[];
+  settledReturnTypes(
+    optimized: ReadonlySet<Node>,
+  ): readonly CallableReturnRewrite[];
 }
 
 interface MutableResolution {
@@ -50,7 +54,8 @@ export function createCallableValueFlow(
   const candidateSymbols = indexCandidateSymbols(source, candidates);
   const inputs = collectCallableValueInputs(source, program);
   const allowedCandidateReferences = new Set<Node>();
-  const resolutions = new Map<Node, CallableValueResolution>();
+  const mutableResolutions = new Map<Node, MutableResolution>();
+  const callsByOwner = new Map<Node, MutableResolution[]>();
   for (const node of program.nodesOfKind(KindCallExpression)) {
     const resolution = resolveCall(
       source,
@@ -61,9 +66,20 @@ export function createCallableValueFlow(
       allowedCandidateReferences,
     );
     if (resolution !== undefined) {
-      resolutions.set(node, sealResolution(resolution));
+      mutableResolutions.set(node, resolution);
+      const owner = containingFunction(source, node);
+      if (owner !== undefined) {
+        appendResolution(callsByOwner, owner, resolution);
+      }
     }
   }
+  closeSynchronousDependencies(mutableResolutions.values(), callsByOwner);
+  const resolutions = new Map(
+    [...mutableResolutions].map(([call, resolution]) => [
+      call,
+      sealResolution(resolution),
+    ]),
+  );
   const calls = Object.freeze([...resolutions].map(([call, resolution]) =>
     Object.freeze({ call, resolution })
   ));
@@ -150,14 +166,6 @@ function resolveCall(
   const signature = source.semantics.forNode(call).getResolvedSignature(call);
   const declaration = source.semantics.forNode(call)
     .getSignatureDeclaration(signature);
-  if (declaration !== undefined) {
-    if (candidates.has(declaration)) {
-      return resolutionWith(declaration);
-    }
-    if (resolvedCallUsesSynchronousTransport(source, call)) {
-      return synchronousResolutionWith(declaration);
-    }
-  }
   const expression = source.ast.as.AsCallExpression(call)?.Expression;
   const target = exactCallableTarget(source, expression);
   const referenceNode = target !== undefined &&
@@ -165,10 +173,38 @@ function resolveCall(
     ? source.ast.as.AsPropertyAccessExpression(target)?.name
     : source.ast.name(target) ?? target;
   const reference = source.navigation.sourceReferenceFor(referenceNode);
+  const transported = reference === undefined || !reference.project ||
+      reference.declaration === declaration
+    ? undefined
+    : resolveDeclaration(
+      source,
+      reference.declaration,
+      candidates,
+      candidateSymbols,
+      inputs,
+      allowedCandidateReferences,
+      new Set(),
+    );
+  if (declaration !== undefined) {
+    if (candidates.has(declaration)) {
+      const result = resolutionWith(declaration);
+      if (transported !== undefined) {
+        mergeResolution(result, transported);
+      }
+      return result;
+    }
+    if (resolvedCallUsesSynchronousTransport(source, call)) {
+      const result = synchronousResolutionWith(declaration);
+      if (transported !== undefined) {
+        mergeResolution(result, transported);
+      }
+      return result;
+    }
+  }
   if (reference === undefined || !reference.project) {
     return undefined;
   }
-  const result = resolveDeclaration(
+  const result = transported ?? resolveDeclaration(
     source,
     reference.declaration,
     candidates,
@@ -392,6 +428,89 @@ function mergeResolution(
   for (const declaration of source.synchronousDeclarations) {
     target.synchronousDeclarations.add(declaration);
   }
+}
+
+function closeSynchronousDependencies(
+  resolutions: Iterable<MutableResolution>,
+  callsByOwner: ReadonlyMap<Node, readonly MutableResolution[]>,
+): void {
+  const all = [...resolutions];
+  const dependents = new Map<MutableResolution, Set<MutableResolution>>();
+  for (const resolution of all) {
+    for (const declaration of resolution.synchronousDeclarations) {
+      for (const nested of callsByOwner.get(declaration) ?? []) {
+        const selected = dependents.get(nested);
+        if (selected === undefined) {
+          dependents.set(nested, new Set([resolution]));
+        } else {
+          selected.add(resolution);
+        }
+      }
+    }
+  }
+  const pending = [...all];
+  const queued = new Set(pending);
+  while (pending.length !== 0) {
+    const source = pending.pop();
+    if (source === undefined) {
+      continue;
+    }
+    queued.delete(source);
+    for (const dependent of dependents.get(source) ?? []) {
+      if (
+        mergeDependencyEvidence(dependent, source) &&
+        !queued.has(dependent)
+      ) {
+        pending.push(dependent);
+        queued.add(dependent);
+      }
+    }
+  }
+}
+
+function mergeDependencyEvidence(
+  target: MutableResolution,
+  source: MutableResolution,
+): boolean {
+  let changed = false;
+  if (target.closed && !source.closed) {
+    target.closed = false;
+    changed = true;
+  }
+  for (const dependency of source.dependencies) {
+    if (!target.dependencies.has(dependency)) {
+      target.dependencies.add(dependency);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function appendResolution(
+  target: Map<Node, MutableResolution[]>,
+  owner: Node,
+  resolution: MutableResolution,
+): void {
+  const resolutions = target.get(owner);
+  if (resolutions === undefined) {
+    target.set(owner, [resolution]);
+  } else {
+    resolutions.push(resolution);
+  }
+}
+
+function containingFunction(
+  source: TargetSourceProgram,
+  node: Node,
+): Node | undefined {
+  let current = source.ast.parent(node);
+  while (current !== undefined) {
+    if (isFunctionLike(source, current)) {
+      return current;
+    }
+    current = source.ast.parent(current);
+  }
+  return undefined;
 }
 
 function sealResolution(

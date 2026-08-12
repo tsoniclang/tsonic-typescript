@@ -63,6 +63,12 @@ export const result = await settled();
       edges: 1,
       work: 7,
     },
+    resultConsumption: {
+      callEntries: 0,
+      referenceEntries: 0,
+      ownerEvaluations: 0,
+      consumerEdges: 0,
+    },
   });
 
   function authored(
@@ -84,4 +90,36 @@ export const result = await settled();
       syntaxKind,
     };
   }
+});
+
+test("assigns one canonical reason to an overlapping retained candidate", () => {
+  const fixture = checkedEffectFixture(`
+async function selected(): Promise<number> { return Promise.resolve(1); }
+export const callable = selected;
+export const observed = selected();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+
+  assert.equal(plan.summary.candidateCount, 1);
+  assert.equal(plan.summary.retainedCallableCount, 1);
+  assert.equal(
+    plan.summary.fallbackReasons.reduce(
+      (total, reason) => total + reason.retainedCallableCount,
+      0,
+    ),
+    1,
+  );
+  assert.deepEqual(
+    plan.summary.fallbackReasons
+      .filter((reason) => reason.retainedCallableCount !== 0)
+      .map((reason) => reason.reason),
+    ["escaping-callable"],
+  );
+  assert.deepEqual(
+    plan.summary.fallbackReasons
+      .filter((reason) => reason.directCallableCount !== 0)
+      .map((reason) => reason.reason),
+    ["escaping-callable", "promise-observed", "promise-producing-return"],
+  );
 });

@@ -84,10 +84,16 @@ export type CooperativeEffectOptimizationEvidence =
         readonly edgeCount: number;
         readonly workCount: number;
       };
+      readonly resultConsumption: {
+        readonly callEntries: number;
+        readonly referenceEntries: number;
+        readonly ownerEvaluations: number;
+        readonly consumerEdges: number;
+      };
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 7;
+  readonly schemaVersion: 8;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
@@ -107,7 +113,7 @@ export function createTypeScriptOptimizationEvidence(
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 7 as const,
+    schemaVersion: 8 as const,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
@@ -239,6 +245,7 @@ function effectEvidence(
       edgeCount: summary.propagation.edges,
       workCount: summary.propagation.work,
     }),
+    resultConsumption: summary.resultConsumption,
   });
 }
 

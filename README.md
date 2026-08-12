@@ -87,6 +87,16 @@ declaration, return contract, and dependent `await` in one transaction. For exam
 becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`
 return, or provider call remains unchanged.
 
+The candidate denominator includes every async function, method, function
+expression, and arrow, including inferred-return, generator, bodyless, and
+open-dispatch forms that must be retained. A closed callback may also settle
+through a private synchronous forwarder such as
+`invoke(callback) { return callback(); }` when every invocation result is
+awaited or continues through another certified return edge. Exporting the
+forwarder, escaping it through an alias, or observing one returned Promise
+retains the original callable contract. Multiple blocking facts still produce
+one retained row under the canonical reason-catalog order.
+
 A checked direct scalar return and a freshly constructed array or object may
 also settle without requiring identical source and result type identities. The
 constructed value must expose no callable `then`; object literals containing a

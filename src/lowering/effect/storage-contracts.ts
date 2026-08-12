@@ -1,11 +1,14 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { callableDeclarationSynchronousReturnTypes } from "./callable-contract.js";
+import {
+  callableDeclarationSynchronousReturnTypes,
+  type CallableReturnRewrite,
+} from "./callable-contract.js";
 
 export interface CallableStorageContract {
   readonly declarations: readonly Node[];
-  readonly returnTypes: readonly Node[];
+  readonly returnTypes: readonly CallableReturnRewrite[];
 }
 
 export function createCallableStorageContracts(
