@@ -41,6 +41,15 @@ A scaling fixture doubles nodes and edges while keeping shape constant. Actual
 index/planner operation counts must grow proportionally; a quadratic control
 must be distinguishable. Wall time is supporting evidence only.
 
+Pointer contract tests exact-join canonical pointer types and operation facts
+to the complete target component. They cover pointer-bearing parameters,
+results, direct calls, aliases, fresh allocations, repeated addresses, nil,
+load, mutation through two aliases, equality, and canonical retention.
+Mutations change a pointee, operation kind, location identity, nil union,
+definition/reference edge, or caller mapping; each fails before rewriting.
+Target tests must not use marker spelling, a scalar authored signature, or a
+GoToTS-specific configuration key as proof.
+
 ## Composition And Transaction Proof
 
 Tests overlap effect, pointer, scalar, and structural rewrites at one parent.
