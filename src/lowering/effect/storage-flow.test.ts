@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { Node } from "@tsonic/tsts";
 
+import { collectTargetProgramNodes } from "../program-nodes.js";
 import {
   countAsyncCallables,
   countNodes,
@@ -118,7 +119,11 @@ export class Slot {
 `,
   });
 
-  const storage = collectCallableStorageInputs(fixture.source, new Set());
+  const storage = collectCallableStorageInputs(
+    fixture.source,
+    collectTargetProgramNodes(fixture.source),
+    new Set(),
+  );
   assert.deepEqual(
     [...storage.closed].map((node) => fixture.source.ast.text(
       fixture.source.ast.name(node),
@@ -458,7 +463,11 @@ const result${index} = slot${index}.value!();
     }),
   });
 
-  collectCallableStorageInputs(source, new Set());
+  collectCallableStorageInputs(
+    source,
+    collectTargetProgramNodes(source),
+    new Set(),
+  );
 
   assert.ok(
     childQueries < nodeCount * 8,

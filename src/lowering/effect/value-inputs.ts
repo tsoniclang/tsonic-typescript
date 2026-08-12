@@ -9,7 +9,6 @@ import { collectCallableStorageInputs } from "./storage-inputs.js";
 import type { CallableStorageContract } from "./storage-contracts.js";
 import {
   directContainingCall,
-  forEachProgramNode,
   isModuleForwardingReference,
 } from "./syntax.js";
 
@@ -27,13 +26,14 @@ interface ReferenceCounts {
 
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
 ): CallableValueInputs {
-  const collections = collectCallableCollectionInputs(source);
+  const collections = collectCallableCollectionInputs(source, nodes);
   const mutableValues = new Map<Node, Node[]>();
   const constructorParameters = new Set<Node>();
   const constructorClasses = new Map<Node, Node>();
   const invalidConstructors = new Set<Node>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (source.ast.is.IsConstructorDeclaration(node)) {
       const classDeclaration = source.ast.parent(node);
       if (
@@ -42,10 +42,10 @@ export function collectCallableValueInputs(
       ) {
         constructorClasses.set(node, classDeclaration);
       }
-      return;
+      continue;
     }
     if (!source.ast.is.IsNewExpression(node)) {
-      return;
+      continue;
     }
     const semantics = source.semantics.forNode(node);
     const signature = semantics.getResolvedSignature(node);
@@ -54,7 +54,7 @@ export function collectCallableValueInputs(
       declaration === undefined ||
       !source.ast.is.IsConstructorDeclaration(declaration)
     ) {
-      return;
+      continue;
     }
     const parameters = source.ast.parameters(declaration);
     const arguments_ = source.ast.arguments(node);
@@ -65,7 +65,7 @@ export function collectCallableValueInputs(
       )
     ) {
       invalidConstructors.add(declaration);
-      return;
+      continue;
     }
     for (let index = 0; index < parameters.length; index += 1) {
       const parameter = parameters[index];
@@ -79,7 +79,7 @@ export function collectCallableValueInputs(
         constructorParameters.add(parameter);
       }
     }
-  });
+  }
 
   const classReferences = new Map<Node, ReferenceCounts>();
   for (const classDeclaration of constructorClasses.values()) {
@@ -89,10 +89,14 @@ export function collectCallableValueInputs(
     source,
     classReferences.keys(),
   );
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     auditClassReference(source, node, classReferences, classSymbols);
-  });
-  const storage = collectCallableStorageInputs(source, collections.closed);
+  }
+  const storage = collectCallableStorageInputs(
+    source,
+    nodes,
+    collections.closed,
+  );
   const propertyReferences = new Map<Node, ReferenceCounts>();
   for (const parameter of constructorParameters) {
     propertyReferences.set(parameter, { total: 0, admitted: 0 });
@@ -101,7 +105,7 @@ export function collectCallableValueInputs(
     source,
     propertyReferences.keys(),
   );
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     auditPropertyReference(
       source,
       node,
@@ -109,7 +113,7 @@ export function collectCallableValueInputs(
       propertySymbols,
       storage.closed,
     );
-  });
+  }
 
   const closed = new Set<Node>([
     ...collections.closed,

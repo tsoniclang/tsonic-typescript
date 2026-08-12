@@ -29,7 +29,9 @@ import {
   countNodes,
   visit,
 } from "./scalar.test-support.js";
-import { createScalarRepresentationPlan } from "./plan.js";
+import {
+  createFixtureScalarRepresentationPlan as createScalarRepresentationPlan,
+} from "./scalar.test-support.js";
 import {
   createScalarRepresentationRewriter,
   lowerScalarRepresentations,

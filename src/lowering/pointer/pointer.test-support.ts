@@ -32,6 +32,8 @@ import {
 import { createTargetSourceProgram } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { collectTargetProgramNodes } from "../program-nodes.js";
+
 import {
   createClosedPointerFlowPlan,
   type ClosedPointerFlowPlan,
@@ -96,6 +98,7 @@ export function createFixturePointerFlowPlan(
 ): ClosedPointerFlowPlan {
   return createClosedPointerFlowPlan(
     source,
+    collectTargetProgramNodes(source),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
   );
 }

@@ -12,6 +12,7 @@ import {
 } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { collectTargetProgramNodes } from "../program-nodes.js";
 import {
   createClosedCooperativeEffectPlan,
   type CooperativeEffectPlan,
@@ -56,6 +57,7 @@ export function createFixtureEffectPlan(
 ): CooperativeEffectPlan {
   return createClosedCooperativeEffectPlan(
     source,
+    collectTargetProgramNodes(source),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
   );
 }

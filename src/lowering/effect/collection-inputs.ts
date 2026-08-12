@@ -2,7 +2,6 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
-  forEachProgramNode,
   isFunctionLike,
   transparentExpression,
 } from "./syntax.js";
@@ -35,11 +34,12 @@ interface ArrayOperation {
 
 export function collectCallableCollectionInputs(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
 ): CallableCollectionInputs {
-  const collections = collectCollections(source);
+  const collections = collectCollections(source, nodes);
   const extractorParameters = new Map<Node, number | false>();
   auditCollections(source, collections, extractorParameters);
-  collectExtractions(source, collections, extractorParameters);
+  collectExtractions(source, nodes, collections, extractorParameters);
   const values = new Map<Node, readonly Node[]>();
   const closed = new Set<Node>();
   const contracts: CallableCollectionContract[] = [];
@@ -73,11 +73,12 @@ export function collectCallableCollectionInputs(
 
 function collectCollections(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
 ): ReadonlyMap<Node, MutableCollection> {
   const collections = new Map<Node, MutableCollection>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (!source.ast.is.IsVariableDeclaration(node)) {
-      return;
+      continue;
     }
     const owner = containingFunction(source, node);
     const returnType = callableArrayReturnType(source, source.ast.typeNode(node));
@@ -90,7 +91,7 @@ function collectCollections(
       source.ast.elements(initializer).length !== 0 ||
       !source.ast.is.IsIdentifier(source.ast.name(node))
     ) {
-      return;
+      continue;
     }
     collections.set(node, {
       declaration: node,
@@ -100,7 +101,7 @@ function collectCollections(
       extractedDeclarations: new Set(),
       closed: true,
     });
-  });
+  }
   return collections;
 }
 
@@ -162,15 +163,16 @@ function auditCollections(
 
 function collectExtractions(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   collections: ReadonlyMap<Node, MutableCollection>,
   extractorParameters: Map<Node, number | false>,
 ): void {
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (
       !source.ast.is.IsVariableDeclaration(node) ||
       !source.ast.is.IsIdentifier(source.ast.name(node))
     ) {
-      return;
+      continue;
     }
     const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
     const collection = extractedCollection(
@@ -182,7 +184,7 @@ function collectExtractions(
     if (collection !== undefined) {
       collection.extractedDeclarations.add(node);
     }
-  });
+  }
 }
 
 function extractedCollection(

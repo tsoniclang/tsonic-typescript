@@ -14,7 +14,6 @@ import {
 } from "./callable-input-reference.js";
 import type { ParameterUses } from "./callable-input-reference.js";
 import {
-  collectProgramNodes,
   directContainingCall,
   isModuleForwardingReference,
 } from "./syntax.js";
@@ -51,9 +50,9 @@ interface Invocation {
 
 export function collectCallableStorageInputs(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   excludedDeclarations: ReadonlySet<Node>,
 ): CallableStorageInputs {
-  const nodes = collectProgramNodes(source);
   const fields = new Set([
     ...collectPrivateConstructorFields(source, nodes),
     ...collectClosedSingletonCallableFields(source, nodes),

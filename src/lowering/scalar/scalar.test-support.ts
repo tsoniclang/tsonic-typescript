@@ -12,9 +12,27 @@ import {
 } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { collectTargetProgramNodes } from "../program-nodes.js";
+import {
+  createScalarRepresentationPlan,
+  type ScalarRepresentationPlan,
+  type ScalarRepresentationProfile,
+} from "./plan.js";
+
 export interface CheckedScalarFixture {
   readonly source: TargetSourceProgram;
   readonly sourceFile: SourceFile;
+}
+
+export function createFixtureScalarRepresentationPlan(
+  source: TargetSourceProgram,
+  profile: ScalarRepresentationProfile,
+): ScalarRepresentationPlan {
+  return createScalarRepresentationPlan(
+    source,
+    collectTargetProgramNodes(source),
+    profile,
+  );
 }
 
 export function checkedScalarFixture(

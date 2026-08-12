@@ -59,7 +59,7 @@ export interface PointerCensus {
 
 export function censusPointerFlows(
   source: TargetSourceProgram,
-  nodes: readonly Node[] = collectPointerFlowNodes(source),
+  nodes: readonly Node[],
 ): readonly PointerFlowComponent[] {
   const graph = new PointerFlowGraph();
   const operations = collectPointerOperations(source, nodes, graph);
@@ -186,32 +186,6 @@ function connectLocationIdentities(
       graph.union(existing, vertex);
     }
   }
-}
-
-export function collectPointerFlowNodes(
-  source: TargetSourceProgram,
-): readonly Node[] {
-  const result: Node[] = [];
-  const seen = new Set<Node>();
-  for (const sourceFile of source.navigation.sourceFiles) {
-    const pending: Node[] = [sourceFile];
-    while (pending.length > 0) {
-      const node = pending.pop();
-      if (node === undefined || seen.has(node)) {
-        continue;
-      }
-      seen.add(node);
-      result.push(node);
-      const children = source.ast.children(node);
-      for (let index = children.length - 1; index >= 0; index -= 1) {
-        const child = children[index];
-        if (child !== undefined) {
-          pending.push(child);
-        }
-      }
-    }
-  }
-  return Object.freeze(result);
 }
 
 function collectPointerOperations(

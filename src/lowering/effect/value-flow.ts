@@ -7,7 +7,6 @@ import {
 } from "./value-inputs.js";
 import {
   exactCallableTarget,
-  forEachProgramNode,
   transparentExpression,
 } from "./syntax.js";
 import {
@@ -42,15 +41,16 @@ interface MutableResolution {
 
 export function createCallableValueFlow(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   candidates: ReadonlySet<Node>,
 ): CallableValueFlow {
   const candidateSymbols = indexCandidateSymbols(source, candidates);
-  const inputs = collectCallableValueInputs(source);
+  const inputs = collectCallableValueInputs(source, nodes);
   const allowedCandidateReferences = new Set<Node>();
   const resolutions = new Map<Node, CallableValueResolution>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (!source.ast.is.IsCallExpression(node)) {
-      return;
+      continue;
     }
     const resolution = resolveCall(
       source,
@@ -63,7 +63,7 @@ export function createCallableValueFlow(
     if (resolution !== undefined) {
       resolutions.set(node, sealResolution(resolution));
     }
-  });
+  }
   const calls = Object.freeze([...resolutions].map(([call, resolution]) =>
     Object.freeze({ call, resolution })
   ));

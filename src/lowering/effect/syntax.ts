@@ -214,39 +214,6 @@ export function isModuleForwardingReference(
   return false;
 }
 
-export function forEachProgramNode(
-  source: TargetSourceProgram,
-  callback: (node: Node) => void,
-): void {
-  for (const sourceFile of source.navigation.sourceFiles) {
-    const pending: Node[] = [sourceFile];
-    while (pending.length > 0) {
-      const node = pending.pop();
-      if (node === undefined) {
-        continue;
-      }
-      callback(node);
-      const children = source.ast.children(node);
-      for (let index = children.length - 1; index >= 0; index -= 1) {
-        const child = children[index];
-        if (child !== undefined) {
-          pending.push(child);
-        }
-      }
-    }
-  }
-}
-
-export function collectProgramNodes(
-  source: TargetSourceProgram,
-): readonly Node[] {
-  const nodes: Node[] = [];
-  forEachProgramNode(source, (node) => {
-    nodes.push(node);
-  });
-  return Object.freeze(nodes);
-}
-
 function isTransparentExpression(
   source: TargetSourceProgram,
   node: Node,

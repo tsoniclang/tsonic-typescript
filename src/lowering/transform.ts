@@ -36,6 +36,7 @@ import {
   type PointerRewriteSession,
 } from "./pointer/transform.js";
 import type { TypeScriptOptimizationProfile } from "./profile.js";
+import { collectTargetProgramNodes } from "./program-nodes.js";
 import {
   createScalarRepresentationPlan,
 } from "./scalar/plan.js";
@@ -87,16 +88,19 @@ export function prepareTypeScriptLowering(
   sourceIdentityFor: (sourceFile: SourceFile) => string,
 ): TypeScriptLoweringPreparation {
   assertExactSourceMembership(source, sourceFiles);
+  const nodes = collectTargetProgramNodes(source);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
-    ? createClosedPointerFlowPlan(source, sourceIdentityFor)
+    ? createClosedPointerFlowPlan(source, nodes, sourceIdentityFor)
     : undefined;
   const scalarPlan = createScalarRepresentationPlan(
     source,
+    nodes,
     profile.scalarProjections,
   );
   const effectPlan = profile.cooperativeEffects === "closed-direct"
     ? createClosedCooperativeEffectPlan(
         source,
+        nodes,
         sourceIdentityFor,
         createPointerResultContract(source, pointerFlowPlan),
       )

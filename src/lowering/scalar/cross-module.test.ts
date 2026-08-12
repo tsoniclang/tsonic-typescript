@@ -17,7 +17,9 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { createScalarRepresentationPlan } from "./plan.js";
+import {
+  createFixtureScalarRepresentationPlan as createScalarRepresentationPlan,
+} from "./scalar.test-support.js";
 import {
   checkedScalarFixture,
   countNodes,

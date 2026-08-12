@@ -14,7 +14,6 @@ import {
 } from "../occurrence.js";
 import {
   censusPointerFlows,
-  collectPointerFlowNodes,
 } from "./flow-census.js";
 import { planDirectReferenceFamilies } from "./flow-families.js";
 import type { DirectReferenceFamilyFallback } from "./flow-family-evidence.js";
@@ -73,9 +72,9 @@ interface PointerFlowDecision {
 
 export function createClosedPointerFlowPlan(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   sourceIdentityFor: SourceIdentityResolver,
 ): ClosedPointerFlowPlan {
-  const nodes = collectPointerFlowNodes(source);
   const components = censusPointerFlows(source, nodes);
   const familyPlan = planDirectReferenceFamilies(
     source,

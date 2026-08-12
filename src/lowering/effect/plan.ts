@@ -4,7 +4,6 @@ import type {
   Symbol,
   Type,
 } from "@tsonic/tsts";
-import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { SourceIdentityResolver } from "../occurrence.js";
 import type { LoweredValueContract } from "../value-contract.js";
@@ -21,13 +20,16 @@ import {
   type ReturnValueFlow,
 } from "./return-value.js";
 import {
+  createCooperativeEffectFilePlans,
+  type CooperativeEffectFilePlan,
+} from "./file-plan.js";
+import {
   callableDispatchIsClosed,
   containingAwait,
   containingReturn,
   directContainingCall,
   exactCallExpression,
   exactReturnedCall,
-  forEachProgramNode,
   isDiscardedCall,
   isFunctionLike,
   isModuleForwardingReference,
@@ -49,12 +51,7 @@ interface MutableCallable {
   >;
   readonly blockers: Set<CooperativeEffectFallbackReason>;
 }
-export interface CooperativeEffectFilePlan {
-  readonly callables: readonly Node[];
-  readonly awaits: readonly Node[];
-  readonly asyncModifiers: readonly Node[];
-  readonly returnTypes: readonly Node[];
-}
+export type { CooperativeEffectFilePlan } from "./file-plan.js";
 
 export interface CooperativeEffectPlan {
   readonly source: TargetSourceProgram;
@@ -66,22 +63,32 @@ export interface CooperativeEffectPlan {
 
 export function createClosedCooperativeEffectPlan(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   sourceIdentityFor: SourceIdentityResolver,
   loweredValues?: LoweredValueContract,
 ): CooperativeEffectPlan {
-  const candidates = collectCandidates(source);
-  const calls = collectCalls(source, candidates);
+  const candidates = collectCandidates(source, nodes);
+  const calls = collectCalls(source, nodes, candidates);
   const valueFlow = createCallableValueFlow(
     source,
+    nodes,
     new Set(candidates.keys()),
   );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const returnFlow = createReturnValueFlow(
     source,
+    nodes,
     (call) => calls.get(call)?.declaration,
     loweredValues,
   );
-  classifyProgramEvidence(source, candidates, calls, valueFlow, returnFlow);
+  classifyProgramEvidence(
+    source,
+    nodes,
+    candidates,
+    calls,
+    valueFlow,
+    returnFlow,
+  );
   classifyCallUses(source, candidates, calls, valueFlow);
   const propagation = propagateEffectBlockers(candidates.values());
   const optimized = new Set(
@@ -91,6 +98,7 @@ export function createClosedCooperativeEffectPlan(
   );
   const awaits = collectSettledAwaits(
     source,
+    nodes,
     candidates,
     calls,
     valueFlow,
@@ -98,37 +106,13 @@ export function createClosedCooperativeEffectPlan(
     optimized,
   );
   const returnTypes = valueFlow.settledReturnTypes(optimized);
-  const files = new Map<SourceFile, CooperativeEffectFilePlan>();
-  for (const sourceFile of source.navigation.sourceFiles) {
-    files.set(sourceFile, Object.freeze({
-      callables: Object.freeze(
-        [...candidates.values()]
-          .filter((candidate) =>
-            candidate.sourceFile === sourceFile &&
-            optimized.has(candidate.declaration)
-          )
-          .map((candidate) => candidate.declaration),
-      ),
-      awaits: Object.freeze(
-        [...awaits].filter((node) => source.ast.getSourceFile(node) === sourceFile),
-      ),
-      asyncModifiers: Object.freeze(
-        [...candidates.values()]
-          .filter((candidate) =>
-            candidate.sourceFile === sourceFile &&
-            optimized.has(candidate.declaration)
-          )
-          .flatMap((candidate) => source.ast.modifiers(candidate.declaration))
-          .filter((modifier): modifier is Node =>
-            modifier !== undefined &&
-            modifier.Kind === KindAsyncKeyword
-          ),
-      ),
-      returnTypes: Object.freeze(returnTypes.filter((node) =>
-        source.ast.getSourceFile(node) === sourceFile
-      )),
-    }));
-  }
+  const files = createCooperativeEffectFilePlans(
+    source,
+    candidates.values(),
+    optimized,
+    awaits,
+    returnTypes,
+  );
   const summary = summarizeCooperativeEffects(
     source,
     sourceIdentityFor,
@@ -162,23 +146,24 @@ function connectSignatureFamilies(
 
 function collectCandidates(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
 ): Map<Node, MutableCallable> {
   const candidates = new Map<Node, MutableCallable>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (!isSupportedAsyncCallable(source, node)) {
-      return;
+      continue;
     }
     const typeNode = source.ast.typeNode(node);
     if (
       typeNode === undefined ||
       !source.ast.is.IsTypeReferenceNode(typeNode)
     ) {
-      return;
+      continue;
     }
     const typeArguments = source.ast.typeArguments(typeNode);
     const innerTypeNode = typeArguments[0];
     if (typeArguments.length !== 1 || innerTypeNode === undefined) {
-      return;
+      continue;
     }
     const semantics = source.semantics.forNode(node);
     const returnType = semantics.getTypeFromTypeNode(typeNode);
@@ -188,18 +173,18 @@ function collectCandidates(
       innerType === undefined ||
       !semantics.isTypeReference(returnType)
     ) {
-      return;
+      continue;
     }
     const selectedArguments = semantics.getTypeArguments(returnType);
     if (
       selectedArguments.length !== 1 ||
       !sameSelectedType(semantics, selectedArguments[0], innerType)
     ) {
-      return;
+      continue;
     }
     const sourceFile = source.ast.getSourceFile(node);
     if (sourceFile === undefined) {
-      return;
+      continue;
     }
     const candidate: MutableCallable = {
       declaration: node,
@@ -210,7 +195,7 @@ function collectCandidates(
       blockers: new Set(),
     };
     candidates.set(node, candidate);
-  });
+  }
   return candidates;
 }
 
@@ -242,12 +227,13 @@ function isSupportedAsyncCallable(
 
 function collectCalls(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   candidates: ReadonlyMap<Node, MutableCallable>,
 ): ReadonlyMap<Node, MutableCallable> {
   const calls = new Map<Node, MutableCallable>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (!source.ast.is.IsCallExpression(node)) {
-      return;
+      continue;
     }
     const semantics = source.semantics.forNode(node);
     const signature = semantics.getResolvedSignature(node);
@@ -258,7 +244,7 @@ function collectCalls(
     if (candidate !== undefined) {
       calls.set(node, candidate);
     }
-  });
+  }
   return calls;
 }
 
@@ -419,13 +405,14 @@ function classifyCallUses(
 
 function classifyProgramEvidence(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
 ): void {
   const tracked = indexCandidateSymbols(source, candidates.values());
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     classifyAwaitDependencies(
       source,
       candidates,
@@ -443,7 +430,7 @@ function classifyProgramEvidence(
       node,
     );
     if (!source.ast.is.IsIdentifier(node)) {
-      return;
+      continue;
     }
     const candidate = candidateForReference(source, tracked, node);
     if (
@@ -452,13 +439,13 @@ function classifyProgramEvidence(
       isModuleForwardingReference(source, node) ||
       valueFlow.allowsCandidateReference(node)
     ) {
-      return;
+      continue;
     }
     const call = directContainingCall(source, node);
     if (call === undefined || calls.get(call) !== candidate) {
       blockCooperativeEffect(candidate, "escaping-callable", node);
     }
-  });
+  }
   for (const candidate of candidates.values()) {
     if (
       (source.ast.is.IsArrowFunction(candidate.declaration) ||
@@ -529,6 +516,7 @@ function exactSymbolsAt(
 
 function collectSettledAwaits(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
   valueFlow: CallableValueFlow,
@@ -536,16 +524,16 @@ function collectSettledAwaits(
   optimized: ReadonlySet<Node>,
 ): ReadonlySet<Node> {
   const awaits = new Set<Node>();
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (!source.ast.is.IsAwaitExpression(node)) {
-      return;
+      continue;
     }
     const call = exactCallExpression(
       source,
       source.ast.as.AsAwaitExpression(node)?.Expression,
     );
     if (call === undefined) {
-      return;
+      continue;
     }
     const direct = calls.get(call);
     const resolution = direct === undefined
@@ -567,10 +555,10 @@ function collectSettledAwaits(
           resolution.synchronousDeclarations,
         ))
     ) {
-      return;
+      continue;
     }
     awaits.add(node);
-  });
+  }
   return awaits;
 }
 

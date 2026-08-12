@@ -5,8 +5,8 @@ import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { collectTargetProgramNodes } from "../program-nodes.js";
 import { analyzePointerCallableAliases } from "./flow-callable-aliases.js";
-import { collectPointerFlowNodes } from "./flow-census.js";
 import type { PointerFlowBlocker } from "./flow-graph.js";
 import { createFixturePointerFlowPlan } from "./pointer.test-support.js";
 import {
@@ -295,7 +295,7 @@ ${aliases}
 const pointer: Pointer<number> = allocatePointer(41);
 export const result = alias${aliasCount - 1}(pointer);
 `);
-  const nodes = collectPointerFlowNodes(fixture.source);
+  const nodes = collectTargetProgramNodes(fixture.source);
   const analysis = aliasAnalysis(fixture.source, "read", nodes);
   return {
     nodeCount: nodes.length,
@@ -307,7 +307,7 @@ export const result = alias${aliasCount - 1}(pointer);
 function aliasAnalysis(
   source: TargetSourceProgram,
   name: string,
-  nodes = collectPointerFlowNodes(source),
+  nodes = collectTargetProgramNodes(source),
 ): ReturnType<typeof analyzePointerCallableAliases> {
   return analyzePointerCallableAliases(
     source,

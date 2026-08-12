@@ -29,7 +29,6 @@ import {
   type ReturnStorageFlow,
 } from "./return-storage.js";
 import {
-  collectProgramNodes,
   transparentExpression,
 } from "./syntax.js";
 import { typeExposesCallableThen } from "./synchronous.js";
@@ -44,10 +43,10 @@ export interface ReturnValueFlow {
 
 export function createReturnValueFlow(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   directCallDeclaration: (call: Node) => Node | undefined,
   loweredValues?: LoweredValueContract,
 ): ReturnValueFlow {
-  const nodes = collectProgramNodes(source);
   const locals = createReturnLocalFlow(source, nodes);
   const storage = createReturnStorageFlow(source, nodes);
   const runtime = createTypeScriptRuntimeReturnContract(source, nodes);

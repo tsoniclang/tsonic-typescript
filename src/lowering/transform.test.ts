@@ -7,7 +7,8 @@ import {
   IsAwaitExpression,
   IsNewExpression,
 } from "@tsonic/tsts/target-ast";
-import type { Node, SourceFile } from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { canonicalTypeScriptOptimizationProfile } from "./profile.js";
 import {
@@ -66,6 +67,47 @@ test("composes pointer and scalar lowering in one target-AST traversal", () => {
   );
   assert.equal(countNodes(result.sourceFile, fixture.source, IsNewExpression), 0);
   assert.equal(countNodes(result.sourceFile, fixture.source, IsAsExpression), 1);
+});
+
+test("shares one canonical node census across complete-flow planners", () => {
+  const fixture = checkedPointerFixture(composedSource);
+  const nodes = new Set<Node>();
+  for (const sourceFile of fixture.source.navigation.sourceFiles) {
+    visit(fixture.source, sourceFile, (node) => nodes.add(node));
+  }
+  let childLookups = 0;
+  const ast: AstReader = Object.freeze({
+    ...fixture.source.ast,
+    children(node: Parameters<AstReader["children"]>[0]) {
+      childLookups += 1;
+      return fixture.source.ast.children(node);
+    },
+  });
+  const source: TargetSourceProgram = Object.freeze({
+    ast,
+    sourceFiles: fixture.source.sourceFiles,
+    documents: fixture.source.documents,
+    sourceFacts: fixture.source.sourceFacts,
+    navigation: fixture.source.navigation,
+    semantics: fixture.source.semantics,
+  });
+  const files = [...source.navigation.sourceFiles];
+
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    source,
+    files,
+    canonicalTypeScriptOptimizationProfile(),
+    sourceIdentity(fixture),
+  ));
+  for (const sourceFile of files) {
+    transaction.lower(sourceFile);
+  }
+  transaction.finish();
+
+  assert.ok(
+    childLookups < nodes.size * 4,
+    `lowering performed ${childLookups} child lookups for ${nodes.size} nodes`,
+  );
 });
 
 test("composes callable storage and callable return narrowing atomically", () => {

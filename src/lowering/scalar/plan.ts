@@ -75,6 +75,7 @@ const noProjections = Object.freeze([]) as readonly ScalarProjectionPlan[];
 
 export function createScalarRepresentationPlan(
   source: TargetSourceProgram,
+  nodes: readonly Node[],
   profile: ScalarRepresentationProfile,
 ): ScalarRepresentationPlan {
   if (profile !== "preserve" && profile !== "closed-direct") {
@@ -84,9 +85,9 @@ export function createScalarRepresentationPlan(
   const classProofs = new Map<Node, TransparentClassProof | undefined>();
   const portableScalarKinds = new Map<Node, ScalarPrimitiveKind | undefined>();
   const projections: ScalarProjectionPlan[] = [];
-  forEachProgramNode(source, (node) => {
+  for (const node of nodes) {
     if (!isSyntacticProjection(node)) {
-      return;
+      continue;
     }
     syntacticProjectionCount += 1;
     if (profile === "closed-direct") {
@@ -100,7 +101,7 @@ export function createScalarRepresentationPlan(
         projections.push(projection);
       }
     }
-  });
+  }
   return sealPlan(
     source,
     profile,
@@ -150,29 +151,6 @@ function sealPlan(
       return sealedByFile.get(sourceFile) ?? noProjections;
     },
   });
-}
-
-function forEachProgramNode(
-  source: TargetSourceProgram,
-  visit: (node: Node) => void,
-): void {
-  for (const sourceFile of source.sourceFiles) {
-    const pending: Node[] = [sourceFile];
-    while (pending.length > 0) {
-      const node = pending.pop();
-      if (node === undefined) {
-        continue;
-      }
-      visit(node);
-      const children = source.ast.children(node);
-      for (let index = children.length - 1; index >= 0; index -= 1) {
-        const child = children[index];
-        if (child !== undefined) {
-          pending.push(child);
-        }
-      }
-    }
-  }
 }
 
 function isSyntacticProjection(node: Node): boolean {
