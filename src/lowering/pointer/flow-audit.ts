@@ -139,6 +139,14 @@ function connectBindingReassignments(census: PointerCensus): void {
           allowedProducerUses,
           resultExpressions,
         );
+      } else if (isExactNullishOrNeverValue(source, right)) {
+        const type = source.semantics.forNode(right).getTypeAtLocation(right);
+        if (
+          type !== undefined &&
+          source.semantics.forNode(right).isNullish(type)
+        ) {
+          graph.block(bindingVertex, "nil-capable", right);
+        }
       }
       allowedPointerReferences.add(left);
     }

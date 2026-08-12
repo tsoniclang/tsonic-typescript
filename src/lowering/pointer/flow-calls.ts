@@ -88,6 +88,25 @@ export function connectPointerCalls(census: PointerCensus): void {
           operations,
           argument,
         );
+      if (
+        argument !== undefined &&
+        argumentVertex === undefined &&
+        parameterDeclaration !== undefined &&
+        parameterVertex !== undefined &&
+        binding.sourceParameterForm === "parameter" &&
+        parameter?.rest !== true &&
+        parameter?.acceptsOmission !== true &&
+        selectedDeclaration !== undefined &&
+        selectedDeclaration === directDeclaration &&
+        source.ast.parent(parameterDeclaration) === selectedDeclaration &&
+        census.optimizableFunctions.get(selectedDeclaration) === true &&
+        isExactNullishValue(census, argument)
+      ) {
+        graph.block(parameterVertex, "nil-capable", argument);
+        boundParameters.add(parameterDeclaration);
+        allowFunctionTarget(census, call.Expression);
+        continue;
+      }
       if (argumentVertex === undefined && parameterVertex === undefined) {
         continue;
       }
@@ -119,11 +138,7 @@ export function connectPointerCalls(census: PointerCensus): void {
         census.allowedProducerUses,
         census.resultExpressions,
       );
-      census.allowedFunctionTargets.add(call.Expression);
-      const targetName = source.ast.name(call.Expression);
-      if (targetName !== undefined) {
-        census.allowedFunctionTargets.add(targetName);
-      }
+      allowFunctionTarget(census, call.Expression);
     }
     for (const parameter of selectedParameters) {
       const declaration = parameter.parameterDeclaration;
@@ -136,6 +151,20 @@ export function connectPointerCalls(census: PointerCensus): void {
         graph.block(vertex, "open-call", node);
       }
     }
+  }
+}
+
+function isExactNullishValue(census: PointerCensus, expression: Node): boolean {
+  const semantics = census.source.semantics.forNode(expression);
+  const type = semantics.getTypeAtLocation(expression);
+  return type !== undefined && semantics.isNullish(type);
+}
+
+function allowFunctionTarget(census: PointerCensus, target: Node): void {
+  census.allowedFunctionTargets.add(target);
+  const targetName = census.source.ast.name(target);
+  if (targetName !== undefined) {
+    census.allowedFunctionTargets.add(targetName);
   }
 }
 

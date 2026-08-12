@@ -107,7 +107,7 @@ export const result = loadPointer(pointer);
   assertAllOperations(fixture.source, "direct-snapshot");
 });
 
-test("preserves exact nullish pointer rebinding", () => {
+test("retains exact nullish pointer rebinding canonically", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
 let pointer: Pointer<number> | undefined = allocatePointer(1);
@@ -116,7 +116,11 @@ pointer = allocatePointer(2);
 export const result = loadPointer(pointer);
 `);
 
-  assertAllOperations(fixture.source, "direct-snapshot");
+  assertAllOperations(fixture.source, "location");
+  const plan = createClosedPointerFlowPlan(fixture.source);
+  assert.ok(plan.components.some((component) =>
+    component.retentionReasons.some((entry) => entry.reason === "nil-capable")
+  ));
 });
 
 test("does not treat a pointer-valued nullish choice as one transparent flow", () => {

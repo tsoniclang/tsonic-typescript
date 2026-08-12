@@ -13,7 +13,10 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
-import type { PointerFlowComponent } from "./flow-graph.js";
+import type {
+  PointerFlowBlockerOccurrence,
+  PointerFlowComponent,
+} from "./flow-graph.js";
 import {
   appendFamilyFallback,
   sealFamilyFallback,
@@ -24,6 +27,8 @@ import { applyGenericPointerBoundaries } from "./flow-family-generics.js";
 import { nonBijectiveIdentityOccurrences } from "./flow-family-identity.js";
 import {
   blockDirectReferenceFamily as blockFamily,
+  canonicalDirectReferenceFamilyEvidence,
+  requireCanonicalDirectReferenceFamily,
   type DirectReferenceFamilyDecision,
   type DirectReferenceFamilyRepresentation,
   type MutableDirectReferenceFamily,
@@ -32,6 +37,7 @@ import { describePointerPointee } from "./pointee-classification.js";
 
 export interface DirectReferenceFamilyPlan {
   readonly representations: ReadonlyMap<Node, DirectReferenceFamilyDecision>;
+  canonicalRetentionFor(node: Node): readonly PointerFlowBlockerOccurrence[] | undefined;
   readonly familyCount: number;
   readonly fallbackReasons: readonly DirectReferenceFamilyFallback[];
 }
@@ -75,6 +81,10 @@ export function planDirectReferenceFamilies(
     program.hasBindingWrite,
   );
   const representations = new Map<Node, DirectReferenceFamilyDecision>();
+  const canonicalRetentions = new Map<
+    Node,
+    readonly PointerFlowBlockerOccurrence[]
+  >();
   const fallbackReasons: FamilyFallbackLedger = new Map();
   let familyCount = 0;
   for (const family of families.values()) {
@@ -82,11 +92,14 @@ export function planDirectReferenceFamilies(
     if (family.blockers.size !== 0) {
       appendFamilyFallback(fallbackReasons, family.blockers);
       if (family.canonicalBlockers.size !== 0) {
+        const retention = canonicalDirectReferenceFamilyEvidence(family);
         for (const pointerType of family.pointerTypes) {
           representations.set(pointerType, "location");
+          canonicalRetentions.set(pointerType, retention);
         }
         for (const operation of family.operations.keys()) {
           representations.set(operation, "location");
+          canonicalRetentions.set(operation, retention);
         }
       }
       continue;
@@ -104,6 +117,9 @@ export function planDirectReferenceFamilies(
   }
   return Object.freeze({
     representations,
+    canonicalRetentionFor(node: Node): readonly PointerFlowBlockerOccurrence[] | undefined {
+      return canonicalRetentions.get(node);
+    },
     familyCount,
     fallbackReasons: sealFamilyFallback(fallbackReasons),
   });
@@ -203,8 +219,19 @@ function collectPointerOperation(
     case "hash-pointer":
     case "store":
       break;
-    default:
-      blockFamily(family, "unsupported-producer", operation.call);
+    case "bind-pointer":
+      requireCanonicalDirectReferenceFamily(
+        family,
+        "provider-binding",
+        operation.call,
+      );
+      break;
+    case "project-pointer":
+      requireCanonicalDirectReferenceFamily(
+        family,
+        "projection-observed",
+        operation.call,
+      );
       break;
   }
 }

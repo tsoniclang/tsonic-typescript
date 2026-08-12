@@ -1,24 +1,15 @@
-import {
-  pointerFactKey,
-  pointerOperationFactKey,
-} from "@tsonic/tsts";
 import type {
   Node,
   PointerOperationFact,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
-import {
-  KindCallExpression,
-  KindTypeReference,
-  KindVariableDeclaration,
-} from "@tsonic/tsts/target-ast";
+import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   PointerFlowGraph,
   type PointerFlowComponent,
-  type PointerFlowVertex,
 } from "./flow-graph.js";
 import {
   analyzePointerCallableAliases,
@@ -33,16 +24,22 @@ import {
 } from "./flow-results.js";
 import { auditPointerCensus } from "./flow-audit.js";
 import {
+  attachPointerOperations,
+  collectPointerOperations,
+  connectLocationIdentities,
+} from "./flow-operation-census.js";
+import {
+  assertPointerCensusTotality,
+  collectPointerBindings,
+  retainUnownedPointerTypes,
+} from "./flow-type-census.js";
+import {
   censusPointerReferences,
   type PointerReferenceCensus,
 } from "./flow-references.js";
 import {
-  addTransparentProducer,
-  addTransparentReference,
   isOptimizableFunctionDeclaration,
   producesPointer,
-  resolvePointerExpression,
-  resolveRequiredPointerExpression,
   transparentExpression,
   transparentReference,
 } from "./flow-syntax.js";
@@ -64,16 +61,38 @@ export interface PointerCensus {
   readonly allowedFunctionTargets: Set<Node>;
 }
 
+export interface PointerFlowCensusResult {
+  readonly components: readonly PointerFlowComponent[];
+  readonly analysisOperationCount: number;
+}
+
 export function censusPointerFlows(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-): readonly PointerFlowComponent[] {
+): PointerFlowCensusResult {
   const nodes = program.nodes;
   const graph = new PointerFlowGraph();
   const operations = collectPointerOperations(source, program, graph);
   connectLocationIdentities(graph, operations);
-  const pointerBindings = collectPointerBindings(source, program, graph);
-  const functionResults = collectPointerFunctionResults(source, program, graph);
+  const accountedPointerTypes = new Set<Node>();
+  const pointerBindings = collectPointerBindings(
+    source,
+    program,
+    graph,
+    accountedPointerTypes,
+  );
+  const functionResults = collectPointerFunctionResults(
+    source,
+    program,
+    graph,
+    accountedPointerTypes,
+  );
+  retainUnownedPointerTypes(
+    source,
+    program,
+    graph,
+    accountedPointerTypes,
+  );
   const resultExpressions = new Set<Node>();
   const allowedPointerReferences = new Set<Node>();
   const allowedProducerUses = new Set<Node>();
@@ -149,7 +168,16 @@ export function censusPointerFlows(
   connectPointerReturns(census);
   applyCallableAliasBoundaries(census);
   auditPointerCensus(census);
-  return graph.components();
+  const components = graph.components();
+  assertPointerCensusTotality(
+    components,
+    operations,
+    accountedPointerTypes,
+  );
+  return Object.freeze({
+    components,
+    analysisOperationCount: program.nodes.length + graph.operationCount,
+  });
 }
 
 function applyCallableAliasBoundaries(census: PointerCensus): void {
@@ -169,147 +197,6 @@ function applyCallableAliasBoundaries(census: PointerCensus): void {
       );
     }
   }
-}
-
-function connectLocationIdentities(
-  graph: PointerFlowGraph,
-  operations: ReadonlyMap<Node, PointerOperationFact>,
-): void {
-  const identities = new Map<object, PointerFlowVertex>();
-  for (const operation of operations.values()) {
-    if (operation.operation !== "address-of") {
-      continue;
-    }
-    const vertex = graph.get(operation.call);
-    if (vertex === undefined) {
-      continue;
-    }
-    const identity = operation.storageSymbol ??
-      operation.storageDeclaration ??
-      operation.locationIdentity;
-    const existing = identities.get(identity);
-    if (existing === undefined) {
-      identities.set(identity, vertex);
-    } else {
-      graph.union(existing, vertex);
-    }
-  }
-}
-
-function collectPointerOperations(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  graph: PointerFlowGraph,
-): ReadonlyMap<Node, PointerOperationFact> {
-  const operations = new Map<Node, PointerOperationFact>();
-  for (const node of program.nodesOfKind(KindCallExpression)) {
-    const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
-    if (operation === undefined) {
-      continue;
-    }
-    operations.set(node, operation);
-    if (!producesPointer(operation)) {
-      continue;
-    }
-    const vertex = graph.add(node);
-    vertex.operations.add(node);
-    vertex.producers.add(operation);
-    vertex.pointees.set(
-      operation.pointeeType,
-      operation.explicitPointeeTypeNode ?? operation.call,
-    );
-    if (
-      operation.operation === "bind-pointer" ||
-      operation.operation === "project-pointer"
-    ) {
-      graph.block(vertex, "unsupported-producer", operation.call);
-    }
-  }
-  return operations;
-}
-
-function collectPointerBindings(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  graph: PointerFlowGraph,
-): Set<Node> {
-  const bindings = new Set<Node>();
-  for (const node of program.nodesOfKind(KindTypeReference)) {
-    if (!source.ast.is.IsTypeReferenceNode(node)) {
-      continue;
-    }
-    const fact = source.sourceFacts.getFact(node, pointerFactKey);
-    if (fact === undefined) {
-      continue;
-    }
-    const owner = directPointerTypeOwner(source, node);
-    if (owner === undefined) {
-      continue;
-    }
-    const vertex = graph.add(owner);
-    bindings.add(owner);
-    vertex.pointerTypes.add(node);
-    const pointeeType = source.semantics.forNode(node)
-      .getTypeFromTypeNode(fact.pointee);
-    if (pointeeType === undefined) {
-      graph.block(vertex, "unsupported-pointee", fact.pointee);
-    } else {
-      vertex.pointees.set(pointeeType, fact.pointee);
-    }
-  }
-  return bindings;
-}
-
-function directPointerTypeOwner(
-  source: TargetSourceProgram,
-  typeReference: Node,
-): Node | undefined {
-  let current = source.ast.parent(typeReference);
-  while (current !== undefined && !source.ast.is.IsSourceFile(current)) {
-    if (
-      source.ast.is.IsVariableDeclaration(current) ||
-      source.ast.is.IsParameterDeclaration(current)
-    ) {
-      return pointerTypeOwnsDeclaration(source, current, typeReference)
-        ? current
-        : undefined;
-    }
-    if (source.ast.typeNode(current) !== undefined) {
-      return undefined;
-    }
-    current = source.ast.parent(current);
-  }
-  return undefined;
-}
-
-function pointerTypeOwnsDeclaration(
-  source: TargetSourceProgram,
-  declaration: Node,
-  pointerTypeNode: Node,
-): boolean {
-  const declaredTypeNode = source.ast.typeNode(declaration);
-  if (declaredTypeNode === pointerTypeNode) {
-    return true;
-  }
-  if (declaredTypeNode === undefined) {
-    return false;
-  }
-  const semantics = source.semantics.forNode(declaredTypeNode);
-  const declaredType = semantics.getTypeFromTypeNode(declaredTypeNode);
-  const pointerType = semantics.getTypeFromTypeNode(pointerTypeNode);
-  if (
-    declaredType === undefined ||
-    pointerType === undefined ||
-    !semantics.isUnion(declaredType)
-  ) {
-    return false;
-  }
-  const nonNullish = semantics.getUnionOrIntersectionTypes(declaredType)
-    .filter((candidate) => !semantics.isNullish(candidate));
-  const nonNullishType = nonNullish[0];
-  return nonNullish.length === 1 &&
-    nonNullishType !== undefined &&
-    semantics.getTypeRelationship(nonNullishType, pointerType) === "identical";
 }
 
 function connectVariableInitializers(
@@ -445,133 +332,4 @@ function groupFunctionParameters(
     owner,
     Object.freeze(parameters),
   ]));
-}
-
-function attachPointerOperations(census: PointerCensus): void {
-  const { source, graph, operations } = census;
-  for (const operation of operations.values()) {
-    switch (operation.operation) {
-      case "allocate":
-      case "address-of":
-      case "bind-pointer": {
-        graph.get(operation.call)?.operations.add(operation.call);
-        break;
-      }
-      case "load":
-      case "store":
-      case "hash-pointer": {
-        const vertex = resolveRequiredPointerExpression(
-          source,
-          census.references,
-          graph,
-          operations,
-          operation.pointerExpression,
-        );
-        vertex?.operations.add(operation.call);
-        addTransparentReference(
-          source,
-          operation.pointerExpression,
-          census.allowedPointerReferences,
-        );
-        addTransparentProducer(
-          source,
-          operation.pointerExpression,
-          operations,
-          census.allowedProducerUses,
-          census.resultExpressions,
-        );
-        if (operation.operation === "hash-pointer") {
-          graph.block(vertex, "identity-observed", operation.call);
-        }
-        break;
-      }
-      case "equal-pointer": {
-        const left = resolveRequiredPointerExpression(
-          source,
-          census.references,
-          graph,
-          operations,
-          operation.leftExpression,
-        );
-        const right = resolveRequiredPointerExpression(
-          source,
-          census.references,
-          graph,
-          operations,
-          operation.rightExpression,
-        );
-        if (left !== undefined && right !== undefined) {
-          graph.union(left, right);
-        }
-        left?.operations.add(operation.call);
-        right?.operations.add(operation.call);
-        graph.block(left, "identity-observed", operation.call);
-        graph.block(right, "identity-observed", operation.call);
-        addTransparentReference(source, operation.leftExpression, census.allowedPointerReferences);
-        addTransparentReference(source, operation.rightExpression, census.allowedPointerReferences);
-        addTransparentProducer(
-          source,
-          operation.leftExpression,
-          operations,
-          census.allowedProducerUses,
-          census.resultExpressions,
-        );
-        addTransparentProducer(
-          source,
-          operation.rightExpression,
-          operations,
-          census.allowedProducerUses,
-          census.resultExpressions,
-        );
-        break;
-      }
-      case "project-pointer": {
-        const result = graph.get(operation.call);
-        const sourceVertex = resolveRequiredPointerExpression(
-          source,
-          census.references,
-          graph,
-          operations,
-          operation.pointerExpression,
-        );
-        if (result !== undefined && sourceVertex !== undefined) {
-          graph.union(result, sourceVertex);
-        }
-        graph.block(result, "unsupported-producer", operation.call);
-        graph.block(sourceVertex, "unsupported-producer", operation.call);
-        addTransparentReference(source, operation.pointerExpression, census.allowedPointerReferences);
-        addTransparentProducer(
-          source,
-          operation.pointerExpression,
-          operations,
-          census.allowedProducerUses,
-          census.resultExpressions,
-        );
-        break;
-      }
-    }
-  }
-  for (const binding of census.pointerBindings) {
-    if (!source.ast.is.IsVariableDeclaration(binding)) {
-      continue;
-    }
-    const initializer = source.ast.as.AsVariableDeclaration(binding)?.Initializer;
-    const sourceVertex = resolvePointerExpression(
-      source,
-      census.references,
-      graph,
-      operations,
-      initializer,
-    );
-    if (sourceVertex !== undefined) {
-      addTransparentReference(source, initializer, census.allowedPointerReferences);
-      addTransparentProducer(
-        source,
-        initializer,
-        operations,
-        census.allowedProducerUses,
-        census.resultExpressions,
-      );
-    }
-  }
 }

@@ -1,6 +1,9 @@
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 
-import type { PointerFlowBlocker } from "./flow-graph.js";
+import type {
+  PointerFlowBlocker,
+  PointerFlowBlockerOccurrence,
+} from "./flow-graph.js";
 
 export type DirectReferenceFamilyRepresentation =
   | "direct-object"
@@ -38,4 +41,16 @@ export function requireCanonicalDirectReferenceFamily(
 ): void {
   blockDirectReferenceFamily(family, reason, occurrence);
   family.canonicalBlockers.add(reason);
+}
+
+export function canonicalDirectReferenceFamilyEvidence(
+  family: MutableDirectReferenceFamily,
+): readonly PointerFlowBlockerOccurrence[] {
+  return Object.freeze([...family.blockers]
+    .filter(([reason]) => family.canonicalBlockers.has(reason))
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([reason, occurrences]) => Object.freeze({
+      reason,
+      occurrences: Object.freeze([...occurrences]),
+    })));
 }

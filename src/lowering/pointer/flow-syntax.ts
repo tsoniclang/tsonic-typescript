@@ -29,10 +29,11 @@ export function resolvePointerExpression(
     );
   }
   const root = transparentExpression(source, expression);
-  const vertex = root !== undefined &&
-      (operations.has(root) || graph.get(root) !== undefined)
-    ? graph.get(root)
-    : undefined;
+  const operation = root === undefined ? undefined : operations.get(root);
+  const vertex = root === undefined ||
+      operation !== undefined && !producesPointer(operation)
+    ? undefined
+    : graph.get(root);
   return blockTypeBearingWrapper(source, graph, expression, vertex);
 }
 
@@ -136,9 +137,11 @@ export function addTransparentProducer(
   additional?: ReadonlySet<Node>,
 ): void {
   const root = transparentExpression(source, expression);
+  const operation = root === undefined ? undefined : operations.get(root);
   if (
     root !== undefined &&
-    (operations.has(root) || additional?.has(root) === true)
+    (operation !== undefined && producesPointer(operation) ||
+      additional?.has(root) === true)
   ) {
     target.add(root);
   }

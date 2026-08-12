@@ -33,6 +33,7 @@ import {
   transparentExpression,
   transparentExpressionRoot,
 } from "./flow-syntax.js";
+import { recordPointerTypeFacts } from "./flow-type-census.js";
 
 export interface PointerFunctionResult {
   readonly owner: Node;
@@ -45,6 +46,7 @@ export function collectPointerFunctionResults(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   graph: PointerFlowGraph,
+  accountedPointerTypes: Set<Node>,
 ): ReadonlyMap<Node, PointerFunctionResult> {
   const results = new Map<Node, PointerFunctionResult>();
   for (const owner of program.nodesOfKinds([
@@ -68,7 +70,12 @@ export function collectPointerFunctionResults(
       continue;
     }
     const vertex = graph.add(pointerType);
-    vertex.pointerTypes.add(pointerType);
+    recordPointerTypeFacts(
+      source,
+      pointerType,
+      vertex,
+      accountedPointerTypes,
+    );
     const pointeeType = source.semantics.forNode(pointerType)
       .getTypeFromTypeNode(fact.pointee);
     if (pointeeType === undefined) {
@@ -172,6 +179,7 @@ export function connectPointerReturns(census: PointerCensus): void {
       expressionType !== undefined &&
       source.semantics.forNode(expression).isNullish(expressionType)
     ) {
+      graph.block(result.vertex, "nil-capable", expression);
       continue;
     }
     const returned = resolvePointerExpression(

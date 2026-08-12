@@ -15,6 +15,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { TargetProgramIndex } from "../program-index.js";
 import { validateAddressableStorage } from "./addressability.js";
 import { PointerLoweringError } from "./diagnostic.js";
+import { validatePointerOperationFact } from "./operation-contract.js";
 import type {
   ClosedPointerFlowPlan,
 } from "./flow-plan.js";
@@ -103,6 +104,7 @@ export function createPointerLoweringPlan(
           "pointer operation fact is not uniquely attached to its exact call",
         );
       }
+      validatePointerOperationFact(source, operation);
       operations.set(node, operation);
       if (!pointerOperationIsFused(flowPlan, node)) {
         usesRuntimeValue ||= pointerOperationUsesRuntimeValue(

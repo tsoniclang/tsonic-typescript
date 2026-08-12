@@ -16,7 +16,10 @@ import type { TargetProgramIndex } from "../program-index.js";
 import {
   censusPointerFlows,
 } from "./flow-census.js";
-import { planDirectReferenceFamilies } from "./flow-families.js";
+import {
+  planDirectReferenceFamilies,
+  type DirectReferenceFamilyPlan,
+} from "./flow-families.js";
 import type { DirectReferenceFamilyFallback } from "./flow-family-evidence.js";
 import type {
   PointerFlowBlocker,
@@ -43,6 +46,12 @@ export interface PointerFlowComponentSummary {
   readonly operationCount: number;
   readonly pointerTypeCount: number;
   readonly blockers: readonly PointerFlowBlocker[];
+  readonly retentionReasons: readonly PointerFlowRetentionEvidence[];
+}
+
+export interface PointerFlowRetentionEvidence {
+  readonly reason: PointerFlowBlocker;
+  readonly occurrences: readonly OptimizationOccurrence[];
 }
 
 export interface PointerFlowFallbackEvidence {
@@ -54,6 +63,7 @@ export interface PointerFlowFallbackEvidence {
 export interface ClosedPointerFlowPlan {
   owns(source: TargetSourceProgram): boolean;
   representationFor(node: Node | undefined): PointerFlowRepresentation;
+  componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined;
   projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
   ownsFusedProjection(node: Node): boolean;
   readonly components: readonly PointerFlowComponentSummary[];
@@ -61,6 +71,8 @@ export interface ClosedPointerFlowPlan {
   readonly optimizedFamilyCount: number;
   readonly optimizedProjectionReadCount: number;
   readonly optimizedProjectionStoreCount: number;
+  readonly analysisOperationCount: number;
+  readonly representationCounts: Readonly<Record<PointerFlowRepresentation, number>>;
   readonly fallbackReasons: readonly PointerFlowFallbackEvidence[];
   readonly familyFallbackReasons: readonly PointerFlowFallbackEvidence[];
 }
@@ -76,7 +88,8 @@ export function createClosedPointerFlowPlan(
   program: TargetProgramIndex,
   sourceIdentityFor: SourceIdentityResolver,
 ): ClosedPointerFlowPlan {
-  const components = censusPointerFlows(source, program);
+  const census = censusPointerFlows(source, program);
+  const components = census.components;
   const familyPlan = planDirectReferenceFamilies(
     source,
     program,
@@ -86,6 +99,7 @@ export function createClosedPointerFlowPlan(
     familyPlan.representations,
   );
   const summaries: PointerFlowComponentSummary[] = [];
+  const componentByNode = new Map<Node, PointerFlowComponentSummary>();
   const fallbackReasons = new Map<
     PointerFlowBlocker,
     { count: number; examples: OptimizationOccurrence[] }
@@ -93,32 +107,40 @@ export function createClosedPointerFlowPlan(
   let optimizedComponentCount = 0;
   for (const component of components) {
     const decision = selectRepresentation(source, component);
-    const { representation } = decision;
+    const representation = finalComponentRepresentation(
+      component,
+      decision,
+      representations,
+    );
+    for (const node of componentNodes(component)) {
+      representations.set(node, representation);
+    }
     if (representation !== "location") {
       optimizedComponentCount += 1;
-      for (const vertex of component.vertices) {
-        representations.set(vertex.node, representations.get(vertex.node) ?? representation);
-      }
-      for (const operation of component.operations) {
-        representations.set(operation, representations.get(operation) ?? representation);
-      }
-      for (const pointerType of component.pointerTypes) {
-        representations.set(pointerType, representations.get(pointerType) ?? representation);
-      }
     }
-    summaries.push(Object.freeze({
+    const retention = representation === "location"
+      ? componentRetentionEvidence(component, decision, familyPlan)
+      : Object.freeze([]);
+    if (representation === "location" && retention.length === 0) {
+      throw new Error("canonical pointer component has no exact retention reason");
+    }
+    const summary: PointerFlowComponentSummary = Object.freeze({
       representation,
       vertexCount: component.vertices.length,
       operationCount: component.operations.length,
       pointerTypeCount: component.pointerTypes.length,
-      blockers: decision.blockers,
-    }));
-    appendFallbackEvidence(
-      source,
-      sourceIdentityFor,
-      decision,
-      fallbackReasons,
-    );
+      blockers: Object.freeze(retention.map((entry) => entry.reason)),
+      retentionReasons: sealComponentRetention(
+        source,
+        sourceIdentityFor,
+        retention,
+      ),
+    });
+    summaries.push(summary);
+    for (const node of componentNodes(component)) {
+      componentByNode.set(node, summary);
+    }
+    appendFallbackEvidence(summary.retentionReasons, fallbackReasons);
   }
   const projectionFusions = planPointerProjectionFusions(
     source,
@@ -126,6 +148,7 @@ export function createClosedPointerFlowPlan(
     (node) => (representations.get(node) ?? "location") === "location",
   );
   const frozenSummaries = Object.freeze(summaries);
+  const representationCounts = countRepresentations(frozenSummaries);
   return Object.freeze({
     owns(candidate: TargetSourceProgram): boolean {
       return candidate === source;
@@ -134,6 +157,9 @@ export function createClosedPointerFlowPlan(
       return node === undefined
         ? "location"
         : representations.get(node) ?? "location";
+    },
+    componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined {
+      return node === undefined ? undefined : componentByNode.get(node);
     },
     projectionFusionFor(node: Node): PointerProjectionFusion | undefined {
       return projectionFusions.fusionForConsumer(node);
@@ -146,6 +172,8 @@ export function createClosedPointerFlowPlan(
     optimizedFamilyCount: familyPlan.familyCount,
     optimizedProjectionReadCount: projectionFusions.readCount,
     optimizedProjectionStoreCount: projectionFusions.storeCount,
+    analysisOperationCount: census.analysisOperationCount,
+    representationCounts,
     fallbackReasons: sealFallbackEvidence(fallbackReasons),
     familyFallbackReasons: sealFamilyFallbackEvidence(
       source,
@@ -169,19 +197,119 @@ function sealFamilyFallbackEvidence(
   })));
 }
 
-function appendFallbackEvidence(
+function componentRepresentationNodes(
+  component: PointerFlowComponent,
+): readonly Node[] {
+  return [...component.operations, ...component.pointerTypes];
+}
+
+function componentNodes(component: PointerFlowComponent): readonly Node[] {
+  return [
+    ...component.vertices.map((vertex) => vertex.node),
+    ...componentRepresentationNodes(component),
+  ];
+}
+
+function finalComponentRepresentation(
+  component: PointerFlowComponent,
+  decision: PointerFlowDecision,
+  representations: ReadonlyMap<Node, PointerFlowRepresentation>,
+): PointerFlowRepresentation {
+  const selected = new Set(componentRepresentationNodes(component).flatMap((node) => {
+    const representation = representations.get(node);
+    return representation === undefined ? [] : [representation];
+  }));
+  if (selected.size === 0) {
+    return decision.representation;
+  }
+  if (selected.has("location")) {
+    return "location";
+  }
+  if (selected.size !== 1) {
+    throw new Error("pointer component selected multiple representations");
+  }
+  const representation = [...selected][0];
+  if (representation === undefined) {
+    throw new Error("pointer component lost its selected representation");
+  }
+  return representation;
+}
+
+function componentRetentionEvidence(
+  component: PointerFlowComponent,
+  decision: PointerFlowDecision,
+  familyPlan: DirectReferenceFamilyPlan,
+): readonly PointerFlowBlockerOccurrence[] {
+  const evidence = new Map<PointerFlowBlocker, Set<Node>>();
+  appendRetention(evidence, decision.blockerEvidence);
+  for (const node of componentRepresentationNodes(component)) {
+    const familyEvidence = familyPlan.canonicalRetentionFor(node);
+    if (familyEvidence === undefined) {
+      continue;
+    }
+    appendRetention(evidence, familyEvidence);
+  }
+  return Object.freeze([...evidence]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([reason, occurrences]) => Object.freeze({
+      reason,
+      occurrences: Object.freeze([...occurrences]),
+    })));
+}
+
+function appendRetention(
+  target: Map<PointerFlowBlocker, Set<Node>>,
+  source: readonly PointerFlowBlockerOccurrence[],
+): void {
+  for (const entry of source) {
+    const occurrences = target.get(entry.reason);
+    if (occurrences === undefined) {
+      target.set(entry.reason, new Set(entry.occurrences));
+    } else {
+      for (const occurrence of entry.occurrences) {
+        occurrences.add(occurrence);
+      }
+    }
+  }
+}
+
+function sealComponentRetention(
   source: TargetSourceProgram,
   sourceIdentityFor: SourceIdentityResolver,
-  decision: PointerFlowDecision,
+  retention: readonly PointerFlowBlockerOccurrence[],
+): readonly PointerFlowRetentionEvidence[] {
+  return Object.freeze(retention.map((entry) => Object.freeze({
+    reason: entry.reason,
+    occurrences: Object.freeze(entry.occurrences.map((node) =>
+      optimizationOccurrence(source, node, sourceIdentityFor)
+    ).sort(compareOptimizationOccurrences)),
+  })));
+}
+
+function countRepresentations(
+  components: readonly PointerFlowComponentSummary[],
+): Readonly<Record<PointerFlowRepresentation, number>> {
+  const counts: Record<PointerFlowRepresentation, number> = {
+    location: 0,
+    "direct-snapshot": 0,
+    "mutable-cell": 0,
+    "direct-object": 0,
+  };
+  for (const component of components) {
+    counts[component.representation] += 1;
+  }
+  return Object.freeze(counts);
+}
+
+function appendFallbackEvidence(
+  retention: readonly PointerFlowRetentionEvidence[],
   fallback: Map<
     PointerFlowBlocker,
     { count: number; examples: OptimizationOccurrence[] }
   >,
 ): void {
-  for (const blocker of decision.blockerEvidence) {
-    const examples = blocker.occurrences.map((node) =>
-      optimizationOccurrence(source, node, sourceIdentityFor)
-    );
+  for (const blocker of retention) {
+    const examples = blocker.occurrences;
     if (examples.length === 0) {
       throw new Error(`pointer fallback '${blocker.reason}' has no occurrence`);
     }

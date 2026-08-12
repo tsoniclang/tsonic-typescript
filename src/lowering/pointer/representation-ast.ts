@@ -103,7 +103,11 @@ export function lowerOptimizedPointerOperation(
       `${operation.operation} optimized flow lost its exact call arguments`,
     );
   }
-  const values = requireNodes(arguments_, operation.operation);
+  const values = simplifyDisprovedNilGuards(
+    source,
+    operation,
+    requireNodes(arguments_, operation.operation),
+  );
   if (
     representation === "direct-object" ||
     representation === "mutable-cell"
@@ -175,6 +179,58 @@ export function lowerOptimizedPointerOperation(
         `mutable-cell cannot lower ${operation.operation}`,
       );
   }
+}
+
+function simplifyDisprovedNilGuards(
+  source: TargetSourceProgram,
+  operation: PointerOperationFact,
+  values: readonly Node[],
+): readonly Node[] {
+  const pointerOperands = operation.operation === "equal-pointer"
+    ? [operation.leftExpression, operation.rightExpression]
+    : operation.operation === "load" ||
+        operation.operation === "store" ||
+        operation.operation === "hash-pointer"
+    ? [operation.pointerExpression]
+    : [];
+  if (pointerOperands.length === 0) {
+    return values;
+  }
+  const simplified = [...values];
+  for (let index = 0; index < pointerOperands.length; index += 1) {
+    const original = pointerOperands[index];
+    const updated = simplified[index];
+    if (original !== undefined && updated !== undefined) {
+      simplified[index] = disprovedNilGuardValue(source, original, updated);
+    }
+  }
+  return simplified;
+}
+
+function disprovedNilGuardValue(
+  source: TargetSourceProgram,
+  original: Node,
+  updated: Node,
+): Node {
+  if (source.ast.operatorKindName(original) !== "KindQuestionQuestionToken") {
+    return updated;
+  }
+  const originalBinary = source.ast.as.AsBinaryExpression(original);
+  const updatedBinary = source.ast.as.AsBinaryExpression(updated);
+  const fallback = originalBinary?.Right;
+  const fallbackType = fallback === undefined
+    ? undefined
+    : source.semantics.forNode(fallback).getTypeAtLocation(fallback);
+  if (
+    fallback === undefined ||
+    fallbackType === undefined ||
+    !source.semantics.forNode(fallback).isNever(fallbackType) ||
+    source.ast.operatorKindName(updated) !== "KindQuestionQuestionToken" ||
+    updatedBinary?.Left === undefined
+  ) {
+    return updated;
+  }
+  return updatedBinary.Left;
 }
 
 function lowerReferenceIdentityOperation(
