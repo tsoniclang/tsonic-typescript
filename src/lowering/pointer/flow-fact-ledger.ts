@@ -3,6 +3,7 @@ import {
   pointerOperationFactKey,
 } from "@tsonic/tsts";
 import type {
+  ExtensionFactSubject,
   Node,
   PointerFact,
   PointerOperationFact,
@@ -28,7 +29,9 @@ export interface PointerTypedFactLedger {
   readonly operationEntries: readonly PointerOperationEntry[];
   readonly pointerTypeEntries: readonly PointerTypeEntry[];
   operationFor(node: Node | undefined): PointerOperationFact | undefined;
-  pointerFactFor(node: Node | undefined): PointerFact | undefined;
+  pointerFactFor(
+    subject: ExtensionFactSubject | undefined,
+  ): PointerFact | undefined;
 }
 
 export function buildPointerTypedFactLedger(
@@ -37,7 +40,7 @@ export function buildPointerTypedFactLedger(
   planning: PointerPlanningLedger,
 ): PointerTypedFactLedger {
   const operations = new Map<Node, PointerOperationFact>();
-  const pointerTypes = new Map<Node, PointerFact>();
+  const pointerTypes = new Map<ExtensionFactSubject, PointerFact>();
   const operationEntries: PointerOperationEntry[] = [];
   const pointerTypeEntries: PointerTypeEntry[] = [];
   for (const node of planning.candidates(
@@ -68,8 +71,10 @@ export function buildPointerTypedFactLedger(
     operationFor(node: Node | undefined): PointerOperationFact | undefined {
       return node === undefined ? undefined : operations.get(node);
     },
-    pointerFactFor(node: Node | undefined): PointerFact | undefined {
-      return node === undefined ? undefined : pointerTypes.get(node);
+    pointerFactFor(
+      subject: ExtensionFactSubject | undefined,
+    ): PointerFact | undefined {
+      return subject === undefined ? undefined : pointerTypes.get(subject);
     },
   });
 }

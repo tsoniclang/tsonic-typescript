@@ -10,6 +10,7 @@ import type {
   PointerFlowVertex,
 } from "./flow-graph.js";
 import type { PointerReferenceCensus } from "./flow-references.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export function resolvePointerExpression(
   source: TargetSourceProgram,
@@ -232,6 +233,7 @@ export function transparentExpressionRoot(
 export function isOptimizableFunctionDeclaration(
   source: TargetSourceProgram,
   owner: Node,
+  planning?: PointerPlanningLedger,
 ): boolean {
   const functionDeclaration = source.ast.is.IsFunctionDeclaration(owner)
     ? source.ast.as.AsFunctionDeclaration(owner)
@@ -251,6 +253,7 @@ export function isOptimizableFunctionDeclaration(
     return false;
   }
   for (const parameter of source.ast.parameters(owner)) {
+    planning?.record("flow-census");
     const parsed = source.ast.as.AsParameterDeclaration(parameter);
     if (
       parsed?.DotDotDotToken !== undefined ||

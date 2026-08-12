@@ -248,6 +248,7 @@ function containsReplacementReturn(
       return true;
     }
     for (const child of source.ast.children(node)) {
+      ledger.record("direct-family");
       if (child !== undefined) {
         pending.push(child);
       }

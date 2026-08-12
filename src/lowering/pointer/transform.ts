@@ -207,7 +207,7 @@ function pointerLoweringResult(
     rawPointerOperationCount: consumed.rawPointerOperations.size,
     rawPointerTypeCount: consumed.rawPointerTypes.size,
     locationBindingCount: consumed.locationBindings.size,
-    runtimeAlias: usesRuntime ? plan.runtimeAlias : undefined,
+    runtimeAlias: usesRuntime ? plan.runtimeAlias.text : undefined,
   });
 }
 
@@ -308,7 +308,7 @@ function rewriteNode(
       updated,
       pointerFlowRepresentation(plan, original),
       plan.runtimeAlias,
-      plan.nullableHashParameterName,
+      plan.nullableHashParameterNames.get(original),
     );
     if (optimized !== undefined) {
       return optimized;

@@ -1,6 +1,3 @@
-import {
-  pointerFactKey,
-} from "@tsonic/tsts";
 import type {
   Node,
   PointerOperationFact,
@@ -22,6 +19,7 @@ import {
 import type { TargetProgramIndex } from "../program-index.js";
 import type { PointerCensus } from "./flow-census.js";
 import type { PointerCallableAliases } from "./flow-callable-aliases.js";
+import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type {
   PointerFlowGraph,
   PointerFlowVertex,
@@ -47,6 +45,7 @@ export interface PointerFunctionResult {
 export function collectPointerFunctionResults(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  facts: PointerTypedFactLedger,
   graph: PointerFlowGraph,
   classifiedPointerTypes: Set<Node>,
   planning: PointerPlanningLedger,
@@ -63,26 +62,28 @@ export function collectPointerFunctionResults(
     "function-result",
     candidates,
   )) {
-    if (!isOptimizableFunctionDeclaration(source, owner)) {
+    if (!isOptimizableFunctionDeclaration(source, owner, planning)) {
       continue;
     }
     const returnType = source.ast.typeNode(owner);
     const pointerType = returnType === undefined
       ? undefined
-      : directPointerResultType(source, owner, returnType, planning);
+      : directPointerResultType(source, owner, returnType, facts, planning);
     if (pointerType === undefined) {
       continue;
     }
-    const fact = source.sourceFacts.getFact(pointerType, pointerFactKey);
+    const fact = facts.pointerFactFor(pointerType);
     if (fact === undefined) {
       continue;
     }
     const vertex = graph.add(pointerType);
     recordPointerTypeFacts(
       source,
+      facts,
       pointerType,
       vertex,
       classifiedPointerTypes,
+      planning,
     );
     const pointeeType = source.semantics.forNode(pointerType)
       .getTypeFromTypeNode(fact.pointee);
@@ -228,6 +229,7 @@ function directPointerResultType(
   source: TargetSourceProgram,
   owner: Node,
   returnType: Node,
+  facts: PointerTypedFactLedger,
   planning: PointerPlanningLedger,
 ): Node | undefined {
   const pointerTypes: Node[] = [];
@@ -240,7 +242,7 @@ function directPointerResultType(
     }
     if (
       source.ast.is.IsTypeReferenceNode(node) &&
-      source.sourceFacts.getFact(node, pointerFactKey) !== undefined
+      facts.pointerFactFor(node) !== undefined
     ) {
       pointerTypes.push(node);
       continue;

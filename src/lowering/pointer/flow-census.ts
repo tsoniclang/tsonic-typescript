@@ -28,7 +28,10 @@ import {
   collectPointerOperations,
   connectLocationIdentities,
 } from "./flow-operation-census.js";
-import { buildPointerTypedFactLedger } from "./flow-fact-ledger.js";
+import {
+  buildPointerTypedFactLedger,
+  type PointerTypedFactLedger,
+} from "./flow-fact-ledger.js";
 import {
   assertPointerCensusTotality,
   collectPointerBindings,
@@ -66,6 +69,7 @@ export interface PointerCensus {
 
 export interface PointerFlowCensusResult {
   readonly components: readonly PointerFlowComponent[];
+  readonly facts: PointerTypedFactLedger;
 }
 
 export function censusPointerFlows(
@@ -81,6 +85,7 @@ export function censusPointerFlows(
   const pointerBindings = collectPointerBindings(
     source,
     program,
+    facts,
     graph,
     classifiedPointerTypes,
     ledger,
@@ -88,6 +93,7 @@ export function censusPointerFlows(
   const functionResults = collectPointerFunctionResults(
     source,
     program,
+    facts,
     graph,
     classifiedPointerTypes,
     ledger,
@@ -103,15 +109,26 @@ export function censusPointerFlows(
   const allowedPointerReferences = new Set<Node>();
   const allowedProducerUses = new Set<Node>();
   const allowedFunctionTargets = new Set<Node>();
-  const functionParameters = groupFunctionParameters(source, pointerBindings);
-  const optimizableFunctions = new Map(
-    [...functionParameters.keys()].map((owner) => [
-      owner,
-      isOptimizableFunctionDeclaration(source, owner),
-    ]),
+  const functionParameters = groupFunctionParameters(
+    source,
+    pointerBindings,
+    ledger,
   );
-  const callableOwners = new Set<Node>(functionResults.keys());
+  const optimizableFunctions = new Map<Node, boolean>();
+  for (const owner of functionParameters.keys()) {
+    ledger.record("flow-census");
+    optimizableFunctions.set(
+      owner,
+      isOptimizableFunctionDeclaration(source, owner, ledger),
+    );
+  }
+  const callableOwners = new Set<Node>();
+  for (const owner of functionResults.keys()) {
+    ledger.record("flow-census");
+    callableOwners.add(owner);
+  }
   for (const [owner, optimizable] of optimizableFunctions) {
+    ledger.record("flow-census");
     if (optimizable) {
       callableOwners.add(owner);
     }
@@ -123,6 +140,7 @@ export function censusPointerFlows(
     ledger,
   );
   for (const reference of callableAliases.allowedReferences) {
+    ledger.record("flow-census");
     allowedFunctionTargets.add(reference);
   }
   connectPointerResultCalls(
@@ -154,6 +172,7 @@ export function censusPointerFlows(
       operations,
       functionParameters,
       functionResults,
+      ledger,
     ),
     ledger,
   );
@@ -189,6 +208,7 @@ export function censusPointerFlows(
   );
   return Object.freeze({
     components,
+    facts,
   });
 }
 
@@ -313,15 +333,23 @@ function trackedDeclarations(
   operations: ReadonlyMap<Node, PointerOperationFact>,
   functionParameters: ReadonlyMap<Node, readonly Node[]>,
   functionResults: ReadonlyMap<Node, PointerFunctionResult>,
+  ledger: PointerPlanningLedger,
 ): ReadonlySet<Node> {
-  const candidates = new Set(pointerBindings);
+  const candidates = new Set<Node>();
+  for (const binding of pointerBindings) {
+    ledger.record("flow-census");
+    candidates.add(binding);
+  }
   for (const owner of functionParameters.keys()) {
+    ledger.record("flow-census");
     candidates.add(owner);
   }
   for (const owner of functionResults.keys()) {
+    ledger.record("flow-census");
     candidates.add(owner);
   }
   for (const operation of operations.values()) {
+    ledger.record("flow-census");
     if (
       operation.operation === "address-of" &&
       operation.storageDeclaration !== undefined
@@ -335,9 +363,11 @@ function trackedDeclarations(
 function groupFunctionParameters(
   source: TargetSourceProgram,
   pointerBindings: ReadonlySet<Node>,
+  ledger: PointerPlanningLedger,
 ): ReadonlyMap<Node, readonly Node[]> {
   const mutable = new Map<Node, Node[]>();
   for (const binding of pointerBindings) {
+    ledger.record("flow-census");
     if (!source.ast.is.IsParameterDeclaration(binding)) {
       continue;
     }
@@ -352,8 +382,10 @@ function groupFunctionParameters(
       parameters.push(binding);
     }
   }
-  return new Map([...mutable].map(([owner, parameters]) => [
-    owner,
-    Object.freeze(parameters),
-  ]));
+  const grouped = new Map<Node, readonly Node[]>();
+  for (const [owner, parameters] of mutable) {
+    ledger.record("flow-census");
+    grouped.set(owner, Object.freeze(parameters));
+  }
+  return grouped;
 }

@@ -66,6 +66,7 @@ function auditReferences(census: PointerCensus): void {
       !isModuleAliasReference(source, node)
     ) {
       for (const parameter of parameters ?? []) {
+        census.ledger.record("flow-census");
         graph.block(graph.get(parameter), "indirect-call", node);
       }
       graph.block(result?.vertex, "indirect-call", node);

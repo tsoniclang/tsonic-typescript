@@ -9,7 +9,7 @@ export function locationBindingExpression(
   factory: NodeFactory,
   binding: LocationBinding,
 ): Node {
-  const expression = NewIdentifier(factory, binding.locationName);
+  const expression = NewIdentifier(factory, binding.locationName.text);
   if (expression === undefined) {
     throw new PointerLoweringError(
       `${binding.kind} location reference was not created`,

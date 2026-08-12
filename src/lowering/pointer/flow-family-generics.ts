@@ -1,6 +1,4 @@
 import {
-  pointerFactKey,
-  pointerOperationFactKey,
   sourceMarkerFactKey,
 } from "@tsonic/tsts";
 import type {
@@ -13,6 +11,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type { PointerFlowBlocker } from "./flow-graph.js";
 import {
   type MutableDirectReferenceFamily,
@@ -25,16 +24,14 @@ import type { PointerPlanningLedger } from "./planning-ledger.js";
 export function applyGenericPointerBoundaries(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  facts: PointerTypedFactLedger,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
   operationFamilies: ReadonlyMap<Node, MutableDirectReferenceFamily>,
   ledger: PointerPlanningLedger,
 ): void {
   for (const [operationNode, family] of operationFamilies) {
     ledger.record("direct-family");
-    const operation = source.sourceFacts.getFact(
-      operationNode,
-      pointerOperationFactKey,
-    );
+    const operation = facts.operationFor(operationNode);
     if (operation === undefined) {
       continue;
     }
@@ -52,6 +49,7 @@ export function applyGenericPointerBoundaries(
           source,
           operand,
           authoredType,
+          facts,
           ledger,
         )
       ) {
@@ -84,6 +82,7 @@ export function applyGenericPointerBoundaries(
           source,
           node,
           parameter.authoredTypeNode,
+          facts,
           ledger,
         )
       ) {
@@ -118,6 +117,7 @@ export function applyGenericPointerBoundaries(
         source,
         node,
         returnType,
+        facts,
         ledger,
       )
     ) {
@@ -153,12 +153,13 @@ function authoredTypeContainsRepresentationVaryingPointer(
   source: TargetSourceProgram,
   anchor: Node,
   authoredType: Node,
+  facts: PointerTypedFactLedger,
   ledger: PointerPlanningLedger,
 ): boolean {
   const semantics = source.semantics.forNode(anchor);
   for (const subject of semantics.getAuthoredTypeFactSubjects(authoredType)) {
     ledger.record("direct-family");
-    const fact = source.sourceFacts.getFact(subject, pointerFactKey);
+    const fact = facts.pointerFactFor(subject);
     if (fact === undefined) {
       continue;
     }

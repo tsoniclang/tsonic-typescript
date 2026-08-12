@@ -109,6 +109,7 @@ test("emits deterministic immutable optimization evidence", () => {
       nodeVisits: 82,
       childEdges: 80,
       kindEntries: 82,
+      identifierEntries: 29,
       bindingCandidates: 0,
       bindingWrites: 0,
       heritageEdges: 0,

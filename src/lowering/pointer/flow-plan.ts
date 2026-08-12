@@ -1,6 +1,3 @@
-import {
-  pointerOperationFactKey,
-} from "@tsonic/tsts";
 import type {
   Node,
 } from "@tsonic/tsts";
@@ -21,6 +18,7 @@ import {
   type DirectReferenceFamilyPlan,
 } from "./flow-families.js";
 import type { DirectReferenceFamilyFallback } from "./flow-family-evidence.js";
+import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type {
   PointerFlowBlocker,
   PointerFlowBlockerOccurrence,
@@ -103,6 +101,7 @@ export function createClosedPointerFlowPlan(
     source,
     program,
     components,
+    census.facts,
     ledger,
   );
   const representations = new Map<Node, PointerFlowRepresentation>(
@@ -117,7 +116,12 @@ export function createClosedPointerFlowPlan(
   let optimizedComponentCount = 0;
   for (const component of components) {
     ledger.record("representation");
-    const decision = selectRepresentation(source, component, ledger);
+    const decision = selectRepresentation(
+      source,
+      component,
+      census.facts,
+      ledger,
+    );
     const representation = finalComponentRepresentation(
       component,
       decision,
@@ -159,7 +163,7 @@ export function createClosedPointerFlowPlan(
   }
   const projectionFusions = planPointerProjectionFusions(
     source,
-    program,
+    census.facts,
     (node) => (representations.get(node) ?? "location") === "location",
     ledger,
   );
@@ -415,6 +419,7 @@ function sealFallbackEvidence(
 function selectRepresentation(
   source: TargetSourceProgram,
   component: PointerFlowComponent,
+  facts: PointerTypedFactLedger,
   ledger: PointerPlanningLedger,
 ): PointerFlowDecision {
   if (component.blockers.length !== 0) {
@@ -455,7 +460,7 @@ function selectRepresentation(
   const category = description.category;
   const operations = component.operations.map((node) => {
     ledger.record("representation");
-    return source.sourceFacts.getFact(node, pointerOperationFactKey);
+    return facts.operationFor(node);
   });
   if (operations.some((operation) => {
     ledger.record("representation");
@@ -506,8 +511,7 @@ function selectRepresentation(
           "unsupported-flow",
           component.operations.filter((node) => {
             ledger.record("representation");
-            return source.sourceFacts.getFact(node, pointerOperationFactKey)
-              ?.operation === "store";
+            return facts.operationFor(node)?.operation === "store";
           }),
         )
       : optimizedDecision(representation);

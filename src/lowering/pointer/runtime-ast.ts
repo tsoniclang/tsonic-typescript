@@ -17,18 +17,19 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import type { GeneratedBindingName } from "../generated-names.js";
 import { typeScriptRuntimeModule } from "../../runtime/package-contract.js";
 import { PointerLoweringError } from "./diagnostic.js";
 
 export function prependRuntimeImport(
   factory: NodeFactory,
   sourceFile: SourceFile,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
   usesRuntimeValue: boolean,
 ): Node {
   const namespace = NewNamespaceImport(
     factory,
-    NewIdentifier(factory, runtimeAlias),
+    NewIdentifier(factory, runtimeAlias.text),
   );
   const importClause = NewImportClause(
     factory,
@@ -60,13 +61,13 @@ export function prependRuntimeImport(
 
 export function runtimeType(
   factory: NodeFactory,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
   name: string,
   typeArguments: readonly Node[],
 ): Node {
   const qualifiedName = NewQualifiedName(
     factory,
-    NewIdentifier(factory, runtimeAlias),
+    NewIdentifier(factory, runtimeAlias.text),
     NewIdentifier(factory, name),
   );
   return requiredRuntimeNode(
@@ -81,14 +82,14 @@ export function runtimeType(
 
 export function runtimeCall(
   factory: NodeFactory,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
   name: string,
   typeArguments: readonly Node[],
   arguments_: readonly Node[],
 ): Node {
   const target = NewPropertyAccessExpression(
     factory,
-    NewIdentifier(factory, runtimeAlias),
+    NewIdentifier(factory, runtimeAlias.text),
     undefined,
     NewIdentifier(factory, name),
     0,

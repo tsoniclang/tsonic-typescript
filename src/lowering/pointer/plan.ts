@@ -13,7 +13,10 @@ import type {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type { TargetProgramIndex } from "../program-index.js";
-import type { SourceFileGeneratedNames } from "../generated-names.js";
+import type {
+  GeneratedBindingName,
+  SourceFileGeneratedNames,
+} from "../generated-names.js";
 import { validateAddressableStorage } from "./addressability.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import { validatePointerOperationFact } from "./operation-contract.js";
@@ -32,8 +35,8 @@ export interface LocalLocationBinding {
   readonly declaration: Node;
   readonly addressOperands: ReadonlySet<Node>;
   readonly sourceName: string;
-  readonly locationName: string;
-  readonly writeName: string;
+  readonly locationName: GeneratedBindingName;
+  readonly writeName: GeneratedBindingName;
 }
 
 export interface ParameterLocationBinding {
@@ -42,8 +45,8 @@ export interface ParameterLocationBinding {
   readonly addressOperands: ReadonlySet<Node>;
   readonly body: Node;
   readonly sourceName: string;
-  readonly locationName: string;
-  readonly writeName: string;
+  readonly locationName: GeneratedBindingName;
+  readonly writeName: GeneratedBindingName;
 }
 
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
@@ -66,8 +69,8 @@ export interface PointerLoweringPlan {
   readonly addressBindings: ReadonlyMap<Node, LocationBinding>;
   readonly removableMarkerDeclarations: ReadonlySet<Node>;
   readonly flowPlan: ClosedPointerFlowPlan | undefined;
-  readonly runtimeAlias: string;
-  readonly nullableHashParameterName: string;
+  readonly runtimeAlias: GeneratedBindingName;
+  readonly nullableHashParameterNames: ReadonlyMap<Node, GeneratedBindingName>;
   readonly usesRuntimeValue: boolean;
 }
 
@@ -247,21 +250,24 @@ export function createPointerLoweringPlan(
     nodes,
     selectedMarkerRoots,
   );
-  const runtimeAlias = usesRuntimeValue
-    ? generatedNames.reserve("tsonicTypeScriptRuntime")
-    : "tsonicTypeScriptRuntime";
-  const needsNullableHashParameter = [...operations.values()].some((operation) =>
-    operation.operation === "hash-pointer" &&
-    flowPlan?.representationFor(operation.call) === "direct-object" &&
-    pointerTypeCanBeUndefined(
-      source,
-      operation.pointerExpression,
-      operation.pointerType,
-    )
-  );
-  const nullableHashParameterName = needsNullableHashParameter
-    ? generatedNames.reserve("$pointer")
-    : "$pointer";
+  const runtimeAlias = generatedNames.reserve("tsonicTypeScriptRuntime");
+  const nullableHashParameterNames = new Map<Node, GeneratedBindingName>();
+  for (const operation of operations.values()) {
+    if (
+      operation.operation === "hash-pointer" &&
+      flowPlan?.representationFor(operation.call) === "direct-object" &&
+      pointerTypeCanBeUndefined(
+        source,
+        operation.pointerExpression,
+        operation.pointerType,
+      )
+    ) {
+      nullableHashParameterNames.set(
+        operation.call,
+        generatedNames.reserve("$pointer"),
+      );
+    }
+  }
   return Object.freeze({
     sourceFile,
     operations,
@@ -275,7 +281,7 @@ export function createPointerLoweringPlan(
     removableMarkerDeclarations: markerUsage.removableDeclarations,
     flowPlan,
     runtimeAlias,
-    nullableHashParameterName,
+    nullableHashParameterNames,
     usesRuntimeValue,
   });
 }

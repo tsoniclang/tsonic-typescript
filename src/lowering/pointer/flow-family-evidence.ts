@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 
 import type { PointerFlowBlocker } from "./flow-graph.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export interface DirectReferenceFamilyFallback {
   readonly reason: PointerFlowBlocker;
@@ -16,8 +17,10 @@ export type FamilyFallbackLedger = Map<
 export function appendFamilyFallback(
   target: FamilyFallbackLedger,
   blockers: ReadonlyMap<PointerFlowBlocker, ReadonlySet<Node>>,
+  ledger: PointerPlanningLedger,
 ): void {
   for (const [reason, occurrences] of blockers) {
+    ledger.record("evidence");
     const existing = target.get(reason);
     if (existing === undefined) {
       target.set(reason, { count: 1, occurrences: new Set(occurrences) });
@@ -25,6 +28,7 @@ export function appendFamilyFallback(
     }
     existing.count += 1;
     for (const occurrence of occurrences) {
+      ledger.record("evidence");
       existing.occurrences.add(occurrence);
     }
   }
@@ -35,12 +39,24 @@ export function sealFamilyFallback(
     PointerFlowBlocker,
     { readonly count: number; readonly occurrences: ReadonlySet<Node> }
   >,
+  ledger: PointerPlanningLedger,
 ): readonly DirectReferenceFamilyFallback[] {
   return Object.freeze([...source]
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([reason, evidence]) => Object.freeze({
-      reason,
-      count: evidence.count,
-      occurrences: Object.freeze([...evidence.occurrences]),
-    })));
+    .sort(([left], [right]) => {
+      ledger.record("evidence");
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
+    .map(([reason, evidence]) => {
+      ledger.record("evidence");
+      const occurrences: Node[] = [];
+      for (const occurrence of evidence.occurrences) {
+        ledger.record("evidence");
+        occurrences.push(occurrence);
+      }
+      return Object.freeze({
+        reason,
+        count: evidence.count,
+        occurrences: Object.freeze(occurrences),
+      });
+    }));
 }

@@ -1,18 +1,12 @@
-import {
-  pointerFactKey,
-  pointerOperationFactKey,
-} from "@tsonic/tsts";
 import type {
   Node,
+  PointerFact,
   PointerOperationFact,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
-import {
-  KindCallExpression,
-  KindTypeReference,
-} from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type {
   PointerFlowBlockerOccurrence,
   PointerFlowComponent,
@@ -47,19 +41,21 @@ export function planDirectReferenceFamilies(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   components: readonly PointerFlowComponent[],
+  facts: PointerTypedFactLedger,
   ledger: PointerPlanningLedger,
 ): DirectReferenceFamilyPlan {
   const families = new Map<Node, MutableDirectReferenceFamily>();
   const operationFamilies = new Map<Node, MutableDirectReferenceFamily>();
-  for (const node of program.nodesOfKind(KindTypeReference)) {
+  for (const { node, fact } of facts.pointerTypeEntries) {
     ledger.record("direct-family");
-    collectPointerType(source, node, families);
+    collectPointerType(source, node, fact, families);
   }
-  for (const node of program.nodesOfKind(KindCallExpression)) {
+  for (const { node, fact } of facts.operationEntries) {
     ledger.record("direct-family");
     collectPointerOperation(
       source,
       node,
+      fact,
       families,
       operationFamilies,
     );
@@ -67,11 +63,12 @@ export function planDirectReferenceFamilies(
   applyGenericPointerBoundaries(
     source,
     program,
+    facts,
     families,
     operationFamilies,
     ledger,
   );
-  applyCheckerBoundaries(source, operationFamilies, ledger);
+  applyCheckerBoundaries(source, operationFamilies, facts, ledger);
   applyComponentBoundaries(
     source,
     components,
@@ -98,14 +95,16 @@ export function planDirectReferenceFamilies(
     ledger.record("direct-family");
     const representation = familyRepresentations.get(family);
     if (family.blockers.size !== 0) {
-      appendFamilyFallback(fallbackReasons, family.blockers);
+      appendFamilyFallback(fallbackReasons, family.blockers, ledger);
       if (family.canonicalBlockers.size !== 0) {
-        const retention = canonicalDirectReferenceFamilyEvidence(family);
+        const retention = canonicalDirectReferenceFamilyEvidence(family, ledger);
         for (const pointerType of family.pointerTypes) {
+          ledger.record("direct-family");
           representations.set(pointerType, "location");
           canonicalRetentions.set(pointerType, retention);
         }
         for (const operation of family.operations.keys()) {
+          ledger.record("direct-family");
           representations.set(operation, "location");
           canonicalRetentions.set(operation, retention);
         }
@@ -117,9 +116,11 @@ export function planDirectReferenceFamilies(
     }
     familyCount += 1;
     for (const pointerType of family.pointerTypes) {
+      ledger.record("direct-family");
       representations.set(pointerType, representation);
     }
     for (const operation of family.operations.keys()) {
+      ledger.record("direct-family");
       representations.set(operation, representation);
     }
   }
@@ -129,18 +130,19 @@ export function planDirectReferenceFamilies(
       return canonicalRetentions.get(node);
     },
     familyCount,
-    fallbackReasons: sealFamilyFallback(fallbackReasons),
+    fallbackReasons: sealFamilyFallback(fallbackReasons, ledger),
   });
 }
 
 function applyCheckerBoundaries(
   source: TargetSourceProgram,
   operationFamilies: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  facts: PointerTypedFactLedger,
   ledger: PointerPlanningLedger,
 ): void {
   for (const [node, family] of operationFamilies) {
     ledger.record("direct-family");
-    const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
+    const operation = facts.operationFor(node);
     if (operation === undefined) {
       continue;
     }
@@ -174,13 +176,10 @@ function pointerExpressions(operation: PointerOperationFact): readonly Node[] {
 function collectPointerType(
   source: TargetSourceProgram,
   node: Node,
+  fact: PointerFact,
   families: Map<Node, MutableDirectReferenceFamily>,
 ): void {
   if (!source.ast.is.IsTypeReferenceNode(node)) {
-    return;
-  }
-  const fact = source.sourceFacts.getFact(node, pointerFactKey);
-  if (fact === undefined) {
     return;
   }
   const semantics = source.semantics.forNode(node);
@@ -204,13 +203,10 @@ function collectPointerType(
 function collectPointerOperation(
   source: TargetSourceProgram,
   node: Node,
+  operation: PointerOperationFact,
   families: Map<Node, MutableDirectReferenceFamily>,
   operationFamilies: Map<Node, MutableDirectReferenceFamily>,
 ): void {
-  const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
-  if (operation === undefined) {
-    return;
-  }
   const family = directReferenceFamily(
     source,
     operation.explicitPointeeTypeNode ?? operation.call,
@@ -348,6 +344,7 @@ function selectFamilyRepresentations(
     }
     if (stores.length !== 0 && hasAddressedProducer) {
       for (const store of stores) {
+        ledger.record("direct-family");
         blockFamily(family, "pointee-replacement", store.call);
       }
     }
@@ -400,7 +397,9 @@ function applyComponentBoundaries(
     }
     if (nonDirectPointees.length !== 0) {
       for (const family of touched) {
+        ledger.record("direct-family");
         for (const occurrence of nonDirectPointees) {
+          ledger.record("direct-family");
           blockFamily(family, "mixed-pointee", occurrence);
         }
       }
@@ -415,7 +414,9 @@ function applyComponentBoundaries(
         continue;
       }
       for (const family of touched) {
+        ledger.record("direct-family");
         for (const occurrence of evidence.occurrences) {
+          ledger.record("direct-family");
           blockFamily(family, evidence.reason, occurrence);
         }
       }

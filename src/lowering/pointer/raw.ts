@@ -7,13 +7,14 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import type { GeneratedBindingName } from "../generated-names.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import { runtimeCall, runtimeType } from "./runtime-ast.js";
 
 export function lowerRawPointerType(
   factory: NodeFactory,
   updated: Node,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node {
   const typeReference = IsTypeReferenceNode(updated)
     ? AsTypeReferenceNode(updated)
@@ -33,7 +34,7 @@ export function lowerRawPointerOperation(
   factory: NodeFactory,
   operation: RawPointerOperationFact,
   updated: Node,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node {
   const call = IsCallExpression(updated) ? AsCallExpression(updated) : undefined;
   if (call === undefined) {

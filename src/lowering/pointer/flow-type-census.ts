@@ -1,4 +1,3 @@
-import { pointerFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindTypeReference } from "@tsonic/tsts/target-ast";
@@ -15,6 +14,7 @@ import {
 export function collectPointerBindings(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  facts: PointerTypedFactLedger,
   graph: PointerFlowGraph,
   classifiedPointerTypes: Set<Node>,
   planning: PointerPlanningLedger,
@@ -29,17 +29,24 @@ export function collectPointerBindings(
     if (!source.ast.is.IsTypeReferenceNode(node)) {
       continue;
     }
-    const fact = source.sourceFacts.getFact(node, pointerFactKey);
+    const fact = facts.pointerFactFor(node);
     if (fact === undefined) {
       continue;
     }
-    const owner = directPointerTypeOwner(source, node);
+    const owner = directPointerTypeOwner(source, node, planning);
     if (owner === undefined) {
       continue;
     }
     const vertex = graph.add(owner);
     bindings.add(owner);
-    recordPointerTypeFacts(source, node, vertex, classifiedPointerTypes);
+    recordPointerTypeFacts(
+      source,
+      facts,
+      node,
+      vertex,
+      classifiedPointerTypes,
+      planning,
+    );
     const pointeeType = source.semantics.forNode(node)
       .getTypeFromTypeNode(fact.pointee);
     if (pointeeType === undefined) {
@@ -54,13 +61,16 @@ export function collectPointerBindings(
 
 export function recordPointerTypeFacts(
   source: TargetSourceProgram,
+  facts: PointerTypedFactLedger,
   typeReference: Node,
   vertex: PointerFlowVertex,
   classifiedPointerTypes: Set<Node>,
+  planning: PointerPlanningLedger,
 ): void {
   const typeName = source.ast.as.AsTypeReferenceNode(typeReference)?.TypeName;
   for (const node of new Set([typeReference, typeName].filter(isNode))) {
-    if (source.sourceFacts.getFact(node, pointerFactKey) === undefined) {
+    planning.record("flow-census");
+    if (facts.pointerFactFor(node) === undefined) {
       continue;
     }
     vertex.pointerTypes.add(node);
@@ -141,9 +151,11 @@ export function assertPointerCensusTotality(
 function directPointerTypeOwner(
   source: TargetSourceProgram,
   typeReference: Node,
+  planning: PointerPlanningLedger,
 ): Node | undefined {
   let current = source.ast.parent(typeReference);
   while (current !== undefined && !source.ast.is.IsSourceFile(current)) {
+    planning.record("flow-census");
     if (
       source.ast.is.IsVariableDeclaration(current) ||
       source.ast.is.IsParameterDeclaration(current)

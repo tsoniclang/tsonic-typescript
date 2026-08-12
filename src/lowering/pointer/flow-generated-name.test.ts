@@ -65,7 +65,7 @@ export const result = hashPointer(nextPointer());
   });
   const generatedNames = createProgramGeneratedNames(fixture.source, program)
     .forFile(fixture.sourceFile);
-  assert.equal(generatedNames.reserve("$pointer"), "$pointer");
+  assert.equal(generatedNames.reserve("$pointer").text, "$pointer");
   const flowPlan = createFixturePointerFlowPlan(fixture.source);
   const pointerPlan = createPointerLoweringPlan(
     fixture.source,
@@ -75,5 +75,33 @@ export const result = hashPointer(nextPointer());
     flowPlan,
   );
 
-  assert.equal(pointerPlan.nullableHashParameterName, "$pointer2");
+  const parameterName = [...pointerPlan.nullableHashParameterNames.values()][0];
+  assert.equal(parameterName?.text, "$pointer2");
+});
+
+test("reserves each synthetic closure parameter independently", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, hashPointer } from "./markers.js";
+class Box { value = 1; }
+function nextPointer(): Pointer<Box> | undefined {
+  return allocatePointer(new Box());
+}
+export const result = [
+  hashPointer(nextPointer()),
+  hashPointer(nextPointer()),
+];
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  const arrowParameters: string[] = [];
+  visit(fixture.source, lowered.sourceFile, (node) => {
+    if (!fixture.source.ast.is.IsArrowFunction(node)) {
+      return;
+    }
+    for (const parameter of fixture.source.ast.parameters(node)) {
+      arrowParameters.push(fixture.source.ast.text(fixture.source.ast.name(parameter)));
+    }
+  });
+
+  assert.deepEqual(arrowParameters.sort(), ["$pointer", "$pointer2"]);
 });

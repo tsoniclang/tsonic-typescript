@@ -2,9 +2,18 @@ import type { SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { TargetProgramIndex } from "./program-index.js";
 
+const generatedBindingNameBrand: unique symbol = Symbol(
+  "generated-binding-name",
+);
+
+export interface GeneratedBindingName {
+  readonly text: string;
+  readonly [generatedBindingNameBrand]: true;
+}
+
 export interface SourceFileGeneratedNames {
   readonly sourceFile: SourceFile;
-  reserve(preferred: string): string;
+  reserve(preferred: string): GeneratedBindingName;
 }
 
 export interface ProgramGeneratedNames {
@@ -43,21 +52,29 @@ function createSourceFileGeneratedNames(
   const generated = new Set<string>();
   return Object.freeze({
     sourceFile,
-    reserve(preferred: string): string {
+    reserve(preferred: string): GeneratedBindingName {
       if (preferred.length === 0) {
         throw new Error("generated binding requires a non-empty preferred name");
       }
       if (!hasAuthoredName(preferred) && !generated.has(preferred)) {
         generated.add(preferred);
-        return preferred;
+        return generatedBindingName(preferred);
       }
       for (let suffix = 2; ; suffix += 1) {
         const candidate = `${preferred}${suffix}`;
         if (!hasAuthoredName(candidate) && !generated.has(candidate)) {
           generated.add(candidate);
-          return candidate;
+          return generatedBindingName(candidate);
         }
       }
     },
   });
+}
+
+function generatedBindingName(text: string): GeneratedBindingName {
+  const name: GeneratedBindingName = {
+    text,
+    [generatedBindingNameBrand]: true,
+  };
+  return Object.freeze(name);
 }

@@ -4,6 +4,7 @@ import type {
   PointerFlowBlocker,
   PointerFlowBlockerOccurrence,
 } from "./flow-graph.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export type DirectReferenceFamilyRepresentation =
   | "direct-object"
@@ -45,12 +46,27 @@ export function requireCanonicalDirectReferenceFamily(
 
 export function canonicalDirectReferenceFamilyEvidence(
   family: MutableDirectReferenceFamily,
+  ledger: PointerPlanningLedger,
 ): readonly PointerFlowBlockerOccurrence[] {
   return Object.freeze([...family.blockers]
-    .filter(([reason]) => family.canonicalBlockers.has(reason))
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([reason, occurrences]) => Object.freeze({
-      reason,
-      occurrences: Object.freeze([...occurrences]),
-    })));
+    .filter(([reason]) => {
+      ledger.record("evidence");
+      return family.canonicalBlockers.has(reason);
+    })
+    .sort(([left], [right]) => {
+      ledger.record("evidence");
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
+    .map(([reason, selected]) => {
+      ledger.record("evidence");
+      const occurrences: Node[] = [];
+      for (const occurrence of selected) {
+        ledger.record("evidence");
+        occurrences.push(occurrence);
+      }
+      return Object.freeze({
+        reason,
+        occurrences: Object.freeze(occurrences),
+      });
+    }));
 }

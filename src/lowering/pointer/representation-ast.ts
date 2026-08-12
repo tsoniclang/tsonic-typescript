@@ -33,6 +33,7 @@ import {
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import type { GeneratedBindingName } from "../generated-names.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
 import type { PointerFlowRepresentation } from "./flow-plan.js";
@@ -91,8 +92,8 @@ export function lowerOptimizedPointerOperation(
   operation: PointerOperationFact,
   updated: Node,
   representation: PointerFlowRepresentation,
-  runtimeAlias: string,
-  nullableHashParameterName: string,
+  runtimeAlias: GeneratedBindingName,
+  nullableHashParameterName: GeneratedBindingName | undefined,
 ): Node | undefined {
   if (representation === "location") {
     return undefined;
@@ -240,8 +241,8 @@ function lowerReferenceIdentityOperation(
   factory: NodeFactory,
   operation: PointerOperationFact,
   values: readonly Node[],
-  runtimeAlias: string,
-  nullableHashParameterName: string,
+  runtimeAlias: GeneratedBindingName,
+  nullableHashParameterName: GeneratedBindingName | undefined,
 ): Node | undefined {
   if (operation.operation === "equal-pointer") {
     requireArity(operation.operation, values, 2);
@@ -284,18 +285,23 @@ function directObjectHash(
   factory: NodeFactory,
   pointer: Node,
   pointerType: Type,
-  runtimeAlias: string,
-  parameterName: string,
+  runtimeAlias: GeneratedBindingName,
+  parameterName: GeneratedBindingName | undefined,
 ): Node {
   if (!pointerTypeCanBeUndefined(source, pointer, pointerType)) {
     return hashObject(factory, pointer, runtimeAlias);
+  }
+  if (parameterName === undefined) {
+    throw new PointerLoweringError(
+      "nullable direct pointer hash has no reserved parameter binding",
+    );
   }
   const parameter = requiredNode(
     NewParameterDeclaration(
       factory,
       undefined,
       undefined,
-      NewIdentifier(factory, parameterName),
+      NewIdentifier(factory, parameterName.text),
       undefined,
       requiredNode(
         NewUnionTypeNode(
@@ -376,7 +382,7 @@ function directObjectHash(
 function hashObject(
   factory: NodeFactory,
   pointer: Node,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node {
   return runtimeCall(
     factory,
@@ -397,8 +403,14 @@ function undefinedExpression(factory: NodeFactory): Node {
   );
 }
 
-function requiredIdentifier(factory: NodeFactory, name: string): Node {
-  return requiredNode(NewIdentifier(factory, name), `identifier ${name}`);
+function requiredIdentifier(
+  factory: NodeFactory,
+  name: GeneratedBindingName,
+): Node {
+  return requiredNode(
+    NewIdentifier(factory, name.text),
+    `identifier ${name.text}`,
+  );
 }
 
 function mutableCell(factory: NodeFactory, initial: Node): Node {

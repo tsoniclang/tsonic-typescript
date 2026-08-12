@@ -13,6 +13,7 @@ import {
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
 import type { FinalNodeLookup } from "../final-nodes.js";
+import type { GeneratedBindingName } from "../generated-names.js";
 
 import { lowerAddressOf } from "./address.js";
 import { PointerLoweringError } from "./diagnostic.js";
@@ -26,7 +27,7 @@ import {
 export function lowerLocationPointerType(
   factory: NodeFactory,
   updated: Node,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node {
   const typeReference = IsTypeReferenceNode(updated)
     ? AsTypeReferenceNode(updated)
@@ -152,7 +153,7 @@ function explicitLocationType(
   factory: NodeFactory,
   operation: PointerOperationFact,
   call: NonNullable<ReturnType<typeof AsCallExpression>>,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node | undefined {
   if (operation.explicitPointeeTypeNode === undefined) {
     return undefined;
