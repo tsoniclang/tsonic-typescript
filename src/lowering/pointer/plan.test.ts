@@ -11,6 +11,7 @@ import {
 } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { createProgramGeneratedNames } from "../generated-names.js";
 import { createTargetProgramIndex } from "../program-index.js";
 import { createPointerLoweringPlan } from "./plan.js";
 
@@ -33,11 +34,7 @@ export function capture(value: number, pointer = addressOf(value)) {
 }
 `);
   assert.throws(
-    () => createPointerLoweringPlan(
-      fixture.source,
-      fixture.sourceFile,
-      pointerProgramIndex(fixture.source),
-    ),
+    () => pointerLoweringPlan(fixture.source, fixture.sourceFile),
     /address-of parameter outside its function body is unsupported/,
   );
 });
@@ -55,11 +52,7 @@ function referenceLookupsFor(bindingCount: number): number {
       },
     }),
   });
-  createPointerLoweringPlan(
-    source,
-    fixture.sourceFile,
-    pointerProgramIndex(source),
-  );
+  pointerLoweringPlan(source, fixture.sourceFile);
   return referenceLookups;
 }
 
@@ -68,6 +61,19 @@ function pointerProgramIndex(source: TargetSourceProgram) {
     bindingWrites: false,
     memberDispatch: false,
   });
+}
+
+function pointerLoweringPlan(
+  source: TargetSourceProgram,
+  sourceFile: SourceFile,
+) {
+  const program = pointerProgramIndex(source);
+  return createPointerLoweringPlan(
+    source,
+    sourceFile,
+    program,
+    createProgramGeneratedNames(source, program).forFile(sourceFile),
+  );
 }
 
 function checkedFixture(bindingCount: number): {

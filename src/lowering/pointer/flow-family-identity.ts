@@ -15,8 +15,12 @@ export function nonBijectiveIdentityOccurrences(
   ledger: PointerPlanningLedger,
 ): readonly Node[] {
   const operationsList = [...operations];
-  ledger.record("direct-family", operationsList.length);
-  if (!operationsList.some(isIdentityObservation)) {
+  let observesIdentity = false;
+  for (const operation of operationsList) {
+    ledger.record("direct-family");
+    observesIdentity ||= isIdentityObservation(operation);
+  }
+  if (!observesIdentity) {
     return Object.freeze([]);
   }
   const proof: FreshFamilyProof = {
@@ -118,10 +122,10 @@ function isFreshNewExpression(
     return false;
   }
   const members = source.ast.members(familyIdentity);
-  proof.ledger.record("direct-family", members.length);
-  const constructors = members.filter((member) =>
-    member !== undefined && source.ast.is.IsConstructorDeclaration(member)
-  );
+  const constructors = members.filter((member) => {
+    proof.ledger.record("direct-family");
+    return member !== undefined && source.ast.is.IsConstructorDeclaration(member);
+  });
   if (constructors.length === 0) {
     return true;
   }
@@ -176,7 +180,7 @@ function isFreshFactoryCall(
   const method = source.ast.as.AsMethodDeclaration(methodReference.declaration);
   const body = source.ast.body(methodReference.declaration);
   const statements = source.ast.statements(body);
-  proof.ledger.record("direct-family", statements.length);
+  proof.ledger.record("direct-family");
   const returnStatement = statements.length === 1 && statements[0] !== undefined &&
       source.ast.is.IsReturnStatement(statements[0])
     ? source.ast.as.AsReturnStatement(statements[0])

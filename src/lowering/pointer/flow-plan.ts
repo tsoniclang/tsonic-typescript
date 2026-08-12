@@ -34,6 +34,7 @@ import {
 import {
   PointerPlanningLedger,
   totalPointerPlanningOperations,
+  type PointerPlanningCandidateCounts,
   type PointerPlanningOperations,
 } from "./planning-ledger.js";
 
@@ -78,6 +79,7 @@ export interface ClosedPointerFlowPlan {
   readonly optimizedProjectionStoreCount: number;
   readonly planningOperationCount: number;
   readonly planningOperations: PointerPlanningOperations;
+  readonly planningCandidates: PointerPlanningCandidateCounts;
   readonly representationCounts: Readonly<Record<PointerFlowRepresentation, number>>;
   readonly fallbackReasons: readonly PointerFlowFallbackEvidence[];
   readonly familyFallbackReasons: readonly PointerFlowFallbackEvidence[];
@@ -115,31 +117,23 @@ export function createClosedPointerFlowPlan(
   let optimizedComponentCount = 0;
   for (const component of components) {
     ledger.record("representation");
-    const decision = selectRepresentation(source, component);
+    const decision = selectRepresentation(source, component, ledger);
     const representation = finalComponentRepresentation(
       component,
       decision,
       representations,
+      ledger,
     );
     for (const node of componentNodes(component)) {
+      ledger.record("representation");
       representations.set(node, representation);
     }
     if (representation !== "location") {
       optimizedComponentCount += 1;
     }
     const retention = representation === "location"
-      ? componentRetentionEvidence(component, decision, familyPlan)
+      ? componentRetentionEvidence(component, decision, familyPlan, ledger)
       : Object.freeze([]);
-    ledger.record(
-      "evidence",
-      component.vertices.length +
-        component.operations.length +
-        component.pointerTypes.length +
-        retention.reduce(
-          (count, entry) => count + 1 + entry.occurrences.length,
-          0,
-        ),
-    );
     if (representation === "location" && retention.length === 0) {
       throw new Error("canonical pointer component has no exact retention reason");
     }
@@ -153,13 +147,15 @@ export function createClosedPointerFlowPlan(
         source,
         sourceIdentityFor,
         retention,
+        ledger,
       ),
     });
     summaries.push(summary);
     for (const node of componentNodes(component)) {
+      ledger.record("evidence");
       componentByNode.set(node, summary);
     }
-    appendFallbackEvidence(summary.retentionReasons, fallbackReasons);
+    appendFallbackEvidence(summary.retentionReasons, fallbackReasons, ledger);
   }
   const projectionFusions = planPointerProjectionFusions(
     source,
@@ -168,10 +164,13 @@ export function createClosedPointerFlowPlan(
     ledger,
   );
   const frozenSummaries = Object.freeze(summaries);
-  const representationCounts = countRepresentations(frozenSummaries);
-  ledger.record(
-    "evidence",
-    frozenSummaries.length + fallbackReasons.size,
+  const representationCounts = countRepresentations(frozenSummaries, ledger);
+  const sealedFallbackReasons = sealFallbackEvidence(fallbackReasons, ledger);
+  const sealedFamilyFallbackReasons = sealFamilyFallbackEvidence(
+    source,
+    sourceIdentityFor,
+    familyPlan.fallbackReasons,
+    ledger,
   );
   const planningOperations = ledger.snapshot();
   return Object.freeze({
@@ -199,13 +198,10 @@ export function createClosedPointerFlowPlan(
     optimizedProjectionStoreCount: projectionFusions.storeCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,
+    planningCandidates: ledger.candidateSnapshot(),
     representationCounts,
-    fallbackReasons: sealFallbackEvidence(fallbackReasons),
-    familyFallbackReasons: sealFamilyFallbackEvidence(
-      source,
-      sourceIdentityFor,
-      familyPlan.fallbackReasons,
-    ),
+    fallbackReasons: sealedFallbackReasons,
+    familyFallbackReasons: sealedFamilyFallbackReasons,
   });
 }
 
@@ -213,14 +209,22 @@ function sealFamilyFallbackEvidence(
   source: TargetSourceProgram,
   sourceIdentityFor: SourceIdentityResolver,
   fallback: readonly DirectReferenceFamilyFallback[],
+  ledger: PointerPlanningLedger,
 ): readonly PointerFlowFallbackEvidence[] {
-  return Object.freeze(fallback.map((entry) => Object.freeze({
-    reason: entry.reason,
-    count: entry.count,
-    examples: Object.freeze(entry.occurrences.map((node) =>
-      optimizationOccurrence(source, node, sourceIdentityFor)
-    ).sort(compareOptimizationOccurrences).slice(0, 8)),
-  })));
+  return Object.freeze(fallback.map((entry) => {
+    ledger.record("evidence");
+    return Object.freeze({
+      reason: entry.reason,
+      count: entry.count,
+      examples: Object.freeze(entry.occurrences.map((node) => {
+        ledger.record("evidence");
+        return optimizationOccurrence(source, node, sourceIdentityFor);
+      }).sort((left, right) => {
+        ledger.record("evidence");
+        return compareOptimizationOccurrences(left, right);
+      }).slice(0, 8)),
+    });
+  }));
 }
 
 function componentRepresentationNodes(
@@ -240,11 +244,16 @@ function finalComponentRepresentation(
   component: PointerFlowComponent,
   decision: PointerFlowDecision,
   representations: ReadonlyMap<Node, PointerFlowRepresentation>,
+  ledger: PointerPlanningLedger,
 ): PointerFlowRepresentation {
-  const selected = new Set(componentRepresentationNodes(component).flatMap((node) => {
+  const selected = new Set<PointerFlowRepresentation>();
+  for (const node of componentRepresentationNodes(component)) {
+    ledger.record("representation");
     const representation = representations.get(node);
-    return representation === undefined ? [] : [representation];
-  }));
+    if (representation !== undefined) {
+      selected.add(representation);
+    }
+  }
   if (selected.size === 0) {
     return decision.representation;
   }
@@ -265,18 +274,23 @@ function componentRetentionEvidence(
   component: PointerFlowComponent,
   decision: PointerFlowDecision,
   familyPlan: DirectReferenceFamilyPlan,
+  ledger: PointerPlanningLedger,
 ): readonly PointerFlowBlockerOccurrence[] {
   const evidence = new Map<PointerFlowBlocker, Set<Node>>();
-  appendRetention(evidence, decision.blockerEvidence);
+  appendRetention(evidence, decision.blockerEvidence, ledger);
   for (const node of componentRepresentationNodes(component)) {
+    ledger.record("evidence");
     const familyEvidence = familyPlan.canonicalRetentionFor(node);
     if (familyEvidence === undefined) {
       continue;
     }
-    appendRetention(evidence, familyEvidence);
+    appendRetention(evidence, familyEvidence, ledger);
   }
   return Object.freeze([...evidence]
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .sort(([left], [right]) => {
+      ledger.record("evidence");
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
     .map(([reason, occurrences]) => Object.freeze({
       reason,
       occurrences: Object.freeze([...occurrences]),
@@ -286,13 +300,16 @@ function componentRetentionEvidence(
 function appendRetention(
   target: Map<PointerFlowBlocker, Set<Node>>,
   source: readonly PointerFlowBlockerOccurrence[],
+  ledger: PointerPlanningLedger,
 ): void {
   for (const entry of source) {
+    ledger.record("evidence");
     const occurrences = target.get(entry.reason);
     if (occurrences === undefined) {
       target.set(entry.reason, new Set(entry.occurrences));
     } else {
       for (const occurrence of entry.occurrences) {
+        ledger.record("evidence");
         occurrences.add(occurrence);
       }
     }
@@ -303,17 +320,26 @@ function sealComponentRetention(
   source: TargetSourceProgram,
   sourceIdentityFor: SourceIdentityResolver,
   retention: readonly PointerFlowBlockerOccurrence[],
+  ledger: PointerPlanningLedger,
 ): readonly PointerFlowRetentionEvidence[] {
-  return Object.freeze(retention.map((entry) => Object.freeze({
-    reason: entry.reason,
-    occurrences: Object.freeze(entry.occurrences.map((node) =>
-      optimizationOccurrence(source, node, sourceIdentityFor)
-    ).sort(compareOptimizationOccurrences)),
-  })));
+  return Object.freeze(retention.map((entry) => {
+    ledger.record("evidence");
+    return Object.freeze({
+      reason: entry.reason,
+      occurrences: Object.freeze(entry.occurrences.map((node) => {
+        ledger.record("evidence");
+        return optimizationOccurrence(source, node, sourceIdentityFor);
+      }).sort((left, right) => {
+        ledger.record("evidence");
+        return compareOptimizationOccurrences(left, right);
+      })),
+    });
+  }));
 }
 
 function countRepresentations(
   components: readonly PointerFlowComponentSummary[],
+  ledger: PointerPlanningLedger,
 ): Readonly<Record<PointerFlowRepresentation, number>> {
   const counts: Record<PointerFlowRepresentation, number> = {
     location: 0,
@@ -322,6 +348,7 @@ function countRepresentations(
     "direct-object": 0,
   };
   for (const component of components) {
+    ledger.record("evidence");
     counts[component.representation] += 1;
   }
   return Object.freeze(counts);
@@ -333,8 +360,10 @@ function appendFallbackEvidence(
     PointerFlowBlocker,
     { count: number; examples: OptimizationOccurrence[] }
   >,
+  ledger: PointerPlanningLedger,
 ): void {
   for (const blocker of retention) {
+    ledger.record("evidence");
     const examples = blocker.occurrences;
     if (examples.length === 0) {
       throw new Error(`pointer fallback '${blocker.reason}' has no occurrence`);
@@ -354,88 +383,132 @@ function sealFallbackEvidence(
     PointerFlowBlocker,
     { readonly count: number; readonly examples: OptimizationOccurrence[] }
   >,
+  ledger: PointerPlanningLedger,
 ): readonly PointerFlowFallbackEvidence[] {
   return Object.freeze([...fallback]
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([reason, evidence]) => Object.freeze({
-      reason,
-      count: evidence.count,
-      examples: Object.freeze(
-        [...evidence.examples]
-          .sort(compareOptimizationOccurrences)
-          .slice(0, 8),
-      ),
-    })));
+    .sort(([left], [right]) => {
+      ledger.record("evidence");
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
+    .map(([reason, evidence]) => {
+      ledger.record("evidence");
+      const examples: OptimizationOccurrence[] = [];
+      for (const example of evidence.examples) {
+        ledger.record("evidence");
+        examples.push(example);
+      }
+      return Object.freeze({
+        reason,
+        count: evidence.count,
+        examples: Object.freeze(
+          examples
+            .sort((left, right) => {
+              ledger.record("evidence");
+              return compareOptimizationOccurrences(left, right);
+            })
+            .slice(0, 8),
+        ),
+      });
+    }));
 }
 
 function selectRepresentation(
   source: TargetSourceProgram,
   component: PointerFlowComponent,
+  ledger: PointerPlanningLedger,
 ): PointerFlowDecision {
   if (component.blockers.length !== 0) {
-    return locationDecision(component);
+    return locationDecision(component, ledger);
   }
   if (component.producers.length === 0) {
     return locationDecision(
       component,
+      ledger,
       "unsupported-producer",
-      componentAnchors(component),
+      componentAnchors(component, ledger),
     );
   }
-  const descriptions = component.pointees.map((evidence) =>
-    describePointerPointee(source, evidence.anchor, evidence.type)
-  );
+  const descriptions = component.pointees.map((evidence) => {
+    ledger.record("representation");
+    return describePointerPointee(source, evidence.anchor, evidence.type);
+  });
   const description = descriptions[0];
   if (
     description === undefined ||
-    descriptions.some((candidate) =>
-      candidate === undefined ||
-      candidate.category !== description.category ||
-      candidate.identity !== description.identity
-    )
+    descriptions.some((candidate) => {
+      ledger.record("representation");
+      return candidate === undefined ||
+        candidate.category !== description.category ||
+        candidate.identity !== description.identity;
+    })
   ) {
     return locationDecision(
       component,
+      ledger,
       "unsupported-pointee",
-      component.pointees.map((evidence) => evidence.anchor),
+      component.pointees.map((evidence) => {
+        ledger.record("representation");
+        return evidence.anchor;
+      }),
     );
   }
   const category = description.category;
-  const operations = component.operations.map((node) =>
-    source.sourceFacts.getFact(node, pointerOperationFactKey)
-  );
-  if (operations.some((operation) => operation === undefined)) {
+  const operations = component.operations.map((node) => {
+    ledger.record("representation");
+    return source.sourceFacts.getFact(node, pointerOperationFactKey);
+  });
+  if (operations.some((operation) => {
+    ledger.record("representation");
+    return operation === undefined;
+  })) {
     return locationDecision(
       component,
+      ledger,
       "unsupported-flow",
-      component.operations.filter((node, index) => operations[index] === undefined),
+      component.operations.filter((node, index) => {
+        ledger.record("representation");
+        return operations[index] === undefined;
+      }),
     );
   }
-  const hasStore = operations.some((operation) => operation?.operation === "store");
-  const producersAreDirect = component.producers.every((producer) =>
-    producer.operation === "allocate" || producer.operation === "address-of"
-  );
+  const hasStore = operations.some((operation) => {
+    ledger.record("representation");
+    return operation?.operation === "store";
+  });
+  const producersAreDirect = component.producers.every((producer) => {
+    ledger.record("representation");
+    return producer.operation === "allocate" || producer.operation === "address-of";
+  });
   if (!producersAreDirect) {
     return locationDecision(
       component,
+      ledger,
       "unsupported-producer",
-      component.producers.map((producer) => producer.call),
+      component.producers.map((producer) => {
+        ledger.record("representation");
+        return producer.call;
+      }),
     );
   }
   if (hasStore) {
     const representation = component.producers.every(
-        (producer) => producer.operation === "allocate",
+        (producer) => {
+          ledger.record("representation");
+          return producer.operation === "allocate";
+        },
       ) && (category === "scalar" || category === "direct-reference")
       ? "mutable-cell"
       : "location";
     return representation === "location"
       ? locationDecision(
           component,
+          ledger,
           "unsupported-flow",
-          component.operations.filter((node) =>
-            source.sourceFacts.getFact(node, pointerOperationFactKey)
-              ?.operation === "store"
-          ),
+          component.operations.filter((node) => {
+            ledger.record("representation");
+            return source.sourceFacts.getFact(node, pointerOperationFactKey)
+              ?.operation === "store";
+          }),
         )
       : optimizedDecision(representation);
   }
@@ -456,35 +529,45 @@ function optimizedDecision(
 
 function locationDecision(
   component: PointerFlowComponent,
+  ledger: PointerPlanningLedger,
   blocker?: PointerFlowBlocker,
   occurrences: readonly Node[] = [],
 ): PointerFlowDecision {
-  const evidence = new Map<PointerFlowBlocker, Set<Node>>(
-    component.blockerEvidence.map((entry) => [
-      entry.reason,
-      new Set(entry.occurrences),
-    ]),
-  );
+  const evidence = new Map<PointerFlowBlocker, Set<Node>>();
+  for (const entry of component.blockerEvidence) {
+    ledger.record("representation");
+    const occurrences = new Set<Node>();
+    for (const occurrence of entry.occurrences) {
+      ledger.record("representation");
+      occurrences.add(occurrence);
+    }
+    evidence.set(entry.reason, occurrences);
+  }
   if (blocker !== undefined) {
     const selected = occurrences.length === 0
-      ? componentAnchors(component)
+      ? componentAnchors(component, ledger)
       : occurrences;
     const existing = evidence.get(blocker);
     if (existing === undefined) {
       evidence.set(blocker, new Set(selected));
     } else {
       for (const occurrence of selected) {
+        ledger.record("representation");
         existing.add(occurrence);
       }
     }
   }
   for (const reason of component.blockers) {
+    ledger.record("representation");
     if (!evidence.has(reason)) {
       throw new Error(`pointer blocker '${reason}' has no exact occurrence`);
     }
   }
   const blockerEvidence = [...evidence]
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .sort(([left], [right]) => {
+      ledger.record("representation");
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
     .map(([reason, selected]) => Object.freeze({
       reason,
       occurrences: Object.freeze([...selected]),
@@ -496,8 +579,14 @@ function locationDecision(
   });
 }
 
-function componentAnchors(component: PointerFlowComponent): readonly Node[] {
-  const anchors = component.vertices.map((vertex) => vertex.node);
+function componentAnchors(
+  component: PointerFlowComponent,
+  ledger: PointerPlanningLedger,
+): readonly Node[] {
+  const anchors = component.vertices.map((vertex) => {
+    ledger.record("representation");
+    return vertex.node;
+  });
   if (anchors.length === 0) {
     throw new Error("pointer flow component has no source anchor");
   }

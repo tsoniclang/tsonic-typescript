@@ -18,8 +18,8 @@ import {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { createFinalNodeJournal } from "../final-nodes.js";
+import { createProgramGeneratedNames } from "../generated-names.js";
 import { createTargetProgramIndex } from "../program-index.js";
-
 import {
   checkedPointerFixture,
   checkedPointerFixtureWithValueSemantics,
@@ -30,7 +30,6 @@ import {
   visit,
 } from "./pointer.test-support.js";
 import { createPointerRewriteSession, lowerPointers } from "./transform.js";
-
 test("contracts one closed readonly scalar parameter flow", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
@@ -374,13 +373,17 @@ export const result = loadPointer(pointer);
 `);
   const flowPlan = createClosedPointerFlowPlan(fixture.source);
   const finalNodes = createFinalNodeJournal();
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: false,
+  });
   const session = createPointerRewriteSession(
     fixture.source,
     fixture.sourceFile,
-    createTargetProgramIndex(fixture.source, {
-      bindingWrites: true,
-      memberDispatch: false,
-    }),
+    program,
+    createProgramGeneratedNames(fixture.source, program).forFile(
+      fixture.sourceFile,
+    ),
     flowPlan,
     finalNodes,
   );

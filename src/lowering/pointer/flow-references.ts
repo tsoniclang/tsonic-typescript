@@ -7,6 +7,7 @@ import type {
 import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export interface PointerReferenceCensus {
   referenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
@@ -61,10 +62,12 @@ export function indexExactDeclarations(
 export function indexPointerTrackedReferences(
   source: TargetSourceProgram,
   trackedDeclarations: ReadonlySet<Node>,
+  planning?: PointerPlanningLedger,
 ): PointerTrackedReferenceIndex {
   const trackedBySymbol = indexTrackedDeclarations(
     source,
     trackedDeclarations,
+    planning,
   );
   return Object.freeze({
     referenceFor(node: Node | undefined) {
@@ -79,17 +82,31 @@ export function censusPointerReferences(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   trackedDeclarations: ReadonlySet<Node>,
+  planning?: PointerPlanningLedger,
 ): PointerReferenceCensus {
-  const index = indexPointerTrackedReferences(source, trackedDeclarations);
+  const index = indexPointerTrackedReferences(
+    source,
+    trackedDeclarations,
+    planning,
+  );
   const references = new Map<Node, SourceDeclarationReference>();
   const writesByDeclaration = new Map<Node, Set<Node>>();
-  for (const node of program.nodesOfKind(KindIdentifier)) {
+  const candidates = program.nodesOfKind(KindIdentifier);
+  const selected = planning === undefined
+    ? candidates
+    : planning.candidates(
+        "flow-census",
+        "pointer-reference",
+        candidates,
+      );
+  for (const node of selected) {
     const reference = index.referenceFor(node);
     if (reference === undefined) {
       continue;
     }
     references.set(node, reference);
     for (const write of program.bindingWritesAt(node)) {
+      planning?.record("flow-census");
       const existing = writesByDeclaration.get(reference.declaration);
       if (existing === undefined) {
         writesByDeclaration.set(reference.declaration, new Set([write.operation]));
@@ -98,6 +115,7 @@ export function censusPointerReferences(
       }
     }
   }
+  planning?.assertCandidateCount("pointer-reference", candidates.length);
   return Object.freeze({
     referenceFor(node: Node | undefined) {
       return node === undefined ? undefined : references.get(node);
@@ -119,9 +137,11 @@ export function censusPointerReferences(
 function indexTrackedDeclarations(
   source: TargetSourceProgram,
   declarations: ReadonlySet<Node>,
+  planning?: PointerPlanningLedger,
 ): ReadonlyMap<Symbol, SourceDeclarationReference> {
   const result = new Map<Symbol, SourceDeclarationReference>();
   for (const declaration of declarations) {
+    planning?.record("flow-census");
     const name = source.ast.name(declaration);
     const reference = source.navigation.sourceReferenceFor(name);
     if (reference === undefined || reference.declaration !== declaration) {
@@ -129,6 +149,7 @@ function indexTrackedDeclarations(
     }
     result.set(reference.symbol, reference);
     for (const symbol of exactSymbolsAt(source, name)) {
+      planning?.record("flow-census");
       result.set(symbol, reference);
     }
   }

@@ -9,6 +9,17 @@ import type {
   Node,
   PointerOperationFact,
 } from "@tsonic/tsts";
+import {
+  KindArrowFunction,
+  KindCallExpression,
+  KindFunctionDeclaration,
+  KindFunctionExpression,
+  KindIdentifier,
+  KindMethodDeclaration,
+  KindReturnStatement,
+  KindTypeReference,
+  KindVariableDeclaration,
+} from "@tsonic/tsts/target-ast";
 
 import {
   checkedPointerFixture,
@@ -18,12 +29,9 @@ import {
 } from "./pointer.test-support.js";
 import { createTargetProgramIndex } from "../program-index.js";
 import { censusPointerFlows } from "./flow-census.js";
+import { buildPointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type { PointerFlowComponent } from "./flow-graph.js";
-import { derivePointerOperationFactDenominator } from "./flow-operation-census.js";
-import {
-  assertPointerCensusTotality,
-  derivePointerTypeFactDenominator,
-} from "./flow-type-census.js";
+import { assertPointerCensusTotality } from "./flow-type-census.js";
 import {
   PointerPlanningLedger,
   type PointerPlanningPhase,
@@ -110,7 +118,12 @@ export const result = values.length;
     bindingWrites: true,
     memberDispatch: false,
   });
-  const expected = derivePointerTypeFactDenominator(fixture.source, program);
+  const facts = buildPointerTypedFactLedger(
+    fixture.source,
+    program,
+    new PointerPlanningLedger(),
+  );
+  const expected = new Set(facts.pointerTypeEntries.map(({ node }) => node));
   assert.deepEqual(expected, new Set(pointerTypeNodes(fixture.source)));
   const census = censusPointerFlows(
     fixture.source,
@@ -151,10 +164,12 @@ export const result = loadPointer(pointer);
     bindingWrites: true,
     memberDispatch: false,
   });
-  const expected = derivePointerOperationFactDenominator(
+  const facts = buildPointerTypedFactLedger(
     fixture.source,
     program,
+    new PointerPlanningLedger(),
   );
+  const expected = new Set(facts.operationEntries.map(({ node }) => node));
   assert.deepEqual(
     expected,
     new Set(pointerOperationFacts(fixture.source).keys()),
@@ -182,7 +197,7 @@ export const result = loadPointer(pointer);
     () => assertPointerCensusTotality(
       mutated,
       expected,
-      derivePointerTypeFactDenominator(fixture.source, program),
+      facts.pointerTypeEntries.map(({ node }) => node),
     ),
     /classified \d+ pointer operations, expected \d+/,
   );
@@ -306,8 +321,54 @@ test("bounds the complete pointer planner by deterministic work", () => {
       `${phase}: ${smallPhase} -> ${largePhase}`,
     );
   }
-  const quadraticFoil = (size: number): number => size * size;
-  assert.equal(quadraticFoil(16) / quadraticFoil(8), 4);
+});
+
+test("conserves every indexed production candidate in the planning ledger", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+function read(pointer: Pointer<number>): number { return loadPointer(pointer); }
+const pointer: Pointer<number> = allocatePointer(1);
+export const result = read(pointer);
+`);
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: false,
+  });
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const expected = {
+    "typed-fact-node": program.nodes.length,
+    "binding-type": program.nodesOfKind(KindTypeReference).length,
+    "function-result": program.nodesOfKinds([
+      KindFunctionDeclaration,
+      KindMethodDeclaration,
+      KindFunctionExpression,
+      KindArrowFunction,
+    ]).length,
+    "unowned-type": pointerTypeNodes(fixture.source).length,
+    "callable-alias-declaration": program.nodesOfKind(KindVariableDeclaration).length,
+    "callable-alias-reference": program.nodesOfKind(KindIdentifier).length,
+    "result-call": program.nodesOfKind(KindCallExpression).length,
+    "variable-initializer": program.nodesOfKind(KindVariableDeclaration).length,
+    "pointer-reference": program.nodesOfKind(KindIdentifier).length,
+    "pointer-call": program.nodesOfKind(KindCallExpression).length,
+    "pointer-return": program.nodesOfKind(KindReturnStatement).length,
+    "pointer-audit-reference": program.nodesOfKind(KindIdentifier).length,
+  } as const;
+  assert.deepEqual(plan.planningCandidates, expected);
+
+  const omitted = new PointerPlanningLedger();
+  for (const node of omitted.candidates(
+    "flow-census",
+    "typed-fact-node",
+    program.nodes.slice(1),
+  )) {
+    void node;
+  }
+  assert.throws(
+    () => omitted.assertCandidateCount("typed-fact-node", program.nodes.length),
+    /recorded \d+ candidates, expected \d+/,
+  );
 });
 
 function pointerOperations(

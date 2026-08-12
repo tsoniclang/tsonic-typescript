@@ -92,6 +92,7 @@ export function lowerOptimizedPointerOperation(
   updated: Node,
   representation: PointerFlowRepresentation,
   runtimeAlias: string,
+  nullableHashParameterName: string,
 ): Node | undefined {
   if (representation === "location") {
     return undefined;
@@ -118,6 +119,7 @@ export function lowerOptimizedPointerOperation(
       operation,
       values,
       runtimeAlias,
+      nullableHashParameterName,
     );
     if (identity !== undefined) {
       return identity;
@@ -239,6 +241,7 @@ function lowerReferenceIdentityOperation(
   operation: PointerOperationFact,
   values: readonly Node[],
   runtimeAlias: string,
+  nullableHashParameterName: string,
 ): Node | undefined {
   if (operation.operation === "equal-pointer") {
     requireArity(operation.operation, values, 2);
@@ -256,6 +259,7 @@ function lowerReferenceIdentityOperation(
       requiredValue(values, 0),
       operation.pointerType,
       runtimeAlias,
+      nullableHashParameterName,
     );
   }
   return undefined;
@@ -281,11 +285,11 @@ function directObjectHash(
   pointer: Node,
   pointerType: Type,
   runtimeAlias: string,
+  parameterName: string,
 ): Node {
   if (!pointerTypeCanBeUndefined(source, pointer, pointerType)) {
     return hashObject(factory, pointer, runtimeAlias);
   }
-  const parameterName = "$pointer";
   const parameter = requiredNode(
     NewParameterDeclaration(
       factory,

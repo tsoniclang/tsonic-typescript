@@ -7,6 +7,7 @@ import {
 
 import type { TargetProgramIndex } from "../program-index.js";
 import { indexExactDeclarations } from "./flow-references.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export interface PointerCallableAliasBoundary {
   readonly owner: Node;
@@ -44,9 +45,24 @@ export function analyzePointerCallableAliases(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
+  planning?: PointerPlanningLedger,
 ): PointerCallableAliases {
+  let traversalOperations = 0;
+  const recordTraversal = (): void => {
+    traversalOperations += 1;
+    planning?.record("flow-census");
+  };
   const shapes: CallableAliasShape[] = [];
-  for (const declaration of program.nodesOfKind(KindVariableDeclaration)) {
+  const declarationCandidates = program.nodesOfKind(KindVariableDeclaration);
+  const declarationsWithWork = planning === undefined
+    ? declarationCandidates
+    : planning.candidates(
+        "flow-census",
+        "callable-alias-declaration",
+        declarationCandidates,
+      );
+  for (const declaration of declarationsWithWork) {
+    traversalOperations += 1;
     if (!source.ast.is.IsIdentifier(source.ast.name(declaration))) {
       continue;
     }
@@ -56,14 +72,18 @@ export function analyzePointerCallableAliases(
       shapes.push({ declaration, initializer, reference });
     }
   }
+  planning?.assertCandidateCount(
+    "callable-alias-declaration",
+    declarationCandidates.length,
+  );
   const declarations = new Set([
     ...owners,
     ...shapes.map((shape) => shape.declaration),
   ]);
   const exactDeclarations = indexExactDeclarations(source, declarations);
   const candidates = new Map<Node, CallableAliasCandidate>();
-  let traversalOperations = program.nodes.length;
   for (const shape of shapes) {
+    recordTraversal();
     const { declaration, initializer, reference } = shape;
     const target = exactDeclarations.declarationFor(reference);
     if (target === undefined) {
@@ -82,7 +102,7 @@ export function analyzePointerCallableAliases(
   const resolved = new Map<Node, Node | false>();
   const resolving = new Set<Node>();
   const resolveOwner = (declaration: Node): Node | undefined => {
-    traversalOperations += 1;
+    recordTraversal();
     if (owners.has(declaration)) {
       return declaration;
     }
@@ -114,6 +134,7 @@ export function analyzePointerCallableAliases(
     return family;
   };
   for (const candidate of candidates.values()) {
+    recordTraversal();
     const owner = resolveOwner(candidate.declaration);
     if (owner === undefined) {
       continue;
@@ -132,7 +153,15 @@ export function analyzePointerCallableAliases(
   }
 
   const references = new Map<Node, Node[]>();
-  for (const node of program.nodesOfKind(KindIdentifier)) {
+  const referenceCandidates = program.nodesOfKind(KindIdentifier);
+  const referencesWithWork = planning === undefined
+    ? referenceCandidates
+    : planning.candidates(
+        "flow-census",
+        "callable-alias-reference",
+        referenceCandidates,
+      );
+  for (const node of referencesWithWork) {
     traversalOperations += 1;
     const declaration = exactDeclarations.declarationFor(node);
     if (declaration === undefined) {
@@ -145,13 +174,19 @@ export function analyzePointerCallableAliases(
       selected.push(node);
     }
   }
+  planning?.assertCandidateCount(
+    "callable-alias-reference",
+    referenceCandidates.length,
+  );
 
   const allowedReferences = new Set<Node>();
   for (const family of families.values()) {
+    recordTraversal();
     const members = [family.owner, ...family.aliases];
     for (const declaration of members) {
+      recordTraversal();
       for (const reference of references.get(declaration) ?? []) {
-        traversalOperations += 1;
+        recordTraversal();
         if (
           reference === source.ast.name(declaration)
         ) {
@@ -176,11 +211,14 @@ export function analyzePointerCallableAliases(
   }
 
   for (const family of families.values()) {
+    recordTraversal();
     if (family.boundaries.size === 0) {
       continue;
     }
     for (const declaration of [family.owner, ...family.aliases]) {
+      recordTraversal();
       for (const reference of references.get(declaration) ?? []) {
+        recordTraversal();
         allowedReferences.delete(reference);
       }
     }
@@ -189,20 +227,30 @@ export function analyzePointerCallableAliases(
   const validAliases = new Map<Node, Node>();
   let optimizedAliasCount = 0;
   for (const family of families.values()) {
+    recordTraversal();
     if (family.boundaries.size !== 0) {
       continue;
     }
     for (const alias of family.aliases) {
+      recordTraversal();
       validAliases.set(alias, family.owner);
       optimizedAliasCount += 1;
     }
   }
   const boundaries = Object.freeze([...families.values()]
-    .filter((family) => family.boundaries.size !== 0)
-    .map((family) => Object.freeze({
-      owner: family.owner,
-      occurrences: Object.freeze([...family.boundaries]),
-    })));
+    .filter((family) => {
+      recordTraversal();
+      return family.boundaries.size !== 0;
+    })
+    .map((family) => {
+      recordTraversal();
+      traversalOperations += family.boundaries.size;
+      planning?.record("flow-census", family.boundaries.size);
+      return Object.freeze({
+        owner: family.owner,
+        occurrences: Object.freeze([...family.boundaries]),
+      });
+    }));
 
   return Object.freeze({
     allowedReferences,

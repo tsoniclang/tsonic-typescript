@@ -27,12 +27,11 @@ import {
   attachPointerOperations,
   collectPointerOperations,
   connectLocationIdentities,
-  derivePointerOperationFactDenominator,
 } from "./flow-operation-census.js";
+import { buildPointerTypedFactLedger } from "./flow-fact-ledger.js";
 import {
   assertPointerCensusTotality,
   collectPointerBindings,
-  derivePointerTypeFactDenominator,
   retainUnownedPointerTypes,
 } from "./flow-type-census.js";
 import {
@@ -49,7 +48,8 @@ import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export interface PointerCensus {
   readonly source: TargetSourceProgram;
-  readonly nodes: readonly Node[];
+  readonly program: TargetProgramIndex;
+  readonly ledger: PointerPlanningLedger;
   readonly graph: PointerFlowGraph;
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
   readonly pointerBindings: ReadonlySet<Node>;
@@ -73,33 +73,31 @@ export function censusPointerFlows(
   program: TargetProgramIndex,
   ledger: PointerPlanningLedger,
 ): PointerFlowCensusResult {
-  const nodes = program.nodes;
   const graph = new PointerFlowGraph();
-  const expectedOperations = derivePointerOperationFactDenominator(
-    source,
-    program,
-  );
-  const operations = collectPointerOperations(source, program, graph);
-  connectLocationIdentities(graph, operations);
-  const expectedPointerTypes = derivePointerTypeFactDenominator(source, program);
+  const facts = buildPointerTypedFactLedger(source, program, ledger);
+  const operations = collectPointerOperations(facts, graph, ledger);
+  connectLocationIdentities(graph, operations, ledger);
   const classifiedPointerTypes = new Set<Node>();
   const pointerBindings = collectPointerBindings(
     source,
     program,
     graph,
     classifiedPointerTypes,
+    ledger,
   );
   const functionResults = collectPointerFunctionResults(
     source,
     program,
     graph,
     classifiedPointerTypes,
+    ledger,
   );
   retainUnownedPointerTypes(
     source,
-    program,
+    facts,
     graph,
     classifiedPointerTypes,
+    ledger,
   );
   const resultExpressions = new Set<Node>();
   const allowedPointerReferences = new Set<Node>();
@@ -122,6 +120,7 @@ export function censusPointerFlows(
     source,
     program,
     callableOwners,
+    ledger,
   );
   for (const reference of callableAliases.allowedReferences) {
     allowedFunctionTargets.add(reference);
@@ -135,6 +134,7 @@ export function censusPointerFlows(
     resultExpressions,
     allowedFunctionTargets,
     callableAliases,
+    ledger,
   );
   connectVariableInitializers(
     source,
@@ -144,6 +144,7 @@ export function censusPointerFlows(
     pointerBindings,
     resultExpressions,
     allowedProducerUses,
+    ledger,
   );
   const references = censusPointerReferences(
     source,
@@ -154,10 +155,12 @@ export function censusPointerFlows(
       functionParameters,
       functionResults,
     ),
+    ledger,
   );
   const census: PointerCensus = {
     source,
-    nodes,
+    program,
+    ledger,
     graph,
     operations,
     pointerBindings,
@@ -177,16 +180,12 @@ export function censusPointerFlows(
   applyCallableAliasBoundaries(census);
   auditPointerCensus(census);
   const components = graph.components();
-  ledger.record(
-    "flow-census",
-    program.nodes.length +
-      graph.operationCount +
-      callableAliases.traversalOperations,
-  );
+  ledger.record("flow-census", graph.operationCount);
   assertPointerCensusTotality(
     components,
-    expectedOperations,
-    expectedPointerTypes,
+    facts.operationEntries.map(({ node }) => node),
+    facts.pointerTypeEntries.map(({ node }) => node),
+    ledger,
   );
   return Object.freeze({
     components,
@@ -195,8 +194,11 @@ export function censusPointerFlows(
 
 function applyCallableAliasBoundaries(census: PointerCensus): void {
   for (const boundary of census.callableAliases.boundaries) {
+    census.ledger.record("flow-census");
     for (const occurrence of boundary.occurrences) {
+      census.ledger.record("flow-census");
       for (const parameter of census.functionParameters.get(boundary.owner) ?? []) {
+        census.ledger.record("flow-census");
         census.graph.block(
           census.graph.get(parameter),
           "indirect-call",
@@ -220,9 +222,15 @@ function connectVariableInitializers(
   pointerBindings: Set<Node>,
   resultExpressions: ReadonlySet<Node>,
   allowedProducerUses: Set<Node>,
+  planning: PointerPlanningLedger,
 ): void {
   const dependents = new Map<Node, Node[]>();
-  for (const node of program.nodesOfKind(KindVariableDeclaration)) {
+  const candidates = program.nodesOfKind(KindVariableDeclaration);
+  for (const node of planning.candidates(
+    "flow-census",
+    "variable-initializer",
+    candidates,
+  )) {
     if (!source.ast.is.IsVariableDeclaration(node)) {
       continue;
     }
@@ -249,6 +257,7 @@ function connectVariableInitializers(
       existing.push(node);
     }
   }
+  planning.assertCandidateCount("variable-initializer", candidates.length);
   const pending = [
     ...pointerBindings,
     ...resultExpressions,
@@ -258,6 +267,7 @@ function connectVariableInitializers(
   ];
   const expanded = new Set<Node>();
   while (pending.length > 0) {
+    planning.record("flow-census");
     const sourceNode = pending.pop();
     if (sourceNode === undefined || expanded.has(sourceNode)) {
       continue;
@@ -268,6 +278,7 @@ function connectVariableInitializers(
       continue;
     }
     for (const targetNode of dependents.get(sourceNode) ?? []) {
+      planning.record("flow-census");
       const targetWasKnown = graph.get(targetNode) !== undefined;
       const target = graph.add(targetNode);
       graph.union(target, sourceVertex);

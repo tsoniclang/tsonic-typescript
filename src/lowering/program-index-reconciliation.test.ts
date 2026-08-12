@@ -5,6 +5,7 @@ import type { Node } from "@tsonic/tsts";
 import { KindIdentifier, KindMethodDeclaration } from "@tsonic/tsts/target-ast";
 
 import { checkedEffectFixture } from "./effect/effect.test-support.js";
+import { visit } from "./effect/effect.test-support.js";
 import { createTargetProgramIndex } from "./program-index.js";
 import {
   assertBindingWritesReconcile,
@@ -87,6 +88,43 @@ test("independent reconciliation catches node and edge mutations", () => {
       },
     }),
     /source-file partition/,
+  );
+  let omittedIdentifier: Node | undefined;
+  let omittedFile = firstFile;
+  for (const sourceFile of fixture.source.navigation.sourceFiles) {
+    visit(fixture.source, sourceFile, (node) => {
+      if (omittedIdentifier === undefined && fixture.source.ast.is.IsIdentifier(node)) {
+        omittedIdentifier = node;
+        omittedFile = sourceFile;
+      }
+    });
+  }
+  assert.ok(omittedIdentifier !== undefined);
+  const omittedName = fixture.source.ast.text(omittedIdentifier);
+  assert.throws(
+    () => assertNodeIndexReconciles(fixture.source, {
+      ...index,
+      hasAuthoredIdentifierName(sourceFile, name) {
+        return sourceFile === omittedFile && name === omittedName
+          ? false
+          : index.hasAuthoredIdentifierName(sourceFile, name);
+      },
+    }),
+    /authored identifier .* absent/,
+  );
+  assert.throws(
+    () => assertNodeIndexReconciles(fixture.source, {
+      ...index,
+      hasAuthoredIdentifierName(sourceFile, name) {
+        return name === "__fabricated_identifier_name__"
+          ? true
+          : index.hasAuthoredIdentifierName(sourceFile, name);
+      },
+      authoredIdentifierNameCount(sourceFile) {
+        return index.authoredIdentifierNameCount(sourceFile) + 1;
+      },
+    }),
+    /authored identifier unique-name count/,
   );
   assert.throws(
     () => assertBindingWritesReconcile(fixture.source, {

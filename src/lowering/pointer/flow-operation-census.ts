@@ -1,9 +1,9 @@
-import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import type { TargetProgramIndex } from "../program-index.js";
 import type { PointerCensus } from "./flow-census.js";
+import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 import {
   PointerFlowGraph,
   type PointerFlowVertex,
@@ -15,40 +15,15 @@ import {
   resolvePointerExpression,
   resolveRequiredPointerExpression,
 } from "./flow-syntax.js";
-import { validatePointerOperationFact } from "./operation-contract.js";
-
-export function derivePointerOperationFactDenominator(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-): ReadonlySet<Node> {
-  const operations = new Set<Node>();
-  for (const node of program.nodes) {
-    const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
-    if (operation === undefined) {
-      continue;
-    }
-    if (operation.call !== node) {
-      throw new Error(
-        "pointer operation fact is not attached to its exact call",
-      );
-    }
-    validatePointerOperationFact(source, operation);
-    operations.add(node);
-  }
-  return operations;
-}
 
 export function collectPointerOperations(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
+  facts: PointerTypedFactLedger,
   graph: PointerFlowGraph,
+  planning: PointerPlanningLedger,
 ): ReadonlyMap<Node, PointerOperationFact> {
   const operations = new Map<Node, PointerOperationFact>();
-  for (const node of program.nodes) {
-    const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
-    if (operation === undefined) {
-      continue;
-    }
+  for (const { node, fact: operation } of facts.operationEntries) {
+    planning.record("flow-census");
     operations.set(node, operation);
     const vertex = graph.add(node);
     vertex.operations.add(node);
@@ -71,9 +46,11 @@ export function collectPointerOperations(
 export function connectLocationIdentities(
   graph: PointerFlowGraph,
   operations: ReadonlyMap<Node, PointerOperationFact>,
+  planning: PointerPlanningLedger,
 ): void {
   const identities = new Map<object, PointerFlowVertex>();
   for (const operation of operations.values()) {
+    planning.record("flow-census");
     if (
       operation.operation !== "address-of" &&
       operation.operation !== "bind-pointer"
@@ -101,6 +78,7 @@ export function connectLocationIdentities(
 export function attachPointerOperations(census: PointerCensus): void {
   const { source, graph, operations } = census;
   for (const operation of operations.values()) {
+    census.ledger.record("flow-census");
     const operationVertex = graph.get(operation.call);
     if (operationVertex === undefined) {
       throw new Error(`pointer ${operation.operation} lost its census vertex`);
@@ -209,6 +187,7 @@ function allowPointerOperand(census: PointerCensus, expression: Node): void {
 
 function connectBindingInitializers(census: PointerCensus): void {
   for (const binding of census.pointerBindings) {
+    census.ledger.record("flow-census");
     if (!census.source.ast.is.IsVariableDeclaration(binding)) {
       continue;
     }

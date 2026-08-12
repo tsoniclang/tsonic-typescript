@@ -34,19 +34,49 @@ export function assertNodeIndexReconciles(
   index: TargetProgramIndex,
 ): void {
   const expected: Node[] = [];
+  let identifierEntries = 0;
   assertSameNodes(index.sourceFiles, source.navigation.sourceFiles, "source-file census");
   for (const sourceFile of source.navigation.sourceFiles) {
     const fileNodes: Node[] = [];
+    const identifierNames = new Set<string>();
     visit(source, sourceFile, (node) => {
       expected.push(node);
       fileNodes.push(node);
+      if (source.ast.is.IsIdentifier(node)) {
+        identifierEntries += 1;
+        identifierNames.add(source.ast.text(node));
+      }
     });
     assertSameNodes(
       index.nodesFor(sourceFile),
       fileNodes,
       "source-file partition",
     );
+    for (const name of identifierNames) {
+      assert.equal(
+        index.hasAuthoredIdentifierName(sourceFile, name),
+        true,
+        `authored identifier '${name}' is absent from its source-file name index`,
+      );
+    }
+    assert.equal(
+      index.authoredIdentifierNameCount(sourceFile),
+      identifierNames.size,
+      "authored identifier unique-name count",
+    );
+    const absent = "__tsonic_absent_authored_identifier_7d43d68b";
+    assert.equal(identifierNames.has(absent), false);
+    assert.equal(
+      index.hasAuthoredIdentifierName(sourceFile, absent),
+      false,
+      "absent authored-identifier foil was admitted",
+    );
   }
+  assert.equal(
+    index.operations.identifierEntries,
+    identifierEntries,
+    "identifier entry operation count",
+  );
   assertSameNodes(index.nodes, expected, "node census");
   const kinds = new Set(expected.map((node) => requireKind(source, node)));
   for (const kind of kinds) {

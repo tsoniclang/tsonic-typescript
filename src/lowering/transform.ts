@@ -11,6 +11,7 @@ import {
   createFinalNodeJournal,
   type FinalNodeJournal,
 } from "./final-nodes.js";
+import { createProgramGeneratedNames } from "./generated-names.js";
 
 import {
   createClosedCooperativeEffectPlan,
@@ -103,6 +104,7 @@ export function prepareTypeScriptLowering(
       profile.scalarProjections === "closed-direct",
     memberDispatch: profile.cooperativeEffects === "closed-direct",
   });
+  const generatedNames = createProgramGeneratedNames(source, program);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
     ? createClosedPointerFlowPlan(source, program, identities.forFile)
     : undefined;
@@ -138,6 +140,7 @@ export function prepareTypeScriptLowering(
           source,
           sourceFile,
           program,
+          generatedNames.forFile(sourceFile),
           pointerFlowPlan,
           finalNodes,
         ),

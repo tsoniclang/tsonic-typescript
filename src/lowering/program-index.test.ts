@@ -48,6 +48,10 @@ test("indexes every exact node once and preserves kind order", () => {
   assert.equal(index.nodesOfKinds(mixedKinds), index.nodesOfKinds(mixedKinds));
   assert.equal(index.operations.nodeVisits, expected.length);
   assert.equal(index.operations.kindEntries, expected.length);
+  assert.equal(
+    index.operations.identifierEntries,
+    index.nodesOfKind(KindIdentifier).length,
+  );
   assert.ok(Object.isFrozen(index));
   assert.ok(Object.isFrozen(index.nodes));
   assert.ok(Object.isFrozen(index.nodesOfKind(KindIdentifier)));
@@ -147,6 +151,7 @@ function totalOperations(operations: {
   readonly nodeVisits: number;
   readonly childEdges: number;
   readonly kindEntries: number;
+  readonly identifierEntries: number;
   readonly bindingCandidates: number;
   readonly bindingWrites: number;
   readonly heritageEdges: number;

@@ -269,9 +269,12 @@ function selectedTypeIsPointer(
   subjects: readonly ExtensionFactSubject[],
   ledger: PointerPlanningLedger,
 ): boolean {
-  ledger.record("direct-family", subjects.length);
-  return subjects.some((subject) => {
+  for (const subject of subjects) {
+    ledger.record("direct-family");
     const marker = source.sourceFacts.getFact(subject, sourceMarkerFactKey);
-    return marker?.kind === "type-marker" && marker.marker === "pointer";
-  });
+    if (marker?.kind === "type-marker" && marker.marker === "pointer") {
+      return true;
+    }
+  }
+  return false;
 }
