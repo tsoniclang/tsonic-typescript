@@ -1,10 +1,11 @@
 import type { Node, Type } from "@tsonic/tsts";
+import { AsUnionTypeNode } from "@tsonic/tsts/target-ast";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api";
 
-import { typeMaySuspend } from "./synchronous.js";
+import { sameSelectedType, typeMaySuspend } from "./synchronous.js";
 
 export function callableDeclarationAllowsSynchronousValue(
   source: TargetSourceProgram,
@@ -14,10 +15,17 @@ export function callableDeclarationAllowsSynchronousValue(
     undefined;
 }
 
+export interface CallableReturnRewrite {
+  readonly target: Node;
+  readonly selection:
+    | { readonly kind: "type-argument"; readonly index: number }
+    | { readonly kind: "union-member"; readonly index: number };
+}
+
 export function callableDeclarationSynchronousReturnTypes(
   source: TargetSourceProgram,
   declaration: Node,
-): readonly Node[] | undefined {
+): readonly CallableReturnRewrite[] | undefined {
   const name = source.ast.name(declaration);
   const semantics = source.semantics.forNode(name ?? declaration);
   const type = semantics.getTypeAtLocation(name ?? declaration);
@@ -31,12 +39,18 @@ export function callableDeclarationSynchronousReturnTypes(
     source,
     source.ast.typeNode(declaration),
   );
-  return returnTypes.length !== 0 && returnTypes.every((returnType) =>
-      source.ast.is.IsTypeReferenceNode(returnType) &&
-      source.ast.typeArguments(returnType).length === 1
-    )
-    ? Object.freeze(returnTypes)
+  const rewrites = returnTypes.map((returnType) =>
+    callableReturnRewrite(source, returnType)
+  );
+  return rewrites.length !== 0 && rewrites.every(isReturnRewrite)
+    ? Object.freeze(rewrites)
     : undefined;
+}
+
+function isReturnRewrite(
+  rewrite: CallableReturnRewrite | undefined,
+): rewrite is CallableReturnRewrite {
+  return rewrite !== undefined;
 }
 
 function callableReturnTypeNodes(
@@ -62,6 +76,88 @@ function callableReturnTypeNodes(
   }
   const returnType = source.ast.typeNode(node);
   return returnType === undefined ? [] : [returnType];
+}
+
+export function callableReturnRewrite(
+  source: TargetSourceProgram,
+  node: Node,
+): CallableReturnRewrite | undefined {
+  if (source.ast.is.IsParenthesizedTypeNode(node)) {
+    const inner = source.ast.as.AsParenthesizedTypeNode(node)?.Type;
+    return inner === undefined ? undefined : callableReturnRewrite(source, inner);
+  }
+  const semantics = source.semantics.forNode(node);
+  if (source.ast.is.IsTypeReferenceNode(node)) {
+    const arguments_ = source.ast.typeArguments(node);
+    const innerNode = arguments_[0];
+    const returnType = semantics.getTypeFromTypeNode(node);
+    const innerType = innerNode === undefined
+      ? undefined
+      : semantics.getTypeFromTypeNode(innerNode);
+    return arguments_.length === 1 &&
+        returnType !== undefined &&
+        innerType !== undefined &&
+        typeMaySuspend(semantics, returnType) &&
+        exactAwaitableContract(semantics, returnType, innerType, new Set())
+      ? Object.freeze({
+          target: node,
+          selection: Object.freeze({ kind: "type-argument", index: 0 }),
+        })
+      : undefined;
+  }
+  if (!source.ast.is.IsUnionTypeNode(node)) {
+    return undefined;
+  }
+  const members = AsUnionTypeNode(node)?.Types?.Nodes ?? [];
+  const selected = members.map((member) =>
+    member === undefined ? undefined : semantics.getTypeFromTypeNode(member)
+  );
+  const synchronous = selected.flatMap((type, index) =>
+    type !== undefined && !typeMaySuspend(semantics, type) ? [index] : []
+  );
+  const index = synchronous[0];
+  const innerType = index === undefined ? undefined : selected[index];
+  return synchronous.length === 1 &&
+      index !== undefined &&
+      innerType !== undefined &&
+      selected.every((type) =>
+        type !== undefined &&
+        exactAwaitableContract(semantics, type, innerType, new Set())
+      )
+    ? Object.freeze({
+        target: node,
+        selection: Object.freeze({ kind: "union-member", index }),
+      })
+    : undefined;
+}
+
+function exactAwaitableContract(
+  semantics: SourceFileSemantics,
+  type: Type,
+  innerType: Type,
+  pending: Set<Type>,
+): boolean {
+  if (sameSelectedType(semantics, type, innerType)) {
+    return true;
+  }
+  if (pending.has(type)) {
+    return false;
+  }
+  if (semantics.isUnion(type)) {
+    pending.add(type);
+    const exact = semantics.getUnionOrIntersectionTypes(type).every((member) =>
+      member !== undefined &&
+      exactAwaitableContract(semantics, member, innerType, pending)
+    );
+    pending.delete(type);
+    return exact;
+  }
+  if (!typeMaySuspend(semantics, type) || !semantics.isTypeReference(type)) {
+    return false;
+  }
+  const arguments_ = semantics.getTypeArguments(type);
+  return arguments_.length === 1 &&
+    sameSelectedType(semantics, arguments_[0], innerType);
 }
 
 function callableTypeAllowsSynchronousValue(

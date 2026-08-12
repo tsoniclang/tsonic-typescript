@@ -31,6 +31,8 @@ import {
   createClosedPointerFlowPlan,
 } from "./pointer/flow-plan.js";
 import { createPointerResultContract } from "./pointer/result-contract.js";
+import { createScalarResultContract } from "./scalar/result-contract.js";
+import { composeLoweredValueContracts } from "./value-contract.js";
 import {
   createPointerRewriteSession,
   type PointerLoweringResult,
@@ -113,15 +115,21 @@ export function prepareTypeScriptLowering(
     program,
     profile.scalarProjections,
   );
+  const loweredValues = composeLoweredValueContracts([
+    createPointerResultContract(source, pointerFlowPlan),
+    createScalarResultContract(source, scalarPlan),
+  ]);
   const effectPlan = profile.cooperativeEffects === "closed-direct"
     ? createClosedCooperativeEffectPlan(
         source,
         program,
         identities.forFile,
-        createPointerResultContract(source, pointerFlowPlan),
+        loweredValues,
       )
     : undefined;
   const evidence = createTypeScriptOptimizationEvidence(
+    source,
+    identities.forFile,
     profile,
     identities.membership,
     program.operations,

@@ -46,9 +46,13 @@ export type {
 } from "./lowering/pointer/transform.js";
 export {
   createScalarRepresentationPlan,
+  scalarProjectionRetentionReasons,
 } from "./lowering/scalar/plan.js";
 export type {
+  ScalarProjectionDecision,
   ScalarProjectionPlan,
+  ScalarProjectionRetention,
+  ScalarProjectionRetentionReason,
   ScalarRepresentationPlan,
   ScalarRepresentationProfile,
 } from "./lowering/scalar/plan.js";

@@ -32,6 +32,7 @@ import {
 import {
   createFixtureScalarRepresentationPlan as createScalarRepresentationPlan,
 } from "./scalar.test-support.js";
+import type { ScalarProjectionRetentionReason } from "./plan.js";
 import {
   createScalarRepresentationRewriter,
   lowerScalarRepresentations,
@@ -199,76 +200,77 @@ test("rejects construction effects and non-scalar projections", () => {
   const cases: readonly [
     string,
     string,
+    ScalarProjectionRetentionReason,
     { readonly experimentalDecorators?: boolean }?,
   ][] = [
     ["constructor body", `function effect(): void {}
 class Scalar { constructor(readonly value: number) { effect(); } }
 export const result = new Scalar(1).value;
-`],
+`, "observable-construction"],
     ["mutable parameter property", `class Scalar { constructor(public value: number) {} }
 export const result = new Scalar(1).value;
-`],
+`, "nonreadonly-scalar-field"],
     ["instance field initializer", `function effect(): number { return 1; }
 class Scalar {
   extra = effect();
   constructor(readonly value: number) {}
 }
 export const result = new Scalar(1).value;
-`],
+`, "observable-construction"],
     ["static field initializer", `function effect(): number { return 1; }
 class Scalar {
   static extra = effect();
   constructor(readonly value: number) {}
 }
 export const result = new Scalar(1).value;
-`],
+`, "observable-construction"],
     ["static block", `function effect(): void {}
 class Scalar {
   static { effect(); }
   constructor(readonly value: number) {}
 }
 export const result = new Scalar(1).value;
-`],
+`, "observable-construction"],
     ["parameter initializer", `class Scalar {
   constructor(readonly value: number = 1) {}
 }
 export const result = new Scalar(2).value;
-`],
+`, "nonreadonly-scalar-field"],
     ["base class", `class Base {}
 class Scalar extends Base {
   constructor(readonly value: number) { super(); }
 }
 export const result = new Scalar(1).value;
-`],
+`, "observable-construction"],
     ["getter projection", `class Scalar {
   constructor(readonly raw: number) {}
   get value(): number { return this.raw; }
 }
 export const result = new Scalar(1).value;
-`],
+`, "open-call-or-projection"],
     ["class decorator", `function decorate(target: Function): void {
   void target;
 }
 @decorate
 class Scalar { constructor(readonly value: number) {} }
 export const result = new Scalar(1).value;
-`, { experimentalDecorators: true }],
+`, "observable-construction", { experimentalDecorators: true }],
     ["object wrapper", `class Scalar {
   constructor(readonly value: { readonly amount: number }) {}
 }
 export const result = new Scalar({ amount: 1 }).value;
-`],
+`, "non-scalar-value"],
     ["array wrapper", `class Scalar {
   constructor(readonly value: readonly number[]) {}
 }
 export const result = new Scalar([1]).value;
-`],
+`, "non-scalar-value"],
     ["aliased constructor target", `class Scalar {
   constructor(readonly value: number) {}
 }
 const Alias = Scalar;
 export const result = new Alias(1).value;
-`],
+`, "open-constructor-target"],
     ["reassigned constructor binding", `class Scalar {
   constructor(readonly value: number) {}
 }
@@ -277,17 +279,17 @@ class Replacement {
 }
 (Scalar as unknown as { new(value: number): Scalar }) = Replacement;
 export const result = new Scalar(1).value;
-`],
+`, "mutable-class-binding"],
   ];
 
-  for (const [label, sourceText, options] of cases) {
+  for (const [label, sourceText, reason, options] of cases) {
     const fixture = checkedScalarFixture(sourceText, options);
     const plan = createScalarRepresentationPlan(
       fixture.source,
       "closed-direct",
     );
     assert.equal(plan.projectionCount, 0, label);
-    assert.ok(plan.retainedProjectionCount >= 1, label);
+    assert.deepEqual(plan.retentions.map((entry) => entry.reason), [reason], label);
   }
 });
 
@@ -347,6 +349,9 @@ test("fails closed when exact selected-field identity is mutated", () => {
   );
   assert.equal(plan.projectionCount, 1);
   assert.equal(plan.retainedProjectionCount, 1);
+  assert.deepEqual(plan.retentions.map((entry) => entry.reason), [
+    "open-call-or-projection",
+  ]);
 });
 
 test("fails closed when a planned projection is not consumed", () => {

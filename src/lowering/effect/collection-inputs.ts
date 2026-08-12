@@ -3,6 +3,10 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import {
+  callableReturnRewrite,
+  type CallableReturnRewrite,
+} from "./callable-contract.js";
 
 import {
   isFunctionLike,
@@ -10,7 +14,7 @@ import {
 } from "./syntax.js";
 
 export interface CallableCollectionContract {
-  readonly returnType: Node;
+  readonly returnType: CallableReturnRewrite;
   readonly extractedDeclarations: readonly Node[];
 }
 
@@ -23,7 +27,7 @@ export interface CallableCollectionInputs {
 interface MutableCollection {
   readonly declaration: Node;
   readonly owner: Node;
-  readonly returnType: Node;
+  readonly returnType: CallableReturnRewrite;
   readonly values: Node[];
   readonly extractedDeclarations: Set<Node>;
   closed: boolean;
@@ -414,7 +418,7 @@ function selectedArrayOperation(
 function callableArrayReturnType(
   source: TargetSourceProgram,
   typeNode: Node | undefined,
-): Node | undefined {
+): CallableReturnRewrite | undefined {
   const arrayType = unwrapParenthesizedType(source, typeNode);
   if (arrayType === undefined || !source.ast.is.IsArrayTypeNode(arrayType)) {
     return undefined;
@@ -427,11 +431,9 @@ function callableArrayReturnType(
     return undefined;
   }
   const returnType = source.ast.typeNode(elementType);
-  return returnType !== undefined &&
-      source.ast.is.IsTypeReferenceNode(returnType) &&
-      source.ast.typeArguments(returnType).length === 1
-    ? returnType
-    : undefined;
+  return returnType === undefined
+    ? undefined
+    : callableReturnRewrite(source, returnType);
 }
 
 function unwrapParenthesizedType(

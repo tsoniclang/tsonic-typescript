@@ -40,6 +40,7 @@ export interface ReturnValueFlow {
   callResultIsDefinitelyNonThenable(
     call: Node,
     declarations: readonly Node[],
+    settledDeclarations?: ReadonlySet<Node>,
   ): boolean;
 }
 
@@ -48,6 +49,7 @@ export function createReturnValueFlow(
   program: TargetProgramIndex,
   directCallDeclaration: (call: Node) => Node | undefined,
   loweredValues?: LoweredValueContract,
+  settledCallDeclarations: (call: Node) => readonly Node[] = () => [],
 ): ReturnValueFlow {
   const locals = createReturnLocalFlow(source, program);
   const storage = createReturnStorageFlow(source, program);
@@ -60,16 +62,24 @@ export function createReturnValueFlow(
     program,
     directCallDeclaration,
   );
-  const calls = createReturnCallFlow(source, program);
+  const calls = createReturnCallFlow(
+    source,
+    program,
+    settledCallDeclarations,
+  );
   const rootScope: ReturnProofScope = Object.freeze({
     inputs: new Map(),
     root: true,
   });
-  const results = new Map<ReturnProofScope, Map<Node, boolean>>();
+  const resultsBySettlement = new Map<
+    ReadonlySet<Node> | undefined,
+    Map<ReturnProofScope, Map<Node, boolean>>
+  >();
   const prove = (
     value: ReturnProofValue,
     pendingDeclarations: Set<Node>,
     pendingBindings: Set<Node>,
+    settledDeclarations?: ReadonlySet<Node>,
   ): boolean => expressionIsDefinitelyNonThenableWithin(
     source,
     value,
@@ -79,9 +89,10 @@ export function createReturnValueFlow(
     loweredValues,
     projections,
     calls,
-    results,
+    resultsFor(resultsBySettlement, settledDeclarations),
     pendingDeclarations,
     pendingBindings,
+    settledDeclarations,
   );
   return Object.freeze({
     isDefinitelyNonThenable(expression: Node): boolean {
@@ -94,14 +105,21 @@ export function createReturnValueFlow(
     callResultIsDefinitelyNonThenable(
       call: Node,
       declarations: readonly Node[],
+      settledDeclarations?: ReadonlySet<Node>,
     ): boolean {
       const pendingBindings = new Set<Node>();
       return calls.isDefinitelyNonThenable(
         { expression: call, scope: rootScope },
         declarations,
-        (value, pendingDeclarations) =>
-          prove(value, pendingDeclarations, pendingBindings),
+        (value, pendingDeclarations, selectedDeclarations) =>
+          prove(
+            value,
+            pendingDeclarations,
+            pendingBindings,
+            selectedDeclarations,
+          ),
         new Set(),
+        settledDeclarations,
       );
     },
   });
@@ -156,6 +174,7 @@ function expressionIsDefinitelyNonThenableWithin(
   results: Map<ReturnProofScope, Map<Node, boolean>>,
   pendingDeclarations: Set<Node>,
   pendingBindings: Set<Node>,
+  settledDeclarations: ReadonlySet<Node> | undefined,
 ): boolean {
   const expression = value.expression;
   if (expressionIsDefinitelyNonThenable(source, expression)) {
@@ -181,6 +200,7 @@ function expressionIsDefinitelyNonThenableWithin(
         results,
         pendingDeclarations,
         pendingBindings,
+        settledDeclarations,
       ) &&
       expressionIsDefinitelyNonThenableWithin(
         source,
@@ -194,6 +214,7 @@ function expressionIsDefinitelyNonThenableWithin(
         results,
         pendingDeclarations,
         pendingBindings,
+        settledDeclarations,
       );
   }
   if (runtime.callResultIsDefinitelyNonThenable(root)) {
@@ -212,19 +233,21 @@ function expressionIsDefinitelyNonThenableWithin(
       results,
       pendingDeclarations,
       pendingBindings,
+      settledDeclarations,
     )
   ) === true) {
     return true;
   }
-  const callDeclaration = source.ast.is.IsCallExpression(root)
+  const isCall = source.ast.is.IsCallExpression(root);
+  const callDeclaration = isCall
     ? calls.directDeclaration(root)
     : undefined;
   if (
-    callDeclaration !== undefined &&
+    isCall &&
     calls.isDefinitelyNonThenable(
       { expression: root, scope: value.scope },
-      [callDeclaration],
-      (input, nextPendingDeclarations) =>
+      callDeclaration === undefined ? [] : [callDeclaration],
+      (input, nextPendingDeclarations, selectedDeclarations) =>
         expressionIsDefinitelyNonThenableWithin(
           source,
           input,
@@ -237,8 +260,10 @@ function expressionIsDefinitelyNonThenableWithin(
           results,
           nextPendingDeclarations,
           pendingBindings,
+          selectedDeclarations,
         ),
       pendingDeclarations,
+      settledDeclarations,
     )
   ) {
     return true;
@@ -256,6 +281,7 @@ function expressionIsDefinitelyNonThenableWithin(
       results,
       pendingDeclarations,
       pendingBindings,
+      settledDeclarations,
     )
   )) {
     return true;
@@ -279,6 +305,7 @@ function expressionIsDefinitelyNonThenableWithin(
       results,
       pendingDeclarations,
       pendingBindings,
+      settledDeclarations,
     );
   }
   const localBinding = source.ast.is.IsIdentifier(root)
@@ -311,6 +338,7 @@ function expressionIsDefinitelyNonThenableWithin(
       results,
       pendingDeclarations,
       pendingBindings,
+      settledDeclarations,
     )
   );
   pendingBindings.delete(binding.declaration);
@@ -320,4 +348,20 @@ function expressionIsDefinitelyNonThenableWithin(
     scopeResults.set(binding.declaration, result);
   }
   return result;
+}
+
+function resultsFor(
+  resultsBySettlement: Map<
+    ReadonlySet<Node> | undefined,
+    Map<ReturnProofScope, Map<Node, boolean>>
+  >,
+  settledDeclarations: ReadonlySet<Node> | undefined,
+): Map<ReturnProofScope, Map<Node, boolean>> {
+  const existing = resultsBySettlement.get(settledDeclarations);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const created = new Map<ReturnProofScope, Map<Node, boolean>>();
+  resultsBySettlement.set(settledDeclarations, created);
+  return created;
 }

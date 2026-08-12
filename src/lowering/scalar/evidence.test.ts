@@ -1,0 +1,53 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { createTypeScriptOptimizationEvidence } from "../evidence.js";
+import { createTypeScriptOptimizationProfile } from "../profile.js";
+import { createTargetProgramIndex } from "../program-index.js";
+import { createScalarRepresentationPlan } from "./plan.js";
+import { checkedScalarFixture } from "./scalar.test-support.js";
+
+test("reports exact scalar retention evidence without machine paths", () => {
+  const sourceText = `class Scalar {
+  constructor(readonly value: { amount: number }) {}
+}
+export const result = new Scalar({ amount: 1 }).value;
+`;
+  const fixture = checkedScalarFixture(sourceText);
+  const profile = createTypeScriptOptimizationProfile({
+    pointerFlows: "location",
+    scalarProjections: "closed-direct",
+    cooperativeEffects: "preserve",
+  });
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: false,
+  });
+  const plan = createScalarRepresentationPlan(
+    fixture.source,
+    program,
+    profile.scalarProjections,
+  );
+  const evidence = createTypeScriptOptimizationEvidence(
+    fixture.source,
+    () => "index.ts",
+    profile,
+    ["index.ts"],
+    program.operations,
+    undefined,
+    plan,
+    undefined,
+  );
+
+  const retained = evidence.scalar.fallbackReasons.find((entry) =>
+    entry.reason === "non-scalar-value"
+  );
+  assert.equal(retained?.count, 1);
+  assert.ok(retained?.examples.some((example) =>
+    example.kind === "authored" &&
+    example.documentIdentity === "index.ts" &&
+    example.start === sourceText.indexOf("new Scalar") &&
+    example.syntaxKind === "KindPropertyAccessExpression"
+  ));
+  assert.doesNotMatch(JSON.stringify(evidence), /\/src|\.temp/u);
+});

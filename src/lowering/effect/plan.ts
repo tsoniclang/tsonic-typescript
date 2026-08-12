@@ -2,17 +2,11 @@ import type {
   Node,
   SourceFile,
   Symbol,
-  Type,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
-  KindArrowFunction,
   KindAwaitExpression,
-  KindCallExpression,
-  KindFunctionDeclaration,
-  KindFunctionExpression,
   KindIdentifier,
-  KindMethodDeclaration,
   KindReturnStatement,
 } from "@tsonic/tsts/target-ast";
 import type { SourceIdentityResolver } from "../occurrence.js";
@@ -20,8 +14,13 @@ import type { LoweredValueContract } from "../value-contract.js";
 import type { TargetProgramIndex } from "../program-index.js";
 import { propagateEffectBlockers } from "./blocker-propagation.js";
 import {
+  collectCooperativeEffectCalls,
+  collectCooperativeEffectCandidates,
+  type CooperativeEffectCandidate,
+} from "./candidate-inventory.js";
+import {
   blockCooperativeEffect,
-  type CooperativeEffectFallbackReason,
+  decideCooperativeEffectRetentions,
   type CooperativeEffectPlanSummary,
   summarizeCooperativeEffects,
 } from "./fallback.js";
@@ -30,12 +29,12 @@ import {
   createReturnValueFlow,
   type ReturnValueFlow,
 } from "./return-value.js";
+import { createCooperativeResultConsumption } from "./result-consumption.js";
 import {
   createCooperativeEffectFilePlans,
   type CooperativeEffectFilePlan,
 } from "./file-plan.js";
 import {
-  callableDispatchIsClosed,
   containingAwait,
   containingReturn,
   directContainingCall,
@@ -49,19 +48,6 @@ import {
   createCallableValueFlow,
   type CallableValueFlow,
 } from "./value-flow.js";
-import { sameSelectedType } from "./synchronous.js";
-
-interface MutableCallable {
-  readonly declaration: Node;
-  readonly sourceFile: SourceFile;
-  readonly innerType: Type;
-  readonly dependencies: Set<MutableCallable>;
-  readonly directBlockerNodes: Map<
-    CooperativeEffectFallbackReason,
-    Set<Node>
-  >;
-  readonly blockers: Set<CooperativeEffectFallbackReason>;
-}
 export type { CooperativeEffectFilePlan } from "./file-plan.js";
 
 export interface CooperativeEffectPlan {
@@ -78,8 +64,8 @@ export function createClosedCooperativeEffectPlan(
   sourceIdentityFor: SourceIdentityResolver,
   loweredValues?: LoweredValueContract,
 ): CooperativeEffectPlan {
-  const candidates = collectCandidates(source, program);
-  const calls = collectCalls(source, program, candidates);
+  const candidates = collectCooperativeEffectCandidates(source, program);
+  const calls = collectCooperativeEffectCalls(source, program, candidates);
   const valueFlow = createCallableValueFlow(
     source,
     program,
@@ -91,6 +77,15 @@ export function createClosedCooperativeEffectPlan(
     program,
     (call) => calls.get(call)?.declaration,
     loweredValues,
+    (call) => valueFlow.resolutionFor(call)?.dependencies ?? [],
+  );
+  const resultConsumption = createCooperativeResultConsumption(
+    source,
+    program,
+    new Set(candidates.keys()),
+  );
+  const conditionalSettlements = createConditionalSettlementOwner(
+    candidates.keys(),
   );
   classifyProgramEvidence(
     source,
@@ -99,12 +94,23 @@ export function createClosedCooperativeEffectPlan(
     calls,
     valueFlow,
     returnFlow,
+    conditionalSettlements,
   );
-  classifyCallUses(source, candidates, calls, valueFlow);
+  classifyCallUses(
+    source,
+    candidates,
+    calls,
+    valueFlow,
+    resultConsumption.returnedCallHasClosedConsumers,
+  );
   const propagation = propagateEffectBlockers(candidates.values());
+  const candidateList = [...candidates.values()];
+  const retentions = decideCooperativeEffectRetentions(
+    candidateList,
+  );
   const optimized = new Set(
-    [...candidates.values()]
-      .filter((candidate) => candidate.blockers.size === 0)
+    candidateList
+      .filter((candidate) => !retentions.has(candidate))
       .map((candidate) => candidate.declaration),
   );
   const awaits = collectSettledAwaits(
@@ -127,16 +133,18 @@ export function createClosedCooperativeEffectPlan(
   const summary = summarizeCooperativeEffects(
     source,
     sourceIdentityFor,
-    candidates.values(),
+    candidateList,
+    retentions,
     optimized.size,
     awaits.size,
     propagation,
+    resultConsumption.evidence(),
   );
   return createCooperativeEffectPlanLifecycle(source, files, summary);
 }
 
 function connectSignatureFamilies(
-  candidates: ReadonlyMap<Node, MutableCallable>,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
   families: readonly (readonly Node[])[],
 ): void {
   for (const family of families) {
@@ -155,119 +163,14 @@ function connectSignatureFamilies(
   }
 }
 
-function collectCandidates(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-): Map<Node, MutableCallable> {
-  const candidates = new Map<Node, MutableCallable>();
-  for (const node of program.nodesOfKinds([
-    KindFunctionDeclaration,
-    KindMethodDeclaration,
-    KindFunctionExpression,
-    KindArrowFunction,
-  ])) {
-    if (!isSupportedAsyncCallable(source, program, node)) {
-      continue;
-    }
-    const typeNode = source.ast.typeNode(node);
-    if (
-      typeNode === undefined ||
-      !source.ast.is.IsTypeReferenceNode(typeNode)
-    ) {
-      continue;
-    }
-    const typeArguments = source.ast.typeArguments(typeNode);
-    const innerTypeNode = typeArguments[0];
-    if (typeArguments.length !== 1 || innerTypeNode === undefined) {
-      continue;
-    }
-    const semantics = source.semantics.forNode(node);
-    const returnType = semantics.getTypeFromTypeNode(typeNode);
-    const innerType = semantics.getTypeFromTypeNode(innerTypeNode);
-    if (
-      returnType === undefined ||
-      innerType === undefined ||
-      !semantics.isTypeReference(returnType)
-    ) {
-      continue;
-    }
-    const selectedArguments = semantics.getTypeArguments(returnType);
-    if (
-      selectedArguments.length !== 1 ||
-      !sameSelectedType(semantics, selectedArguments[0], innerType)
-    ) {
-      continue;
-    }
-    const sourceFile = source.ast.getSourceFile(node);
-    if (sourceFile === undefined) {
-      continue;
-    }
-    const candidate: MutableCallable = {
-      declaration: node,
-      sourceFile,
-      innerType,
-      dependencies: new Set(),
-      directBlockerNodes: new Map(),
-      blockers: new Set(),
-    };
-    candidates.set(node, candidate);
-  }
-  return candidates;
-}
-
-function isSupportedAsyncCallable(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  node: Node,
-): boolean {
-  const functionDeclaration = source.ast.is.IsFunctionDeclaration(node);
-  const method = source.ast.is.IsMethodDeclaration(node) &&
-    callableDispatchIsClosed(source, program, node);
-  const functionExpression = source.ast.is.IsFunctionExpression(node);
-  const arrowFunction = source.ast.is.IsArrowFunction(node);
-  if (
-    (!functionDeclaration && !method && !functionExpression && !arrowFunction) ||
-    !source.ast.hasModifierKind(node, "async") ||
-    source.ast.body(node) === undefined
-  ) {
-    return false;
-  }
-  const parsed = functionDeclaration
-    ? source.ast.as.AsFunctionDeclaration(node)
-    : method
-    ? source.ast.as.AsMethodDeclaration(node)
-    : functionExpression
-    ? source.ast.as.AsFunctionExpression(node)
-    : source.ast.as.AsArrowFunction(node);
-  return parsed?.AsteriskToken === undefined && parsed?.FullSignature === undefined;
-}
-
-function collectCalls(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  candidates: ReadonlyMap<Node, MutableCallable>,
-): ReadonlyMap<Node, MutableCallable> {
-  const calls = new Map<Node, MutableCallable>();
-  for (const node of program.nodesOfKind(KindCallExpression)) {
-    const semantics = source.semantics.forNode(node);
-    const signature = semantics.getResolvedSignature(node);
-    const declaration = semantics.getSignatureDeclaration(signature);
-    const candidate = declaration === undefined
-      ? undefined
-      : candidates.get(declaration);
-    if (candidate !== undefined) {
-      calls.set(node, candidate);
-    }
-  }
-  return calls;
-}
-
 function classifyAwaitDependencies(
   source: TargetSourceProgram,
-  candidates: ReadonlyMap<Node, MutableCallable>,
-  calls: ReadonlyMap<Node, MutableCallable>,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
+  conditionalSettlements: (dependencies: readonly Node[]) =>
+    ReadonlySet<Node> | undefined,
   node: Node,
 ): void {
   if (!source.ast.is.IsAwaitExpression(node)) {
@@ -306,6 +209,7 @@ function classifyAwaitDependencies(
     !returnFlow.callResultIsDefinitelyNonThenable(
       call,
       resolution.synchronousDeclarations,
+      conditionalSettlements(resolution.dependencies),
     )
   ) {
     blockCooperativeEffect(owner, "promise-observed", call);
@@ -314,10 +218,12 @@ function classifyAwaitDependencies(
 
 function classifyReturnDependencies(
   source: TargetSourceProgram,
-  candidates: ReadonlyMap<Node, MutableCallable>,
-  calls: ReadonlyMap<Node, MutableCallable>,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
+  conditionalSettlements: (dependencies: readonly Node[]) =>
+    ReadonlySet<Node> | undefined,
   node: Node,
 ): void {
   if (!source.ast.is.IsReturnStatement(node)) {
@@ -329,7 +235,10 @@ function classifyReturnDependencies(
   }
   const expression = source.ast.as.AsReturnStatement(node)?.Expression;
   if (expression === undefined) {
-    if (!source.semantics.forNode(node).isVoidLike(owner.innerType)) {
+    if (
+      owner.innerType === undefined ||
+      !source.semantics.forNode(node).isVoidLike(owner.innerType)
+    ) {
       blockCooperativeEffect(owner, "incompatible-return", node);
     }
     return;
@@ -358,6 +267,7 @@ function classifyReturnDependencies(
         returnFlow.callResultIsDefinitelyNonThenable(
           returnedCall,
           resolution.synchronousDeclarations,
+          conditionalSettlements(resolution.dependencies),
         )
       ) {
         return;
@@ -371,9 +281,10 @@ function classifyReturnDependencies(
 
 function classifyCallUses(
   source: TargetSourceProgram,
-  candidates: ReadonlyMap<Node, MutableCallable>,
-  calls: ReadonlyMap<Node, MutableCallable>,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
   valueFlow: CallableValueFlow,
+  returnedCallHasClosedConsumers: (call: Node) => boolean,
 ): void {
   for (const [call, candidate] of calls) {
     if (
@@ -386,6 +297,9 @@ function classifyCallUses(
     const returned = containingReturn(source, call);
     if (owner !== undefined && returned !== undefined) {
       owner.dependencies.add(candidate);
+      continue;
+    }
+    if (returnedCallHasClosedConsumers(call)) {
       continue;
     }
     blockCooperativeEffect(candidate, "promise-observed", call);
@@ -408,6 +322,9 @@ function classifyCallUses(
     ) {
       continue;
     }
+    if (resolution.closed && returnedCallHasClosedConsumers(call)) {
+      continue;
+    }
     for (const declaration of resolution.dependencies) {
       const candidate = candidates.get(declaration);
       if (candidate !== undefined) {
@@ -420,10 +337,12 @@ function classifyCallUses(
 function classifyProgramEvidence(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  candidates: ReadonlyMap<Node, MutableCallable>,
-  calls: ReadonlyMap<Node, MutableCallable>,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
+  conditionalSettlements: (dependencies: readonly Node[]) =>
+    ReadonlySet<Node> | undefined,
 ): void {
   const tracked = indexCandidateSymbols(source, candidates.values());
   for (const node of program.nodesOfKind(KindAwaitExpression)) {
@@ -433,6 +352,7 @@ function classifyProgramEvidence(
       calls,
       valueFlow,
       returnFlow,
+      conditionalSettlements,
       node,
     );
   }
@@ -443,6 +363,7 @@ function classifyProgramEvidence(
       calls,
       valueFlow,
       returnFlow,
+      conditionalSettlements,
       node,
     );
   }
@@ -477,11 +398,50 @@ function classifyProgramEvidence(
   }
 }
 
+interface ConditionalSettlementTrie {
+  readonly next: Map<Node, ConditionalSettlementTrie>;
+  value?: ReadonlySet<Node>;
+}
+
+function createConditionalSettlementOwner(
+  candidates: Iterable<Node>,
+): (dependencies: readonly Node[]) => ReadonlySet<Node> | undefined {
+  const order = new Map([...candidates].map((candidate, index) => [
+    candidate,
+    index,
+  ]));
+  const root: ConditionalSettlementTrie = { next: new Map() };
+  return (dependencies) => {
+    if (dependencies.length === 0) {
+      return undefined;
+    }
+    const selected = [...new Set(dependencies)].sort((left, right) => {
+      const leftOrder = order.get(left);
+      const rightOrder = order.get(right);
+      if (leftOrder === undefined || rightOrder === undefined) {
+        throw new Error("conditional settlement references a non-candidate");
+      }
+      return leftOrder - rightOrder;
+    });
+    let current = root;
+    for (const declaration of selected) {
+      let next = current.next.get(declaration);
+      if (next === undefined) {
+        next = { next: new Map() };
+        current.next.set(declaration, next);
+      }
+      current = next;
+    }
+    current.value ??= Object.freeze(new Set(selected));
+    return current.value;
+  };
+}
+
 function indexCandidateSymbols(
   source: TargetSourceProgram,
-  candidates: Iterable<MutableCallable>,
-): ReadonlyMap<Symbol, MutableCallable> {
-  const result = new Map<Symbol, MutableCallable>();
+  candidates: Iterable<CooperativeEffectCandidate>,
+): ReadonlyMap<Symbol, CooperativeEffectCandidate> {
+  const result = new Map<Symbol, CooperativeEffectCandidate>();
   for (const candidate of candidates) {
     const name = source.ast.name(candidate.declaration);
     for (const symbol of exactSymbolsAt(source, name)) {
@@ -497,9 +457,9 @@ function indexCandidateSymbols(
 
 function candidateForReference(
   source: TargetSourceProgram,
-  tracked: ReadonlyMap<Symbol, MutableCallable>,
+  tracked: ReadonlyMap<Symbol, CooperativeEffectCandidate>,
   node: Node,
-): MutableCallable | undefined {
+): CooperativeEffectCandidate | undefined {
   for (const symbol of exactSymbolsAt(source, node)) {
     const candidate = tracked.get(symbol);
     if (candidate !== undefined) {
@@ -532,8 +492,8 @@ function exactSymbolsAt(
 function collectSettledAwaits(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  candidates: ReadonlyMap<Node, MutableCallable>,
-  calls: ReadonlyMap<Node, MutableCallable>,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
   optimized: ReadonlySet<Node>,
@@ -565,6 +525,7 @@ function collectSettledAwaits(
         !returnFlow.callResultIsDefinitelyNonThenable(
           call,
           resolution.synchronousDeclarations,
+          optimized,
         ))
     ) {
       continue;
@@ -576,9 +537,9 @@ function collectSettledAwaits(
 
 function enclosingCandidate(
   source: TargetSourceProgram,
-  candidates: ReadonlyMap<Node, MutableCallable>,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
   node: Node,
-): MutableCallable | undefined {
+): CooperativeEffectCandidate | undefined {
   let current = source.ast.parent(node);
   while (current !== undefined) {
     if (isFunctionLike(source, current)) {

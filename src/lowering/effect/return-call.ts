@@ -24,6 +24,7 @@ export interface ReturnProofValue {
 export type ReturnExpressionProof = (
   value: ReturnProofValue,
   pendingDeclarations: Set<Node>,
+  settledDeclarations: ReadonlySet<Node> | undefined,
 ) => boolean;
 
 export interface ReturnCallFlow {
@@ -33,16 +34,21 @@ export interface ReturnCallFlow {
     declarations: readonly Node[],
     expressionProof: ReturnExpressionProof,
     pendingDeclarations: Set<Node>,
+    settledDeclarations?: ReadonlySet<Node>,
   ): boolean;
 }
 
 export function createReturnCallFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  settledCallDeclarations: (call: Node) => readonly Node[],
 ): ReturnCallFlow {
   const directDeclarations = new Map<Node, Node | null>();
   const returns = new Map<Node, readonly (Node | undefined)[]>();
-  const parameterlessResults = new Map<Node, boolean>();
+  const parameterlessResults = new Map<
+    ReadonlySet<Node> | undefined,
+    Map<Node, boolean>
+  >();
   return Object.freeze({
     directDeclaration(call: Node): Node | undefined {
       const existing = directDeclarations.get(call);
@@ -58,6 +64,7 @@ export function createReturnCallFlow(
       declarations: readonly Node[],
       expressionProof: ReturnExpressionProof,
       pendingDeclarations: Set<Node>,
+      settledDeclarations?: ReadonlySet<Node>,
     ): boolean {
       if (
         !source.ast.is.IsCallExpression(value.expression) ||
@@ -73,10 +80,17 @@ export function createReturnCallFlow(
       )) {
         return true;
       }
-      if (declarations.length === 0) {
+      const selectedDeclarations = exactCallDeclarations(
+        source,
+        value,
+        declarations,
+        settledDeclarations,
+        settledCallDeclarations,
+      );
+      if (selectedDeclarations.length === 0) {
         return false;
       }
-      if (declarations.every((declaration) =>
+      if (selectedDeclarations.every((declaration) =>
         callableContractResultIsIntrinsicallyNonThenable(
           source,
           declaration,
@@ -84,7 +98,7 @@ export function createReturnCallFlow(
       )) {
         return true;
       }
-      return declarations.every((declaration) =>
+      return selectedDeclarations.every((declaration) =>
         declarationResultIsDefinitelyNonThenable(
           source,
           program,
@@ -94,6 +108,7 @@ export function createReturnCallFlow(
           pendingDeclarations,
           returns,
           parameterlessResults,
+          settledDeclarations,
         )
       );
     },
@@ -108,11 +123,20 @@ function declarationResultIsDefinitelyNonThenable(
   expressionProof: ReturnExpressionProof,
   pendingDeclarations: Set<Node>,
   returnCache: Map<Node, readonly (Node | undefined)[]>,
-  parameterlessResults: Map<Node, boolean>,
+  parameterlessResults: Map<
+    ReadonlySet<Node> | undefined,
+    Map<Node, boolean>
+  >,
+  settledDeclarations: ReadonlySet<Node> | undefined,
 ): boolean {
   if (
     !source.navigation.isProjectDeclaration(declaration) ||
-    !callableDeclarationIsInspectable(source, program, declaration) ||
+    !callableDeclarationIsInspectable(
+      source,
+      program,
+      declaration,
+      settledDeclarations,
+    ) ||
     pendingDeclarations.has(declaration)
   ) {
     return false;
@@ -121,8 +145,12 @@ function declarationResultIsDefinitelyNonThenable(
   const cacheable = parameters.length === 0 &&
     !source.ast.is.IsMethodDeclaration(declaration) &&
     containingFunction(source, declaration) === undefined;
+  const resultCache = cacheForSettlement(
+    parameterlessResults,
+    settledDeclarations,
+  );
   const cached = cacheable
-    ? parameterlessResults.get(declaration)
+    ? resultCache.get(declaration)
     : undefined;
   if (cached !== undefined) {
     return cached;
@@ -143,7 +171,7 @@ function declarationResultIsDefinitelyNonThenable(
   }
   if (returns.length === 0) {
     if (cacheable) {
-      parameterlessResults.set(declaration, true);
+      resultCache.set(declaration, true);
     }
     return true;
   }
@@ -152,23 +180,42 @@ function declarationResultIsDefinitelyNonThenable(
     expression === undefined || expressionProof(
       { expression, scope },
       pendingDeclarations,
+      settledDeclarations,
     )
   );
   pendingDeclarations.delete(declaration);
   if (cacheable) {
-    parameterlessResults.set(declaration, result);
+    resultCache.set(declaration, result);
   }
   return result;
+}
+
+function cacheForSettlement(
+  caches: Map<
+    ReadonlySet<Node> | undefined,
+    Map<Node, boolean>
+  >,
+  settledDeclarations: ReadonlySet<Node> | undefined,
+): Map<Node, boolean> {
+  const existing = caches.get(settledDeclarations);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const created = new Map<Node, boolean>();
+  caches.set(settledDeclarations, created);
+  return created;
 }
 
 function callableDeclarationIsInspectable(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   declaration: Node,
+  settledDeclarations?: ReadonlySet<Node>,
 ): boolean {
   if (
     source.ast.body(declaration) === undefined ||
-    source.ast.hasModifierKind(declaration, "async") ||
+    (source.ast.hasModifierKind(declaration, "async") &&
+      settledDeclarations?.has(declaration) !== true) ||
     !callableDispatchIsClosed(source, program, declaration)
   ) {
     return false;
@@ -179,6 +226,33 @@ function callableDeclarationIsInspectable(
       source.ast.is.IsMethodDeclaration(declaration)
     ? !callableIsGenerator(source, declaration)
     : false;
+}
+
+function exactCallDeclarations(
+  source: TargetSourceProgram,
+  value: ReturnProofValue,
+  declarations: readonly Node[],
+  settledDeclarations: ReadonlySet<Node> | undefined,
+  settledCallDeclarations: (call: Node) => readonly Node[],
+): readonly Node[] {
+  const selected = new Set(declarations);
+  const semantics = source.semantics.forNode(value.expression);
+  const direct = semantics.getSignatureDeclaration(
+    semantics.getResolvedSignature(value.expression),
+  );
+  if (direct !== undefined && settledDeclarations?.has(direct) === true) {
+    selected.add(direct);
+  }
+  const conditional = settledCallDeclarations(value.expression);
+  if (conditional.some((declaration) =>
+    settledDeclarations?.has(declaration) !== true
+  )) {
+    return [];
+  }
+  for (const declaration of conditional) {
+    selected.add(declaration);
+  }
+  return [...selected];
 }
 
 function callableIsGenerator(
