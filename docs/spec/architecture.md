@@ -94,8 +94,10 @@ definition, reference, caller, alias, and observable operation is joined.
 
 Pointer lowering consumes one frozen canonical contract; it does not infer Go
 meaning or recognize marker spelling. `Pointer<T> | undefined` and the exact
-`address-of`, `allocate`, `load`, `store`, and `equal-pointer` facts preserve
-the source pointee type, nil shape, storage/location identity, and operands.
+`address-of`, `allocate`, `load`, `store`, `equal-pointer`, `hash-pointer`,
+`bind-pointer`, and `project-pointer` facts preserve the source pointee type,
+nil shape, storage/location identity, provider read/write binding,
+representation projections, and operands.
 Every pointer-bearing definition, parameter, result, reference, caller, alias,
 and storage occurrence belongs to one exact connected component before a
 representation is selected.
@@ -103,7 +105,10 @@ representation is selected.
 The target may select plain `T`, one `{ value: T }` cell, or the represented
 class object only by rewriting that complete component atomically. Escaping,
 nullable, identity-observed, unsafe, indirect, lifetime-sensitive, provider,
-or unresolved components retain canonical `Pointer<T>`. A changed source
+or unresolved components retain canonical `Pointer<T>`. Hash, provider bind,
+and pointee projection occurrences join the component and retain canonical
+representation unless their complete observations are independently proved
+exact. A changed source
 signature or marker/fact contract is rejected upstream; this target has no
 adapter, allowlist, spelling rule, or alternate signature store.
 
