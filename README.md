@@ -113,14 +113,31 @@ not qualify. Project return forwarding may consume that fact, but arbitrary
 provider calls remain open.
 
 Composed lowerings exchange result facts before rewriting rather than inspect
-one another's output. The pointer planner supplies the cooperative-effect
-planner with an exact-node contract for each selected pointer operation and
-representation. Thus canonical `addressOf(record.value)` is known to become a
-fresh non-thenable `Location`, while `loadPointer(pointer)` remains open when
-the pointee may itself be thenable. Direct scalar and object representations
-delegate the proof to the exact operand they preserve. The bridge consumes
-TSTS pointer facts and the selected whole-program pointer plan; it never
-recognizes `addressOf` or any other marker by spelling.
+one another's output. Pointer and scalar planning supply the cooperative-effect
+planner with one exact-node lowered-value contract. Thus canonical
+`addressOf(record.value)` is known to become a fresh non-thenable `Location`,
+while `loadPointer(pointer)` remains open when the pointee may itself be
+thenable. An eliminated `new Width(value).value` projection is known to produce
+its selected scalar value. Direct pointer representations delegate the proof
+to the exact operand they preserve. The bridge consumes finalized facts and
+whole-program plans; it never recognizes a marker or wrapper by spelling.
+
+## Scalar projections
+
+`optimizations.scalarProjections: "closed-direct"` classifies every immediate
+construction projection such as `new Width(value).value`. When the exact class
+binding is immutable, construction is behavior-free, the selected property is
+its one readonly scalar constructor parameter, and the call/property evidence
+joins exactly, the target emits the equivalent scalar expression while still
+evaluating the constructor target before the argument. Same-file authored
+types are preserved; cross-file projections use only exact portable primitive
+types.
+
+Every candidate has one optimized or retained decision. Canonical-profile,
+open target, mutable binding, observable construction, mutable field,
+non-scalar value, nonportable cross-module type, and open semantic evidence are
+the complete retention reasons. Other class uses remain unchanged because the
+optimization owns only the closed immediate projection occurrence.
 
 ## Pointer representations
 

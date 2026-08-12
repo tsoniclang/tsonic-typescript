@@ -1,7 +1,6 @@
 import type {
   Node,
   SourceFile,
-  Type,
 } from "@tsonic/tsts";
 import type {
   TargetSourceProgram,
@@ -13,8 +12,6 @@ import {
   AsParameterDeclaration,
   AsPropertyAccessExpression,
   AsPropertyDeclaration,
-  AsTypeAliasDeclaration,
-  AsTypeReferenceNode,
   IsBlock,
   IsClassDeclaration,
   IsClassStaticBlockDeclaration,
@@ -32,14 +29,29 @@ import {
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../program-index.js";
+import {
+  portableScalarKind,
+  scalarPrimitiveKind,
+  type ScalarPrimitiveKind,
+} from "./portable-type.js";
+
+export type { ScalarPrimitiveKind } from "./portable-type.js";
 
 export type ScalarRepresentationProfile = "preserve" | "closed-direct";
 
-export type ScalarPrimitiveKind =
-  | "bigint"
-  | "boolean"
-  | "number"
-  | "string";
+export const scalarProjectionRetentionReasons = Object.freeze([
+  "profile-preserved",
+  "open-constructor-target",
+  "mutable-class-binding",
+  "observable-construction",
+  "nonreadonly-scalar-field",
+  "non-scalar-value",
+  "nonportable-cross-module-type",
+  "open-call-or-projection",
+] as const);
+
+export type ScalarProjectionRetentionReason =
+  typeof scalarProjectionRetentionReasons[number];
 
 export type ScalarProjectionResultType =
   | { readonly kind: "authored"; readonly node: Node }
@@ -56,12 +68,30 @@ export interface ScalarProjectionPlan {
   readonly resultType: ScalarProjectionResultType;
 }
 
+export type ScalarProjectionDecision =
+  | {
+      readonly kind: "optimized";
+      readonly access: Node;
+      readonly projection: ScalarProjectionPlan;
+    }
+  | ScalarProjectionRetention;
+
+export interface ScalarProjectionRetention {
+  readonly kind: "retained";
+  readonly access: Node;
+  readonly reason: ScalarProjectionRetentionReason;
+}
+
 export interface ScalarRepresentationPlan {
   readonly profile: ScalarRepresentationProfile;
   readonly moduleBoundary: "open" | "closed";
   readonly syntacticProjectionCount: number;
   readonly projectionCount: number;
   readonly retainedProjectionCount: number;
+  readonly decisions: readonly ScalarProjectionDecision[];
+  readonly retentions: readonly ScalarProjectionRetention[];
+  owns(source: TargetSourceProgram): boolean;
+  decisionFor(access: Node): ScalarProjectionDecision | undefined;
   projectionFor(access: Node): ScalarProjectionPlan | undefined;
   projectionsFor(sourceFile: SourceFile): readonly ScalarProjectionPlan[];
 }
@@ -72,6 +102,10 @@ interface TransparentClassProof {
   readonly resultTypeNode: Node;
   readonly portableResultType?: ScalarPrimitiveKind;
 }
+
+type TransparentClassResolution =
+  | { readonly kind: "proved"; readonly proof: TransparentClassProof }
+  | { readonly kind: "retained"; readonly reason: ScalarProjectionRetentionReason };
 
 const noProjections = Object.freeze([]) as readonly ScalarProjectionPlan[];
 
@@ -84,32 +118,31 @@ export function createScalarRepresentationPlan(
     throw new Error(`unsupported scalar representation profile '${String(profile)}'`);
   }
   let syntacticProjectionCount = 0;
-  const classProofs = new Map<Node, TransparentClassProof | undefined>();
+  const classProofs = new Map<Node, TransparentClassResolution>();
   const portableScalarKinds = new Map<Node, ScalarPrimitiveKind | undefined>();
-  const projections: ScalarProjectionPlan[] = [];
+  const decisions: ScalarProjectionDecision[] = [];
   for (const node of program.nodesOfKind(KindPropertyAccessExpression)) {
     if (!isSyntacticProjection(node)) {
       continue;
     }
     syntacticProjectionCount += 1;
-    if (profile === "closed-direct") {
-      const projection = resolveProjection(
+    decisions.push(
+      profile === "closed-direct"
+        ? resolveProjection(
         source,
         program,
         node,
         classProofs,
         portableScalarKinds,
-      );
-      if (projection !== undefined) {
-        projections.push(projection);
-      }
-    }
+      )
+        : retainProjection(node, "profile-preserved"),
+    );
   }
   return sealPlan(
     source,
     profile,
     syntacticProjectionCount,
-    projections,
+    decisions,
   );
 }
 
@@ -117,14 +150,29 @@ function sealPlan(
   source: TargetSourceProgram,
   profile: ScalarRepresentationProfile,
   syntacticProjectionCount: number,
-  projections: readonly ScalarProjectionPlan[],
+  decisions: readonly ScalarProjectionDecision[],
 ): ScalarRepresentationPlan {
+  if (decisions.length !== syntacticProjectionCount) {
+    throw new Error(
+      `scalar decision mismatch: candidates ${syntacticProjectionCount}, decisions ${decisions.length}`,
+    );
+  }
+  const byDecision = new Map<Node, ScalarProjectionDecision>();
   const byAccess = new Map<Node, ScalarProjectionPlan>();
   const byFile = new Map<SourceFile, ScalarProjectionPlan[]>();
-  for (const projection of projections) {
-    if (byAccess.has(projection.access)) {
-      throw new Error("one scalar projection cannot be planned twice");
+  const projections: ScalarProjectionPlan[] = [];
+  const retentions: ScalarProjectionRetention[] = [];
+  for (const decision of decisions) {
+    if (byDecision.has(decision.access)) {
+      throw new Error("one scalar projection cannot be decided twice");
     }
+    byDecision.set(decision.access, decision);
+    if (decision.kind === "retained") {
+      retentions.push(decision);
+      continue;
+    }
+    const projection = decision.projection;
+    projections.push(projection);
     byAccess.set(projection.access, projection);
     const sourceFile = source.ast.getSourceFile(projection.access);
     if (sourceFile === undefined) {
@@ -137,6 +185,9 @@ function sealPlan(
       fileProjections.push(projection);
     }
   }
+  if (projections.length + retentions.length !== syntacticProjectionCount) {
+    throw new Error("scalar decisions do not partition the exact denominator");
+  }
   const sealedByFile = new Map<SourceFile, readonly ScalarProjectionPlan[]>();
   for (const [sourceFile, fileProjections] of byFile) {
     sealedByFile.set(sourceFile, Object.freeze([...fileProjections]));
@@ -146,7 +197,15 @@ function sealPlan(
     moduleBoundary: profile === "closed-direct" ? "closed" : "open",
     syntacticProjectionCount,
     projectionCount: projections.length,
-    retainedProjectionCount: syntacticProjectionCount - projections.length,
+    retainedProjectionCount: retentions.length,
+    decisions: Object.freeze([...decisions]),
+    retentions: Object.freeze(retentions),
+    owns(candidate: TargetSourceProgram): boolean {
+      return candidate === source;
+    },
+    decisionFor(access: Node): ScalarProjectionDecision | undefined {
+      return byDecision.get(access);
+    },
     projectionFor(access: Node): ScalarProjectionPlan | undefined {
       return byAccess.get(access);
     },
@@ -180,9 +239,9 @@ function resolveProjection(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   node: Node,
-  classProofs: Map<Node, TransparentClassProof | undefined>,
+  classProofs: Map<Node, TransparentClassResolution>,
   portableScalarKinds: Map<Node, ScalarPrimitiveKind | undefined>,
-): ScalarProjectionPlan | undefined {
+): ScalarProjectionDecision {
   const access = AsPropertyAccessExpression(node);
   const construction = access?.Expression === undefined
     ? undefined
@@ -196,7 +255,7 @@ function resolveProjection(
     argument === undefined ||
     !IsIdentifier(constructorTarget)
   ) {
-    return undefined;
+    return retainProjection(node, "open-constructor-target");
   }
   const reference = source.navigation.sourceReferenceFor(constructorTarget);
   if (
@@ -204,28 +263,32 @@ function resolveProjection(
     !reference.project ||
     !IsClassDeclaration(reference.declaration)
   ) {
-    return undefined;
+    return retainProjection(node, "open-constructor-target");
   }
   const classDeclaration = reference.declaration;
   const classSourceFile = source.ast.getSourceFile(classDeclaration);
   const useSourceFile = source.ast.getSourceFile(node);
   if (classSourceFile === undefined || useSourceFile === undefined) {
-    return undefined;
+    return retainProjection(node, "open-constructor-target");
   }
   const sameSourceFile = classSourceFile === useSourceFile;
-  let classProof = classProofs.get(classDeclaration);
+  let classResolution = classProofs.get(classDeclaration);
   if (!classProofs.has(classDeclaration)) {
-    classProof = proveTransparentClass(
+    classResolution = proveTransparentClass(
       source,
       program,
       classDeclaration,
       portableScalarKinds,
     );
-    classProofs.set(classDeclaration, classProof);
+    classProofs.set(classDeclaration, classResolution);
   }
-  if (classProof === undefined) {
-    return undefined;
+  if (classResolution === undefined) {
+    throw new Error("scalar class proof cache lost its exact decision");
   }
+  if (classResolution.kind === "retained") {
+    return retainProjection(node, classResolution.reason);
+  }
+  const classProof = classResolution.proof;
   let resultType: ScalarProjectionResultType;
   if (sameSourceFile) {
     resultType = Object.freeze({
@@ -235,7 +298,7 @@ function resolveProjection(
   } else {
     const portable = classProof.portableResultType;
     if (portable === undefined) {
-      return undefined;
+      return retainProjection(node, "nonportable-cross-module-type");
     }
     resultType = Object.freeze({ kind: "primitive", primitive: portable });
   }
@@ -283,9 +346,9 @@ function resolveProjection(
       selectedParameter.selectedType,
     ) !== "identical"
   ) {
-    return undefined;
+    return retainProjection(node, "open-call-or-projection");
   }
-  return Object.freeze({
+  const projection: ScalarProjectionPlan = Object.freeze({
     access: node,
     construction,
     constructorTarget,
@@ -295,6 +358,11 @@ function resolveProjection(
     fieldDeclaration: classProof.parameterDeclaration,
     resultType,
   });
+  return Object.freeze({
+    kind: "optimized",
+    access: node,
+    projection,
+  });
 }
 
 function proveTransparentClass(
@@ -302,18 +370,22 @@ function proveTransparentClass(
   program: TargetProgramIndex,
   declaration: Node,
   portableScalarKinds: Map<Node, ScalarPrimitiveKind | undefined>,
-): TransparentClassProof | undefined {
+): TransparentClassResolution {
   const classDeclaration = AsClassDeclaration(declaration);
   if (
     classDeclaration === undefined ||
-    classDeclaration.name === undefined ||
+    classDeclaration.name === undefined
+  ) {
+    return retainClass("open-constructor-target");
+  }
+  if (
     source.ast.extendsHeritageElements(declaration).length !== 0 ||
     hasDecorator(source, declaration) ||
     source.ast.hasModifierKind(declaration, "abstract") ||
     source.ast.hasModifierKind(declaration, "ambient") ||
     !classMembersAreProjectionSafe(source, declaration)
   ) {
-    return undefined;
+    return retainClass("observable-construction");
   }
   const classReference = source.navigation.sourceReferenceFor(
     classDeclaration.name,
@@ -321,16 +393,18 @@ function proveTransparentClass(
   if (
     classReference === undefined ||
     !classReference.project ||
-    classReference.declaration !== declaration ||
-    program.bindingWritesFor(declaration).length !== 0
+    classReference.declaration !== declaration
   ) {
-    return undefined;
+    return retainClass("open-constructor-target");
+  }
+  if (program.bindingWritesFor(declaration).length !== 0) {
+    return retainClass("mutable-class-binding");
   }
   const constructors = source.ast.members(declaration).filter((member) =>
     member !== undefined && IsConstructorDeclaration(member)
   );
   if (constructors.length !== 1) {
-    return undefined;
+    return retainClass("observable-construction");
   }
   const constructorDeclaration = constructors[0];
   const constructor = AsConstructorDeclaration(constructorDeclaration);
@@ -344,7 +418,7 @@ function proveTransparentClass(
     source.ast.statements(body).length !== 0 ||
     parameters.length !== 1
   ) {
-    return undefined;
+    return retainClass("observable-construction");
   }
   const parameterDeclaration = parameters[0];
   const parameter = AsParameterDeclaration(parameterDeclaration);
@@ -359,7 +433,7 @@ function proveTransparentClass(
     !source.ast.hasModifierKind(parameterDeclaration, "readonly") ||
     hasDecorator(source, parameterDeclaration)
   ) {
-    return undefined;
+    return retainClass("nonreadonly-scalar-field");
   }
   const constructorsEvidence = source.navigation.classConstructors(declaration);
   if (
@@ -368,7 +442,7 @@ function proveTransparentClass(
     constructorsEvidence.declaration !== declaration ||
     constructorsEvidence.signatures.length !== 1
   ) {
-    return undefined;
+    return retainClass("open-call-or-projection");
   }
   const signature = constructorsEvidence.signatures[0];
   const selectedParameter = signature?.parameters[0];
@@ -380,7 +454,7 @@ function proveTransparentClass(
     selectedParameter.parameterDeclaration !== parameterDeclaration ||
     selectedParameter.authoredTypeNode !== parameter.Type
   ) {
-    return undefined;
+    return retainClass("open-call-or-projection");
   }
   const semantics = source.semantics.forNode(declaration);
   const scalarKind = scalarPrimitiveKind(
@@ -388,7 +462,7 @@ function proveTransparentClass(
     selectedParameter.selectedType,
   );
   if (scalarKind === undefined) {
-    return undefined;
+    return retainClass("non-scalar-value");
   }
   const portableKind = portableScalarKind(
     source,
@@ -399,10 +473,13 @@ function proveTransparentClass(
     ? portableKind
     : undefined;
   return Object.freeze({
-    constructorDeclaration,
-    parameterDeclaration,
-    resultTypeNode: parameter.Type,
-    ...(portableResultType === undefined ? {} : { portableResultType }),
+    kind: "proved",
+    proof: Object.freeze({
+      constructorDeclaration,
+      parameterDeclaration,
+      resultTypeNode: parameter.Type,
+      ...(portableResultType === undefined ? {} : { portableResultType }),
+    }),
   });
 }
 
@@ -442,96 +519,17 @@ function classMembersAreProjectionSafe(
   return true;
 }
 
-function scalarPrimitiveKind(
-  semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
-  type: Type,
-): ScalarPrimitiveKind | undefined {
-  if (semantics.isNumberLike(type)) {
-    return "number";
-  }
-  if (semantics.isStringLike(type)) {
-    return "string";
-  }
-  if (semantics.isBooleanLike(type)) {
-    return "boolean";
-  }
-  return semantics.isBigIntLike(type) ? "bigint" : undefined;
+function retainProjection(
+  access: Node,
+  reason: ScalarProjectionRetentionReason,
+): ScalarProjectionRetention {
+  return Object.freeze({ kind: "retained", access, reason });
 }
 
-function portableScalarKind(
-  source: TargetSourceProgram,
-  authoredType: Node,
-  knownKinds: Map<Node, ScalarPrimitiveKind | undefined>,
-): ScalarPrimitiveKind | undefined {
-  if (knownKinds.has(authoredType)) {
-    return knownKinds.get(authoredType);
-  }
-  const visited = new Set<Node>();
-  const path: Node[] = [];
-  let current: Node | undefined = authoredType;
-  let result: ScalarPrimitiveKind | undefined;
-  while (current !== undefined) {
-    if (knownKinds.has(current)) {
-      result = knownKinds.get(current);
-      break;
-    }
-    if (visited.has(current)) {
-      break;
-    }
-    visited.add(current);
-    path.push(current);
-    if (source.ast.is.IsParenthesizedTypeNode(current)) {
-      current = source.ast.as.AsParenthesizedTypeNode(current)?.Type;
-      continue;
-    }
-    const keyword = primitiveKindName(source.ast.kindName(current));
-    if (keyword !== undefined) {
-      result = keyword;
-      break;
-    }
-    const reference = AsTypeReferenceNode(current);
-    if (
-      reference === undefined ||
-      (reference.TypeArguments?.Nodes.length ?? 0) !== 0
-    ) {
-      break;
-    }
-    const declaration = source.navigation.sourceReferenceFor(
-      reference.TypeName,
-    )?.declaration;
-    if (declaration === undefined) {
-      break;
-    }
-    const alias = AsTypeAliasDeclaration(declaration);
-    if (
-      alias?.Type === undefined ||
-      source.ast.typeParameters(declaration).length !== 0
-    ) {
-      break;
-    }
-    current = alias.Type;
-  }
-  for (const node of path) {
-    knownKinds.set(node, result);
-  }
-  return result;
-}
-
-function primitiveKindName(
-  kind: string | undefined,
-): ScalarPrimitiveKind | undefined {
-  switch (kind) {
-    case "KindBigIntKeyword":
-      return "bigint";
-    case "KindBooleanKeyword":
-      return "boolean";
-    case "KindNumberKeyword":
-      return "number";
-    case "KindStringKeyword":
-      return "string";
-    default:
-      return undefined;
-  }
+function retainClass(
+  reason: ScalarProjectionRetentionReason,
+): TransparentClassResolution {
+  return Object.freeze({ kind: "retained", reason });
 }
 
 function hasDecorator(source: TargetSourceProgram, node: Node): boolean {

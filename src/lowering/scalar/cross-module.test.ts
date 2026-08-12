@@ -98,10 +98,14 @@ class Replacement {
     createScalarRepresentationPlan(stable.source, "closed-direct").projectionCount,
     1,
   );
-  assert.equal(
-    createScalarRepresentationPlan(mutated.source, "closed-direct").projectionCount,
-    0,
+  const mutatedPlan = createScalarRepresentationPlan(
+    mutated.source,
+    "closed-direct",
   );
+  assert.equal(mutatedPlan.projectionCount, 0);
+  assert.deepEqual(mutatedPlan.retentions.map((entry) => entry.reason), [
+    "mutable-class-binding",
+  ]);
 });
 
 test("normalizes only exact portable primitive result types", () => {
@@ -153,11 +157,14 @@ export const result = new Scalar(42).value;
   assert.ok(
     encodeTargetSourceFileForPrinting(aliasResult.sourceFile).byteLength > 0,
   );
-  assert.equal(
-    createScalarRepresentationPlan(literal.source, "closed-direct")
-      .projectionCount,
-    0,
+  const literalPlan = createScalarRepresentationPlan(
+    literal.source,
+    "closed-direct",
   );
+  assert.equal(literalPlan.projectionCount, 0);
+  assert.deepEqual(literalPlan.retentions.map((entry) => entry.reason), [
+    "nonportable-cross-module-type",
+  ]);
 });
 
 test("does not rescan an imported class for each projection", () => {
