@@ -3,6 +3,11 @@
 `@tsonic/target-typescript` lowers finalized Tsonic semantic facts into fast,
 ordinary TypeScript.
 
+[`docs/spec/`](docs/spec/README.md) is the governing target contract. This
+README summarizes the currently implemented pointer, scalar, and cooperative-
+effect profiles; it does not narrow the complete architecture or verification
+requirements in that specification.
+
 The target transforms TSTS's exact checked TS-Go-contract AST directly. It does
 not parse source again, join by ranges, recognize marker spellings, or patch
 text. The transformed tree is encoded with the pinned TS-Go external-AST
