@@ -29,6 +29,7 @@ import {
 } from "./flow-application.js";
 import { planPointerMarkerUsage } from "./marker-usage.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
+import { validatePointerFact } from "./type-contract.js";
 
 export interface LocalLocationBinding {
   readonly kind: "variable";
@@ -144,10 +145,9 @@ export function createPointerLoweringPlan(
       usesRuntimeValue = true;
       selectedMarkerRoots.push(requireCallTarget(source, node));
     }
-    if (
-      source.ast.is.IsTypeReferenceNode(node) &&
-      source.sourceFacts.getFact(node, pointerFactKey) !== undefined
-    ) {
+    const pointerFact = source.sourceFacts.getFact(node, pointerFactKey);
+    if (source.ast.is.IsTypeReferenceNode(node) && pointerFact !== undefined) {
+      validatePointerFact(source, node, pointerFact);
       pointerTypes.add(node);
       const typeReference = source.ast.as.AsTypeReferenceNode(node);
       if (typeReference?.TypeName === undefined) {
