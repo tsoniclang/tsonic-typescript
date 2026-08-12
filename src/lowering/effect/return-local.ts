@@ -1,5 +1,10 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindReturnStatement,
+} from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import { isTransparentParent } from "./callable-input-reference.js";
 import {
@@ -28,9 +33,9 @@ interface MutableReturnBinding {
 
 export function createReturnLocalFlow(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ReturnLocalFlow {
-  const roots = collectReturnRoots(source, nodes);
+  const roots = collectReturnRoots(source, program);
   const ownerNodes = collectOwnerNodes(source, roots);
   const candidates = collectOwnerBindings(source, ownerNodes, roots);
   collectBindingInputs(source, candidates, ownerNodes);
@@ -50,13 +55,10 @@ export function createReturnLocalFlow(
 
 function collectReturnRoots(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ReadonlyMap<Node, MutableReturnBinding> {
   const roots = new Map<Node, MutableReturnBinding>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsReturnStatement(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindReturnStatement)) {
     const expression = source.ast.as.AsReturnStatement(node)?.Expression;
     for (const reference of directReturnReferences(source, expression)) {
       const declaration = source.navigation.sourceReferenceFor(reference)?.declaration;

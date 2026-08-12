@@ -5,8 +5,19 @@ import type {
   Type,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindArrowFunction,
+  KindAwaitExpression,
+  KindCallExpression,
+  KindFunctionDeclaration,
+  KindFunctionExpression,
+  KindIdentifier,
+  KindMethodDeclaration,
+  KindReturnStatement,
+} from "@tsonic/tsts/target-ast";
 import type { SourceIdentityResolver } from "../occurrence.js";
 import type { LoweredValueContract } from "../value-contract.js";
+import type { TargetProgramIndex } from "../program-index.js";
 import { propagateEffectBlockers } from "./blocker-propagation.js";
 import {
   blockCooperativeEffect,
@@ -63,27 +74,27 @@ export interface CooperativeEffectPlan {
 
 export function createClosedCooperativeEffectPlan(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   sourceIdentityFor: SourceIdentityResolver,
   loweredValues?: LoweredValueContract,
 ): CooperativeEffectPlan {
-  const candidates = collectCandidates(source, nodes);
-  const calls = collectCalls(source, nodes, candidates);
+  const candidates = collectCandidates(source, program);
+  const calls = collectCalls(source, program, candidates);
   const valueFlow = createCallableValueFlow(
     source,
-    nodes,
+    program,
     new Set(candidates.keys()),
   );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const returnFlow = createReturnValueFlow(
     source,
-    nodes,
+    program,
     (call) => calls.get(call)?.declaration,
     loweredValues,
   );
   classifyProgramEvidence(
     source,
-    nodes,
+    program,
     candidates,
     calls,
     valueFlow,
@@ -98,7 +109,7 @@ export function createClosedCooperativeEffectPlan(
   );
   const awaits = collectSettledAwaits(
     source,
-    nodes,
+    program,
     candidates,
     calls,
     valueFlow,
@@ -146,11 +157,16 @@ function connectSignatureFamilies(
 
 function collectCandidates(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): Map<Node, MutableCallable> {
   const candidates = new Map<Node, MutableCallable>();
-  for (const node of nodes) {
-    if (!isSupportedAsyncCallable(source, node)) {
+  for (const node of program.nodesOfKinds([
+    KindFunctionDeclaration,
+    KindMethodDeclaration,
+    KindFunctionExpression,
+    KindArrowFunction,
+  ])) {
+    if (!isSupportedAsyncCallable(source, program, node)) {
       continue;
     }
     const typeNode = source.ast.typeNode(node);
@@ -201,11 +217,12 @@ function collectCandidates(
 
 function isSupportedAsyncCallable(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   node: Node,
 ): boolean {
   const functionDeclaration = source.ast.is.IsFunctionDeclaration(node);
   const method = source.ast.is.IsMethodDeclaration(node) &&
-    callableDispatchIsClosed(source, node);
+    callableDispatchIsClosed(source, program, node);
   const functionExpression = source.ast.is.IsFunctionExpression(node);
   const arrowFunction = source.ast.is.IsArrowFunction(node);
   if (
@@ -227,14 +244,11 @@ function isSupportedAsyncCallable(
 
 function collectCalls(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   candidates: ReadonlyMap<Node, MutableCallable>,
 ): ReadonlyMap<Node, MutableCallable> {
   const calls = new Map<Node, MutableCallable>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsCallExpression(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindCallExpression)) {
     const semantics = source.semantics.forNode(node);
     const signature = semantics.getResolvedSignature(node);
     const declaration = semantics.getSignatureDeclaration(signature);
@@ -405,14 +419,14 @@ function classifyCallUses(
 
 function classifyProgramEvidence(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
 ): void {
   const tracked = indexCandidateSymbols(source, candidates.values());
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindAwaitExpression)) {
     classifyAwaitDependencies(
       source,
       candidates,
@@ -421,6 +435,8 @@ function classifyProgramEvidence(
       returnFlow,
       node,
     );
+  }
+  for (const node of program.nodesOfKind(KindReturnStatement)) {
     classifyReturnDependencies(
       source,
       candidates,
@@ -429,9 +445,8 @@ function classifyProgramEvidence(
       returnFlow,
       node,
     );
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  }
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     const candidate = candidateForReference(source, tracked, node);
     if (
       candidate === undefined ||
@@ -516,7 +531,7 @@ function exactSymbolsAt(
 
 function collectSettledAwaits(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   candidates: ReadonlyMap<Node, MutableCallable>,
   calls: ReadonlyMap<Node, MutableCallable>,
   valueFlow: CallableValueFlow,
@@ -524,10 +539,7 @@ function collectSettledAwaits(
   optimized: ReadonlySet<Node>,
 ): ReadonlySet<Node> {
   const awaits = new Set<Node>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsAwaitExpression(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindAwaitExpression)) {
     const call = exactCallExpression(
       source,
       source.ast.as.AsAwaitExpression(node)?.Expression,

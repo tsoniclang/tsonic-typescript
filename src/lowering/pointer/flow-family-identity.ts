@@ -10,7 +10,7 @@ export function nonBijectiveIdentityOccurrences(
   source: TargetSourceProgram,
   familyIdentity: Node,
   operations: Iterable<PointerOperationFact>,
-  bindingWrites: ReadonlySet<Node>,
+  hasBindingWrite: (declaration: Node | undefined) => boolean,
 ): readonly Node[] {
   const operationsList = [...operations];
   if (!operationsList.some(isIdentityObservation)) {
@@ -18,7 +18,7 @@ export function nonBijectiveIdentityOccurrences(
   }
   const proof: FreshFamilyProof = {
     activeFactories: new Set(),
-    bindingWrites,
+    hasBindingWrite,
     factoryResults: new Map(),
   };
   const failures: Node[] = [];
@@ -42,7 +42,7 @@ export function nonBijectiveIdentityOccurrences(
 
 interface FreshFamilyProof {
   readonly activeFactories: Set<Node>;
-  readonly bindingWrites: ReadonlySet<Node>;
+  readonly hasBindingWrite: (declaration: Node | undefined) => boolean;
   readonly factoryResults: Map<Node, boolean>;
 }
 
@@ -158,7 +158,7 @@ function isFreshFactoryCall(
       IsDecorator(modifier)
     ) ||
     !isStableFamily(source, familyIdentity, proof) ||
-    proof.bindingWrites.has(methodReference.declaration)
+    proof.hasBindingWrite(methodReference.declaration)
   ) {
     return false;
   }
@@ -209,7 +209,7 @@ function isStableFamily(
 ): boolean {
   return source.ast.extendsHeritageElements(familyIdentity).length === 0 &&
     !source.ast.modifiers(familyIdentity).some((modifier) => IsDecorator(modifier)) &&
-    !proof.bindingWrites.has(familyIdentity);
+    !proof.hasBindingWrite(familyIdentity);
 }
 
 function containsReplacementReturn(

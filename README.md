@@ -48,13 +48,22 @@ profile selects the canonical, open-world-safe result:
 ```
 
 An executable assembled as one closed program may select `"closed-direct"`
-for either family. The backend builds every whole-program plan before changing
+for each family. The backend builds every whole-program plan before changing
 any source, then composes all selected rewrites in one post-order traversal of
 each original TS-Go-contract AST. Every planned source and semantic fact must
 be consumed exactly once before the transaction seals; otherwise printing is
 not invoked and no artifact is published. A structural rewrite that rebuilds a
 parent consumes the coordinator-recorded final child nodes after every selected
 lowering, never one lowering family's partial child output.
+
+Validation maps each selection to one versioned immutable profile identity.
+Lowering then builds one target-program index containing exact source/node
+membership, syntax-kind partitions, binding writes, and member dispatch needed
+by the selected families. Every planner shares that index; disabled facets
+perform no semantic queries. The optimization evidence records the profile
+identity, exact source membership, index work, selected totals, and retained
+reasons so a stale or differently configured result cannot masquerade as the
+same target decision.
 
 `optimizations.cooperativeEffects: "closed-direct"` removes cooperative
 `Promise` transport only from a complete, exact call component with no

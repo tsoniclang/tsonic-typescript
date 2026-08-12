@@ -23,6 +23,8 @@ test("validates and freezes the external printer configuration", () => {
   assert.equal(result.printer.executable, "/tools/tsgo-ast-printer");
   assert.deepEqual(result.printer.arguments, ["--mode", "batch"]);
   assert.deepEqual(result.optimizations, {
+    identity:
+      "typescript-optimization-v1/pointer=location/scalar=preserve/effects=preserve",
     pointerFlows: "location",
     scalarProjections: "preserve",
     cooperativeEffects: "preserve",
@@ -49,6 +51,8 @@ test("validates and freezes explicit closed-flow optimizations", () => {
   const result = readTypeScriptTargetOptions(target);
 
   assert.deepEqual(result.optimizations, {
+    identity:
+      "typescript-optimization-v1/pointer=closed-direct/scalar=closed-direct/effects=closed-direct",
     pointerFlows: "closed-direct",
     scalarProjections: "closed-direct",
     cooperativeEffects: "closed-direct",

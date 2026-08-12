@@ -1,5 +1,15 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindCallExpression,
+  KindElementAccessExpression,
+  KindIdentifier,
+  KindNewExpression,
+  KindParameter,
+  KindPropertyAccessExpression,
+} from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   callableDeclarationAllowsSynchronousValue,
@@ -50,18 +60,18 @@ interface Invocation {
 
 export function collectCallableStorageInputs(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   excludedDeclarations: ReadonlySet<Node>,
 ): CallableStorageInputs {
   const fields = new Set([
-    ...collectPrivateConstructorFields(source, nodes),
-    ...collectClosedSingletonCallableFields(source, nodes),
+    ...collectPrivateConstructorFields(source, program),
+    ...collectClosedSingletonCallableFields(source, program),
   ]);
-  const parameters = collectCallableParameters(source, nodes);
+  const parameters = collectCallableParameters(source, program);
   const localValues = collectCallableLocals(
     source,
     excludedDeclarations,
-    nodes,
+    program,
   );
   const locals = new Set(localValues.keys());
   const storageDeclarations = new Set([
@@ -74,7 +84,10 @@ export function collectCallableStorageInputs(
   const fieldValues = new Map<Node, Node[]>();
   const invalidOwners = new Set<Node>();
 
-  for (const node of nodes) {
+  for (const node of program.nodesOfKinds([
+    KindCallExpression,
+    KindNewExpression,
+  ])) {
     const invocation = invocationAt(source, node);
     if (invocation === undefined) {
       continue;
@@ -96,7 +109,7 @@ export function collectCallableStorageInputs(
     fields,
     locals,
     invalidOwners,
-    nodes,
+    program,
   );
   const preliminaryParameters = parameterClosure.declarations;
 
@@ -109,7 +122,11 @@ export function collectCallableStorageInputs(
   for (const local of locals) {
     localCounts.set(local, { total: 0, admitted: 0 });
   }
-  for (const node of nodes) {
+  for (const node of program.nodesOfKinds([
+    KindIdentifier,
+    KindPropertyAccessExpression,
+    KindElementAccessExpression,
+  ])) {
     auditFieldUse(
       source,
       node,
@@ -221,12 +238,11 @@ function closeStorageDeclarations(
 
 function collectPrivateConstructorFields(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ReadonlySet<Node> {
   const fields = new Set<Node>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindParameter)) {
     if (
-      !source.ast.is.IsParameterDeclaration(node) ||
       !isParameterProperty(source, node) ||
       !callableDeclarationAllowsSynchronousValue(source, node)
     ) {
@@ -245,12 +261,11 @@ function collectPrivateConstructorFields(
 }
 function collectCallableParameters(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ReadonlyMap<Node, Node> {
   const parameters = new Map<Node, Node>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindParameter)) {
     if (
-      !source.ast.is.IsParameterDeclaration(node) ||
       isParameterProperty(source, node) ||
       !callableDeclarationAllowsSynchronousValue(source, node)
     ) {
@@ -315,14 +330,18 @@ function closeParameters(
   fields: ReadonlySet<Node>,
   locals: ReadonlySet<Node>,
   invalidOwners: ReadonlySet<Node>,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ClosedParameters {
   const ownerCounts = new Map<Node, ReferenceCounts>();
   for (const owner of parameters.values()) {
     ownerCounts.set(owner, { total: 0, admitted: 0 });
   }
   const ownerSymbols = indexDeclarationSymbols(source, ownerCounts.keys());
-  for (const node of nodes) {
+  for (const node of program.nodesOfKinds([
+    KindIdentifier,
+    KindPropertyAccessExpression,
+    KindElementAccessExpression,
+  ])) {
     auditCallableOwnerReference(source, node, ownerCounts, ownerSymbols);
   }
   const closed = new Set<Node>();
@@ -341,7 +360,7 @@ function closeParameters(
     source,
     parameters.keys(),
     new Set([...fields, ...locals]),
-    nodes,
+    program,
   );
   for (const parameter of uses.invalid) {
     closed.delete(parameter);

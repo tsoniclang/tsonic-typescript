@@ -3,6 +3,9 @@ import type {
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api";
+import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import { callableDeclarationAllowsSynchronousValue } from "./callable-contract.js";
 import {
@@ -23,10 +26,10 @@ interface ReferenceCounts {
 export function collectCallableLocals(
   source: TargetSourceProgram,
   excluded: ReadonlySet<Node>,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): Map<Node, Node[]> {
   const locals = new Map<Node, Node[]>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindVariableDeclaration)) {
     const name = source.ast.name(node);
     const initializer = source.ast.is.IsVariableDeclaration(node)
       ? source.ast.as.AsVariableDeclaration(node)?.Initializer
@@ -44,7 +47,6 @@ export function collectCallableLocals(
       !semantics.isUnknown(type) &&
       inferredTypeIsCallable(semantics, type, new Set());
     if (
-      !source.ast.is.IsVariableDeclaration(node) ||
       !source.ast.is.IsIdentifier(name) ||
       excluded.has(node) ||
       (!callableDeclarationAllowsSynchronousValue(source, node) &&

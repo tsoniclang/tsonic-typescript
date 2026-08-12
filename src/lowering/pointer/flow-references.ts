@@ -4,6 +4,9 @@ import type {
   SourceDeclarationReference,
   TargetSourceProgram,
 } from "@tsonic/target-api";
+import { KindIdentifier } from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 export interface PointerReferenceCensus {
   referenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
@@ -74,25 +77,19 @@ export function indexPointerTrackedReferences(
 
 export function censusPointerReferences(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   trackedDeclarations: ReadonlySet<Node>,
 ): PointerReferenceCensus {
   const index = indexPointerTrackedReferences(source, trackedDeclarations);
   const references = new Map<Node, SourceDeclarationReference>();
   const writesByDeclaration = new Map<Node, Set<Node>>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     const reference = index.referenceFor(node);
     if (reference === undefined) {
       continue;
     }
     references.set(node, reference);
-    for (const write of source.navigation.bindingWritesWithin(
-      reference.symbol,
-      node,
-    )) {
+    for (const write of program.bindingWritesAt(node)) {
       const existing = writesByDeclaration.get(reference.declaration);
       if (existing === undefined) {
         writesByDeclaration.set(reference.declaration, new Set([write.operation]));

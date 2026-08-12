@@ -10,7 +10,9 @@ import type {
   Type,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
+import type { TargetProgramIndex } from "../program-index.js";
 import type { PointerFlowBlocker } from "./flow-graph.js";
 import {
   type MutableDirectReferenceFamily,
@@ -21,7 +23,7 @@ import { describePointerPointee } from "./pointee-classification.js";
 
 export function applyGenericPointerBoundaries(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
   operationFamilies: ReadonlyMap<Node, MutableDirectReferenceFamily>,
 ): void {
@@ -56,11 +58,8 @@ export function applyGenericPointerBoundaries(
       }
     }
   }
-  for (const node of nodes) {
-    if (
-      !source.ast.is.IsCallExpression(node) ||
-      operationFamilies.has(node)
-    ) {
+  for (const node of program.nodesOfKind(KindCallExpression)) {
+    if (operationFamilies.has(node)) {
       continue;
     }
     const semantics = source.semantics.forNode(node);

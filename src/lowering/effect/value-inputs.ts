@@ -1,5 +1,14 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindConstructor,
+  KindElementAccessExpression,
+  KindIdentifier,
+  KindNewExpression,
+  KindPropertyAccessExpression,
+} from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   collectCallableCollectionInputs,
@@ -26,14 +35,17 @@ interface ReferenceCounts {
 
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): CallableValueInputs {
-  const collections = collectCallableCollectionInputs(source, nodes);
+  const collections = collectCallableCollectionInputs(source, program);
   const mutableValues = new Map<Node, Node[]>();
   const constructorParameters = new Set<Node>();
   const constructorClasses = new Map<Node, Node>();
   const invalidConstructors = new Set<Node>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKinds([
+    KindConstructor,
+    KindNewExpression,
+  ])) {
     if (source.ast.is.IsConstructorDeclaration(node)) {
       const classDeclaration = source.ast.parent(node);
       if (
@@ -89,12 +101,12 @@ export function collectCallableValueInputs(
     source,
     classReferences.keys(),
   );
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     auditClassReference(source, node, classReferences, classSymbols);
   }
   const storage = collectCallableStorageInputs(
     source,
-    nodes,
+    program,
     collections.closed,
   );
   const propertyReferences = new Map<Node, ReferenceCounts>();
@@ -105,7 +117,11 @@ export function collectCallableValueInputs(
     source,
     propertyReferences.keys(),
   );
-  for (const node of nodes) {
+  for (const node of program.nodesOfKinds([
+    KindIdentifier,
+    KindPropertyAccessExpression,
+    KindElementAccessExpression,
+  ])) {
     auditPropertyReference(
       source,
       node,

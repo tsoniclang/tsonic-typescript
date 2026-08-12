@@ -5,7 +5,10 @@ import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
-import { collectTargetProgramNodes } from "../program-nodes.js";
+import {
+  createTargetProgramIndex,
+  type TargetProgramIndex,
+} from "../program-index.js";
 import { analyzePointerCallableAliases } from "./flow-callable-aliases.js";
 import type { PointerFlowBlocker } from "./flow-graph.js";
 import { createFixturePointerFlowPlan } from "./pointer.test-support.js";
@@ -295,10 +298,10 @@ ${aliases}
 const pointer: Pointer<number> = allocatePointer(41);
 export const result = alias${aliasCount - 1}(pointer);
 `);
-  const nodes = collectTargetProgramNodes(fixture.source);
-  const analysis = aliasAnalysis(fixture.source, "read", nodes);
+  const program = pointerProgramIndex(fixture.source);
+  const analysis = aliasAnalysis(fixture.source, "read", program);
   return {
-    nodeCount: nodes.length,
+    nodeCount: program.nodes.length,
     optimizedAliasCount: analysis.optimizedAliasCount,
     traversalOperations: analysis.traversalOperations,
   };
@@ -307,13 +310,20 @@ export const result = alias${aliasCount - 1}(pointer);
 function aliasAnalysis(
   source: TargetSourceProgram,
   name: string,
-  nodes = collectTargetProgramNodes(source),
+  program: TargetProgramIndex = pointerProgramIndex(source),
 ): ReturnType<typeof analyzePointerCallableAliases> {
   return analyzePointerCallableAliases(
     source,
-    nodes,
+    program,
     new Set([findCallable(source, name)]),
   );
+}
+
+function pointerProgramIndex(source: TargetSourceProgram): TargetProgramIndex {
+  return createTargetProgramIndex(source, {
+    bindingWrites: true,
+    memberDispatch: false,
+  });
 }
 
 function findCallable(source: TargetSourceProgram, name: string): Node {

@@ -1,5 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   isFunctionLike,
@@ -34,12 +37,12 @@ interface ArrayOperation {
 
 export function collectCallableCollectionInputs(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): CallableCollectionInputs {
-  const collections = collectCollections(source, nodes);
+  const collections = collectCollections(source, program);
   const extractorParameters = new Map<Node, number | false>();
   auditCollections(source, collections, extractorParameters);
-  collectExtractions(source, nodes, collections, extractorParameters);
+  collectExtractions(source, program, collections, extractorParameters);
   const values = new Map<Node, readonly Node[]>();
   const closed = new Set<Node>();
   const contracts: CallableCollectionContract[] = [];
@@ -73,13 +76,10 @@ export function collectCallableCollectionInputs(
 
 function collectCollections(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ReadonlyMap<Node, MutableCollection> {
   const collections = new Map<Node, MutableCollection>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsVariableDeclaration(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindVariableDeclaration)) {
     const owner = containingFunction(source, node);
     const returnType = callableArrayReturnType(source, source.ast.typeNode(node));
     const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
@@ -163,13 +163,12 @@ function auditCollections(
 
 function collectExtractions(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   collections: ReadonlyMap<Node, MutableCollection>,
   extractorParameters: Map<Node, number | false>,
 ): void {
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindVariableDeclaration)) {
     if (
-      !source.ast.is.IsVariableDeclaration(node) ||
       !source.ast.is.IsIdentifier(source.ast.name(node))
     ) {
       continue;

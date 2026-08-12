@@ -12,6 +12,7 @@ import type {
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import type { TargetProgramIndex } from "../program-index.js";
 import { validateAddressableStorage } from "./addressability.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type {
@@ -77,6 +78,7 @@ interface MutableLocationBinding {
 export function createPointerLoweringPlan(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
+  program: TargetProgramIndex,
   flowPlan?: ClosedPointerFlowPlan,
 ): PointerLoweringPlan {
   if (flowPlan !== undefined && !flowPlan.owns(source)) {
@@ -84,7 +86,7 @@ export function createPointerLoweringPlan(
       "pointer flow plan belongs to a different checked source program",
     );
   }
-  const nodes = collectNodes(source, sourceFile);
+  const nodes = program.nodesFor(sourceFile);
   const operations = new Map<Node, PointerOperationFact>();
   const pointerTypes = new Set<Node>();
   const rawPointerOperations = new Map<Node, RawPointerOperationFact>();
@@ -250,29 +252,6 @@ export function createPointerLoweringPlan(
     runtimeAlias: selectRuntimeAlias(source, nodes),
     usesRuntimeValue,
   });
-}
-
-function collectNodes(
-  source: TargetSourceProgram,
-  sourceFile: SourceFile,
-): readonly Node[] {
-  const nodes: Node[] = [];
-  const pending: Node[] = [sourceFile];
-  const seen = new Set<Node>();
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined || seen.has(node)) {
-      continue;
-    }
-    seen.add(node);
-    nodes.push(node);
-    for (const child of source.ast.children(node)) {
-      if (child !== undefined) {
-        pending.push(child);
-      }
-    }
-  }
-  return Object.freeze(nodes);
 }
 
 function requireCallTarget(source: TargetSourceProgram, node: Node): Node {

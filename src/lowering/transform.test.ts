@@ -69,6 +69,53 @@ test("composes pointer and scalar lowering in one target-AST traversal", () => {
   assert.equal(countNodes(result.sourceFile, fixture.source, IsAsExpression), 1);
 });
 
+test("composes pointer scalar and effect rewrites over one expression", () => {
+  const fixture = checkedPointerFixture(`import {
+  allocatePointer,
+  loadPointer,
+} from "./markers.js";
+class Scalar {
+  constructor(readonly value: number) {}
+}
+async function compute(): Promise<number> {
+  return new Scalar(loadPointer(allocatePointer(41))).value;
+}
+export const result = await compute();
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    fixture.source,
+    files,
+    {
+      pointerFlows: "closed-direct",
+      scalarProjections: "closed-direct",
+      cooperativeEffects: "closed-direct",
+    },
+    sourceIdentity(fixture),
+  ));
+  const lowered = files.map((sourceFile) => transaction.lower(sourceFile));
+  transaction.finish();
+  const result = lowered.find((candidate) =>
+    candidate.sourceFile !== undefined &&
+    fixture.source.ast.getFileName(candidate.sourceFile) === "/src/index.ts"
+  );
+
+  assert.ok(result !== undefined);
+  assert.equal(result.pointer.operationCount, 2);
+  assert.equal(result.scalar.projectionCount, 1);
+  assert.equal(result.effect?.callableCount, 1);
+  assert.equal(
+    countNodes(result.sourceFile, fixture.source, (node) =>
+      fixture.source.ast.hasModifierKind(node, "async")
+    ),
+    0,
+  );
+  assert.equal(countNodes(result.sourceFile, fixture.source, IsAwaitExpression), 0);
+  assert.equal(countNodes(result.sourceFile, fixture.source, IsNewExpression), 0);
+  assert.equal(countCallsNamed(fixture.source, result.sourceFile, "allocatePointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, result.sourceFile, "loadPointer"), 0);
+});
+
 test("shares one canonical node census across complete-flow planners", () => {
   const fixture = checkedPointerFixture(composedSource);
   const nodes = new Set<Node>();
@@ -92,12 +139,16 @@ test("shares one canonical node census across complete-flow planners", () => {
     semantics: fixture.source.semantics,
   });
   const files = [...source.navigation.sourceFiles];
+  let identityLookups = 0;
 
   const transaction = requireTransaction(prepareTypeScriptLowering(
     source,
     files,
     canonicalTypeScriptOptimizationProfile(),
-    sourceIdentity(fixture),
+    (sourceFile) => {
+      identityLookups += 1;
+      return fixture.source.documents.forFile(sourceFile).identity;
+    },
   ));
   for (const sourceFile of files) {
     transaction.lower(sourceFile);
@@ -108,6 +159,7 @@ test("shares one canonical node census across complete-flow planners", () => {
     childLookups < nodes.size * 4,
     `lowering performed ${childLookups} child lookups for ${nodes.size} nodes`,
   );
+  assert.equal(identityLookups, files.length);
 });
 
 test("composes callable storage and callable return narrowing atomically", () => {
@@ -337,6 +389,15 @@ test("requires one exact complete source membership", () => {
       sourceIdentity(fixture),
     ),
     /every exact checked project source file once/,
+  );
+  assert.throws(
+    () => prepareTypeScriptLowering(
+      fixture.source,
+      files,
+      canonicalTypeScriptOptimizationProfile(),
+      () => "duplicate.ts",
+    ),
+    /one non-empty identity per checked source file/,
   );
 });
 

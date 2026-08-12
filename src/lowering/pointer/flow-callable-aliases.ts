@@ -1,6 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindIdentifier,
+  KindVariableDeclaration,
+} from "@tsonic/tsts/target-ast";
 
+import type { TargetProgramIndex } from "../program-index.js";
 import { indexExactDeclarations } from "./flow-references.js";
 
 export interface PointerCallableAliasBoundary {
@@ -37,15 +42,12 @@ interface MutableCallableFamily {
 
 export function analyzePointerCallableAliases(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
 ): PointerCallableAliases {
   const shapes: CallableAliasShape[] = [];
-  for (const declaration of nodes) {
-    if (
-      !source.ast.is.IsVariableDeclaration(declaration) ||
-      !source.ast.is.IsIdentifier(source.ast.name(declaration))
-    ) {
+  for (const declaration of program.nodesOfKind(KindVariableDeclaration)) {
+    if (!source.ast.is.IsIdentifier(source.ast.name(declaration))) {
       continue;
     }
     const initializer = source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
@@ -60,7 +62,7 @@ export function analyzePointerCallableAliases(
   ]);
   const exactDeclarations = indexExactDeclarations(source, declarations);
   const candidates = new Map<Node, CallableAliasCandidate>();
-  let traversalOperations = nodes.length;
+  let traversalOperations = program.nodes.length;
   for (const shape of shapes) {
     const { declaration, initializer, reference } = shape;
     const target = exactDeclarations.declarationFor(reference);
@@ -130,10 +132,7 @@ export function analyzePointerCallableAliases(
   }
 
   const references = new Map<Node, Node[]>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     traversalOperations += 1;
     const declaration = exactDeclarations.declarationFor(node);
     if (declaration === undefined) {

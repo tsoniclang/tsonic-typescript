@@ -62,7 +62,25 @@ export function planPointerMarkerUsage(
   }
 
   const removableDeclarations = new Set<Node>();
+  const residualNamespaceBindings = new Set<Node>();
+  const namespaceDeclarationNames = new Set(
+    [...selectedNamespaceBindings].flatMap((binding) => {
+      const name = source.ast.name(binding);
+      return name === undefined ? [] : [name];
+    }),
+  );
   for (const node of nodes) {
+    if (
+      selectedNamespaceBindings.size !== 0 &&
+      !namespaceDeclarationNames.has(node) &&
+      !selectedNamespaceReceivers.has(node) &&
+      source.ast.is.IsIdentifier(node)
+    ) {
+      const declaration = source.navigation.sourceReferenceFor(node)?.declaration;
+      if (declaration !== undefined && selectedNamespaceBindings.has(declaration)) {
+        residualNamespaceBindings.add(declaration);
+      }
+    }
     const marker = source.sourceFacts.getFact(node, sourceMarkerFactKey);
     if (marker === undefined || !isPointerMarker(marker)) {
       continue;
@@ -88,19 +106,7 @@ export function planPointerMarkerUsage(
   }
 
   for (const binding of selectedNamespaceBindings) {
-    const declarationName = source.ast.name(binding);
-    const hasResidualReference = nodes.some((candidate) => {
-      if (
-        candidate === declarationName ||
-        selectedNamespaceReceivers.has(candidate) ||
-        !source.ast.is.IsIdentifier(candidate)
-      ) {
-        return false;
-      }
-      return source.navigation.sourceReferenceFor(candidate)?.declaration ===
-        binding;
-    });
-    if (!hasResidualReference) {
+    if (!residualNamespaceBindings.has(binding)) {
       removableDeclarations.add(binding);
     }
   }

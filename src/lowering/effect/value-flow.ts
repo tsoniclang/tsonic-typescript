@@ -1,5 +1,8 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import { KindCallExpression } from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   collectCallableValueInputs,
@@ -41,17 +44,14 @@ interface MutableResolution {
 
 export function createCallableValueFlow(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   candidates: ReadonlySet<Node>,
 ): CallableValueFlow {
   const candidateSymbols = indexCandidateSymbols(source, candidates);
-  const inputs = collectCallableValueInputs(source, nodes);
+  const inputs = collectCallableValueInputs(source, program);
   const allowedCandidateReferences = new Set<Node>();
   const resolutions = new Map<Node, CallableValueResolution>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsCallExpression(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindCallExpression)) {
     const resolution = resolveCall(
       source,
       node,

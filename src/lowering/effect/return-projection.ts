@@ -1,5 +1,11 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindIdentifier,
+  KindVariableDeclaration,
+} from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import {
   isFunctionLike,
@@ -45,12 +51,12 @@ const updateOperators = new Set([
 
 export function createReturnProjectionFlow(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   directCallDeclaration: (call: Node) => Node | undefined,
 ): ReturnProjectionFlow {
-  const bindings = collectAggregateBindings(source, nodes);
+  const bindings = collectAggregateBindings(source, program);
   const symbols = indexBindingSymbols(source, bindings);
-  auditAggregateBindings(source, nodes, bindings, symbols);
+  auditAggregateBindings(source, program, bindings, symbols);
   const slotResults = new Map<Node, Map<number, boolean>>();
   const pending = new Map<Node, Set<number>>();
 
@@ -153,12 +159,11 @@ function proveCallSlot(
 
 function collectAggregateBindings(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ReadonlyMap<Node, AggregateBinding> {
   const bindings = new Map<Node, AggregateBinding>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindVariableDeclaration)) {
     if (
-      !source.ast.is.IsVariableDeclaration(node) ||
       source.ast.variableDeclarationKind(node) !== "const" ||
       !source.ast.is.IsIdentifier(source.ast.name(node))
     ) {
@@ -179,17 +184,14 @@ function collectAggregateBindings(
 
 function auditAggregateBindings(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   bindings: ReadonlyMap<Node, AggregateBinding>,
   symbols: ReadonlyMap<Symbol, AggregateBinding>,
 ): void {
   if (bindings.size === 0) {
     return;
   }
-  for (const node of nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     const binding = bindingForReference(source, symbols, node);
     if (
       binding === undefined ||

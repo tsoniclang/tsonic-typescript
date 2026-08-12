@@ -1,5 +1,12 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindClassDeclaration,
+  KindIdentifier,
+  KindVariableDeclaration,
+} from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import { callableDeclarationAllowsSynchronousValue } from "./callable-contract.js";
 import {
@@ -22,12 +29,12 @@ interface SingletonClass {
 
 export function collectClosedSingletonCallableFields(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ReadonlySet<Node> {
-  const classes = collectDataClasses(source, nodes);
-  collectSingletonInstances(source, nodes, classes);
-  auditClassReferences(source, nodes, classes);
-  auditInstanceReferences(source, nodes, classes);
+  const classes = collectDataClasses(source, program);
+  collectSingletonInstances(source, program, classes);
+  auditClassReferences(source, program, classes);
+  auditInstanceReferences(source, program, classes);
   return new Set([...classes.values()].flatMap((candidate) =>
     candidate.closed && candidate.instance !== undefined
       ? [...candidate.fields]
@@ -37,12 +44,11 @@ export function collectClosedSingletonCallableFields(
 
 function collectDataClasses(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): Map<Node, SingletonClass> {
   const classes = new Map<Node, SingletonClass>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindClassDeclaration)) {
     if (
-      !source.ast.is.IsClassDeclaration(node) ||
       source.ast.extendsHeritageElements(node).length !== 0 ||
       source.ast.hasModifierKind(node, "abstract") ||
       source.ast.hasModifierKind(node, "ambient") ||
@@ -97,12 +103,11 @@ function collectDataClasses(
 
 function collectSingletonInstances(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   classes: ReadonlyMap<Node, SingletonClass>,
 ): void {
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindVariableDeclaration)) {
     if (
-      !source.ast.is.IsVariableDeclaration(node) ||
       source.ast.variableDeclarationKind(node) !== "const" ||
       !source.ast.is.IsIdentifier(source.ast.name(node)) ||
       containingFunction(source, node) !== undefined
@@ -134,14 +139,11 @@ function collectSingletonInstances(
 
 function auditClassReferences(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   classes: ReadonlyMap<Node, SingletonClass>,
 ): void {
   const symbols = indexDeclarationSymbols(source, classes.keys());
-  for (const node of nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     const declaration = declarationForSymbols(source, symbols, node);
     const candidate = declaration === undefined ? undefined : classes.get(declaration);
     if (
@@ -169,7 +171,7 @@ function auditClassReferences(
 
 function auditInstanceReferences(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   classes: ReadonlyMap<Node, SingletonClass>,
 ): void {
   const instances = new Map<Node, SingletonClass>();
@@ -179,10 +181,7 @@ function auditInstanceReferences(
     }
   }
   const symbols = indexDeclarationSymbols(source, instances.keys());
-  for (const node of nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     const declaration = declarationForSymbols(source, symbols, node);
     const candidate = declaration === undefined ? undefined : instances.get(declaration);
     if (

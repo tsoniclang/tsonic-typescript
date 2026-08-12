@@ -11,6 +11,7 @@ import {
 } from "@tsonic/target-api";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { createTargetProgramIndex } from "../program-index.js";
 import { createPointerLoweringPlan } from "./plan.js";
 
 test("plans addressed bindings with one source-reference pass", () => {
@@ -32,7 +33,11 @@ export function capture(value: number, pointer = addressOf(value)) {
 }
 `);
   assert.throws(
-    () => createPointerLoweringPlan(fixture.source, fixture.sourceFile),
+    () => createPointerLoweringPlan(
+      fixture.source,
+      fixture.sourceFile,
+      pointerProgramIndex(fixture.source),
+    ),
     /address-of parameter outside its function body is unsupported/,
   );
 });
@@ -50,8 +55,19 @@ function referenceLookupsFor(bindingCount: number): number {
       },
     }),
   });
-  createPointerLoweringPlan(source, fixture.sourceFile);
+  createPointerLoweringPlan(
+    source,
+    fixture.sourceFile,
+    pointerProgramIndex(source),
+  );
   return referenceLookups;
+}
+
+function pointerProgramIndex(source: TargetSourceProgram) {
+  return createTargetProgramIndex(source, {
+    bindingWrites: false,
+    memberDispatch: false,
+  });
 }
 
 function checkedFixture(bindingCount: number): {

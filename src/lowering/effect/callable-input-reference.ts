@@ -1,5 +1,8 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import { KindIdentifier } from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../program-index.js";
 
 import { directContainingCall } from "./syntax.js";
 
@@ -12,17 +15,14 @@ export function indexParameterUses(
   source: TargetSourceProgram,
   parameters: Iterable<Node>,
   destinations: ReadonlySet<Node>,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
 ): ParameterUses {
   const tracked = new Set(parameters);
   const allDeclarations = new Set([...tracked, ...destinations]);
   const symbols = indexDeclarationSymbols(source, allDeclarations);
   const dependencies = new Map<Node, Set<Node>>();
   const invalid = new Set<Node>();
-  for (const node of nodes) {
-    if (!source.ast.is.IsIdentifier(node)) {
-      continue;
-    }
+  for (const node of program.nodesOfKind(KindIdentifier)) {
     const parameter = declarationForSymbols(source, symbols, node);
     if (
       parameter === undefined ||

@@ -25,6 +25,10 @@ import {
   createFinalNodeJournal,
   type FinalNodeLookup,
 } from "../final-nodes.js";
+import {
+  createTargetProgramIndex,
+  type TargetProgramIndex,
+} from "../program-index.js";
 
 import { PointerLoweringError } from "./diagnostic.js";
 import type { ClosedPointerFlowPlan } from "./flow-plan.js";
@@ -66,7 +70,11 @@ export function lowerPointers(
   sourceFile: SourceFile,
   flowPlan?: ClosedPointerFlowPlan,
 ): PointerLoweringResult {
-  const plan = createPointerLoweringPlan(source, sourceFile, flowPlan);
+  const program = createTargetProgramIndex(source, {
+    bindingWrites: false,
+    memberDispatch: false,
+  });
+  const plan = createPointerLoweringPlan(source, sourceFile, program, flowPlan);
   return applyPointerLoweringPlan(source, plan);
 }
 
@@ -117,12 +125,13 @@ function applyPointerLoweringPlan(
 export function createPointerRewriteSession(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
+  program: TargetProgramIndex,
   flowPlan: ClosedPointerFlowPlan | undefined,
   finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
   return createPointerRewriteSessionForPlan(
     source,
-    createPointerLoweringPlan(source, sourceFile, flowPlan),
+    createPointerLoweringPlan(source, sourceFile, program, flowPlan),
     finalNodes,
   );
 }

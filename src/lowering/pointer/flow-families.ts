@@ -7,9 +7,13 @@ import type {
   PointerOperationFact,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindCallExpression,
+  KindTypeReference,
+} from "@tsonic/tsts/target-ast";
 
+import type { TargetProgramIndex } from "../program-index.js";
 import type { PointerFlowComponent } from "./flow-graph.js";
-import { indexProjectBindingWrites } from "./flow-binding-writes.js";
 import {
   appendFamilyFallback,
   sealFamilyFallback,
@@ -34,13 +38,15 @@ export interface DirectReferenceFamilyPlan {
 
 export function planDirectReferenceFamilies(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   components: readonly PointerFlowComponent[],
 ): DirectReferenceFamilyPlan {
   const families = new Map<Node, MutableDirectReferenceFamily>();
   const operationFamilies = new Map<Node, MutableDirectReferenceFamily>();
-  for (const node of nodes) {
+  for (const node of program.nodesOfKind(KindTypeReference)) {
     collectPointerType(source, node, families);
+  }
+  for (const node of program.nodesOfKind(KindCallExpression)) {
     collectPointerOperation(
       source,
       node,
@@ -50,7 +56,7 @@ export function planDirectReferenceFamilies(
   }
   applyGenericPointerBoundaries(
     source,
-    nodes,
+    program,
     families,
     operationFamilies,
   );
@@ -66,7 +72,7 @@ export function planDirectReferenceFamilies(
     source,
     families,
     familyRepresentations,
-    indexProjectBindingWrites(source, nodes),
+    program.hasBindingWrite,
   );
   const representations = new Map<Node, DirectReferenceFamilyDecision>();
   const fallbackReasons: FamilyFallbackLedger = new Map();
@@ -210,7 +216,7 @@ function applyIdentityBoundaries(
     MutableDirectReferenceFamily,
     DirectReferenceFamilyRepresentation
   >,
-  bindingWrites: ReadonlySet<Node>,
+  hasBindingWrite: (declaration: Node | undefined) => boolean,
 ): void {
   for (const family of families.values()) {
     if (representations.get(family) !== "direct-object") {
@@ -220,7 +226,7 @@ function applyIdentityBoundaries(
       source,
       family.identity,
       family.operations.values(),
-      bindingWrites,
+      hasBindingWrite,
     )) {
       blockFamily(family, "non-bijective-identity", occurrence);
     }

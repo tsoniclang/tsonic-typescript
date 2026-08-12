@@ -1,7 +1,9 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
+import { KindImportDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { LoweredValueContract } from "../value-contract.js";
+import type { TargetProgramIndex } from "../program-index.js";
 import {
   createTypeScriptRuntimeReturnContract,
   type TypeScriptRuntimeReturnContract,
@@ -43,19 +45,22 @@ export interface ReturnValueFlow {
 
 export function createReturnValueFlow(
   source: TargetSourceProgram,
-  nodes: readonly Node[],
+  program: TargetProgramIndex,
   directCallDeclaration: (call: Node) => Node | undefined,
   loweredValues?: LoweredValueContract,
 ): ReturnValueFlow {
-  const locals = createReturnLocalFlow(source, nodes);
-  const storage = createReturnStorageFlow(source, nodes);
-  const runtime = createTypeScriptRuntimeReturnContract(source, nodes);
+  const locals = createReturnLocalFlow(source, program);
+  const storage = createReturnStorageFlow(source, program);
+  const runtime = createTypeScriptRuntimeReturnContract(
+    source,
+    program.nodesOfKind(KindImportDeclaration),
+  );
   const projections = createReturnProjectionFlow(
     source,
-    nodes,
+    program,
     directCallDeclaration,
   );
-  const calls = createReturnCallFlow(source);
+  const calls = createReturnCallFlow(source, program);
   const rootScope: ReturnProofScope = Object.freeze({
     inputs: new Map(),
     root: true,
