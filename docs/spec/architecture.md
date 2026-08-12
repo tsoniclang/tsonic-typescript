@@ -156,6 +156,36 @@ Each family has one decision owner and one transformation owner. Cross-family
 coordination exchanges immutable result facts before rewriting; one family may
 not inspect another family's partially rewritten tree.
 
+### Scalar Projection Closure
+
+The scalar owner classifies every exact immediate construction projection such
+as `new Width(value).value`. It either removes the allocation while preserving
+constructor-target-before-argument evaluation, precedence, and the selected
+result type, or retains the canonical expression under one closed reason:
+
+- the canonical profile explicitly preserves it;
+- the constructor target is open or not an exact class binding;
+- the class binding is mutable;
+- construction has observable class, base, decorator, initializer, or body
+  behavior;
+- the selected field is not one exact readonly constructor parameter;
+- the projected value is not a supported scalar;
+- a cross-module result type has no exact portable spelling; or
+- call/property evidence does not exact-join the selected declarations and
+  types.
+
+The decision is per exact source occurrence. Other uses of the same class do
+not prevent elimination of a closed immediate projection, and they are not
+silently rewritten. Every syntactic candidate appears exactly once in the
+decision denominator; no unsupported or unknown residual category exists.
+
+An eliminated scalar projection publishes an immutable lowered-value result
+fact on its original node identity. Cooperative-effect planning may consume
+that fact together with pointer-result facts before either family rewrites the
+tree. The shared contract answers only properties of the final value, such as
+definite non-thenability; it does not expose another family's representation or
+partially transformed nodes.
+
 ## Human-Shaped Output
 
 Generated TypeScript should look like a careful human translation whenever the

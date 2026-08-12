@@ -51,6 +51,18 @@ definition/reference edge, or caller mapping; each fails before rewriting.
 Target tests must not use marker spelling, a scalar authored signature, or a
 GoToTS-specific configuration key as proof.
 
+Scalar contract tests independently enumerate immediate construction
+projections and exact-join every original node to one optimized or retained
+decision. The retained counts and examples are partitioned by the closed
+reasons in the architecture specification. Fixtures cover same-file and
+cross-file declarations, imports, aliases, binding writes, observable
+construction, readonly and mutable fields, scalar and non-scalar values,
+portable and nonportable result types, exact call/property identity,
+evaluation order, precedence, and target-before-argument failure behavior.
+Mutations omit a decision, change selected field identity, substitute a
+foreign plan, and claim a retained result as lowered; each fails at the scalar
+owner or shared lowered-value boundary before rewriting.
+
 ## Composition And Transaction Proof
 
 Tests overlap effect, pointer, scalar, and structural rewrites at one parent.
