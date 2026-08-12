@@ -17,6 +17,27 @@ import {
 } from "./flow-syntax.js";
 import { validatePointerOperationFact } from "./operation-contract.js";
 
+export function derivePointerOperationFactDenominator(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+): ReadonlySet<Node> {
+  const operations = new Set<Node>();
+  for (const node of program.nodes) {
+    const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
+    if (operation === undefined) {
+      continue;
+    }
+    if (operation.call !== node) {
+      throw new Error(
+        "pointer operation fact is not attached to its exact call",
+      );
+    }
+    validatePointerOperationFact(source, operation);
+    operations.add(node);
+  }
+  return operations;
+}
+
 export function collectPointerOperations(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
@@ -28,12 +49,6 @@ export function collectPointerOperations(
     if (operation === undefined) {
       continue;
     }
-    if (operation.call !== node || operations.has(node)) {
-      throw new Error(
-        "pointer operation fact is not uniquely attached to its exact call",
-      );
-    }
-    validatePointerOperationFact(source, operation);
     operations.set(node, operation);
     const vertex = graph.add(node);
     vertex.operations.add(node);

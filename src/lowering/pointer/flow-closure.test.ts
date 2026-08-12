@@ -16,6 +16,18 @@ import {
   createFixturePointerFlowPlan,
   visit,
 } from "./pointer.test-support.js";
+import { createTargetProgramIndex } from "../program-index.js";
+import { censusPointerFlows } from "./flow-census.js";
+import type { PointerFlowComponent } from "./flow-graph.js";
+import { derivePointerOperationFactDenominator } from "./flow-operation-census.js";
+import {
+  assertPointerCensusTotality,
+  derivePointerTypeFactDenominator,
+} from "./flow-type-census.js";
+import {
+  PointerPlanningLedger,
+  type PointerPlanningPhase,
+} from "./planning-ledger.js";
 import { lowerPointers } from "./transform.js";
 
 test("classifies the complete pointer fact denominator exactly once", () => {
@@ -85,6 +97,95 @@ export const result = [nested.length, loadPointer(allocated)];
       );
     }
   }
+});
+
+test("rejects an omitted unowned pointer-type classifier row", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+type Nested = readonly Pointer<number>[];
+declare const values: Nested;
+export const result = values.length;
+`);
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: false,
+  });
+  const expected = derivePointerTypeFactDenominator(fixture.source, program);
+  assert.deepEqual(expected, new Set(pointerTypeNodes(fixture.source)));
+  const census = censusPointerFlows(
+    fixture.source,
+    program,
+    new PointerPlanningLedger(),
+  );
+  const omitted = expected.values().next().value;
+  assert.ok(omitted !== undefined);
+  assert.ok(census.components.some((component) =>
+    component.pointerTypes.includes(omitted)
+  ));
+  const mutated = census.components.map((component): PointerFlowComponent =>
+    Object.freeze({
+      ...component,
+      pointerTypes: Object.freeze(
+        component.pointerTypes.filter((node) => node !== omitted),
+      ),
+    })
+  );
+
+  assert.throws(
+    () => assertPointerCensusTotality(
+      mutated,
+      new Set(pointerOperationFacts(fixture.source).keys()),
+      expected,
+    ),
+    /classified \d+ pointer types, expected \d+/,
+  );
+});
+
+test("rejects an omitted pointer-operation classifier row", () => {
+  const fixture = checkedPointerFixture(`
+import { allocatePointer, loadPointer } from "./markers.js";
+const pointer = allocatePointer(1);
+export const result = loadPointer(pointer);
+`);
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: false,
+  });
+  const expected = derivePointerOperationFactDenominator(
+    fixture.source,
+    program,
+  );
+  assert.deepEqual(
+    expected,
+    new Set(pointerOperationFacts(fixture.source).keys()),
+  );
+  const census = censusPointerFlows(
+    fixture.source,
+    program,
+    new PointerPlanningLedger(),
+  );
+  const omitted = expected.values().next().value;
+  assert.ok(omitted !== undefined);
+  assert.ok(census.components.some((component) =>
+    component.operations.includes(omitted)
+  ));
+  const mutated = census.components.map((component): PointerFlowComponent =>
+    Object.freeze({
+      ...component,
+      operations: Object.freeze(
+        component.operations.filter((node) => node !== omitted),
+      ),
+    })
+  );
+
+  assert.throws(
+    () => assertPointerCensusTotality(
+      mutated,
+      expected,
+      derivePointerTypeFactDenominator(fixture.source, program),
+    ),
+    /classified \d+ pointer operations, expected \d+/,
+  );
 });
 
 test("joins hash, provider binding, and projection into one retained component", () => {
@@ -177,23 +278,36 @@ export const result = read(pointer) + 1;
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
 });
 
-test("scales pointer component construction linearly by deterministic work", () => {
-  const baseline = independentScalarPlan(0);
-  const small = independentScalarPlan(24);
-  const large = independentScalarPlan(48);
-
-  assert.equal(small.components.length - baseline.components.length, 24);
-  assert.equal(large.components.length - baseline.components.length, 48);
-  assert.equal(small.representationCounts["direct-snapshot"], 24);
-  assert.equal(large.representationCounts["direct-snapshot"], 48);
-  const smallWork = small.analysisOperationCount - baseline.analysisOperationCount;
-  const largeWork = large.analysisOperationCount - baseline.analysisOperationCount;
+test("bounds the complete pointer planner by deterministic work", () => {
+  const baseline = representativePointerPlan(0);
+  const small = representativePointerPlan(8);
+  const large = representativePointerPlan(16);
+  const smallWork = small.planningOperationCount - baseline.planningOperationCount;
+  const largeWork = large.planningOperationCount - baseline.planningOperationCount;
   assert.ok(
     largeWork <= smallWork * 2.2,
     `${smallWork} -> ${largeWork}`,
   );
+  const phases: readonly PointerPlanningPhase[] = [
+    "flow-census",
+    "direct-family",
+    "representation",
+    "projection",
+    "evidence",
+  ];
+  for (const phase of phases) {
+    const smallPhase = small.planningOperations[phase] -
+      baseline.planningOperations[phase];
+    const largePhase = large.planningOperations[phase] -
+      baseline.planningOperations[phase];
+    assert.ok(smallPhase > 0, `${phase} did not enter the operation ledger`);
+    assert.ok(
+      largePhase <= smallPhase * 2.2,
+      `${phase}: ${smallPhase} -> ${largePhase}`,
+    );
+  }
   const quadraticFoil = (size: number): number => size * size;
-  assert.equal(quadraticFoil(48) / quadraticFoil(24), 4);
+  assert.equal(quadraticFoil(16) / quadraticFoil(8), 4);
 });
 
 function pointerOperations(
@@ -217,15 +331,29 @@ function pointerOperationFacts(
   return operations;
 }
 
-function independentScalarPlan(
+function representativePointerPlan(
   count: number,
 ): ReturnType<typeof createFixturePointerFlowPlan> {
   const declarations = Array.from({ length: count }, (_, index) => `
-const pointer${index}: Pointer<number> = allocatePointer(${index});
-export const value${index} = loadPointer(pointer${index});`).join("\n");
+class Box${index} { constructor(readonly value: number) {} }
+function read${index}<T>(pointer: Pointer<T>): T { return loadPointer(pointer); }
+const objectPointer${index} = allocatePointer(new Box${index}(${index}));
+const scalarPointer${index} = allocatePointer(${index});
+const projected${index} = projectPointer<number, string>(
+  scalarPointer${index},
+  String,
+  Number,
+);
+export const value${index} = read${index}(objectPointer${index}).value +
+  hashPointer(objectPointer${index}) + loadPointer(projected${index}!).length;`).join("\n");
   const fixture = checkedPointerFixture(`
 import type { Pointer } from "./markers.js";
-import { allocatePointer, loadPointer } from "./markers.js";
+import {
+  allocatePointer,
+  hashPointer,
+  loadPointer,
+  projectPointer,
+} from "./markers.js";
 ${declarations}
 `);
   return createFixturePointerFlowPlan(fixture.source);

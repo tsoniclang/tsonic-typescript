@@ -46,7 +46,7 @@ export function collectPointerFunctionResults(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   graph: PointerFlowGraph,
-  accountedPointerTypes: Set<Node>,
+  classifiedPointerTypes: Set<Node>,
 ): ReadonlyMap<Node, PointerFunctionResult> {
   const results = new Map<Node, PointerFunctionResult>();
   for (const owner of program.nodesOfKinds([
@@ -74,7 +74,7 @@ export function collectPointerFunctionResults(
       source,
       pointerType,
       vertex,
-      accountedPointerTypes,
+      classifiedPointerTypes,
     );
     const pointeeType = source.semantics.forNode(pointerType)
       .getTypeFromTypeNode(fact.pointee);

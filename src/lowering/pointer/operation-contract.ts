@@ -1,7 +1,9 @@
 import type {
   Node,
   PointerOperationFact,
+  ResolvedSourceCallInfo,
   SourceCallMarkerKind,
+  Type,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
@@ -15,21 +17,42 @@ export function validatePointerOperationFact(
   if (!source.ast.is.IsCallExpression(operation.call)) {
     fail(operation, "is not attached to a call expression");
   }
+  const semantics = source.semantics.forNode(operation.call);
+  const call = semantics.getResolvedCallInfo(operation.call);
+  if (call?.sourceSelectedSignatureKind !== "resolved") {
+    fail(operation, "has no exact resolved-call evidence");
+  }
   validateSelectedMarker(source, operation);
-  validateSelectedPointee(source, operation);
-  const arguments_ = source.ast.arguments(operation.call);
-  const expected = operationOperands(operation);
-  if (arguments_.length !== expected.length) {
+  validateSelectedPointee(source, operation, call);
+  validateResultType(source, operation, call);
+  const expected = operationOperandContracts(operation);
+  if (call.sourceArguments.length !== expected.length) {
     fail(
       operation,
-      `has ${arguments_.length} arguments, expected ${expected.length}`,
+      `has ${call.sourceArguments.length} arguments, expected ${expected.length}`,
     );
   }
   for (let index = 0; index < expected.length; index += 1) {
-    if (arguments_[index] !== expected[index]) {
-      fail(operation, `argument ${index} disagrees with its exact fact operand`);
+    const selected = call.sourceArguments[index];
+    const owned = expected[index];
+    if (selected?.expression !== owned?.expression) {
+      fail(
+        operation,
+        `${owned?.role ?? `argument ${index}`} expression disagrees with its exact checker operand`,
+      );
+    }
+    if (
+      selected?.type === undefined ||
+      owned?.type === undefined ||
+      semantics.getTypeRelationship(selected.type, owned.type) !== "identical"
+    ) {
+      fail(
+        operation,
+        `${owned?.role ?? `argument ${index}`} type disagrees with its exact checker type`,
+      );
     }
   }
+  validateAddressedStorage(source, operation);
   validateLocationIdentity(operation);
 }
 
@@ -59,9 +82,9 @@ function validateSelectedMarker(
 function validateSelectedPointee(
   source: TargetSourceProgram,
   operation: PointerOperationFact,
+  call: ResolvedSourceCallInfo,
 ): void {
   const semantics = source.semantics.forNode(operation.call);
-  const call = semantics.getResolvedCallInfo(operation.call);
   const selected = call?.sourceSelectedMethodTypeArguments ?? [];
   const expectedCount = operation.operation === "project-pointer" ? 2 : 1;
   const selectedPointee = selected[expectedCount - 1];
@@ -95,31 +118,106 @@ function validateSelectedPointee(
   }
 }
 
-function operationOperands(operation: PointerOperationFact): readonly Node[] {
+function validateResultType(
+  source: TargetSourceProgram,
+  operation: PointerOperationFact,
+  call: ResolvedSourceCallInfo,
+): void {
+  if (
+    source.semantics.forNode(operation.call).getTypeRelationship(
+      call.sourceResultType,
+      operation.resultType,
+    ) !== "identical"
+  ) {
+    fail(operation, "result type disagrees with its exact checker type");
+  }
+}
+
+interface PointerOperandContract {
+  readonly role: string;
+  readonly expression: Node;
+  readonly type: Type;
+}
+
+function operationOperandContracts(
+  operation: PointerOperationFact,
+): readonly PointerOperandContract[] {
   switch (operation.operation) {
     case "address-of":
-      return [operation.storageExpression];
+      return [
+        owned("storage", operation.storageExpression, operation.storageType),
+      ];
     case "allocate":
-      return [operation.initialExpression];
+      return [
+        owned("initial", operation.initialExpression, operation.initialType),
+      ];
     case "load":
     case "hash-pointer":
-      return [operation.pointerExpression];
+      return [
+        owned("pointer", operation.pointerExpression, operation.pointerType),
+      ];
     case "store":
-      return [operation.pointerExpression, operation.valueExpression];
+      return [
+        owned("pointer", operation.pointerExpression, operation.pointerType),
+        owned("value", operation.valueExpression, operation.valueType),
+      ];
     case "equal-pointer":
-      return [operation.leftExpression, operation.rightExpression];
+      return [
+        owned("left", operation.leftExpression, operation.leftType),
+        owned("right", operation.rightExpression, operation.rightType),
+      ];
     case "bind-pointer":
       return [
-        operation.identityExpression,
-        operation.readExpression,
-        operation.writeExpression,
+        owned(
+          "identity",
+          operation.identityExpression,
+          operation.identityType,
+        ),
+        owned("read", operation.readExpression, operation.readType),
+        owned("write", operation.writeExpression, operation.writeType),
       ];
     case "project-pointer":
       return [
-        operation.pointerExpression,
-        operation.fromSourceExpression,
-        operation.toSourceExpression,
+        owned("pointer", operation.pointerExpression, operation.pointerType),
+        owned(
+          "from-source",
+          operation.fromSourceExpression,
+          operation.fromSourceType,
+        ),
+        owned("to-source", operation.toSourceExpression, operation.toSourceType),
       ];
+  }
+}
+
+function owned(
+  role: string,
+  expression: Node,
+  type: Type,
+): PointerOperandContract {
+  return { role, expression, type };
+}
+
+function validateAddressedStorage(
+  source: TargetSourceProgram,
+  operation: PointerOperationFact,
+): void {
+  if (operation.operation !== "address-of") {
+    return;
+  }
+  const semantics = source.semantics.forNode(operation.storageExpression);
+  const storage = semantics.getResolvedStorageInfo(operation.storageExpression);
+  if (
+    storage === undefined ||
+    !storage.writable ||
+    storage.storageExpression !== operation.storageExpression ||
+    semantics.getTypeRelationship(
+      storage.type,
+      operation.storageType,
+    ) !== "identical" ||
+    storage.symbol !== operation.storageSymbol ||
+    storage.declaration !== operation.storageDeclaration
+  ) {
+    fail(operation, "storage evidence disagrees with its exact checker owner");
   }
 }
 

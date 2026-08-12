@@ -27,10 +27,12 @@ import {
   attachPointerOperations,
   collectPointerOperations,
   connectLocationIdentities,
+  derivePointerOperationFactDenominator,
 } from "./flow-operation-census.js";
 import {
   assertPointerCensusTotality,
   collectPointerBindings,
+  derivePointerTypeFactDenominator,
   retainUnownedPointerTypes,
 } from "./flow-type-census.js";
 import {
@@ -43,6 +45,7 @@ import {
   transparentExpression,
   transparentReference,
 } from "./flow-syntax.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export interface PointerCensus {
   readonly source: TargetSourceProgram;
@@ -63,35 +66,40 @@ export interface PointerCensus {
 
 export interface PointerFlowCensusResult {
   readonly components: readonly PointerFlowComponent[];
-  readonly analysisOperationCount: number;
 }
 
 export function censusPointerFlows(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  ledger: PointerPlanningLedger,
 ): PointerFlowCensusResult {
   const nodes = program.nodes;
   const graph = new PointerFlowGraph();
+  const expectedOperations = derivePointerOperationFactDenominator(
+    source,
+    program,
+  );
   const operations = collectPointerOperations(source, program, graph);
   connectLocationIdentities(graph, operations);
-  const accountedPointerTypes = new Set<Node>();
+  const expectedPointerTypes = derivePointerTypeFactDenominator(source, program);
+  const classifiedPointerTypes = new Set<Node>();
   const pointerBindings = collectPointerBindings(
     source,
     program,
     graph,
-    accountedPointerTypes,
+    classifiedPointerTypes,
   );
   const functionResults = collectPointerFunctionResults(
     source,
     program,
     graph,
-    accountedPointerTypes,
+    classifiedPointerTypes,
   );
   retainUnownedPointerTypes(
     source,
     program,
     graph,
-    accountedPointerTypes,
+    classifiedPointerTypes,
   );
   const resultExpressions = new Set<Node>();
   const allowedPointerReferences = new Set<Node>();
@@ -169,14 +177,19 @@ export function censusPointerFlows(
   applyCallableAliasBoundaries(census);
   auditPointerCensus(census);
   const components = graph.components();
+  ledger.record(
+    "flow-census",
+    program.nodes.length +
+      graph.operationCount +
+      callableAliases.traversalOperations,
+  );
   assertPointerCensusTotality(
     components,
-    operations,
-    accountedPointerTypes,
+    expectedOperations,
+    expectedPointerTypes,
   );
   return Object.freeze({
     components,
-    analysisOperationCount: program.nodes.length + graph.operationCount,
   });
 }
 

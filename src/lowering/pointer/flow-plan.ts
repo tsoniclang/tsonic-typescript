@@ -31,6 +31,11 @@ import {
   planPointerProjectionFusions,
   type PointerProjectionFusion,
 } from "./projection-fusion.js";
+import {
+  PointerPlanningLedger,
+  totalPointerPlanningOperations,
+  type PointerPlanningOperations,
+} from "./planning-ledger.js";
 
 export type { PointerFlowBlocker } from "./flow-graph.js";
 
@@ -71,7 +76,8 @@ export interface ClosedPointerFlowPlan {
   readonly optimizedFamilyCount: number;
   readonly optimizedProjectionReadCount: number;
   readonly optimizedProjectionStoreCount: number;
-  readonly analysisOperationCount: number;
+  readonly planningOperationCount: number;
+  readonly planningOperations: PointerPlanningOperations;
   readonly representationCounts: Readonly<Record<PointerFlowRepresentation, number>>;
   readonly fallbackReasons: readonly PointerFlowFallbackEvidence[];
   readonly familyFallbackReasons: readonly PointerFlowFallbackEvidence[];
@@ -88,12 +94,14 @@ export function createClosedPointerFlowPlan(
   program: TargetProgramIndex,
   sourceIdentityFor: SourceIdentityResolver,
 ): ClosedPointerFlowPlan {
-  const census = censusPointerFlows(source, program);
+  const ledger = new PointerPlanningLedger();
+  const census = censusPointerFlows(source, program, ledger);
   const components = census.components;
   const familyPlan = planDirectReferenceFamilies(
     source,
     program,
     components,
+    ledger,
   );
   const representations = new Map<Node, PointerFlowRepresentation>(
     familyPlan.representations,
@@ -106,6 +114,7 @@ export function createClosedPointerFlowPlan(
   >();
   let optimizedComponentCount = 0;
   for (const component of components) {
+    ledger.record("representation");
     const decision = selectRepresentation(source, component);
     const representation = finalComponentRepresentation(
       component,
@@ -121,6 +130,16 @@ export function createClosedPointerFlowPlan(
     const retention = representation === "location"
       ? componentRetentionEvidence(component, decision, familyPlan)
       : Object.freeze([]);
+    ledger.record(
+      "evidence",
+      component.vertices.length +
+        component.operations.length +
+        component.pointerTypes.length +
+        retention.reduce(
+          (count, entry) => count + 1 + entry.occurrences.length,
+          0,
+        ),
+    );
     if (representation === "location" && retention.length === 0) {
       throw new Error("canonical pointer component has no exact retention reason");
     }
@@ -146,9 +165,15 @@ export function createClosedPointerFlowPlan(
     source,
     program,
     (node) => (representations.get(node) ?? "location") === "location",
+    ledger,
   );
   const frozenSummaries = Object.freeze(summaries);
   const representationCounts = countRepresentations(frozenSummaries);
+  ledger.record(
+    "evidence",
+    frozenSummaries.length + fallbackReasons.size,
+  );
+  const planningOperations = ledger.snapshot();
   return Object.freeze({
     owns(candidate: TargetSourceProgram): boolean {
       return candidate === source;
@@ -172,7 +197,8 @@ export function createClosedPointerFlowPlan(
     optimizedFamilyCount: familyPlan.familyCount,
     optimizedProjectionReadCount: projectionFusions.readCount,
     optimizedProjectionStoreCount: projectionFusions.storeCount,
-    analysisOperationCount: census.analysisOperationCount,
+    planningOperationCount: totalPointerPlanningOperations(planningOperations),
+    planningOperations,
     representationCounts,
     fallbackReasons: sealFallbackEvidence(fallbackReasons),
     familyFallbackReasons: sealFamilyFallbackEvidence(

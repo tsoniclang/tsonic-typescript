@@ -6,6 +6,7 @@ import { KindCallExpression } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../program-index.js";
 import { transparentExpression } from "./flow-syntax.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 type ProjectionOperation = Extract<
   PointerOperationFact,
@@ -40,12 +41,14 @@ export function planPointerProjectionFusions(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   isCanonicalLocation: (node: Node) => boolean,
+  ledger: PointerPlanningLedger,
 ): PointerProjectionFusionPlan {
   const byConsumer = new Map<Node, PointerProjectionFusion>();
   const projections = new Set<Node>();
   let readCount = 0;
   let storeCount = 0;
   for (const node of program.nodesOfKind(KindCallExpression)) {
+    ledger.record("projection");
     const consumer = source.sourceFacts.getFact(node, pointerOperationFactKey);
     if (
       consumer?.operation !== "load" &&

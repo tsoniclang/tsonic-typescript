@@ -34,6 +34,7 @@ import {
   type MutableDirectReferenceFamily,
 } from "./flow-family-state.js";
 import { describePointerPointee } from "./pointee-classification.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export interface DirectReferenceFamilyPlan {
   readonly representations: ReadonlyMap<Node, DirectReferenceFamilyDecision>;
@@ -46,13 +47,16 @@ export function planDirectReferenceFamilies(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   components: readonly PointerFlowComponent[],
+  ledger: PointerPlanningLedger,
 ): DirectReferenceFamilyPlan {
   const families = new Map<Node, MutableDirectReferenceFamily>();
   const operationFamilies = new Map<Node, MutableDirectReferenceFamily>();
   for (const node of program.nodesOfKind(KindTypeReference)) {
+    ledger.record("direct-family");
     collectPointerType(source, node, families);
   }
   for (const node of program.nodesOfKind(KindCallExpression)) {
+    ledger.record("direct-family");
     collectPointerOperation(
       source,
       node,
@@ -65,20 +69,23 @@ export function planDirectReferenceFamilies(
     program,
     families,
     operationFamilies,
+    ledger,
   );
-  applyCheckerBoundaries(source, operationFamilies);
+  applyCheckerBoundaries(source, operationFamilies, ledger);
   applyComponentBoundaries(
     source,
     components,
     families,
     operationFamilies,
+    ledger,
   );
-  const familyRepresentations = selectFamilyRepresentations(families);
+  const familyRepresentations = selectFamilyRepresentations(families, ledger);
   applyIdentityBoundaries(
     source,
     families,
     familyRepresentations,
     program.hasBindingWrite,
+    ledger,
   );
   const representations = new Map<Node, DirectReferenceFamilyDecision>();
   const canonicalRetentions = new Map<
@@ -88,6 +95,7 @@ export function planDirectReferenceFamilies(
   const fallbackReasons: FamilyFallbackLedger = new Map();
   let familyCount = 0;
   for (const family of families.values()) {
+    ledger.record("direct-family");
     const representation = familyRepresentations.get(family);
     if (family.blockers.size !== 0) {
       appendFamilyFallback(fallbackReasons, family.blockers);
@@ -128,13 +136,16 @@ export function planDirectReferenceFamilies(
 function applyCheckerBoundaries(
   source: TargetSourceProgram,
   operationFamilies: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  ledger: PointerPlanningLedger,
 ): void {
   for (const [node, family] of operationFamilies) {
+    ledger.record("direct-family");
     const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
     if (operation === undefined) {
       continue;
     }
     for (const expression of pointerExpressions(operation)) {
+      ledger.record("direct-family");
       const semantics = source.semantics.forNode(expression);
       const type = semantics.getTypeAtLocation(expression);
       if (type !== undefined && semantics.isNever(type)) {
@@ -244,8 +255,10 @@ function applyIdentityBoundaries(
     DirectReferenceFamilyRepresentation
   >,
   hasBindingWrite: (declaration: Node | undefined) => boolean,
+  ledger: PointerPlanningLedger,
 ): void {
   for (const family of families.values()) {
+    ledger.record("direct-family");
     if (representations.get(family) !== "direct-object") {
       continue;
     }
@@ -254,7 +267,9 @@ function applyIdentityBoundaries(
       family.identity,
       family.operations.values(),
       hasBindingWrite,
+      ledger,
     )) {
+      ledger.record("direct-family");
       blockFamily(family, "non-bijective-identity", occurrence);
     }
   }
@@ -290,6 +305,7 @@ function directReferenceFamily(
 
 function selectFamilyRepresentations(
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  ledger: PointerPlanningLedger,
 ): ReadonlyMap<
   MutableDirectReferenceFamily,
   DirectReferenceFamilyRepresentation
@@ -299,10 +315,12 @@ function selectFamilyRepresentations(
     DirectReferenceFamilyRepresentation
   >();
   for (const family of families.values()) {
+    ledger.record("direct-family");
     let producerCount = 0;
     let hasAddressedProducer = false;
     const stores: PointerOperationFact[] = [];
     for (const operation of family.operations.values()) {
+      ledger.record("direct-family");
       switch (operation.operation) {
         case "allocate":
           producerCount += 1;
@@ -348,11 +366,14 @@ function applyComponentBoundaries(
   components: readonly PointerFlowComponent[],
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
   operationFamilies: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  ledger: PointerPlanningLedger,
 ): void {
   for (const component of components) {
+    ledger.record("direct-family");
     const touched = new Set<MutableDirectReferenceFamily>();
     const nonDirectPointees: Node[] = [];
     for (const evidence of component.pointees) {
+      ledger.record("direct-family");
       const description = describePointerPointee(
         source,
         evidence.anchor,
@@ -371,6 +392,7 @@ function applyComponentBoundaries(
       }
     }
     for (const operation of component.operations) {
+      ledger.record("direct-family");
       const family = operationFamilies.get(operation);
       if (family !== undefined) {
         touched.add(family);
@@ -384,6 +406,7 @@ function applyComponentBoundaries(
       }
     }
     for (const evidence of component.blockerEvidence) {
+      ledger.record("direct-family");
       if (
         evidence.reason !== "addressed-storage-may-change" &&
         evidence.reason !== "external-boundary" &&

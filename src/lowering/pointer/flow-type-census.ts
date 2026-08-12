@@ -1,5 +1,5 @@
 import { pointerFactKey } from "@tsonic/tsts";
-import type { Node, PointerOperationFact } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindTypeReference } from "@tsonic/tsts/target-ast";
 
@@ -9,12 +9,29 @@ import {
   type PointerFlowComponent,
   type PointerFlowVertex,
 } from "./flow-graph.js";
+import { validatePointerFact } from "./type-contract.js";
+
+export function derivePointerTypeFactDenominator(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+): ReadonlySet<Node> {
+  const pointerTypes = new Set<Node>();
+  for (const node of program.nodes) {
+    const fact = source.sourceFacts.getFact(node, pointerFactKey);
+    if (fact === undefined) {
+      continue;
+    }
+    validatePointerFact(source, node, fact);
+    pointerTypes.add(node);
+  }
+  return pointerTypes;
+}
 
 export function collectPointerBindings(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   graph: PointerFlowGraph,
-  accountedPointerTypes: Set<Node>,
+  classifiedPointerTypes: Set<Node>,
 ): Set<Node> {
   const bindings = new Set<Node>();
   for (const node of program.nodesOfKind(KindTypeReference)) {
@@ -31,7 +48,7 @@ export function collectPointerBindings(
     }
     const vertex = graph.add(owner);
     bindings.add(owner);
-    recordPointerTypeFacts(source, node, vertex, accountedPointerTypes);
+    recordPointerTypeFacts(source, node, vertex, classifiedPointerTypes);
     const pointeeType = source.semantics.forNode(node)
       .getTypeFromTypeNode(fact.pointee);
     if (pointeeType === undefined) {
@@ -47,7 +64,7 @@ export function recordPointerTypeFacts(
   source: TargetSourceProgram,
   typeReference: Node,
   vertex: PointerFlowVertex,
-  accountedPointerTypes: Set<Node>,
+  classifiedPointerTypes: Set<Node>,
 ): void {
   const typeName = source.ast.as.AsTypeReferenceNode(typeReference)?.TypeName;
   for (const node of new Set([typeReference, typeName].filter(isNode))) {
@@ -55,7 +72,7 @@ export function recordPointerTypeFacts(
       continue;
     }
     vertex.pointerTypes.add(node);
-    accountedPointerTypes.add(node);
+    classifiedPointerTypes.add(node);
   }
 }
 
@@ -63,10 +80,10 @@ export function retainUnownedPointerTypes(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   graph: PointerFlowGraph,
-  accountedPointerTypes: Set<Node>,
+  classifiedPointerTypes: Set<Node>,
 ): void {
   for (const node of program.nodes) {
-    if (accountedPointerTypes.has(node)) {
+    if (classifiedPointerTypes.has(node)) {
       continue;
     }
     const fact = source.sourceFacts.getFact(node, pointerFactKey);
@@ -75,7 +92,7 @@ export function retainUnownedPointerTypes(
     }
     const vertex = graph.add(node);
     vertex.pointerTypes.add(node);
-    accountedPointerTypes.add(node);
+    classifiedPointerTypes.add(node);
     const pointeeType = source.semantics.forNode(node)
       .getTypeFromTypeNode(fact.pointee);
     if (pointeeType === undefined) {
@@ -89,7 +106,7 @@ export function retainUnownedPointerTypes(
 
 export function assertPointerCensusTotality(
   components: readonly PointerFlowComponent[],
-  operations: ReadonlyMap<Node, PointerOperationFact>,
+  operations: ReadonlySet<Node>,
   pointerTypes: ReadonlySet<Node>,
 ): void {
   const classifiedOperations = new Set<Node>();
@@ -108,7 +125,7 @@ export function assertPointerCensusTotality(
   }
   assertExactJoin(
     classifiedOperations,
-    operations.keys(),
+    operations,
     "pointer operation",
   );
   assertExactJoin(
