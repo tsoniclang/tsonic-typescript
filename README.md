@@ -65,6 +65,14 @@ identity, exact source membership, index work, selected totals, and retained
 reasons so a stale or differently configured result cannot masquerade as the
 same target decision.
 
+The checked source-file set is the current output membership. No executable
+root or complete module-side-effect contract is supplied to this target, so it
+does not perform dead-code or module pruning. Likewise, GoToTS runtime classes
+for interfaces, slices, maps, defer/recover, reflection, and initialization are
+ordinary checked TypeScript here; their names and shapes do not authorize a
+target optimization. New families require finalized exact-node facts and a
+closed profile field before they can enter this pipeline.
+
 `optimizations.cooperativeEffects: "closed-direct"` removes cooperative
 `Promise` transport only from a complete, exact call component with no
 provider, escaping-callable, promise-forwarding, thenable, or unresolved

@@ -50,7 +50,7 @@ one immutable target-program index
                          |
                          v
 family plans over complete connected flows
-  (effects, pointers, scalars, values, containers, interfaces, control)
+  (currently effects, pointers, and scalar projections)
                          |
                          v
 one composed post-order AST rewrite transaction
@@ -82,6 +82,15 @@ expanding the index.
 Index construction and family planning must be proportional to nodes plus
 relevant edges. Repeated whole-program scans, per-candidate hierarchy walks,
 per-candidate import expansion, and output-cardinality proxies are forbidden.
+
+The supplied source-file membership is also the current publication
+membership. The target input does not currently carry executable declaration
+roots or a complete module-side-effect contract, so the target retains every
+selected source file and declaration. It must not infer roots from exports,
+entrypoint spelling, imports, or generated-runtime shape. A future pruning
+profile is admissible only after the shared checked-source contract supplies
+exact roots and side-effect edges; that profile must then exact-join every
+retained and removed member before rewriting.
 
 ## Representation Decision
 
@@ -123,9 +132,12 @@ The decision order is:
 No package/function allowlist, name heuristic, local override, unchecked cast,
 or generated-text inspection may select a representation.
 
-## Required Families
+## Admitted Families
 
-The profile grows by closed semantic family, not by corpus exception:
+The profile grows by closed semantic family, not by corpus exception. A family
+is admitted only when its complete semantic denominator is available from
+finalized shared facts or from ordinary checked-TypeScript semantics that do
+not depend on source-language meaning. The current executable families are:
 
 - **cooperative effects:** remove `async`, `Promise<T>`, and `await` from every
   complete component that cannot suspend; retain transport for a real open,
@@ -136,21 +148,22 @@ The profile grows by closed semantic family, not by corpus exception:
   location semantics for open or observable identity/alias/nil/lifetime cases;
 - **scalar projections:** erase representation-only scalar wrappers when all
   uses preserve the same selected value behavior;
-- **values and construction:** request copying, zeroing, storage, equality, and
-  hashing only where selected occurrences observe them; prefer named ordinary
-  construction over positional compiler scaffolding;
-- **generics and operations:** retain an open direct generic body when ordinary
-  TypeScript expresses it; otherwise generate only reached exact
-  concretizations with direct operations and readable source-derived names;
-- **interfaces and dynamic values:** devirtualize exact finite target sets and
-  retain carriers only where assertion, switch, reflection, equality, provider,
-  or open-consumer behavior observes them;
-- **slices, maps, and strings:** select native containers/operations only when
-  nil, alias, capacity, reslicing, overlap, equality, copy, iteration, and byte
-  behavior at the complete boundary permit them;
-- **control and initialization:** remove unnecessary temporaries, checks,
-  deferred stacks, recovery state, metadata, and initialization only after the
-  corresponding order, panic, recover, reflection, and side-effect proofs.
+
+Value copying/storage, generic operation selection, interfaces, source-language
+containers, panic/recovery, reflection, and package initialization remain in
+their canonical source form unless a separately versioned shared fact contract
+is added for that family. In particular, a GoToTS runtime import, generated
+class shape, method name, or support-module path is ordinary TypeScript input;
+it is not semantic evidence. The target must not recognize `RuntimeSlice`,
+`GoMap`, interface adapters, defer machinery, or similar declarations by
+spelling or structure and then infer Go behavior.
+
+A future admitted family may optimize those forms only after its fact owner
+defines the complete observations needed for the decision (for example slice
+nilness, capacity, backing aliases, reslicing and element addresses), finalizes
+those facts on exact nodes, and exposes the closed configuration choice. Until
+then, doing nothing is canonical retention by ownership, not an unreported
+target decision row.
 
 Each family has one decision owner and one transformation owner. Cross-family
 coordination exchanges immutable result facts before rewriting; one family may

@@ -8,7 +8,7 @@ at one clean revision. A faster sample is not architectural proof.
 
 ## Family Gate
 
-Every representation family must provide:
+Every admitted representation family must provide:
 
 1. ordinary, boundary, adversarial, recursive, aliased, and cross-file source
    fixtures where applicable;
@@ -24,6 +24,14 @@ Every representation family must provide:
 9. deterministic work counts plus bounded timing/RSS corroboration; and
 10. broad searches proving the superseded scan, wrapper, helper, and alternate
     route are absent.
+
+Admission itself is verified. The configured family set must exact-match the
+implemented planners and evidence schema. Unsupported keys fail validation;
+they do not create empty planners. Tests also prove that GoToTS runtime imports,
+support paths, and declaration spellings select no target semantics. Source
+membership is retained exactly while the shared input has no executable-root
+and side-effect contract; a mutation that prunes an unrooted-looking file must
+fail the membership transaction.
 
 ## Planner Proof
 
