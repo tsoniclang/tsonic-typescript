@@ -9,12 +9,14 @@ import type { SourceSemanticsModule } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
   type TargetArtifact,
-  type TargetCompileInput,
-  type TargetRuntimeReference,
 } from "@tsonic/target-api";
 
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
+import {
+  checkedSource,
+  compileInput,
+} from "./typescript-backend.test-support.js";
 import { createTypeScriptBackend } from "./typescript-backend.js";
 
 const runtimeReference = typeScriptRuntimeReference();
@@ -424,56 +426,6 @@ test("prepares every source and reports independent lowering failures before inv
   );
 });
 
-test("rejects an encoding failure atomically before invoking the printer", () => {
-  const source = checkedSource({
-    "/project/a.ts": "export const a = 1;\n",
-    "/project/b.ts": "export const b = 2;\n",
-  });
-  const malformed = source.navigation.sourceFiles.find((sourceFile) =>
-    source.documents.forFile(sourceFile).fileName === "/project/b.ts"
-  );
-  assert.ok(malformed !== undefined);
-  malformed.ReferencedFiles = [undefined];
-  let printCalls = 0;
-  const printer: TypeScriptAstPrinter = {
-    print() {
-      printCalls += 1;
-      return [];
-    },
-  };
-
-  const result = createTypeScriptBackend(printer).compile(
-    compileInput(source),
-  );
-
-  assert.equal(printCalls, 0);
-  assert.deepEqual(result.artifacts, []);
-  assert.equal(result.diagnostics.length, 1);
-  assert.match(
-    result.diagnostics[0]?.message ?? "",
-    /^\/project\/b\.ts: source file reference is absent/u,
-  );
-});
-
-function checkedSource(files: Readonly<Record<string, string>>) {
-  const rootFiles = Object.keys(files).sort();
-  const session = createCompilerSessionFromFiles({
-    currentDirectory: "/project",
-    files,
-    rootFiles,
-    compilerOptions: {
-      module: "esnext",
-      moduleResolution: "bundler",
-      strict: true,
-      target: "es2022",
-    },
-  });
-  const checked = session.checkSource();
-  assert.equal(checked.diagnostics.length, 0);
-  assert.equal(checked.extensionDiagnostics.length, 0);
-  return createTargetSourceProgram(checked);
-}
-
 function checkedPointerSource(
   sourceText = `import { allocatePointer, loadPointer } from "./markers.js";
 export const value = loadPointer(allocatePointer(1));
@@ -574,27 +526,6 @@ export declare function loadPointer<T>(pointer: Pointer<T>): T;
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
   return createTargetSourceProgram(checked);
-}
-
-function compileInput(
-  source: ReturnType<typeof checkedSource>,
-  runtimeReferences: readonly TargetRuntimeReference[] = [],
-): TargetCompileInput {
-  return {
-    source,
-    project: {
-      entryPoint: "/project/a.ts",
-      targets: [{ id: "typescript" }],
-    },
-    target: { id: "typescript" },
-    runtimeReferences,
-    paths: {
-      projectFilePath: "/project/tsonic.json",
-      projectRoot: "/project",
-      outputRoot: "/project/out",
-      targetOutputRoot: "/project/out/typescript",
-    },
-  };
 }
 
 function projectDependencies(
