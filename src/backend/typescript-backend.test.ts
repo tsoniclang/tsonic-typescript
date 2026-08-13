@@ -410,7 +410,11 @@ test("prepares every source and reports independent lowering failures before inv
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTypeScriptBackend(printer, {
+    pointerFlows: "location",
+    scalarProjections: "preserve",
+    cooperativeEffects: "closed-direct",
+  }).compile(
     compileInput(source),
   );
 
