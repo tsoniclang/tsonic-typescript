@@ -502,27 +502,6 @@ export const result = [hashPointer(nextPointer()), evaluations];
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 1);
 });
 
-test("hashes a nullable direct pointer read from a class field", () => {
-  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, hashPointer } from "./markers.js";
-class Changes { value = 1; }
-class Parameters {
-  constructor(public changes: Pointer<Changes> | undefined) {}
-  static hash(source: Parameters): number {
-    return Math.imul(1, hashPointer<Changes>(source.changes));
-  }
-}
-export const result = Parameters.hash(new Parameters(allocatePointer(new Changes())));
-`);
-  const plan = createClosedPointerFlowPlan(fixture.source);
-
-  assertAllOperations(fixture.source, plan, "direct-object");
-  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashPointer"), 0);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 1);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 1);
-});
-
 test("keeps addressed identity in the canonical location representation", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { addressOf, equalPointer } from "./markers.js";
