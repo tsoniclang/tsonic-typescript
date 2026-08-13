@@ -161,6 +161,12 @@ function prepareSourceArtifacts(
     }
   }
   preparation.transaction.finish();
+  if (diagnostics.length !== 0) {
+    return Object.freeze({
+      kind: "rejected",
+      diagnostics: Object.freeze(diagnostics),
+    });
+  }
   return Object.freeze({
     kind: "ready",
     artifacts: Object.freeze(artifacts),

@@ -118,4 +118,17 @@ test("fails closed on absent, unknown, and malformed target options", () => {
     }),
     /optimizations has unsupported field 'extra'/,
   );
+
+  for (const unsupported of ["interfaces", "containers", "reachability"]) {
+    assert.throws(
+      () => readTypeScriptTargetOptions({
+        id: "typescript",
+        options: {
+          printer: { executable: "tsgo-ast-printer" },
+          optimizations: { [unsupported]: "closed-direct" },
+        },
+      }),
+      new RegExp(`optimizations has unsupported field '${unsupported}'`, "u"),
+    );
+  }
 });
