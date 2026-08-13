@@ -110,6 +110,11 @@ representation projections, and operands.
 Every pointer-bearing definition, parameter, result, reference, caller, alias,
 and storage occurrence belongs to one exact connected component before a
 representation is selected.
+Operation shape is settled in that plan as well: for example, a reference hash
+records whether its operand may be undefined and reserves any required
+single-evaluation binding before rewriting. The AST rewrite consumes that
+settled operation plan; it does not rerun checker queries after another source
+has been transformed.
 
 The target may select plain `T`, one `{ value: T }` cell, or the represented
 class object only by rewriting that complete component atomically. Escaping,

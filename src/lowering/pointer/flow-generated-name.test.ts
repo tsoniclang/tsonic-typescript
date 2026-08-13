@@ -75,8 +75,9 @@ export const result = hashPointer(nextPointer());
     flowPlan,
   );
 
-  const parameterName = [...pointerPlan.nullableHashParameterNames.values()][0];
-  assert.equal(parameterName?.text, "$pointer2");
+  const hash = [...pointerPlan.referenceHashes.values()][0];
+  assert.equal(hash?.nullable, true);
+  assert.equal(hash?.parameterName?.text, "$pointer2");
 });
 
 test("reserves each synthetic closure parameter independently", () => {

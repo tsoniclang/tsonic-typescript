@@ -1,4 +1,4 @@
-import type { Node, PointerOperationFact, Type } from "@tsonic/tsts";
+import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import {
   AsCallExpression,
   AsTypeReferenceNode,
@@ -35,8 +35,8 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type { GeneratedBindingName } from "../generated-names.js";
 import { PointerLoweringError } from "./diagnostic.js";
-import { pointerTypeCanBeUndefined } from "./nullability.js";
 import type { PointerFlowRepresentation } from "./flow-plan.js";
+import type { ReferenceHashPlan } from "./plan.js";
 import { runtimeCall } from "./runtime-ast.js";
 
 export function lowerOptimizedPointerType(
@@ -93,7 +93,7 @@ export function lowerOptimizedPointerOperation(
   updated: Node,
   representation: PointerFlowRepresentation,
   runtimeAlias: GeneratedBindingName,
-  nullableHashParameterName: GeneratedBindingName | undefined,
+  referenceHash: ReferenceHashPlan | undefined,
 ): Node | undefined {
   if (representation === "location") {
     return undefined;
@@ -115,12 +115,11 @@ export function lowerOptimizedPointerOperation(
     representation === "mutable-cell"
   ) {
     const identity = lowerReferenceIdentityOperation(
-      source,
       factory,
       operation,
       values,
       runtimeAlias,
-      nullableHashParameterName,
+      referenceHash,
     );
     if (identity !== undefined) {
       return identity;
@@ -237,12 +236,11 @@ function disprovedNilGuardValue(
 }
 
 function lowerReferenceIdentityOperation(
-  source: TargetSourceProgram,
   factory: NodeFactory,
   operation: PointerOperationFact,
   values: readonly Node[],
   runtimeAlias: GeneratedBindingName,
-  nullableHashParameterName: GeneratedBindingName | undefined,
+  referenceHash: ReferenceHashPlan | undefined,
 ): Node | undefined {
   if (operation.operation === "equal-pointer") {
     requireArity(operation.operation, values, 2);
@@ -255,12 +253,10 @@ function lowerReferenceIdentityOperation(
   if (operation.operation === "hash-pointer") {
     requireArity(operation.operation, values, 1);
     return directObjectHash(
-      source,
       factory,
       requiredValue(values, 0),
-      operation.pointerType,
       runtimeAlias,
-      nullableHashParameterName,
+      referenceHash,
     );
   }
   return undefined;
@@ -281,16 +277,20 @@ function strictIdentity(factory: NodeFactory, left: Node, right: Node): Node {
 }
 
 function directObjectHash(
-  source: TargetSourceProgram,
   factory: NodeFactory,
   pointer: Node,
-  pointerType: Type,
   runtimeAlias: GeneratedBindingName,
-  parameterName: GeneratedBindingName | undefined,
+  plan: ReferenceHashPlan | undefined,
 ): Node {
-  if (!pointerTypeCanBeUndefined(source, pointer, pointerType)) {
+  if (plan === undefined) {
+    throw new PointerLoweringError(
+      "optimized reference pointer hash has no settled plan",
+    );
+  }
+  if (!plan.nullable) {
     return hashObject(factory, pointer, runtimeAlias);
   }
+  const parameterName = plan.parameterName;
   if (parameterName === undefined) {
     throw new PointerLoweringError(
       "nullable direct pointer hash has no reserved parameter binding",

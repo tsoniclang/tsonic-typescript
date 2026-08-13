@@ -52,6 +52,11 @@ export interface ParameterLocationBinding {
 
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
 
+export interface ReferenceHashPlan {
+  readonly nullable: boolean;
+  readonly parameterName?: GeneratedBindingName;
+}
+
 export interface PointerLoweringPlan {
   readonly sourceFile: SourceFile;
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
@@ -71,7 +76,7 @@ export interface PointerLoweringPlan {
   readonly removableMarkerDeclarations: ReadonlySet<Node>;
   readonly flowPlan: ClosedPointerFlowPlan | undefined;
   readonly runtimeAlias: GeneratedBindingName;
-  readonly nullableHashParameterNames: ReadonlyMap<Node, GeneratedBindingName>;
+  readonly referenceHashes: ReadonlyMap<Node, ReferenceHashPlan>;
   readonly usesRuntimeValue: boolean;
 }
 
@@ -251,20 +256,26 @@ export function createPointerLoweringPlan(
     selectedMarkerRoots,
   );
   const runtimeAlias = generatedNames.reserve("tsonicTypeScriptRuntime");
-  const nullableHashParameterNames = new Map<Node, GeneratedBindingName>();
+  const referenceHashes = new Map<Node, ReferenceHashPlan>();
   for (const operation of operations.values()) {
+    const representation = flowPlan?.representationFor(operation.call);
     if (
       operation.operation === "hash-pointer" &&
-      flowPlan?.representationFor(operation.call) === "direct-object" &&
-      pointerTypeCanBeUndefined(
+      (representation === "direct-object" || representation === "mutable-cell")
+    ) {
+      const nullable = pointerTypeCanBeUndefined(
         source,
         operation.pointerExpression,
         operation.pointerType,
-      )
-    ) {
-      nullableHashParameterNames.set(
+      );
+      referenceHashes.set(
         operation.call,
-        generatedNames.reserve("$pointer"),
+        Object.freeze({
+          nullable,
+          ...(nullable
+            ? { parameterName: generatedNames.reserve("$pointer") }
+            : {}),
+        }),
       );
     }
   }
@@ -281,7 +292,7 @@ export function createPointerLoweringPlan(
     removableMarkerDeclarations: markerUsage.removableDeclarations,
     flowPlan,
     runtimeAlias,
-    nullableHashParameterNames,
+    referenceHashes,
     usesRuntimeValue,
   });
 }
