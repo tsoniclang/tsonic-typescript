@@ -90,10 +90,12 @@ Every family plans from original identities, exchanges immutable result facts,
 and the composed parent receives only final child nodes. Mutations keyed to a
 cloned node, an intermediate child, or another family's output must fail.
 
-All files are planned before printing. Mutations fail atomically for a source
-planning error, encoding error, oversized frame, duplicate member, reordered
-batch, missing result, extra result, and failure in a later batch. The output
-directory remains untouched in every failure.
+All files are planned before rewriting or printing. A bounded-streaming proof
+shows that the first full batch is printed before the complete encoded-source
+iterable is materialized. Mutations fail atomically for a source planning
+error, encoding error, oversized frame, duplicate member, reordered batch,
+missing result, extra result, and failure in a later batch: the backend returns
+no artifacts and the output directory remains untouched in every failure.
 
 ## Human-Source Gate
 

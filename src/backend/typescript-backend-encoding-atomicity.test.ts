@@ -8,7 +8,7 @@ import {
 } from "./typescript-backend.test-support.js";
 import { createTypeScriptBackend } from "./typescript-backend.js";
 
-test("rejects an encoding failure atomically before invoking the printer", () => {
+test("rejects an encoding failure atomically without publishing artifacts", () => {
   const source = checkedSource({
     "/project/a.ts": "export const a = 1;\n",
     "/project/b.ts": "export const b = 2;\n",
