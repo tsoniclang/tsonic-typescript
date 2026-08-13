@@ -9,12 +9,14 @@ import type { SourceSemanticsModule } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
   type TargetArtifact,
-  type TargetCompileInput,
-  type TargetRuntimeReference,
 } from "@tsonic/target-api";
 
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
+import {
+  checkedSource,
+  compileInput,
+} from "./typescript-backend.test-support.js";
 import { createTypeScriptBackend } from "./typescript-backend.js";
 
 const runtimeReference = typeScriptRuntimeReference();
@@ -408,7 +410,11 @@ test("prepares every source and reports independent lowering failures before inv
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTypeScriptBackend(printer, {
+    pointerFlows: "location",
+    scalarProjections: "preserve",
+    cooperativeEffects: "closed-direct",
+  }).compile(
     compileInput(source),
   );
 
@@ -423,25 +429,6 @@ test("prepares every source and reports independent lowering failures before inv
     ],
   );
 });
-
-function checkedSource(files: Readonly<Record<string, string>>) {
-  const rootFiles = Object.keys(files).sort();
-  const session = createCompilerSessionFromFiles({
-    currentDirectory: "/project",
-    files,
-    rootFiles,
-    compilerOptions: {
-      module: "esnext",
-      moduleResolution: "bundler",
-      strict: true,
-      target: "es2022",
-    },
-  });
-  const checked = session.checkSource();
-  assert.equal(checked.diagnostics.length, 0);
-  assert.equal(checked.extensionDiagnostics.length, 0);
-  return createTargetSourceProgram(checked);
-}
 
 function checkedPointerSource(
   sourceText = `import { allocatePointer, loadPointer } from "./markers.js";
@@ -543,27 +530,6 @@ export declare function loadPointer<T>(pointer: Pointer<T>): T;
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
   return createTargetSourceProgram(checked);
-}
-
-function compileInput(
-  source: ReturnType<typeof checkedSource>,
-  runtimeReferences: readonly TargetRuntimeReference[] = [],
-): TargetCompileInput {
-  return {
-    source,
-    project: {
-      entryPoint: "/project/a.ts",
-      targets: [{ id: "typescript" }],
-    },
-    target: { id: "typescript" },
-    runtimeReferences,
-    paths: {
-      projectFilePath: "/project/tsonic.json",
-      projectRoot: "/project",
-      outputRoot: "/project/out",
-      targetOutputRoot: "/project/out/typescript",
-    },
-  };
 }
 
 function projectDependencies(
