@@ -240,6 +240,12 @@ may query that index; it may not recursively enumerate arbitrary object
 property graphs. This keeps carrier work proportional to declared carrier
 edges rather than the transitive checker graph.
 
+The index retains only positive owner memberships as immutable sparse rows.
+All negative queries share one immutable empty result, and no per-type mutable
+set or negative-result ledger is retained. Recursive type-cycle state is local
+and allocated only while a nested nominal type is being inspected. The target
+must not trade bounded graph traversal for a dense checker-type-by-owner table.
+
 The pointer family may certify owner transport for validated `address-of`,
 `allocate`, `load`, `store`, pointer-equality, and pointer-hash facts. The effect
 owner consumes those exact-node facts through an immutable transport contract;

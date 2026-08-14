@@ -5,7 +5,10 @@ import type { Node } from "@tsonic/tsts";
 
 import { createTargetProgramIndex } from "../program-index.js";
 import { checkedEffectFixture, visit } from "./effect.test-support.js";
-import { collectStorageOwnerCarriers } from "./storage-owner-types.js";
+import {
+  collectStorageOwnerCarriers,
+  ownersWithinStorageType,
+} from "./storage-owner-types.js";
 
 test("indexes nominal owner carriers with bounded graph work", () => {
   const measurements = [16, 32, 64].map(measureCarrierGraph);
@@ -18,6 +21,65 @@ test("indexes nominal owner carriers with bounded graph work", () => {
       `carrier work grew ${previous.operationCount} -> ${current.operationCount}`,
     );
   }
+});
+
+test("retains only positive immutable owner memberships", () => {
+  const fixture = checkedEffectFixture(`
+class Owner {
+  constructor(public callback: (() => number) | undefined) {}
+}
+class Unrelated { value = 1; }
+let ownerValue!: Owner;
+let unrelatedValue!: Unrelated;
+`);
+  const declarations = classDeclarations(fixture.source, fixture.sourceFile);
+  const owner = declarations.get("Owner");
+  const ownerValue = namedVariable(fixture.source, fixture.sourceFile, "ownerValue");
+  const unrelatedValue = namedVariable(
+    fixture.source,
+    fixture.sourceFile,
+    "unrelatedValue",
+  );
+  assert.ok(owner !== undefined && ownerValue !== undefined && unrelatedValue !== undefined);
+  const carriers = collectStorageOwnerCarriers(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+    new Set([owner]),
+  ).carriers;
+  const cache = new Map();
+  const ownerSemantics = fixture.source.semantics.forNode(ownerValue);
+  const ownerType = ownerSemantics.getTypeAtLocation(ownerValue);
+  const unrelatedSemantics = fixture.source.semantics.forNode(unrelatedValue);
+  const unrelatedType = unrelatedSemantics.getTypeAtLocation(unrelatedValue);
+  assert.ok(ownerType !== undefined && unrelatedType !== undefined);
+
+  const firstEmpty = ownersWithinStorageType(
+    unrelatedSemantics,
+    unrelatedType,
+    carriers,
+    cache,
+  );
+  const secondEmpty = ownersWithinStorageType(
+    unrelatedSemantics,
+    unrelatedType,
+    carriers,
+    cache,
+  );
+  assert.equal(firstEmpty, secondEmpty);
+  assert.equal(cache.size, 0);
+
+  const carried = ownersWithinStorageType(
+    ownerSemantics,
+    ownerType,
+    carriers,
+    cache,
+  );
+  assert.deepEqual(carried, [owner]);
+  assert.equal(Object.isFrozen(carried), true);
+  assert.equal(cache.size, 1);
 });
 
 function measureCarrierGraph(carrierCount: number): {
@@ -36,7 +98,7 @@ function measureCarrierGraph(carrierCount: number): {
     }),
     new Set([owner]),
   );
-  assert.deepEqual(index.carriers.get(outer), new Set([owner]));
+  assert.deepEqual(index.carriers.get(outer), [owner]);
   return { operationCount: index.operationCount };
 }
 
@@ -68,4 +130,22 @@ function classDeclarations(
     }
   });
   return declarations;
+}
+
+function namedVariable(
+  source: ReturnType<typeof checkedEffectFixture>["source"],
+  root: Node,
+  expected: string,
+): Node | undefined {
+  let match: Node | undefined;
+  visit(source, root, (node) => {
+    if (
+      match === undefined &&
+      source.ast.is.IsVariableDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === expected
+    ) {
+      match = source.ast.name(node);
+    }
+  });
+  return match;
 }

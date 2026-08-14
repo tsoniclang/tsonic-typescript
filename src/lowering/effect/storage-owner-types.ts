@@ -5,9 +5,12 @@ import { KindClassDeclaration } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../program-index.js";
 
 type SourceSemantics = ReturnType<TargetSourceProgram["semantics"]["forNode"]>;
+export type StorageOwnerMembership = readonly Node[];
+
+export const emptyStorageOwnerMembership: StorageOwnerMembership = Object.freeze([]);
 
 export interface StorageOwnerCarrierIndex {
-  readonly carriers: ReadonlyMap<Node, ReadonlySet<Node>>;
+  readonly carriers: ReadonlyMap<Node, StorageOwnerMembership>;
   readonly operationCount: number;
 }
 
@@ -53,38 +56,60 @@ export function storageValueTypeIsClosed(
 export function ownersWithinStorageType(
   semantics: SourceSemantics,
   type: Type,
-  carriers: ReadonlyMap<Node, ReadonlySet<Node>>,
-  cache: Map<Type, ReadonlySet<Node>>,
-  pending: Set<Type>,
-): ReadonlySet<Node> {
+  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
+  cache: Map<Type, StorageOwnerMembership>,
+): StorageOwnerMembership {
+  return collectOwnersWithinStorageType(
+    semantics,
+    type,
+    carriers,
+    cache,
+    undefined,
+  );
+}
+
+function collectOwnersWithinStorageType(
+  semantics: SourceSemantics,
+  type: Type,
+  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
+  cache: Map<Type, StorageOwnerMembership>,
+  pending: Set<Type> | undefined,
+): StorageOwnerMembership {
   const existing = cache.get(type);
   if (existing !== undefined) {
     return existing;
   }
-  if (pending.has(type)) {
-    return new Set();
+  if (pending?.has(type) === true) {
+    return emptyStorageOwnerMembership;
   }
   if (storageTypeCannotCarryOwner(semantics, type)) {
-    const empty = new Set<Node>();
-    cache.set(type, empty);
-    return empty;
+    return emptyStorageOwnerMembership;
   }
-  pending.add(type);
-  const result = ownersForDirectType(semantics, type, carriers);
-  for (const member of nestedStorageTypes(semantics, type)) {
-    for (const owner of ownersWithinStorageType(
-      semantics,
-      member,
-      carriers,
-      cache,
-      pending,
-    )) {
-      result.add(owner);
+  const result = [...ownersForDirectType(semantics, type, carriers)];
+  const nested = nestedStorageTypes(semantics, type);
+  if (nested.length !== 0) {
+    const active = pending ?? new Set<Type>();
+    active.add(type);
+    for (const member of nested) {
+      for (const owner of collectOwnersWithinStorageType(
+        semantics,
+        member,
+        carriers,
+        cache,
+        active,
+      )) {
+        appendUnique(result, owner);
+      }
     }
+    active.delete(type);
   }
-  pending.delete(type);
-  cache.set(type, result);
-  return result;
+  const sealed = result.length === 0
+    ? emptyStorageOwnerMembership
+    : Object.freeze(result);
+  if (sealed.length !== 0) {
+    cache.set(type, sealed);
+  }
+  return sealed;
 }
 
 export function collectStorageOwnerCarriers(
@@ -149,7 +174,7 @@ export function collectStorageOwnerCarriers(
   return Object.freeze({
     carriers: new Map([...mutable].map(([declaration, carried]) => [
       declaration,
-      new Set(carried),
+      Object.freeze([...carried]),
     ])),
     operationCount,
   });
@@ -168,15 +193,21 @@ function directCandidateOwners(
 function ownersForDirectType(
   semantics: SourceSemantics,
   type: Type,
-  carriers: ReadonlyMap<Node, ReadonlySet<Node>>,
-): Set<Node> {
-  const result = new Set<Node>();
+  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
+): StorageOwnerMembership {
+  const result: Node[] = [];
   for (const declaration of directTypeDeclarations(semantics, type)) {
     for (const owner of carriers.get(declaration) ?? []) {
-      result.add(owner);
+      appendUnique(result, owner);
     }
   }
   return result;
+}
+
+function appendUnique(target: Node[], owner: Node): void {
+  if (!target.includes(owner)) {
+    target.push(owner);
+  }
 }
 
 function projectClassesWithinType(

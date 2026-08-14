@@ -21,8 +21,10 @@ import type { StorageOwnerTransportContract } from "../storage-owner-transport.j
 import { isTransparentParent } from "./callable-input-reference.js";
 import {
   collectStorageOwnerCarriers,
+  emptyStorageOwnerMembership,
   ownersWithinStorageType,
   storageValueTypeIsClosed,
+  type StorageOwnerMembership,
 } from "./storage-owner-types.js";
 
 export interface StorageOwnerBinding {
@@ -51,18 +53,17 @@ export function auditStorageOwnerBoundaries(
   const invalid = new Set<Node>();
   const dependencies = new Map<Node, Set<Node>>();
   const carriers = collectStorageOwnerCarriers(source, program, owners).carriers;
-  const typeOwners = new Map<Type, ReadonlySet<Node>>();
-  const ownersFor = (node: Node): ReadonlySet<Node> => {
+  const typeOwners = new Map<Type, StorageOwnerMembership>();
+  const ownersFor = (node: Node): StorageOwnerMembership => {
     const semantics = source.semantics.forNode(node);
     const type = semantics.getTypeAtLocation(node);
     return type === undefined
-      ? new Set()
+      ? emptyStorageOwnerMembership
       : ownersWithinStorageType(
         semantics,
         type,
         carriers,
         typeOwners,
-        new Set(),
       );
   };
   if (validateStoredValues) {
@@ -100,9 +101,9 @@ export function auditStorageOwnerBoundaries(
 function auditInvocations(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  carriers: ReadonlyMap<Node, ReadonlySet<Node>>,
-  ownersFor: (node: Node) => ReadonlySet<Node>,
-  typeOwners: Map<Type, ReadonlySet<Node>>,
+  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
+  ownersFor: (node: Node) => StorageOwnerMembership,
+  typeOwners: Map<Type, StorageOwnerMembership>,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
   transports: StorageOwnerTransportContract | undefined,
@@ -124,7 +125,7 @@ function auditInvocations(
       }
     } else if (!projectInvocation && transport !== undefined) {
       for (const owner of resultOwners) {
-        if (!transport.resultInputs.some((input) => ownersFor(input).has(owner))) {
+        if (!transport.resultInputs.some((input) => ownersFor(input).includes(owner))) {
           invalid.add(owner);
         }
       }
@@ -135,7 +136,7 @@ function auditInvocations(
         continue;
       }
       const carried = ownersFor(argument);
-      if (carried.size === 0) {
+      if (carried.length === 0) {
         continue;
       }
       for (const owner of carried) {
@@ -149,10 +150,9 @@ function auditInvocations(
             contextual.type,
             carriers,
             typeOwners,
-            new Set(),
           )
-          : new Set<Node>();
-        if (!projectInvocation || !retained.has(owner)) {
+          : emptyStorageOwnerMembership;
+        if (!projectInvocation || !retained.includes(owner)) {
           invalid.add(owner);
         } else {
           for (const resultOwner of resultOwners) {
@@ -175,11 +175,11 @@ function auditInvocations(
 function auditValueFlows(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  carriers: ReadonlyMap<Node, ReadonlySet<Node>>,
+  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
   bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
-  ownersFor: (node: Node) => ReadonlySet<Node>,
-  typeOwners: Map<Type, ReadonlySet<Node>>,
+  ownersFor: (node: Node) => StorageOwnerMembership,
+  typeOwners: Map<Type, StorageOwnerMembership>,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
 ): void {
@@ -199,14 +199,14 @@ function auditValueFlows(
     KindNonNullExpression,
   ])) {
     const carried = ownersFor(node);
-    if (carried.size === 0) {
+    if (carried.length === 0) {
       continue;
     }
     const child = transparentChild(source, node);
     if (child !== undefined) {
       const childOwners = ownersFor(child);
       for (const owner of carried) {
-        if (!childOwners.has(owner)) {
+        if (!childOwners.includes(owner)) {
           invalid.add(owner);
         }
       }
@@ -223,7 +223,7 @@ function auditValueFlows(
     if (composite !== undefined) {
       const compositeOwners = ownersFor(composite);
       for (const owner of carried) {
-        if (!compositeOwners.has(owner)) {
+        if (!compositeOwners.includes(owner)) {
           invalid.add(owner);
         }
       }
@@ -258,8 +258,7 @@ function auditValueFlows(
           type,
           carriers,
           typeOwners,
-          new Set(),
-        ).has(owner)
+        ).includes(owner)
       )) {
         invalid.add(owner);
       }
@@ -294,9 +293,9 @@ function rejectOpenStorageValues(
 function auditTransparentConversion(
   source: TargetSourceProgram,
   node: Node,
-  carried: ReadonlySet<Node>,
-  carriers: ReadonlyMap<Node, ReadonlySet<Node>>,
-  typeOwners: Map<Type, ReadonlySet<Node>>,
+  carried: StorageOwnerMembership,
+  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
+  typeOwners: Map<Type, StorageOwnerMembership>,
   invalid: Set<Node>,
 ): void {
   const parent = source.ast.parent(node);
@@ -306,16 +305,15 @@ function auditTransparentConversion(
   const semantics = source.semantics.forNode(parent);
   const parentType = semantics.getTypeAtLocation(parent);
   const retained = parentType === undefined
-    ? new Set<Node>()
+    ? emptyStorageOwnerMembership
     : ownersWithinStorageType(
       semantics,
       parentType,
       carriers,
       typeOwners,
-      new Set(),
     );
   for (const owner of carried) {
-    if (!retained.has(owner)) {
+    if (!retained.includes(owner)) {
       invalid.add(owner);
     }
   }

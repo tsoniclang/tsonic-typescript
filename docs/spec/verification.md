@@ -104,6 +104,11 @@ comes from validated operation facts, never marker spelling.
 The carrier cost fixture doubles a deep nominal chain and requires the recorded
 class/member/type-edge/propagation work to remain linear; arbitrary checker
 property-graph expansion is outside the admitted algorithm.
+The whole-product guarded run additionally bounds peak RSS while exercising the
+real checker graph. A mutation that restores a mutable owner set or retained
+negative membership per queried checker type must exceed that bound or fail a
+structural representation assertion; increasing the memory guard is not an
+accepted repair.
 
 ## Composition And Transaction Proof
 
