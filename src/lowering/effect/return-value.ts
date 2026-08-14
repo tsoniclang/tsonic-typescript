@@ -33,7 +33,10 @@ import {
 import {
   transparentExpression,
 } from "./syntax.js";
-import { typeExposesCallableThen } from "./synchronous.js";
+import {
+  typeExposesCallableThen,
+  typeHasDefinitelyNonThenableContract,
+} from "./synchronous.js";
 
 export interface ReturnValueFlow {
   isDefinitelyNonThenable(expression: Node): boolean;
@@ -151,15 +154,10 @@ export function expressionIsDefinitelyNonThenable(
     return objectLiteralIsDefinitelyNonThenable(source, root);
   }
   if (source.ast.is.IsNewExpression(root)) {
-    return projectConstructionIsDefinitelyNonThenable(source, root, type);
+    return typeHasDefinitelyNonThenableContract(source, semantics, type) ||
+      projectConstructionIsDefinitelyNonThenable(source, root, type);
   }
-  return semantics.isNever(type) ||
-      semantics.isVoidLike(type) ||
-      semantics.isNullish(type) ||
-      semantics.isStringLike(type) ||
-      semantics.isNumberLike(type) ||
-      semantics.isBooleanLike(type) ||
-      semantics.isBigIntLike(type);
+  return typeHasDefinitelyNonThenableContract(source, semantics, type);
 }
 
 function expressionIsDefinitelyNonThenableWithin(

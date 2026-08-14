@@ -83,6 +83,13 @@ and dependent callable contract exactly once. Mutations restore the early
 candidate filter, omit a call/result edge, open one consumer, change one union
 member, or count one blocked candidate under multiple reasons; each must fail
 at the effect inventory, closure, transform-consumption, or evidence gate.
+The return-boundary matrix contrasts an open structural result, a public
+`readonly then?: never` result, and a nominal
+`private readonly then?: never` result: only the nominal contract settles.
+The construction matrix repeats that proof through inheritance and contrasts a
+derived nominal result with public-structural and unmarked bases. Callable
+`then`, `any`, `unknown`, generic, union, intersection, and hidden-thenable
+assignments prevent a false proof.
 
 ## Composition And Transaction Proof
 

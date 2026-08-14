@@ -162,6 +162,111 @@ export declare function unknownValue(): unknown;
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 3);
 });
 
+test("settles only a nominal result that explicitly excludes thenability", () => {
+  const nominal = lower(
+    `
+export declare abstract class Result {
+  private readonly then?: never;
+  readonly value: number;
+}
+export declare function selected(): Result | undefined;
+`,
+    `
+import { selected, type Result } from "./provider.js";
+async function value(): Promise<Result | undefined> {
+  return await selected();
+    }
+export const result = await value();
+`,
+  );
+  const structural = lower(
+    `
+export interface Result {
+  readonly then?: never;
+  readonly value: number;
+}
+export declare function selected(): Result | undefined;
+`,
+    `
+import { selected, type Result } from "./provider.js";
+async function value(): Promise<Result | undefined> {
+  return await selected();
+}
+export const result = await value();
+`,
+  );
+  const open = lower(
+    `
+export interface Result { readonly value: number }
+export declare function selected(): Result | undefined;
+`,
+    `
+import { selected, type Result } from "./provider.js";
+async function value(): Promise<Result | undefined> {
+  return await selected();
+}
+export const result = await value();
+`,
+  );
+
+  assert.deepEqual(nominal, {
+    settled: 1,
+    retained: 0,
+    asyncCallables: 0,
+  });
+  assert.deepEqual(structural, {
+    settled: 0,
+    retained: 1,
+    asyncCallables: 1,
+  });
+  assert.deepEqual(open, {
+    settled: 0,
+    retained: 1,
+    asyncCallables: 1,
+  });
+});
+
+test("settles construction through an inherited nominal then exclusion", () => {
+  const nominal = lower("", `
+abstract class NonThenable {
+  declare private readonly then?: never;
+}
+class Result extends NonThenable {}
+async function value(): Promise<Result> { return new Result(); }
+export const result = await value();
+`);
+  const structural = lower("", `
+class MaybeThenable {
+  declare readonly then?: never;
+}
+class Result extends MaybeThenable {}
+async function value(): Promise<Result> { return new Result(); }
+export const result = await value();
+`);
+  const open = lower("", `
+class OpenBase {}
+class Result extends OpenBase {}
+async function value(): Promise<Result> { return new Result(); }
+export const result = await value();
+`);
+
+  assert.deepEqual(nominal, {
+    settled: 1,
+    retained: 0,
+    asyncCallables: 0,
+  });
+  assert.deepEqual(structural, {
+    settled: 0,
+    retained: 1,
+    asyncCallables: 1,
+  });
+  assert.deepEqual(open, {
+    settled: 0,
+    retained: 1,
+    asyncCallables: 1,
+  });
+});
+
 function lower(providerText: string, sourceText: string): {
   readonly settled: number;
   readonly retained: number;
