@@ -226,8 +226,10 @@ Ordinary checked TypeScript may close a result boundary when every union member
 is intrinsically non-thenable or carries an optional readonly private `then`
 member whose selected value type cannot be callable (for example
 `declare private readonly then?: never`). The private member makes the contract
-nominal. Absence of `then`, or a public structural declaration of it, is not
-proof because width subtyping permits a hidden thenable. `any`, `unknown`, type
+nominal. The same proof applies to direct construction and to derived classes
+that inherit that exact nominal member; inheritance without the member remains
+open. Absence of `then`, or a public structural declaration of it, is not proof
+because width subtyping permits a hidden thenable. `any`, `unknown`, type
 variables, and open structural members remain retained. This is target-language
 Promise-assimilation evidence, not marker or source-language recognition.
 

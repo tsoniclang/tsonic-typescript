@@ -226,6 +226,47 @@ export const result = await value();
   });
 });
 
+test("settles construction through an inherited nominal then exclusion", () => {
+  const nominal = lower("", `
+abstract class NonThenable {
+  declare private readonly then?: never;
+}
+class Result extends NonThenable {}
+async function value(): Promise<Result> { return new Result(); }
+export const result = await value();
+`);
+  const structural = lower("", `
+class MaybeThenable {
+  declare readonly then?: never;
+}
+class Result extends MaybeThenable {}
+async function value(): Promise<Result> { return new Result(); }
+export const result = await value();
+`);
+  const open = lower("", `
+class OpenBase {}
+class Result extends OpenBase {}
+async function value(): Promise<Result> { return new Result(); }
+export const result = await value();
+`);
+
+  assert.deepEqual(nominal, {
+    settled: 1,
+    retained: 0,
+    asyncCallables: 0,
+  });
+  assert.deepEqual(structural, {
+    settled: 0,
+    retained: 1,
+    asyncCallables: 1,
+  });
+  assert.deepEqual(open, {
+    settled: 0,
+    retained: 1,
+    asyncCallables: 1,
+  });
+});
+
 function lower(providerText: string, sourceText: string): {
   readonly settled: number;
   readonly retained: number;

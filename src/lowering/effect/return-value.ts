@@ -154,7 +154,8 @@ export function expressionIsDefinitelyNonThenable(
     return objectLiteralIsDefinitelyNonThenable(source, root);
   }
   if (source.ast.is.IsNewExpression(root)) {
-    return projectConstructionIsDefinitelyNonThenable(source, root, type);
+    return typeHasDefinitelyNonThenableContract(source, semantics, type) ||
+      projectConstructionIsDefinitelyNonThenable(source, root, type);
   }
   return typeHasDefinitelyNonThenableContract(source, semantics, type);
 }
