@@ -222,17 +222,6 @@ discarded, returned by a settling callable, or passed through another such
 private forwarder. Export, alias escape, ordinary Promise observation, open
 dispatch, provider behavior, or unresolved transport retains the component.
 
-A value produced by a settled await may pass through an ordinary project call
-without reopening its return flow only when that call is a proved closed
-observation. The observation owner admits a bodyful immutable function binding
-only when its complete body is composed of side-effect-free identity/nullish
-observations and calls to other admitted observations. Arguments exact-join to
-simple parameters, and recursive observation dependencies close as one finite
-graph. A bodyless or mutable callable, open dispatch, spread/rest mapping,
-property access, storage, return, capture, mutation, or call outside that graph
-retains canonical cooperative transport. Function spelling never selects this
-contract.
-
 Settlement reconstructs the complete component atomically: async modifiers,
 Promise or exact awaitable-union return members, awaits, and dependent callable
 contracts are consumed once by original node identity. Retained candidates may

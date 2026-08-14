@@ -83,12 +83,6 @@ and dependent callable contract exactly once. Mutations restore the early
 candidate filter, omit a call/result edge, open one consumer, change one union
 member, or count one blocked candidate under multiple reasons; each must fail
 at the effect inventory, closure, transform-consumption, or evidence gate.
-Closed-observation fixtures additionally cover strict identity comparison,
-multi-hop observation calls, recursion, multiple calls on one line, and a
-linear dependency chain. Mutations add a bodyless boundary, mutable callable
-binding, spread/rest mapping, storage write, returned/captured parameter,
-property access, or arbitrary call; each must restore cooperative transport at
-the return-flow owner.
 
 ## Composition And Transaction Proof
 

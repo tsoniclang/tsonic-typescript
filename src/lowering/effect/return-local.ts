@@ -7,7 +7,6 @@ import {
 import type { TargetProgramIndex } from "../program-index.js";
 
 import { isTransparentParent } from "./callable-input-reference.js";
-import { createReturnObservationFlow } from "./return-observation.js";
 import {
   isFunctionLike,
   transparentExpression,
@@ -43,14 +42,7 @@ export function createReturnLocalFlow(
   connectIdentityBindings(source, candidates);
   const selected = selectIdentityComponents(roots, candidates);
   const components = indexIdentityComponents(selected);
-  const observations = createReturnObservationFlow(source, program);
-  auditBindingUses(
-    source,
-    selected,
-    components,
-    ownerNodes,
-    observations.referenceIsClosed,
-  );
+  auditBindingUses(source, selected, components, ownerNodes);
   closeRejectedComponents(selected, components);
   return Object.freeze({
     bindingFor(identifier: Node): ReturnLocalBinding | undefined {
@@ -232,7 +224,6 @@ function auditBindingUses(
   bindings: ReadonlyMap<Node, MutableReturnBinding>,
   components: ReadonlyMap<Node, Node>,
   nodes: readonly Node[],
-  referenceIsClosedObservation: (reference: Node) => boolean,
 ): void {
   for (const node of nodes) {
     if (!source.ast.is.IsIdentifier(node)) {
@@ -252,8 +243,7 @@ function auditBindingUses(
         binding.declaration,
         components,
       ) ||
-      isNullishIdentityObservation(source, node) ||
-      referenceIsClosedObservation(node)
+      isNullishIdentityObservation(source, node)
     ) {
       continue;
     }

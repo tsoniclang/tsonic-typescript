@@ -103,8 +103,7 @@ export function prepareTypeScriptLowering(
   const identities = collectSourceIdentities(sourceFiles, sourceIdentityFor);
   const program = createTargetProgramIndex(source, {
     bindingWrites: profile.pointerFlows === "closed-direct" ||
-      profile.scalarProjections === "closed-direct" ||
-      profile.cooperativeEffects === "closed-direct",
+      profile.scalarProjections === "closed-direct",
     memberDispatch: profile.cooperativeEffects === "closed-direct",
   });
   const generatedNames = createProgramGeneratedNames(source, program);
