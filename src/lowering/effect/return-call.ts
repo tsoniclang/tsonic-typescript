@@ -7,8 +7,8 @@ import {
   isFunctionLike,
 } from "./syntax.js";
 import {
-  callableContractResultIsIntrinsicallyNonThenable,
-  resolvedCallResultIsIntrinsicallyNonThenable,
+  callableContractResultIsDefinitelyNonThenable,
+  resolvedCallResultIsDefinitelyNonThenable,
 } from "./synchronous.js";
 
 export interface ReturnProofScope {
@@ -74,7 +74,7 @@ export function createReturnCallFlow(
       ) {
         return false;
       }
-      if (resolvedCallResultIsIntrinsicallyNonThenable(
+      if (resolvedCallResultIsDefinitelyNonThenable(
         source,
         value.expression,
       )) {
@@ -91,7 +91,7 @@ export function createReturnCallFlow(
         return false;
       }
       if (selectedDeclarations.every((declaration) =>
-        callableContractResultIsIntrinsicallyNonThenable(
+        callableContractResultIsDefinitelyNonThenable(
           source,
           declaration,
         )

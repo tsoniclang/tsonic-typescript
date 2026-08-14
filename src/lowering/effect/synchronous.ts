@@ -1,4 +1,9 @@
-import type { Node, Signature, Type } from "@tsonic/tsts";
+import type {
+  Node,
+  Signature,
+  Type,
+  TypePropertyInfo,
+} from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
@@ -13,10 +18,14 @@ export function resolvedCallUsesSynchronousTransport(
   const declaration = semantics.getSignatureDeclaration(signature);
   return declarationUsesSynchronousBody(source, declaration) ||
     (declarationHasTrustedContract(source, declaration) &&
-      resolvedSignatureResultIsIntrinsic(semantics, signature));
+      resolvedSignatureResultIsDefinitelyNonThenable(
+        source,
+        semantics,
+        signature,
+      ));
 }
 
-export function resolvedCallResultIsIntrinsicallyNonThenable(
+export function resolvedCallResultIsDefinitelyNonThenable(
   source: TargetSourceProgram,
   call: Node,
 ): boolean {
@@ -25,10 +34,14 @@ export function resolvedCallResultIsIntrinsicallyNonThenable(
   return declarationHasTrustedContract(
     source,
     semantics.getSignatureDeclaration(signature),
-  ) && resolvedSignatureResultIsIntrinsic(semantics, signature);
+  ) && resolvedSignatureResultIsDefinitelyNonThenable(
+    source,
+    semantics,
+    signature,
+  );
 }
 
-export function callableContractResultIsIntrinsicallyNonThenable(
+export function callableContractResultIsDefinitelyNonThenable(
   source: TargetSourceProgram,
   declaration: Node,
 ): boolean {
@@ -43,7 +56,11 @@ export function callableContractResultIsIntrinsicallyNonThenable(
   }
   const signatures = semantics.getCallSignatures(type);
   return signatures.length !== 0 && signatures.every((signature) =>
-    resolvedSignatureResultIsIntrinsic(semantics, signature)
+    resolvedSignatureResultIsDefinitelyNonThenable(
+      source,
+      semantics,
+      signature,
+    )
   );
 }
 
@@ -57,9 +74,22 @@ export function callableUsesSynchronousTransport(
   if (source.ast.hasModifierKind(declaration, "async")) {
     return false;
   }
-  return callableContractResultIsIntrinsicallyNonThenable(
+  return callableContractResultIsDefinitelyNonThenable(
     source,
     declaration,
+  );
+}
+
+export function typeHasDefinitelyNonThenableContract(
+  source: TargetSourceProgram,
+  semantics: SourceFileSemantics,
+  type: Type,
+): boolean {
+  return typeHasDefinitelyNonThenableContractWithin(
+    source,
+    semantics,
+    type,
+    new Set(),
   );
 }
 
@@ -282,16 +312,80 @@ function declarationHasTrustedContract(
   return sourceFile !== undefined && source.ast.isDeclarationFile(sourceFile);
 }
 
-function resolvedSignatureResultIsIntrinsic(
+function resolvedSignatureResultIsDefinitelyNonThenable(
+  source: TargetSourceProgram,
   semantics: SourceFileSemantics,
   signature: Signature | undefined,
 ): boolean {
   const result = semantics.getReturnTypeOfSignature(signature);
   return result !== undefined &&
-    typeIsIntrinsicallyNonThenable(semantics, result, new Set());
+    typeHasDefinitelyNonThenableContract(source, semantics, result);
 }
 
-function typeIsIntrinsicallyNonThenable(
+function typeHasDefinitelyNonThenableContractWithin(
+  source: TargetSourceProgram,
+  semantics: SourceFileSemantics,
+  type: Type,
+  pending: Set<Type>,
+): boolean {
+  if (
+    pending.has(type) ||
+    semantics.isAny(type) ||
+    semantics.isUnknown(type) ||
+    semantics.couldContainTypeVariables(type)
+  ) {
+    return false;
+  }
+  if (
+    semantics.isNever(type) ||
+    semantics.isVoidLike(type) ||
+    semantics.isNullish(type) ||
+    semantics.isStringLike(type) ||
+    semantics.isNumberLike(type) ||
+    semantics.isBooleanLike(type) ||
+    semantics.isBigIntLike(type)
+  ) {
+    return true;
+  }
+  if (semantics.isUnion(type)) {
+    pending.add(type);
+    const closed = semantics.getUnionOrIntersectionTypes(type).every((member) =>
+      member !== undefined &&
+      typeHasDefinitelyNonThenableContractWithin(
+        source,
+        semantics,
+        member,
+        pending,
+      )
+    );
+    pending.delete(type);
+    return closed;
+  }
+  const then = semantics.getPropertyInfos(type)
+    .find((property) => property.name === "then");
+  if (then === undefined) {
+    return false;
+  }
+
+  return propertyIsNominalThenExclusion(source, semantics, then) &&
+    typeCannotBeCallable(semantics, then.type, new Set());
+}
+
+function propertyIsNominalThenExclusion(
+  source: TargetSourceProgram,
+  semantics: SourceFileSemantics,
+  property: TypePropertyInfo,
+): boolean {
+  if (!property.optional || !property.readonly) {
+    return false;
+  }
+  const declarations = semantics.getSymbolDeclarations(property.symbol);
+  return declarations.length !== 0 && declarations.every((declaration) =>
+    source.ast.hasModifierKind(declaration, "private")
+  );
+}
+
+function typeCannotBeCallable(
   semantics: SourceFileSemantics,
   type: Type,
   pending: Set<Type>,
@@ -319,10 +413,10 @@ function typeIsIntrinsicallyNonThenable(
     return false;
   }
   pending.add(type);
-  const intrinsic = semantics.getUnionOrIntersectionTypes(type).every((member) =>
+  const excluded = semantics.getUnionOrIntersectionTypes(type).every((member) =>
     member !== undefined &&
-    typeIsIntrinsicallyNonThenable(semantics, member, pending)
+    typeCannotBeCallable(semantics, member, pending)
   );
   pending.delete(type);
-  return intrinsic;
+  return excluded;
 }

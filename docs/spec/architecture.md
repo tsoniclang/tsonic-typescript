@@ -222,6 +222,15 @@ discarded, returned by a settling callable, or passed through another such
 private forwarder. Export, alias escape, ordinary Promise observation, open
 dispatch, provider behavior, or unresolved transport retains the component.
 
+Ordinary checked TypeScript may close a result boundary when every union member
+is intrinsically non-thenable or carries an optional readonly private `then`
+member whose selected value type cannot be callable (for example
+`declare private readonly then?: never`). The private member makes the contract
+nominal. Absence of `then`, or a public structural declaration of it, is not
+proof because width subtyping permits a hidden thenable. `any`, `unknown`, type
+variables, and open structural members remain retained. This is target-language
+Promise-assimilation evidence, not marker or source-language recognition.
+
 Settlement reconstructs the complete component atomically: async modifiers,
 Promise or exact awaitable-union return members, awaits, and dependent callable
 contracts are consumed once by original node identity. Retained candidates may
