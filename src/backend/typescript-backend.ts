@@ -10,6 +10,7 @@ import {
   encodeTargetSourceFileForPrinting,
   TargetAstEncodingError,
 } from "@tsonic/tsts/target-ast";
+import type { SourceFile } from "@tsonic/tsts";
 
 import {
   canonicalTypeScriptOptimizationProfile,
@@ -19,6 +20,7 @@ import {
 import type { TypeScriptOptimizationEvidence } from "../lowering/evidence.js";
 import {
   prepareTypeScriptLowering,
+  type TypeScriptLoweringTransaction,
 } from "../lowering/transform.js";
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { createTypeScriptProjectArtifact } from "./project-artifact.js";
@@ -79,15 +81,22 @@ function compileSourceArtifacts(
   if (prepared.kind === "rejected") {
     return prepared;
   }
+  const publication: SourcePublicationState = {
+    finished: false,
+    usesRuntime: false,
+  };
   const artifacts = printEncodedTypeScriptSources(
-    prepared.artifacts,
+    encodePreparedSources(prepared, publication),
     printer,
   );
+  if (!publication.finished) {
+    throw new Error("TypeScript source publication did not consume every planned source");
+  }
   return Object.freeze({
     kind: "ready",
     artifacts,
-    usesRuntime: prepared.usesRuntime,
-    evidence: prepared.evidence,
+    usesRuntime: publication.usesRuntime,
+    evidence: prepared.transaction.evidence,
   });
 }
 
@@ -95,9 +104,7 @@ function prepareSourceArtifacts(
   input: TargetCompileInput,
   profile: TypeScriptOptimizationProfileInput,
 ): PreparedSourceArtifacts {
-  const artifacts: EncodedTypeScriptSource[] = [];
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
-  let usesRuntime = false;
   const sourceFiles = [...input.source.navigation.sourceFiles].sort(
     (left, right) => compareSourceDocumentIdentities(
       input.source.documents.forFile(left).identity,
@@ -114,7 +121,7 @@ function prepareSourceArtifacts(
       }
       return [Object.freeze({
         sourceFile,
-        document,
+        fileName: document.fileName,
         path: sourceArtifactPath(input, document.fileName),
       })];
     } catch (error) {
@@ -148,31 +155,34 @@ function prepareSourceArtifacts(
       )),
     });
   }
-  for (const selected of selectedSources) {
-    try {
-      const lowered = preparation.transaction.lower(selected.sourceFile);
-      artifacts.push(Object.freeze({
-        path: selected.path,
-        encoded: encodeTargetSourceFile(lowered.sourceFile),
-      }));
-      usesRuntime ||= lowered.pointer.runtimeAlias !== undefined;
-    } catch (error) {
-      diagnostics.push(loweringDiagnostic(selected.document.fileName, error));
-    }
-  }
-  preparation.transaction.finish();
-  if (diagnostics.length !== 0) {
-    return Object.freeze({
-      kind: "rejected",
-      diagnostics: Object.freeze(diagnostics),
-    });
-  }
   return Object.freeze({
     kind: "ready",
-    artifacts: Object.freeze(artifacts),
-    usesRuntime,
-    evidence: preparation.transaction.evidence,
+    sources: Object.freeze(selectedSources),
+    transaction: preparation.transaction,
   });
+}
+
+function* encodePreparedSources(
+  prepared: Extract<PreparedSourceArtifacts, { readonly kind: "ready" }>,
+  publication: SourcePublicationState,
+): Iterable<EncodedTypeScriptSource> {
+  for (const selected of prepared.sources) {
+    try {
+      const lowered = prepared.transaction.lower(selected.sourceFile);
+      publication.usesRuntime ||= lowered.pointer.runtimeAlias !== undefined;
+      yield Object.freeze({
+        path: selected.path,
+        encoded: encodeTargetSourceFile(lowered.sourceFile),
+      });
+    } catch (error) {
+      throw new Error(
+        `${selected.fileName}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+  prepared.transaction.finish();
+  publication.finished = true;
 }
 
 type CompiledSourceArtifacts =
@@ -188,10 +198,20 @@ type PreparedSourceArtifacts =
   | RejectedSourceArtifacts
   | {
       readonly kind: "ready";
-      readonly artifacts: readonly EncodedTypeScriptSource[];
-      readonly usesRuntime: boolean;
-      readonly evidence: TypeScriptOptimizationEvidence;
+      readonly sources: readonly PreparedTypeScriptSource[];
+      readonly transaction: TypeScriptLoweringTransaction;
     };
+
+interface PreparedTypeScriptSource {
+  readonly sourceFile: SourceFile;
+  readonly fileName: string;
+  readonly path: string;
+}
+
+interface SourcePublicationState {
+  finished: boolean;
+  usesRuntime: boolean;
+}
 
 interface RejectedSourceArtifacts {
   readonly kind: "rejected";

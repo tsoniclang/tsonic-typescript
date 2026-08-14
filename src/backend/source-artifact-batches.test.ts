@@ -19,8 +19,11 @@ const limits: PrinterProtocolLimits = Object.freeze({
 
 test("prints multiple immutable bounded batches with exact artifact association", () => {
   const observed: number[][][] = [];
+  let produced = 0;
+  let producedAtFirstPrint: number | undefined;
   const printer: TypeScriptAstPrinter = {
     print(batch) {
+      producedAtFirstPrint ??= produced;
       assertSealedBatch(batch);
       const encoded = batch.encodedSourceFiles.map((file) => [...file]);
       observed.push(encoded);
@@ -31,7 +34,9 @@ test("prints multiple immutable bounded batches with exact artifact association"
   };
 
   const artifacts = printEncodedTypeScriptSources(
-    encodedSources(1, 2, 3, 4, 5),
+    streamingEncodedSources([1, 2, 3, 4, 5], () => {
+      produced += 1;
+    }),
     printer,
     limits,
   );
@@ -53,6 +58,7 @@ test("prints multiple immutable bounded batches with exact artifact association"
   );
   assert.equal(Object.isFrozen(artifacts), true);
   assert.ok(artifacts.every(Object.isFrozen));
+  assert.equal(producedAtFirstPrint, 3);
 });
 
 test("fails the complete print operation on a later batch count mismatch", () => {
@@ -73,7 +79,7 @@ test("fails the complete print operation on a later batch count mismatch", () =>
   assert.equal(batchIndex, 2);
 });
 
-test("rejects a later oversized frame before invoking the printer", () => {
+test("rejects a later oversized frame without publishing artifacts", () => {
   let printCalls = 0;
   const printer: TypeScriptAstPrinter = {
     print(batch) {
@@ -93,10 +99,10 @@ test("rejects a later oversized frame before invoking the printer", () => {
     () => printEncodedTypeScriptSources(oversized, printer, limits),
     /frame 0 size 4 exceeds limit 3/u,
   );
-  assert.equal(printCalls, 0);
+  assert.equal(printCalls, 1);
 });
 
-test("finishes source preparation before invoking the printer", () => {
+test("discards staged batches when later source preparation fails", () => {
   let printCalls = 0;
   const printer: TypeScriptAstPrinter = {
     print(batch) {
@@ -114,7 +120,7 @@ test("finishes source preparation before invoking the printer", () => {
     () => printEncodedTypeScriptSources(sources(), printer, limits),
     /later source preparation failed/u,
   );
-  assert.equal(printCalls, 0);
+  assert.equal(printCalls, 1);
 });
 
 function encodedSources(...values: readonly number[]): readonly EncodedTypeScriptSource[] {
@@ -122,6 +128,16 @@ function encodedSources(...values: readonly number[]): readonly EncodedTypeScrip
     path: `${String(value)}.ts`,
     encoded: Uint8Array.from([value, value, value]),
   }));
+}
+
+function* streamingEncodedSources(
+  values: readonly number[],
+  produced: () => void,
+): Iterable<EncodedTypeScriptSource> {
+  for (const source of encodedSources(...values)) {
+    produced();
+    yield source;
+  }
 }
 
 function assertSealedBatch(batch: TypeScriptPrinterBatch): void {

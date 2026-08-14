@@ -217,10 +217,11 @@ function compareText(left: string, right: string): number {
 }
 
 function createTransaction(
-  plans: ReadonlyMap<SourceFile, SourceRewritePlan>,
+  plans: Map<SourceFile, SourceRewritePlan>,
   effectPlan: CooperativeEffectPlan | undefined,
   evidence: TypeScriptOptimizationEvidence,
 ): TypeScriptLoweringTransaction {
+  const expectedSourceCount = plans.size;
   const consumed = new Set<SourceFile>();
   let finished = false;
   return Object.freeze({
@@ -229,14 +230,15 @@ function createTransaction(
       if (finished) {
         throw new Error("TypeScript lowering transaction is already sealed");
       }
+      if (consumed.has(sourceFile)) {
+        throw new Error("TypeScript lowering visited a source file twice");
+      }
       const plan = plans.get(sourceFile);
       if (plan === undefined) {
         throw new Error("TypeScript lowering received an unplanned source file");
       }
-      if (consumed.has(sourceFile)) {
-        throw new Error("TypeScript lowering visited a source file twice");
-      }
       consumed.add(sourceFile);
+      plans.delete(sourceFile);
       const transformed = transformTargetSourceFile(
         sourceFile,
         (original: Node, updated, factory) => {
@@ -277,9 +279,9 @@ function createTransaction(
         throw new Error("TypeScript lowering transaction was sealed twice");
       }
       finished = true;
-      if (consumed.size !== plans.size) {
+      if (consumed.size !== expectedSourceCount || plans.size !== 0) {
         throw new Error(
-          `TypeScript lowering consumed ${consumed.size} source files, expected ${plans.size}`,
+          `TypeScript lowering consumed ${consumed.size} source files, expected ${expectedSourceCount}`,
         );
       }
       effectPlan?.finish();

@@ -7,6 +7,7 @@ import { createProgramGeneratedNames } from "../generated-names.js";
 import { createTargetProgramIndex } from "../program-index.js";
 import {
   checkedPointerFixture,
+  countCallsNamed,
   createFixturePointerFlowPlan,
   visit,
 } from "./pointer.test-support.js";
@@ -75,8 +76,9 @@ export const result = hashPointer(nextPointer());
     flowPlan,
   );
 
-  const parameterName = [...pointerPlan.nullableHashParameterNames.values()][0];
-  assert.equal(parameterName?.text, "$pointer2");
+  const hash = [...pointerPlan.referenceHashes.values()][0];
+  assert.equal(hash?.nullable, true);
+  assert.equal(hash?.parameterName?.text, "$pointer2");
 });
 
 test("reserves each synthetic closure parameter independently", () => {
@@ -104,4 +106,24 @@ export const result = [
   });
 
   assert.deepEqual(arrowParameters.sort(), ["$pointer", "$pointer2"]);
+});
+
+test("settles a nullable hash read from a class field before rewriting", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, hashPointer } from "./markers.js";
+class Changes { value = 1; }
+class Parameters {
+  constructor(public changes: Pointer<Changes> | undefined) {}
+  static hash(source: Parameters): number {
+    return Math.imul(1, hashPointer<Changes>(source.changes));
+  }
+}
+export const result = Parameters.hash(new Parameters(allocatePointer(new Changes())));
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 1);
 });

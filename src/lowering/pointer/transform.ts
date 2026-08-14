@@ -308,7 +308,7 @@ function rewriteNode(
       updated,
       pointerFlowRepresentation(plan, original),
       plan.runtimeAlias,
-      plan.nullableHashParameterNames.get(original),
+      plan.referenceHashes.get(original),
     );
     if (optimized !== undefined) {
       return optimized;

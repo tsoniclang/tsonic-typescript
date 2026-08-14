@@ -110,6 +110,11 @@ representation projections, and operands.
 Every pointer-bearing definition, parameter, result, reference, caller, alias,
 and storage occurrence belongs to one exact connected component before a
 representation is selected.
+Operation shape is settled in that plan as well: for example, a reference hash
+records whether its operand may be undefined and reserves any required
+single-evaluation binding before rewriting. The AST rewrite consumes that
+settled operation plan; it does not rerun checker queries after another source
+has been transformed.
 
 The target may select plain `T`, one `{ value: T }` cell, or the represented
 class object only by rewriting that complete component atomically. Escaping,
@@ -283,13 +288,19 @@ consumer is reprocessed. Oscillation fails.
 
 All family plans complete before the first source is rewritten. The coordinator
 then visits each original node once in post-order, supplies already-final child
-nodes to the parent rewrite, and consumes every planned fact exactly once.
+nodes to the parent rewrite, and consumes every planned fact exactly once. A
+source's rewrite sessions and final-node journal are removed from the
+transaction as soon as that source is consumed; completed per-source state may
+not accumulate behind the whole-program plans.
 
-Every source is planned, rewritten, encoded, and budget-validated before the
-printer is invoked. Printing uses immutable ordered batches under one finite
-payload budget. Zero/multiple output matches, oversized frames, reordered
-members, missing output, or any later-batch failure aborts the whole target;
-partial output is never published.
+After planning, sources are rewritten and encoded one at a time into immutable
+ordered batches under one finite payload budget. A full batch may be sent to
+the pure printer service before later sources are encoded, but its returned
+text remains staged inside the backend. Zero/multiple output matches,
+oversized frames, reordered members, missing output, an encoding failure, or
+any later-batch failure aborts the whole target and returns no artifacts.
+Encoded ASTs and rewrite journals for the complete project are never retained
+as a prerequisite for atomic publication.
 
 ## Configuration
 

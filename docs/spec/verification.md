@@ -55,7 +55,8 @@ results, direct calls, aliases, fresh allocations, repeated addresses, nil,
 load, mutation through two aliases, equality, hash, provider binding,
 projection, and canonical retention. Mutations change a pointee, operation
 kind, location identity, nil union, provider read/write binding, projection,
-definition/reference edge, or caller mapping; each fails before rewriting.
+definition/reference edge, caller mapping, or settled hash-nullability row;
+each fails before rewriting.
 Target tests must not use marker spelling, a scalar authored signature, or a
 GoToTS-specific configuration key as proof.
 
@@ -90,10 +91,12 @@ Every family plans from original identities, exchanges immutable result facts,
 and the composed parent receives only final child nodes. Mutations keyed to a
 cloned node, an intermediate child, or another family's output must fail.
 
-All files are planned before printing. Mutations fail atomically for a source
-planning error, encoding error, oversized frame, duplicate member, reordered
-batch, missing result, extra result, and failure in a later batch. The output
-directory remains untouched in every failure.
+All files are planned before rewriting or printing. A bounded-streaming proof
+shows that the first full batch is printed before the complete encoded-source
+iterable is materialized. Mutations fail atomically for a source planning
+error, encoding error, oversized frame, duplicate member, reordered batch,
+missing result, extra result, and failure in a later batch: the backend returns
+no artifacts and the output directory remains untouched in every failure.
 
 ## Human-Source Gate
 
