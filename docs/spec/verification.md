@@ -101,6 +101,9 @@ each preserves every affected async callable. A project carrier that later
 escapes must invalidate the enclosed owner, while the same carrier wholly
 inside the checked program remains eligible. Pointer transport permission
 comes from validated operation facts, never marker spelling.
+The carrier cost fixture doubles a deep nominal chain and requires the recorded
+class/member/type-edge/propagation work to remain linear; arbitrary checker
+property-graph expansion is outside the admitted algorithm.
 
 ## Composition And Transaction Proof
 

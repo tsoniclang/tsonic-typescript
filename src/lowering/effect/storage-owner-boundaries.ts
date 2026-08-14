@@ -20,6 +20,7 @@ import type { TargetProgramIndex } from "../program-index.js";
 import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import { isTransparentParent } from "./callable-input-reference.js";
 import {
+  collectStorageOwnerCarriers,
   ownersWithinStorageType,
   storageValueTypeIsClosed,
 } from "./storage-owner-types.js";
@@ -49,6 +50,7 @@ export function auditStorageOwnerBoundaries(
   }
   const invalid = new Set<Node>();
   const dependencies = new Map<Node, Set<Node>>();
+  const carriers = collectStorageOwnerCarriers(source, program, owners).carriers;
   const typeOwners = new Map<Type, ReadonlySet<Node>>();
   const ownersFor = (node: Node): ReadonlySet<Node> => {
     const semantics = source.semantics.forNode(node);
@@ -56,10 +58,9 @@ export function auditStorageOwnerBoundaries(
     return type === undefined
       ? new Set()
       : ownersWithinStorageType(
-        source,
         semantics,
         type,
-        owners,
+        carriers,
         typeOwners,
         new Set(),
       );
@@ -70,7 +71,7 @@ export function auditStorageOwnerBoundaries(
   auditInvocations(
     source,
     program,
-    owners,
+    carriers,
     ownersFor,
     typeOwners,
     invalid,
@@ -80,7 +81,7 @@ export function auditStorageOwnerBoundaries(
   auditValueFlows(
     source,
     program,
-    owners,
+    carriers,
     bindings,
     storageDeclarationFor,
     ownersFor,
@@ -99,7 +100,7 @@ export function auditStorageOwnerBoundaries(
 function auditInvocations(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  owners: ReadonlySet<Node>,
+  carriers: ReadonlyMap<Node, ReadonlySet<Node>>,
   ownersFor: (node: Node) => ReadonlySet<Node>,
   typeOwners: Map<Type, ReadonlySet<Node>>,
   invalid: Set<Node>,
@@ -144,10 +145,9 @@ function auditInvocations(
         const contextual = semantics.selectContextualValueType(argument);
         const retained = contextual.kind === "selected"
           ? ownersWithinStorageType(
-            source,
             semantics,
             contextual.type,
-            owners,
+            carriers,
             typeOwners,
             new Set(),
           )
@@ -175,7 +175,7 @@ function auditInvocations(
 function auditValueFlows(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  owners: ReadonlySet<Node>,
+  carriers: ReadonlyMap<Node, ReadonlySet<Node>>,
   bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
   ownersFor: (node: Node) => ReadonlySet<Node>,
@@ -215,7 +215,7 @@ function auditValueFlows(
       source,
       node,
       carried,
-      owners,
+      carriers,
       typeOwners,
       invalid,
     );
@@ -254,10 +254,9 @@ function auditValueFlows(
     for (const owner of carried) {
       if (!selected.some((type) =>
         ownersWithinStorageType(
-          source,
           semantics,
           type,
-          owners,
+          carriers,
           typeOwners,
           new Set(),
         ).has(owner)
@@ -296,7 +295,7 @@ function auditTransparentConversion(
   source: TargetSourceProgram,
   node: Node,
   carried: ReadonlySet<Node>,
-  owners: ReadonlySet<Node>,
+  carriers: ReadonlyMap<Node, ReadonlySet<Node>>,
   typeOwners: Map<Type, ReadonlySet<Node>>,
   invalid: Set<Node>,
 ): void {
@@ -309,10 +308,9 @@ function auditTransparentConversion(
   const retained = parentType === undefined
     ? new Set<Node>()
     : ownersWithinStorageType(
-      source,
       semantics,
       parentType,
-      owners,
+      carriers,
       typeOwners,
       new Set(),
     );

@@ -233,6 +233,13 @@ field-value escape retain the complete callable component. Public visibility
 alone is neither permission nor a blocker: closure of the observable owner
 flow is the decision.
 
+Nominal carrier closure is one finite graph over project class storage
+declarations and nested nominal type arguments. It is built once and propagated
+from candidate owners through reverse carrier edges. Per-occurrence analysis
+may query that index; it may not recursively enumerate arbitrary object
+property graphs. This keeps carrier work proportional to declared carrier
+edges rather than the transitive checker graph.
+
 The pointer family may certify owner transport for validated `address-of`,
 `allocate`, `load`, `store`, pointer-equality, and pointer-hash facts. The effect
 owner consumes those exact-node facts through an immutable transport contract;
