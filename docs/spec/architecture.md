@@ -126,6 +126,13 @@ exact. A changed source
 signature or marker/fact contract is rejected upstream; this target has no
 adapter, allowlist, spelling rule, or alternate signature store.
 
+The pointer decision also publishes whether an exact value occurrence is the
+pointer itself or its loaded pointee. Canonical locations, mutable cells, and
+direct scalar snapshots are definitely non-thenable pointer values; a load is
+not. Cooperative-effect return analysis may consume that immutable distinction
+before either family rewrites the tree. It may not infer the distinction from
+the `Pointer` spelling, object shape, or component membership alone.
+
 The decision order is:
 
 1. identify the complete connected semantic flow;

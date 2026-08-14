@@ -70,6 +70,7 @@ export interface PointerCensus {
 export interface PointerFlowCensusResult {
   readonly components: readonly PointerFlowComponent[];
   readonly facts: PointerTypedFactLedger;
+  readonly pointerValues: readonly Node[];
 }
 
 export function censusPointerFlows(
@@ -209,6 +210,13 @@ export function censusPointerFlows(
   return Object.freeze({
     components,
     facts,
+    pointerValues: Object.freeze([
+      ...pointerBindings,
+      ...resultExpressions,
+      ...[...operations.values()]
+        .filter(producesPointer)
+        .map((operation) => operation.call),
+    ]),
   });
 }
 

@@ -104,6 +104,11 @@ comes from validated operation facts, never marker spelling.
 The carrier cost fixture doubles a deep nominal chain and requires the recorded
 class/member/type-edge/propagation work to remain linear; arbitrary checker
 property-graph expansion is outside the admitted algorithm.
+An exact returned-pointer fixture distinguishes the pointer binding from its
+loaded pointee, passes the pointer through a settling project call, and removes
+both cooperative callables. A mutation that drops the pointer-value result
+contract must retain the returning callable while the pointee remains
+unclassified.
 The whole-product guarded run additionally bounds peak RSS while exercising the
 real checker graph. A mutation that restores a mutable owner set or retained
 negative membership per queried checker type must exceed that bound or fail a
