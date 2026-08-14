@@ -91,6 +91,17 @@ derived nominal result with public-structural and unmarked bases. Callable
 `then`, `any`, `unknown`, generic, union, intersection, and hidden-thenable
 assignments prevent a false proof.
 
+Callable-storage fixtures include generated-shaped public mutable constructor
+fields, nested project carriers, and exact pointer transport. Positive proofs
+settle construction, copy, write, read, indirect invocation, and
+`address-of`/`load`/`store` as one component. Negative mutations introduce a
+constructor alias, derived class, ambient owner source or sink, widening,
+provider callable write, field-value escape, or unselected pointer-like call;
+each preserves every affected async callable. A project carrier that later
+escapes must invalidate the enclosed owner, while the same carrier wholly
+inside the checked program remains eligible. Pointer transport permission
+comes from validated operation facts, never marker spelling.
+
 ## Composition And Transaction Proof
 
 Tests overlap effect, pointer, scalar, and structural rewrites at one parent.

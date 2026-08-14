@@ -222,6 +222,25 @@ discarded, returned by a settling callable, or passed through another such
 private forwarder. Export, alias escape, ordinary Promise observation, open
 dispatch, provider behavior, or unresolved transport retains the component.
 
+Callable storage may be a public mutable constructor field when the nominal
+class remains a closed project-owned value family. The owner proof inventories
+every exact construction, class-value reference, field write/read/transfer,
+carrier, invocation, and escape before settlement. A project class may carry
+that owner through an exact field or instantiated type argument; the carrier's
+own escape then closes the original owner. Constructor aliases, runtime
+inheritance, ambient introduction or escape, widening, unresolved writes, and
+field-value escape retain the complete callable component. Public visibility
+alone is neither permission nor a blocker: closure of the observable owner
+flow is the decision.
+
+The pointer family may certify owner transport for validated `address-of`,
+`allocate`, `load`, `store`, pointer-equality, and pointer-hash facts. The effect
+owner consumes those exact-node facts through an immutable transport contract;
+it does not recognize imports or calls by spelling. Bind/project operations
+remain open owner boundaries until their callback and projection flows have a
+separate complete proof. An external call with the same signature or name
+therefore cannot inherit this permission.
+
 Ordinary checked TypeScript may close a result boundary when every union member
 is intrinsically non-thenable or carries an optional readonly private `then`
 member whose selected value type cannot be callable (for example

@@ -95,6 +95,16 @@ declaration, return contract, and dependent `await` in one transaction. For exam
 becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`
 return, or provider call remains unchanged.
 
+Generated-shaped public mutable callable fields are eligible only when their
+nominal owner is closed across every constructor use, field access, carrier,
+and call. For example, a class holding `callback: () => Awaitable<T>` may
+settle through its exact zero/copy constructors and through pointer
+`address-of`, `load`, and `store` operations whose facts were validated by the
+pointer plan. Aliasing the constructor, deriving a runtime subclass, widening
+or exporting the owner, sourcing it from an ambient function, or exporting the
+field value retains the original async contract. No class, field, runtime
+function, or pointer operation is selected by name.
+
 The candidate denominator includes every async function, method, function
 expression, and arrow, including inferred-return, generator, bodyless, and
 open-dispatch forms that must be retained. A closed callback may also settle

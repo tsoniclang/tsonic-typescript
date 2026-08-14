@@ -1,4 +1,5 @@
 import type {
+  PointerOperationFact,
   Node,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
@@ -66,6 +67,7 @@ export interface PointerFlowFallbackEvidence {
 
 export interface ClosedPointerFlowPlan {
   owns(source: TargetSourceProgram): boolean;
+  operationFor(node: Node | undefined): PointerOperationFact | undefined;
   representationFor(node: Node | undefined): PointerFlowRepresentation;
   componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined;
   projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
@@ -180,6 +182,9 @@ export function createClosedPointerFlowPlan(
   return Object.freeze({
     owns(candidate: TargetSourceProgram): boolean {
       return candidate === source;
+    },
+    operationFor(node: Node | undefined): PointerOperationFact | undefined {
+      return census.facts.operationFor(node);
     },
     representationFor(node: Node | undefined): PointerFlowRepresentation {
       return node === undefined

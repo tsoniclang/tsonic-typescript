@@ -12,6 +12,7 @@ import {
 import type { SourceIdentityResolver } from "../occurrence.js";
 import type { LoweredValueContract } from "../value-contract.js";
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import { propagateEffectBlockers } from "./blocker-propagation.js";
 import {
   collectCooperativeEffectCalls,
@@ -63,6 +64,7 @@ export function createClosedCooperativeEffectPlan(
   program: TargetProgramIndex,
   sourceIdentityFor: SourceIdentityResolver,
   loweredValues?: LoweredValueContract,
+  transports?: StorageOwnerTransportContract,
 ): CooperativeEffectPlan {
   const candidates = collectCooperativeEffectCandidates(source, program);
   const calls = collectCooperativeEffectCalls(source, program, candidates);
@@ -70,6 +72,7 @@ export function createClosedCooperativeEffectPlan(
     source,
     program,
     new Set(candidates.keys()),
+    transports,
   );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const returnFlow = createReturnValueFlow(
@@ -78,6 +81,7 @@ export function createClosedCooperativeEffectPlan(
     (call) => calls.get(call)?.declaration,
     loweredValues,
     (call) => valueFlow.resolutionFor(call)?.dependencies ?? [],
+    transports,
   );
   const resultConsumption = createCooperativeResultConsumption(
     source,

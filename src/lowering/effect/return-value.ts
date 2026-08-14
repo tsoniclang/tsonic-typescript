@@ -4,6 +4,7 @@ import { KindImportDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { LoweredValueContract } from "../value-contract.js";
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import {
   createTypeScriptRuntimeReturnContract,
   type TypeScriptRuntimeReturnContract,
@@ -53,9 +54,10 @@ export function createReturnValueFlow(
   directCallDeclaration: (call: Node) => Node | undefined,
   loweredValues?: LoweredValueContract,
   settledCallDeclarations: (call: Node) => readonly Node[] = () => [],
+  transports?: StorageOwnerTransportContract,
 ): ReturnValueFlow {
   const locals = createReturnLocalFlow(source, program);
-  const storage = createReturnStorageFlow(source, program);
+  const storage = createReturnStorageFlow(source, program, transports);
   const runtime = createTypeScriptRuntimeReturnContract(
     source,
     program.nodesOfKind(KindImportDeclaration),

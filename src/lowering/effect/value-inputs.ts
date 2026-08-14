@@ -9,6 +9,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 
 import {
   collectCallableCollectionInputs,
@@ -36,6 +37,7 @@ interface ReferenceCounts {
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  transports?: StorageOwnerTransportContract,
 ): CallableValueInputs {
   const collections = collectCallableCollectionInputs(source, program);
   const mutableValues = new Map<Node, Node[]>();
@@ -108,6 +110,7 @@ export function collectCallableValueInputs(
     source,
     program,
     collections.closed,
+    transports,
   );
   const propertyReferences = new Map<Node, ReferenceCounts>();
   for (const parameter of constructorParameters) {

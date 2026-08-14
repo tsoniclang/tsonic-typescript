@@ -17,9 +17,14 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import { isTransparentParent } from "./callable-input-reference.js";
+import {
+  ownersWithinStorageType,
+  storageValueTypeIsClosed,
+} from "./storage-owner-types.js";
 
-export interface ReturnStorageOwnerBinding {
+export interface StorageOwnerBinding {
   readonly declaration: Node;
   readonly owner: Node;
   readonly inputs: readonly Node[];
@@ -30,12 +35,14 @@ type StorageDestination =
   | { readonly kind: "closed"; readonly owner: Node }
   | { readonly kind: "open" };
 
-export function auditReturnStorageOwnerBoundaries(
+export function auditStorageOwnerBoundaries(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
-  bindings: ReadonlyMap<Node, ReturnStorageOwnerBinding>,
+  bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
+  validateStoredValues: boolean,
+  transports?: StorageOwnerTransportContract,
 ): void {
   if (owners.size === 0) {
     return;
@@ -48,9 +55,18 @@ export function auditReturnStorageOwnerBoundaries(
     const type = semantics.getTypeAtLocation(node);
     return type === undefined
       ? new Set()
-      : ownersWithinType(semantics, type, owners, typeOwners, new Set());
+      : ownersWithinStorageType(
+        source,
+        semantics,
+        type,
+        owners,
+        typeOwners,
+        new Set(),
+      );
   };
-  rejectOpenStorageValues(source, bindings, owners);
+  if (validateStoredValues) {
+    rejectOpenStorageValues(source, bindings, owners);
+  }
   auditInvocations(
     source,
     program,
@@ -59,6 +75,7 @@ export function auditReturnStorageOwnerBoundaries(
     typeOwners,
     invalid,
     dependencies,
+    transports,
   );
   auditValueFlows(
     source,
@@ -87,6 +104,7 @@ function auditInvocations(
   typeOwners: Map<Type, ReadonlySet<Node>>,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
+  transports: StorageOwnerTransportContract | undefined,
 ): void {
   for (const node of program.nodesOfKinds([
     KindCallExpression,
@@ -97,12 +115,21 @@ function auditInvocations(
       semantics.getResolvedSignature(node),
     );
     const resultOwners = ownersFor(node);
-    const parameters = declaration === undefined
-      ? []
-      : source.ast.parameters(declaration);
+    const projectInvocation = declarationHasProjectBody(source, declaration);
+    const transport = transports?.transportFor(node);
+    if (!projectInvocation && transport === undefined) {
+      for (const owner of resultOwners) {
+        invalid.add(owner);
+      }
+    } else if (!projectInvocation && transport !== undefined) {
+      for (const owner of resultOwners) {
+        if (!transport.resultInputs.some((input) => ownersFor(input).has(owner))) {
+          invalid.add(owner);
+        }
+      }
+    }
     const arguments_ = source.ast.arguments(node);
-    for (let index = 0; index < arguments_.length; index += 1) {
-      const argument = arguments_[index];
+    for (const argument of arguments_) {
       if (argument === undefined) {
         continue;
       }
@@ -110,17 +137,22 @@ function auditInvocations(
       if (carried.size === 0) {
         continue;
       }
-      const contextual = semantics.selectContextualValueType(argument);
-      const retained = contextual.kind === "selected"
-        ? ownersWithinType(semantics, contextual.type, owners, typeOwners, new Set())
-        : new Set<Node>();
       for (const owner of carried) {
-        const parameter = parameters[index];
-        if (
-          !source.navigation.isProjectDeclaration(declaration) ||
-          !retained.has(owner) ||
-          parameterPropertyIsOpen(source, parameter, owners)
-        ) {
+        if (transport?.inputs.includes(argument)) {
+          continue;
+        }
+        const contextual = semantics.selectContextualValueType(argument);
+        const retained = contextual.kind === "selected"
+          ? ownersWithinStorageType(
+            source,
+            semantics,
+            contextual.type,
+            owners,
+            typeOwners,
+            new Set(),
+          )
+          : new Set<Node>();
+        if (!projectInvocation || !retained.has(owner)) {
           invalid.add(owner);
         } else {
           for (const resultOwner of resultOwners) {
@@ -131,7 +163,7 @@ function auditInvocations(
     }
     if (source.ast.is.IsCallExpression(node)) {
       const receiver = invocationReceiver(source, node);
-      if (receiver !== undefined && !source.navigation.isProjectDeclaration(declaration)) {
+      if (receiver !== undefined && !projectInvocation && transport === undefined) {
         for (const owner of ownersFor(receiver)) {
           invalid.add(owner);
         }
@@ -144,7 +176,7 @@ function auditValueFlows(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
-  bindings: ReadonlyMap<Node, ReturnStorageOwnerBinding>,
+  bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
   ownersFor: (node: Node) => ReadonlySet<Node>,
   typeOwners: Map<Type, ReadonlySet<Node>>,
@@ -221,7 +253,8 @@ function auditValueFlows(
       : contextual.types;
     for (const owner of carried) {
       if (!selected.some((type) =>
-        ownersWithinType(
+        ownersWithinStorageType(
+          source,
           semantics,
           type,
           owners,
@@ -237,7 +270,7 @@ function auditValueFlows(
 
 function rejectOpenStorageValues(
   source: TargetSourceProgram,
-  bindings: ReadonlyMap<Node, ReturnStorageOwnerBinding>,
+  bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   owners: ReadonlySet<Node>,
 ): void {
   for (const binding of bindings.values()) {
@@ -246,7 +279,7 @@ function rejectOpenStorageValues(
       const type = semantics.getTypeAtLocation(input);
       if (
         type === undefined ||
-        !typeIsClosedStorageValue(
+        !storageValueTypeIsClosed(
           semantics,
           type,
           owners,
@@ -257,45 +290,6 @@ function rejectOpenStorageValues(
       }
     }
   }
-}
-
-function typeIsClosedStorageValue(
-  semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
-  type: Type,
-  owners: ReadonlySet<Node>,
-  pending: Set<Type>,
-): boolean {
-  if (
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type)
-  ) {
-    return true;
-  }
-  if (semantics.isAny(type) || semantics.isUnknown(type)) {
-    return false;
-  }
-  if (directOwnersWithinType(semantics, type, owners).size !== 0) {
-    return true;
-  }
-  if (!semantics.isUnion(type) || pending.has(type)) {
-    return false;
-  }
-  pending.add(type);
-  const result = semantics.getUnionOrIntersectionTypes(type).every((member) =>
-    member !== undefined && typeIsClosedStorageValue(
-      semantics,
-      member,
-      owners,
-      pending,
-    )
-  );
-  pending.delete(type);
-  return result;
 }
 
 function auditTransparentConversion(
@@ -314,7 +308,8 @@ function auditTransparentConversion(
   const parentType = semantics.getTypeAtLocation(parent);
   const retained = parentType === undefined
     ? new Set<Node>()
-    : ownersWithinType(
+    : ownersWithinStorageType(
+      source,
       semantics,
       parentType,
       owners,
@@ -326,88 +321,6 @@ function auditTransparentConversion(
       invalid.add(owner);
     }
   }
-}
-
-function ownersWithinType(
-  semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
-  type: Type,
-  candidates: ReadonlySet<Node>,
-  cache: Map<Type, ReadonlySet<Node>>,
-  pending: Set<Type>,
-): ReadonlySet<Node> {
-  const existing = cache.get(type);
-  if (existing !== undefined) {
-    return existing;
-  }
-  if (pending.has(type)) {
-    return new Set();
-  }
-  if (
-    semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type)
-  ) {
-    const empty = new Set<Node>();
-    cache.set(type, empty);
-    return empty;
-  }
-  pending.add(type);
-  const result = directOwnersWithinType(semantics, type, candidates);
-  if (result.size === 0) {
-    const nested = [
-      ...(semantics.isUnion(type) || semantics.isIntersection(type)
-        ? semantics.getUnionOrIntersectionTypes(type)
-        : []),
-      ...(semantics.isTypeReference(type) ? semantics.getTypeArguments(type) : []),
-    ];
-    for (const member of nested) {
-      if (member === undefined) {
-        continue;
-      }
-      for (const owner of ownersWithinType(
-        semantics,
-        member,
-        candidates,
-        cache,
-        pending,
-      )) {
-        result.add(owner);
-      }
-    }
-  }
-  pending.delete(type);
-  cache.set(type, result);
-  return result;
-}
-
-function directOwnersWithinType(
-  semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
-  type: Type,
-  candidates: ReadonlySet<Node>,
-): Set<Node> {
-  const result = new Set<Node>();
-  const declaration = semantics.getPrimarySymbolDeclaration(
-    semantics.getTypeSymbol(type),
-  );
-  if (declaration !== undefined && candidates.has(declaration)) {
-    result.add(declaration);
-  }
-  const target = semantics.isTypeReference(type)
-    ? semantics.getTypeReferenceTarget(type)
-    : undefined;
-  const targetDeclaration = target === undefined
-    ? undefined
-    : semantics.getPrimarySymbolDeclaration(semantics.getTypeSymbol(target));
-  if (targetDeclaration !== undefined && candidates.has(targetDeclaration)) {
-    result.add(targetDeclaration);
-  }
-  return result;
 }
 
 function containingCompositeExpression(
@@ -456,7 +369,7 @@ function isCompositeBoundary(
 function storageDestination(
   source: TargetSourceProgram,
   expression: Node,
-  bindings: ReadonlyMap<Node, ReturnStorageOwnerBinding>,
+  bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
 ): StorageDestination | undefined {
   let current = expression;
@@ -502,25 +415,6 @@ function storageDestination(
   }
 }
 
-function parameterPropertyIsOpen(
-  source: TargetSourceProgram,
-  parameter: Node | undefined,
-  owners: ReadonlySet<Node>,
-): boolean {
-  if (
-    parameter === undefined ||
-    !source.ast.is.IsParameterDeclaration(parameter) ||
-    !(["public", "private", "protected", "readonly"] as const).some(
-      (modifier) => source.ast.hasModifierKind(parameter, modifier),
-    )
-  ) {
-    return false;
-  }
-  const constructor = source.ast.parent(parameter);
-  const owner = constructor === undefined ? undefined : source.ast.parent(constructor);
-  return owner === undefined || !owners.has(owner);
-}
-
 function invocationReceiver(source: TargetSourceProgram, call: Node): Node | undefined {
   const expression = source.ast.as.AsCallExpression(call)?.Expression;
   if (expression === undefined) {
@@ -532,6 +426,16 @@ function invocationReceiver(source: TargetSourceProgram, call: Node): Node | und
   return source.ast.is.IsElementAccessExpression(expression)
     ? source.ast.as.AsElementAccessExpression(expression)?.Expression
     : undefined;
+}
+
+function declarationHasProjectBody(
+  source: TargetSourceProgram,
+  declaration: Node | undefined,
+): declaration is Node {
+  return declaration !== undefined &&
+    source.navigation.isProjectDeclaration(declaration) &&
+    !source.ast.hasModifierKind(declaration, "ambient") &&
+    source.ast.body(declaration) !== undefined;
 }
 
 function transparentChild(source: TargetSourceProgram, node: Node): Node | undefined {
