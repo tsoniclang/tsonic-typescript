@@ -104,7 +104,6 @@ export function createClosedPointerFlowPlan(
   const representations = new Map<Node, PointerFlowRepresentation>(
     familyPlan.representations,
   );
-  const pointerValues = new Set<Node>(census.pointerValues);
   const summaries: PointerFlowComponentSummary[] = [];
   const componentByNode = new Map<Node, PointerFlowComponentSummary>();
   const fallbackReasons = new Map<
@@ -189,14 +188,10 @@ export function createClosedPointerFlowPlan(
         return undefined;
       }
       const reference = source.navigation.sourceReferenceFor(node);
-      const value = pointerValues.has(node)
-        ? node
-        : reference !== undefined && pointerValues.has(reference.declaration)
-        ? reference.declaration
-        : undefined;
-      return value === undefined
-        ? undefined
-        : representations.get(value) ?? "location";
+      return representations.get(node) ??
+        (reference === undefined
+          ? undefined
+          : representations.get(reference.declaration));
     },
     representationFor(node: Node | undefined): PointerFlowRepresentation {
       return node === undefined

@@ -132,6 +132,8 @@ direct scalar snapshots are definitely non-thenable pointer values; a load is
 not. Cooperative-effect return analysis may consume that immutable distinction
 before either family rewrites the tree. It may not infer the distinction from
 the `Pointer` spelling, object shape, or component membership alone.
+The canonical representation map is the sole value-membership owner; no second
+pointer-value index or retained checker-node set may duplicate it.
 
 The decision order is:
 
