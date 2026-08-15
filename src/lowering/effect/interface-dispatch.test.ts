@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { Node } from "@tsonic/tsts";
 import {
   IsAwaitExpression,
   IsTypeReferenceNode,
+  KindCallExpression,
 } from "@tsonic/tsts/target-ast";
 
 import {
@@ -11,8 +13,11 @@ import {
   countAsyncCallables,
   countNodes,
   createFixtureEffectPlan,
+  visit,
 } from "./effect.test-support.js";
+import { createDeclaredInterfaceDispatch } from "./interface-dispatch.js";
 import { lowerCooperativeEffects } from "./transform.js";
+import { createTargetProgramIndex } from "../program-index.js";
 
 const declaredFamily = `
 type Awaitable<T> = T | PromiseLike<T>;
@@ -352,4 +357,68 @@ export const result = await read(new Pair());
   }
   assert.equal(evidence.admittedCallCount, 2);
   assert.equal(evidence.settledCallCount, 2);
+});
+
+test("rejects same-identity foreign declarations before semantic queries", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+`);
+  const foreign = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+`);
+  let foreignDeclaration: Node | undefined;
+  visit(foreign.source, foreign.sourceFile, (node) => {
+    if (foreign.source.ast.is.IsMethodSignatureDeclaration(node)) {
+      foreignDeclaration = node;
+    }
+  });
+  assert.ok(foreignDeclaration !== undefined);
+  const foreignFile = fixture.source.ast.getSourceFile(foreignDeclaration);
+  assert.ok(foreignFile !== undefined);
+  assert.equal(
+    fixture.source.navigation.isProjectDeclaration(foreignDeclaration),
+    true,
+  );
+  assert.equal(fixture.source.semantics.includes(foreignFile), false);
+
+  const indexed = createTargetProgramIndex(fixture.source, {
+    bindingWrites: false,
+    memberDispatch: false,
+  });
+  const call = indexed.nodesOfKind(KindCallExpression)[0];
+  assert.ok(call !== undefined);
+  const callSemantics = fixture.source.semantics.forNode(call);
+  const source = Object.freeze({
+    ...fixture.source,
+    semantics: Object.freeze({
+      ...fixture.source.semantics,
+      forNode(node: Parameters<typeof fixture.source.semantics.forNode>[0]) {
+        const semantics = fixture.source.semantics.forNode(node);
+        return node !== call
+          ? semantics
+          : Object.freeze({
+              ...callSemantics,
+              getSignatureDeclaration() {
+                return foreignDeclaration;
+              },
+            });
+      },
+    }),
+  });
+
+  const dispatch = createDeclaredInterfaceDispatch(
+    source,
+    createTargetProgramIndex(source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+    new Map(),
+    "declared-closed",
+  );
+  assert.equal(dispatch.consideredFamilyCount, 0);
 });

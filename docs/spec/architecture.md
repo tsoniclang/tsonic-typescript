@@ -165,8 +165,8 @@ not depend on source-language meaning. The current executable families are:
 - **scalar projections:** erase representation-only scalar wrappers when all
   uses preserve the same selected value behavior;
 
-Value copying/storage, generic operation selection, interfaces, source-language
-containers, panic/recovery, reflection, and package initialization remain in
+Value copying/storage, generic operation selection, source-language containers,
+panic/recovery, reflection, and package initialization remain in
 their canonical source form unless a separately versioned shared fact contract
 is added for that family. In particular, a GoToTS runtime import, generated
 class shape, method name, or support-module path is ordinary TypeScript input;
@@ -249,6 +249,12 @@ and every other implementation has an exact synchronous body contract. A
 retaining implementation preserves the complete family and every depending
 caller. Unresolved heritage, a missing project implementation, or an
 unprovable implementation contract prevents family admission.
+
+Semantic queries for a selected member or implementation require the exact AST
+object owned by the checked source program. A declaration from another checker
+graph is foreign even when it has the same document identity and authored
+range; it retains the family before any query. Document identity establishes
+provenance, not checker-object membership.
 
 The target does not infer this profile from `implements`, generated names,
 runtime bases, or structural compatibility. It adds no dispatch table, policy

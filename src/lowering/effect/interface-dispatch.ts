@@ -128,24 +128,26 @@ function collectPendingFamilies(
     const declaration = semantics.getSignatureDeclaration(
       semantics.getResolvedSignature(call),
     );
-    const owner = declaration === undefined
-      ? undefined
-      : source.ast.parent(declaration);
-    const typeNode = declaration === undefined
-      ? undefined
-      : source.ast.typeNode(declaration);
+    if (
+      declaration === undefined ||
+      !source.ast.is.IsMethodSignatureDeclaration(declaration) ||
+      !isExactProjectDeclaration(source, declaration)
+    ) {
+      continue;
+    }
+    const owner = source.ast.parent(declaration);
+    if (
+      owner === undefined ||
+      !source.ast.is.IsInterfaceDeclaration(owner) ||
+      !isExactProjectDeclaration(source, owner)
+    ) {
+      continue;
+    }
+    const typeNode = source.ast.typeNode(declaration);
     const returnRewrite = typeNode === undefined
       ? undefined
       : callableReturnRewrite(source, typeNode);
-    if (
-      declaration === undefined ||
-      owner === undefined ||
-      returnRewrite === undefined ||
-      !source.ast.is.IsMethodSignatureDeclaration(declaration) ||
-      !source.ast.is.IsInterfaceDeclaration(owner) ||
-      !source.navigation.isProjectDeclaration(declaration) ||
-      !source.navigation.isProjectDeclaration(owner)
-    ) {
+    if (returnRewrite === undefined) {
       continue;
     }
     const existing = result.get(declaration);
@@ -160,6 +162,16 @@ function collectPendingFamilies(
     }
   }
   return result;
+}
+
+function isExactProjectDeclaration(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  const sourceFile = source.ast.getSourceFile(declaration);
+  return sourceFile !== undefined &&
+    source.semantics.includes(sourceFile) &&
+    source.navigation.isProjectDeclaration(declaration);
 }
 
 function collectHeritageIndex(

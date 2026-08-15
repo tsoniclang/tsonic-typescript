@@ -100,8 +100,10 @@ edges, synchronous plus settling implementations, and calls sharing one line.
 It exact-joins each selected member to every project implementation and consumes
 each interface return annotation once. Mutations omit the profile, remove or
 change one exact heritage edge, substitute a structurally matching class or
-same-named member, leave one implementation genuinely suspending, or omit the
-interface return rewrite; each retains the family or fails its exact join.
+same-named member, substitute a foreign checker node with the same source
+identity, leave one implementation genuinely suspending, or omit the interface
+return rewrite; each retains the family or fails its exact join before querying
+foreign semantics.
 Evidence reports contract, implementation-edge, settled-family, retained-family,
 settled-callable, and settled-await counts separately.
 The construction matrix repeats that proof through inheritance and contrasts a
