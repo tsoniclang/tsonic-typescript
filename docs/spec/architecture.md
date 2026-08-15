@@ -303,6 +303,14 @@ remain open owner boundaries until their callback and projection flows have a
 separate complete proof. An external call with the same signature or name
 therefore cannot inherit this permission.
 
+Canonical pointer boundaries attach to the exact affected node and propagate
+through its connected component. Generic contracts record the affected
+concrete family but do not taint a disconnected component merely because its
+pointee has the same class declaration. Provider and projection operations
+likewise retain their own component. Family-wide representation is admitted
+only when every family occurrence is closed; a declined family decision does
+not erase a stronger independently complete component proof.
+
 Ordinary checked TypeScript may close a result boundary when every union member
 is intrinsically non-thenable or carries an optional readonly private `then`
 member whose selected value type cannot be callable (for example

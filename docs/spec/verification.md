@@ -57,6 +57,10 @@ projection, and canonical retention. Mutations change a pointee, operation
 kind, location identity, nil union, provider read/write binding, projection,
 definition/reference edge, caller mapping, or settled hash-nullability row;
 each fails before rewriting.
+Boundary fixtures pair a generic contract or projection with a disconnected
+pointer flow over the same pointee class. They prove the boundary component
+remains canonical while the independently closed component stays direct; a
+mutation that spreads one boundary across the whole pointee family must fail.
 Target tests must not use marker spelling, a scalar authored signature, or a
 GoToTS-specific configuration key as proof.
 

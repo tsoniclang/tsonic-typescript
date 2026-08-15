@@ -7,11 +7,13 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
   checkedPointerFixture,
+  countCallsNamed,
   createFixturePointerFlowPlan,
   visit,
 } from "./pointer.test-support.js";
+import { lowerPointers } from "./transform.js";
 
-test("keeps a class family canonical through a generic callback contract", () => {
+test("keeps only the generic callback flow canonical", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer, storePointer } from "./markers.js";
 import { GenericInvoker } from "./generic.js";
@@ -31,11 +33,19 @@ export class GenericInvoker {
   });
 
   const plan = createFixturePointerFlowPlan(fixture.source);
-
-  assertAllOperations(fixture.source, plan, "location");
+  const operations = pointerOperations(fixture.source);
+  const byOperation = new Map(
+    operations.map((operation) => [operation.operation, operation]),
+  );
+  assert.equal(plan.representationFor(byOperation.get("allocate")?.call), "direct-object");
+  assert.equal(plan.representationFor(byOperation.get("load")?.call), "direct-object");
+  assert.equal(plan.representationFor(byOperation.get("store")?.call), "location");
   assert.ok(plan.familyFallbackReasons.some((entry) =>
     entry.reason === "generic-call"
   ));
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "allocatePointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
 });
 
 test("keeps checker-never pointer expressions behind the canonical load", () => {
@@ -70,6 +80,44 @@ export const value = loadPointer<Box>(result[0]).value;
   assert.ok(plan.familyFallbackReasons.some((entry) =>
     entry.reason === "checker-never"
   ));
+});
+
+test("keeps only the projected pointer flow canonical", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, allocatePointer, loadPointer, projectPointer } from "./markers.js";
+class Storage { constructor(public value: number) {} }
+class Box { constructor(readonly storage: Storage) {} }
+let storage = new Storage(1);
+const source: Pointer<Storage> = addressOf(storage);
+const projected: Pointer<Box> = projectPointer<Storage, Box>(
+  source,
+  (value) => new Box(value),
+  (value) => value.storage,
+)!;
+const independent: Pointer<Box> = allocatePointer(new Box(new Storage(2)));
+export const result = [
+  loadPointer(projected).storage.value,
+  loadPointer(independent).storage.value,
+];
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const operations = pointerOperations(fixture.source);
+  const projection = operations.find((operation) =>
+    operation.operation === "project-pointer"
+  );
+  const allocation = operations.find((operation) =>
+    operation.operation === "allocate"
+  );
+  const loads = operations.filter((operation) => operation.operation === "load");
+  assert.ok(projection !== undefined);
+  assert.ok(allocation !== undefined);
+  assert.equal(loads.length, 2);
+  assert.equal(plan.representationFor(projection.call), "location");
+  assert.equal(plan.representationFor(allocation.call), "direct-object");
+  assert.deepEqual(
+    loads.map((operation) => plan.representationFor(operation.call)).sort(),
+    ["direct-object", "location"],
+  );
 });
 
 function assertAllOperations(

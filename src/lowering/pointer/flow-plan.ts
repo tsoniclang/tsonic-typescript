@@ -273,6 +273,12 @@ function finalComponentRepresentation(
       selected.add(representation);
     }
   }
+  if (
+    decision.representation !== "location" &&
+    !selected.has("location")
+  ) {
+    return decision.representation;
+  }
   if (selected.size === 0) {
     return decision.representation;
   }

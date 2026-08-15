@@ -97,7 +97,7 @@ export const result = loadPointer(left).value;
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 4);
 });
 
-test("keeps one mutable representation across disconnected family flows", () => {
+test("keeps mutation storage local to its connected pointer flow", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer, storePointer } from "./markers.js";
 class Box { constructor(public value: number) {} }
@@ -109,7 +109,17 @@ export const result = loadPointer(readonly).value;
   const plan = createFixturePointerFlowPlan(fixture.source);
 
   assert.equal(plan.optimizedFamilyCount, 1);
-  assertRepresentations(fixture.source, plan, "mutable-cell");
+  const representations = pointerOperations(fixture.source).map((operation) =>
+    plan.representationFor(operation.call)
+  );
+  assert.equal(
+    representations.filter((value) => value === "mutable-cell").length,
+    2,
+  );
+  assert.equal(
+    representations.filter((value) => value === "direct-object").length,
+    2,
+  );
 });
 
 test("does not detach an addressed object from its source storage", () => {

@@ -29,7 +29,7 @@ import {
 } from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";
 
-test("keeps generated concretization capability callbacks canonical", () => {
+test("isolates generic capability contracts from disjoint pointer flows", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { loadPointer } from "./markers.js";
 import { adaptCallback, assertCallback, callbackLength } from "./capabilities.js";
@@ -201,11 +201,15 @@ export class GenericKernel {
       .map((entry) => entry.count),
     [1],
   );
-  for (const pointer of concretePointers) {
-    assert.equal(plan.representationFor(pointer), "location");
-  }
+  assert.deepEqual(
+    countRepresentations(plan, concretePointers),
+    new Map([
+      ["location", 5],
+      ["mutable-cell", 1],
+    ]),
+  );
   for (const operation of operations) {
-    assert.equal(plan.representationFor(operation.call), "location");
+    assert.equal(plan.representationFor(operation.call), "mutable-cell");
   }
 
   for (const [sourceFile, pointers] of groupPointersBySourceFile(
@@ -214,10 +218,14 @@ export class GenericKernel {
   )) {
     const lowered = lowerPointers(source, sourceFile, plan);
     assert.equal(lowered.pointerTypeCount, pointers.length);
-    assert.equal(countTypeLiterals(source, lowered.sourceFile), 0);
+    const representations = countRepresentations(plan, pointers);
+    assert.equal(
+      countTypeLiterals(source, lowered.sourceFile),
+      representations.get("mutable-cell") ?? 0,
+    );
     assert.equal(
       countQualifiedLocationTypes(source, lowered.sourceFile),
-      pointers.length,
+      representations.get("location") ?? 0,
     );
   }
 
@@ -229,7 +237,7 @@ export class GenericKernel {
   assert.equal(countQualifiedLocationTypes(source, loweredKernel.sourceFile), 5);
 });
 
-test("keeps parameter, argument, and result families independently canonical", () => {
+test("isolates selected generic contracts from disjoint direct operations", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
 
@@ -326,14 +334,23 @@ export const values = [
     const operations = collectOperationsForDeclaration(source, declaration);
     assert.ok(pointers.length > 0);
     assert.ok(operations.length > 0);
-    for (const pointer of pointers) {
-      assert.equal(plan.representationFor(pointer), "location");
-    }
     for (const operation of operations) {
-      assert.equal(plan.representationFor(operation.call), "location");
+      assert.equal(plan.representationFor(operation.call), "direct-object");
     }
   }
 });
+
+function countRepresentations(
+  plan: ReturnType<typeof createFixturePointerFlowPlan>,
+  nodes: readonly Node[],
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const node of nodes) {
+    const representation = plan.representationFor(node);
+    counts.set(representation, (counts.get(representation) ?? 0) + 1);
+  }
+  return counts;
+}
 
 function uniqueExplicitGenericCall(source: TargetSourceProgram): Node {
   const calls: Node[] = [];

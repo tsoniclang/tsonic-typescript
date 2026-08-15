@@ -192,6 +192,13 @@ The closed planner can select only these exact representations:
   type symbol has a primary project `ClassDeclaration` and the complete flow
   does not replace the pointee through the pointer.
 
+Representation boundaries are flow-local. A generic callable contract,
+provider binding, or projection keeps its exact connected pointer component on
+`Location<T>`; it does not force disconnected pointers with the same pointee
+class onto that representation. A whole-family decision is used only when the
+entire family is closed. Otherwise independently closed components retain their
+own exact direct decision.
+
 An identity-observing class family can still use the object itself only when
 every pointer producer receives a value proven fresh. The proof accepts an
 exact `new ExactClass(...)` or an exact resolved call to a stable static method

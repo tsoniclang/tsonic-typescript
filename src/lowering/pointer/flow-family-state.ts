@@ -19,7 +19,10 @@ export interface MutableDirectReferenceFamily {
   readonly pointerTypes: Set<Node>;
   readonly operations: Map<Node, PointerOperationFact>;
   readonly blockers: Map<PointerFlowBlocker, Set<Node>>;
-  readonly canonicalBlockers: Set<PointerFlowBlocker>;
+  readonly canonicalNodes: Map<
+    Node,
+    Map<PointerFlowBlocker, Set<Node>>
+  >;
 }
 
 export function blockDirectReferenceFamily(
@@ -39,20 +42,32 @@ export function requireCanonicalDirectReferenceFamily(
   family: MutableDirectReferenceFamily,
   reason: PointerFlowBlocker,
   occurrence: Node,
+  affectedNode: Node = occurrence,
 ): void {
   blockDirectReferenceFamily(family, reason, occurrence);
-  family.canonicalBlockers.add(reason);
+  let evidence = family.canonicalNodes.get(affectedNode);
+  if (evidence === undefined) {
+    evidence = new Map();
+    family.canonicalNodes.set(affectedNode, evidence);
+  }
+  const occurrences = evidence.get(reason);
+  if (occurrences === undefined) {
+    evidence.set(reason, new Set([occurrence]));
+  } else {
+    occurrences.add(occurrence);
+  }
 }
 
-export function canonicalDirectReferenceFamilyEvidence(
+export function canonicalDirectReferenceNodeEvidence(
   family: MutableDirectReferenceFamily,
+  node: Node,
   ledger: PointerPlanningLedger,
 ): readonly PointerFlowBlockerOccurrence[] {
-  return Object.freeze([...family.blockers]
-    .filter(([reason]) => {
-      ledger.record("evidence");
-      return family.canonicalBlockers.has(reason);
-    })
+  const evidence = family.canonicalNodes.get(node);
+  if (evidence === undefined) {
+    throw new Error("canonical pointer-family node has no exact evidence");
+  }
+  return Object.freeze([...evidence]
     .sort(([left], [right]) => {
       ledger.record("evidence");
       return left < right ? -1 : left > right ? 1 : 0;
