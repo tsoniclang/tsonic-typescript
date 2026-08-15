@@ -97,6 +97,10 @@ and their awaits; independently closed concrete methods may still settle. The
 declared-closed profile covers multiple implementations, inherited
 interfaces, distinct same-shaped interfaces, generic heritage, cross-file
 edges, synchronous plus settling implementations, and calls sharing one line.
+It also transports one exact declaration-file synchronous interface into a
+project Awaitable interface and contrasts declaration-file Awaitable/Promise,
+generic-unresolved, and implementation-file ambient counterparts; only the
+fully synchronous external contract may settle.
 It exact-joins each selected member to every project implementation and consumes
 each interface return annotation once. Mutations omit the profile, remove or
 change one exact heritage edge, substitute a structurally matching class or

@@ -258,9 +258,14 @@ interface members, those method contracts form one atomic component;
 same-shaped interfaces with no such transport remain unrelated. Contracts that
 share one exact declared class implementation also form one component. A
 project contract transported against an external or otherwise non-rewritable
-interface is an open boundary and the component is retained. Member spelling is
-used only to join properties inside that exact checker-proven transport, never
-to discover a transport or select semantics.
+interface is an open boundary unless the counterpart callable has one or more
+exact declaration-file signatures and every instantiated result is definitely
+non-thenable. That closed external contract needs no target rewrite and joins
+the family as a synchronous implementation obligation. An overload that may
+suspend, an unresolved type variable, `any`, `unknown`, or an implementation-
+file ambient declaration keeps the boundary open. Member spelling is used only
+to join properties inside that exact checker-proven transport, never to
+discover a transport or select semantics.
 The component's return annotations and interface-call awaits settle only when
 every cooperative implementation settles and every other implementation has an
 exact synchronous body contract. A

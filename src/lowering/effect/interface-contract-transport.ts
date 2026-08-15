@@ -27,6 +27,7 @@ import {
   createInterfaceContractRelevance,
   type InterfaceContractRelevance,
 } from "./interface-contract-relevance.js";
+import { typeHasTrustedSynchronousCallSignatures } from "./synchronous.js";
 
 interface PendingTypePair {
   readonly semantics: SourceFileSemantics;
@@ -408,13 +409,27 @@ function pairObjectMembers(
           );
         }
       }
-    } else if (sourceContracts.length !== 0) {
+    } else if (
+      sourceContracts.length !== 0 &&
+      !typeHasTrustedSynchronousCallSignatures(
+        state.source,
+        semantics,
+        targetProperty.type,
+      )
+    ) {
       for (const contract of sourceContracts) {
         state.contracts.boundaries.add(contract);
       }
       markExposedContracts(semantics, sourceProperty.type, state);
       continue;
-    } else if (targetContracts.length !== 0) {
+    } else if (
+      targetContracts.length !== 0 &&
+      !typeHasTrustedSynchronousCallSignatures(
+        state.source,
+        semantics,
+        sourceProperty.type,
+      )
+    ) {
       for (const contract of targetContracts) {
         state.contracts.boundaries.add(contract);
       }

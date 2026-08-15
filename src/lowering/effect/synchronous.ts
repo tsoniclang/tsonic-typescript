@@ -54,13 +54,24 @@ export function callableContractResultIsDefinitelyNonThenable(
   if (type === undefined) {
     return false;
   }
+  return typeHasTrustedSynchronousCallSignatures(source, semantics, type);
+}
+
+export function typeHasTrustedSynchronousCallSignatures(
+  source: TargetSourceProgram,
+  semantics: SourceFileSemantics,
+  type: Type,
+): boolean {
   const signatures = semantics.getCallSignatures(type);
   return signatures.length !== 0 && signatures.every((signature) =>
-    resolvedSignatureResultIsDefinitelyNonThenable(
+    declarationHasTrustedContract(
       source,
-      semantics,
-      signature,
-    )
+      semantics.getSignatureDeclaration(signature),
+    ) && resolvedSignatureResultIsDefinitelyNonThenable(
+        source,
+        semantics,
+        signature,
+      )
   );
 }
 
