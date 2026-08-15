@@ -237,6 +237,94 @@ export const result = await invoke();
   });
 }
 
+test("rewrites an imported exact awaitable parameter with its calls", () => {
+  const fixture = checkedEffectFixture(`
+import type { Awaitable } from "./runtime.js";
+
+class Host {
+  static async invoke(
+    callback: ((value: number) => Awaitable<number>) | undefined,
+  ): Promise<number> {
+    const selected = callback;
+    const result: number = await selected!(40);
+    return result + 1;
+  }
+}
+
+export const result = await Host.invoke((value): number => value);
+`, {
+    "/src/runtime.d.ts": `
+export type Awaitable<T> = T | Promise<T>;
+`,
+  });
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+
+  assert.equal(
+    results.reduce((total, result) => total + result.awaitCount, 0),
+    2,
+  );
+  assert.equal(
+    results.reduce((total, result) =>
+      total + countNodes(
+        fixture.source,
+        result.sourceFile,
+        (node) => {
+          const reference = fixture.source.ast.as.AsTypeReferenceNode(node);
+          return reference !== undefined &&
+            fixture.source.ast.text(reference.TypeName) === "Awaitable";
+        },
+      ), 0),
+    0,
+  );
+});
+
+test("retains an indirect await whose Promise-only contract cannot narrow", () => {
+  const fixture = checkedEffectFixture(`
+type PromiseOnly<T> = Promise<T>;
+
+async function invoke(
+  callback: ((value: number) => PromiseOnly<number>) | undefined,
+): Promise<number> {
+  return await callback!(40);
+}
+
+export const result = await invoke(async (value): Promise<number> => value);
+`);
+
+  const originalAsyncCallables = countAsyncCallables(
+    fixture.source,
+    fixture.sourceFile,
+  );
+  const originalAwaits = countNodes(
+    fixture.source,
+    fixture.sourceFile,
+    fixture.source.ast.is.IsAwaitExpression,
+  );
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(result.awaitCount, 0);
+  assert.equal(
+    countAsyncCallables(fixture.source, result.sourceFile),
+    originalAsyncCallables,
+  );
+  assert.equal(
+    countNodes(
+      fixture.source,
+      result.sourceFile,
+      fixture.source.ast.is.IsAwaitExpression,
+    ),
+    originalAwaits,
+  );
+});
+
 test("retains returned callable flow across open method dispatch", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;

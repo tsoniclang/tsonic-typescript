@@ -113,6 +113,10 @@ return-type rewrite. A paired mutation supplies one provider callback to a
 second call of the shared kernel and requires every connected use to remain
 canonical. Further mutations replace the reset with a compound or unresolved
 write and must fail at callable-storage closure.
+A Promise-only parameter supplied by an otherwise settling async callback is a
+separate atomicity mutation: the callback, enclosing caller, both awaits, and
+the Promise-only annotation must all remain canonical. Narrowing only the
+implementation or only the calls must fail strict output typechecking.
 The carrier cost fixture doubles a deep nominal chain and requires the recorded
 class/member/type-edge/propagation work to remain linear; arbitrary checker
 property-graph expansion is outside the admitted algorithm.

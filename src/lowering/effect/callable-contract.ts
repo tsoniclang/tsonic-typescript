@@ -1,5 +1,8 @@
 import type { Node, Type } from "@tsonic/tsts";
-import { AsUnionTypeNode } from "@tsonic/tsts/target-ast";
+import {
+  AsTypeReferenceNode,
+  AsUnionTypeNode,
+} from "@tsonic/tsts/target-ast";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
@@ -20,7 +23,7 @@ export function callableDeclarationHasResolvableType(
   declaration: Node,
 ): boolean {
   const typeNode = source.ast.typeNode(declaration);
-  return typeNode !== undefined && callableTypeNodeIsExact(
+  return typeNode !== undefined && callableTypeNodeIsResolvable(
     source,
     typeNode,
   ) === true;
@@ -156,7 +159,7 @@ function returnContractContainsDirectValue(
   return contains;
 }
 
-function callableTypeNodeIsExact(
+function callableTypeNodeIsResolvable(
   source: TargetSourceProgram,
   node: Node,
 ): boolean | undefined {
@@ -164,7 +167,7 @@ function callableTypeNodeIsExact(
     const inner = source.ast.as.AsParenthesizedTypeNode(node)?.Type;
     return inner === undefined
       ? undefined
-      : callableTypeNodeIsExact(source, inner);
+      : callableTypeNodeIsResolvable(source, inner);
   }
   if (source.ast.is.IsUnionTypeNode(node)) {
     let callable = false;
@@ -177,7 +180,7 @@ function callableTypeNodeIsExact(
       if (selected !== undefined && semantics.isNullish(selected)) {
         continue;
       }
-      const exact = callableTypeNodeIsExact(source, member);
+      const exact = callableTypeNodeIsResolvable(source, member);
       if (exact !== true) {
         return undefined;
       }
@@ -185,7 +188,48 @@ function callableTypeNodeIsExact(
     }
     return callable;
   }
-  return source.ast.is.IsFunctionTypeNode(node) ? true : undefined;
+  if (!source.ast.is.IsFunctionTypeNode(node)) {
+    return undefined;
+  }
+  const returnType = source.ast.typeNode(node);
+  return returnType !== undefined && callableResultTypeIsResolvable(
+      source,
+      returnType,
+    )
+    ? true
+    : undefined;
+}
+
+function callableResultTypeIsResolvable(
+  source: TargetSourceProgram,
+  node: Node,
+): boolean {
+  const rewrite = callableReturnRewrite(source, node);
+  if (rewrite !== undefined) {
+    return returnRewriteAdmitsDirectValue(source, rewrite);
+  }
+  const semantics = source.semantics.forNode(node);
+  const selected = semantics.getTypeFromTypeNode(node);
+  return selected !== undefined &&
+    (!typeMaySuspend(semantics, selected) ||
+      isExactTypeParameterReference(source, node));
+}
+
+function isExactTypeParameterReference(
+  source: TargetSourceProgram,
+  node: Node,
+): boolean {
+  const name = AsTypeReferenceNode(node)?.TypeName;
+  if (name === undefined) {
+    return false;
+  }
+  const semantics = source.semantics.forNode(name);
+  const symbol = semantics.getResolvedSymbol(name) ??
+    semantics.getSymbolAtLocation(name);
+  const declarations = semantics.getSymbolDeclarations(symbol);
+  return declarations.length !== 0 && declarations.every((declaration) =>
+    source.ast.is.IsTypeParameterDeclaration(declaration)
+  );
 }
 
 export function callableDeclarationSynchronousReturnTypes(
