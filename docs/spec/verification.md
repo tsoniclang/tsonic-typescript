@@ -112,6 +112,12 @@ unclassified.
 Returned-callable verification covers one exact awaited producer whose direct
 returns are a synchronous function and a settling async function. The producer,
 both returned callables, their consumer, and every await must settle together.
+It also covers a synchronous producer and explicit producer/consumer callable
+annotations. AST inspection requires every nested awaitable return node in both
+contracts to be consumed exactly once, and strict product typechecking proves
+the rewritten producer remains assignable to every rewritten consumer. A
+mutation that omits only the producer's nested return rewrite must fail that
+proof rather than ship a partially settled flow.
 Mutations that add a producer-binding write or a derived override retain the
 complete flow. The AST proof separately distinguishes a fresh returned
 function expression from an existing function-valued reference, so freshness

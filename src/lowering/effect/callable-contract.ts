@@ -22,6 +22,83 @@ export interface CallableReturnRewrite {
     | { readonly kind: "union-member"; readonly index: number };
 }
 
+export function callableResultReturnRewrites(
+  source: TargetSourceProgram,
+  declaration: Node,
+): readonly CallableReturnRewrite[] | undefined {
+  let resultType = source.ast.typeNode(declaration);
+  if (resultType === undefined) {
+    return undefined;
+  }
+  if (source.ast.hasModifierKind(declaration, "async")) {
+    const outer = callableReturnRewrite(source, resultType);
+    if (outer?.selection.kind !== "type-argument") {
+      return undefined;
+    }
+    resultType = source.ast.typeArguments(resultType)[outer.selection.index];
+    if (resultType === undefined) {
+      return undefined;
+    }
+  }
+  const result: CallableReturnRewrite[] = [];
+  const callable = collectCallableResultRewrites(source, resultType, result);
+  return callable === true ? Object.freeze(result) : undefined;
+}
+
+function collectCallableResultRewrites(
+  source: TargetSourceProgram,
+  node: Node,
+  result: CallableReturnRewrite[],
+): boolean | undefined {
+  if (source.ast.is.IsParenthesizedTypeNode(node)) {
+    const inner = source.ast.as.AsParenthesizedTypeNode(node)?.Type;
+    return inner === undefined
+      ? undefined
+      : collectCallableResultRewrites(source, inner, result);
+  }
+  if (source.ast.is.IsUnionTypeNode(node)) {
+    const members = AsUnionTypeNode(node)?.Types?.Nodes ?? [];
+    let callable = false;
+    for (const member of members) {
+      if (member === undefined) {
+        return undefined;
+      }
+      const selected = collectCallableResultRewrites(source, member, result);
+      if (selected === undefined) {
+        return undefined;
+      }
+      callable ||= selected;
+    }
+    return callable;
+  }
+  const semantics = source.semantics.forNode(node);
+  const selected = semantics.getTypeFromTypeNode(node);
+  if (selected === undefined) {
+    return undefined;
+  }
+  if (semantics.isNullish(selected)) {
+    return false;
+  }
+  if (!source.ast.is.IsFunctionTypeNode(node)) {
+    return undefined;
+  }
+  const returnType = source.ast.typeNode(node);
+  if (returnType === undefined) {
+    return undefined;
+  }
+  const rewrite = callableReturnRewrite(source, returnType);
+  if (rewrite !== undefined) {
+    result.push(rewrite);
+    return true;
+  }
+  const returnSemantics = source.semantics.forNode(returnType);
+  const selectedReturn = returnSemantics.getTypeFromTypeNode(returnType);
+  return selectedReturn !== undefined &&
+      !typeMaySuspend(returnSemantics, selectedReturn)
+    ? true
+    : undefined;
+}
+
 export function callableDeclarationSynchronousReturnTypes(
   source: TargetSourceProgram,
   declaration: Node,

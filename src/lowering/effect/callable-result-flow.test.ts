@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { AsTypeReferenceNode } from "@tsonic/tsts/target-ast";
 
 import {
   checkedEffectFixture,
   countAsyncCallables,
+  countNodes,
   createFixtureEffectPlan,
 } from "./effect.test-support.js";
 import { lowerCooperativeEffects } from "./transform.js";
@@ -21,7 +23,7 @@ async function choose(selected: boolean): Promise<(() => Awaitable<number>) | un
 }
 
 async function invoke(selected: boolean): Promise<number> {
-  const selectedCallable = await choose(selected);
+  const selectedCallable: (() => Awaitable<number>) | undefined = await choose(selected);
   return await selectedCallable!();
 }
 `);
@@ -32,6 +34,38 @@ async function invoke(selected: boolean): Promise<number> {
   assert.equal(result.callableCount, 4);
   assert.equal(result.awaitCount, 3);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(countNamedTypeReferences(
+    fixture.source,
+    result.sourceFile,
+    "Awaitable",
+  ), 0);
+});
+
+test("rewrites a synchronous producer contract with its returned callable", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+
+function produce(): (() => Awaitable<number>) | undefined {
+  return (): number => 40;
+}
+
+async function invoke(): Promise<number> {
+  const selected: (() => Awaitable<number>) | undefined = produce();
+  return await selected!();
+}
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+
+  assert.equal(result.callableCount, 1);
+  assert.equal(result.awaitCount, 1);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(countNamedTypeReferences(
+    fixture.source,
+    result.sourceFile,
+    "Awaitable",
+  ), 0);
 });
 
 test("retains returned callable flow across open method dispatch", () => {
@@ -113,3 +147,14 @@ async function produce(): Promise<Callable> {
   assert.equal(result.callableCount, 0);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
 });
+
+function countNamedTypeReferences(
+  source: ReturnType<typeof checkedEffectFixture>["source"],
+  root: ReturnType<typeof checkedEffectFixture>["sourceFile"],
+  name: string,
+): number {
+  return countNodes(source, root, (node) =>
+    source.ast.is.IsTypeReferenceNode(node) &&
+    source.ast.text(AsTypeReferenceNode(node)?.TypeName) === name
+  );
+}

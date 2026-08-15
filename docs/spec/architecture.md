@@ -243,6 +243,17 @@ retains the flow. A fresh function or arrow expression is non-thenable at its
 creation site under the same standard-built-in integrity envelope used for
 fresh arrays and objects; a later reference to a function is not fresh proof.
 
+Settlement of a produced callable is atomic with its authored result contract.
+After the producer's outer async contract is selected, every non-nullish result
+branch must be a direct function-type node whose return is already definitely
+non-suspending or has one exact awaitable rewrite. Type aliases, object
+wrappers, and any other indirect shape retain the flow until their own complete
+contract exists. The effect owner canonicalizes rewrites by original type-node
+identity, merges every collection, storage, and producer-flow obligation for
+that identity, and rewrites it only when the combined dependency closure
+settles. It may not settle a returned implementation while leaving its
+producer or consumer signature awaitable.
+
 Callable storage may be a public mutable constructor field when the nominal
 class remains a closed project-owned value family. The owner proof inventories
 every exact construction, class-value reference, field write/read/transfer,

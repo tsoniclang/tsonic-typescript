@@ -3,6 +3,10 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import {
+  callableResultReturnRewrites,
+  type CallableReturnRewrite,
+} from "./callable-contract.js";
+import {
   callableDispatchIsClosed,
   exactCallableTarget,
   isFunctionLike,
@@ -12,6 +16,7 @@ import {
 export interface CallableResultInput {
   readonly declaration: Node;
   readonly expressions: readonly (Node | undefined)[];
+  readonly returnTypes: readonly CallableReturnRewrite[];
 }
 
 export interface CallableResultInputs {
@@ -23,6 +28,10 @@ export function createCallableResultInputs(
   program: TargetProgramIndex,
 ): CallableResultInputs {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
+  const returnTypes = new Map<
+    Node,
+    readonly CallableReturnRewrite[] | null
+  >();
   const results = new Map<Node, CallableResultInput | null>();
   return Object.freeze({
     resultFor(expression: Node): CallableResultInput | undefined {
@@ -63,9 +72,14 @@ export function createCallableResultInputs(
         expressions = directReturnExpressions(source, declaration) ?? null;
         returns.set(declaration, expressions);
       }
-      const result = expressions === null
+      let rewrites = returnTypes.get(declaration);
+      if (rewrites === undefined) {
+        rewrites = callableResultReturnRewrites(source, declaration) ?? null;
+        returnTypes.set(declaration, rewrites);
+      }
+      const result = expressions === null || rewrites === null
         ? undefined
-        : Object.freeze({ declaration, expressions });
+        : Object.freeze({ declaration, expressions, returnTypes: rewrites });
       results.set(expression, result ?? null);
       return result;
     },
