@@ -80,6 +80,26 @@ export function callableUsesSynchronousTransport(
   );
 }
 
+export function callableBodyResultIsDefinitelyNonThenable(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  if (
+    !isCallableDeclaration(source, declaration) ||
+    source.ast.body(declaration) === undefined ||
+    source.ast.hasModifierKind(declaration, "async")
+  ) {
+    return false;
+  }
+  const typeNode = source.ast.typeNode(declaration);
+  if (typeNode === undefined) {
+    return false;
+  }
+  const semantics = source.semantics.forNode(typeNode);
+  const type = semantics.getTypeFromTypeNode(typeNode);
+  return type !== undefined && !typeMaySuspend(semantics, type);
+}
+
 export function typeHasDefinitelyNonThenableContract(
   source: TargetSourceProgram,
   semantics: SourceFileSemantics,

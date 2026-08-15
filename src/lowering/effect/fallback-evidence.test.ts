@@ -69,6 +69,10 @@ export const result = await settled();
       ownerEvaluations: 0,
       consumerEdges: 0,
     },
+    interfaceDispatch: {
+      profile: "open-structural",
+      analyzed: false,
+    },
   });
 
   function authored(

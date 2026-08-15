@@ -13,6 +13,7 @@ import {
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { createTargetProgramIndex } from "../program-index.js";
+import type { TypeScriptInterfaceDispatchProfile } from "../profile.js";
 import {
   createClosedCooperativeEffectPlan,
   type CooperativeEffectPlan,
@@ -54,6 +55,7 @@ export function checkedEffectFixture(
 
 export function createFixtureEffectPlan(
   source: TargetSourceProgram,
+  interfaceDispatch: TypeScriptInterfaceDispatchProfile = "open-structural",
 ): CooperativeEffectPlan {
   return createClosedCooperativeEffectPlan(
     source,
@@ -62,6 +64,9 @@ export function createFixtureEffectPlan(
       memberDispatch: true,
     }),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
+    undefined,
+    undefined,
+    interfaceDispatch,
   );
 }
 

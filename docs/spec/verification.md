@@ -90,6 +90,20 @@ at the effect inventory, closure, transform-consumption, or evidence gate.
 The return-boundary matrix contrasts an open structural result, a public
 `readonly then?: never` result, and a nominal
 `private readonly then?: never` result: only the nominal contract settles.
+
+Declared-interface fixtures run under both interface-dispatch profiles. The
+open profile preserves the interface signature, interface calls, their callers,
+and their awaits; independently closed concrete methods may still settle. The
+declared-closed profile covers multiple implementations, inherited
+interfaces, distinct same-shaped interfaces, generic heritage, cross-file
+edges, synchronous plus settling implementations, and calls sharing one line.
+It exact-joins each selected member to every project implementation and consumes
+each interface return annotation once. Mutations omit the profile, remove or
+change one exact heritage edge, substitute a structurally matching class or
+same-named member, leave one implementation genuinely suspending, or omit the
+interface return rewrite; each retains the family or fails its exact join.
+Evidence reports contract, implementation-edge, settled-family, retained-family,
+settled-callable, and settled-await counts separately.
 The construction matrix repeats that proof through inheritance and contrasts a
 derived nominal result with public-structural and unmarked bases. Callable
 `then`, `any`, `unknown`, generic, union, intersection, and hidden-thenable

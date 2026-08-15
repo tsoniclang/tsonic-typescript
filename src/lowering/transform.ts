@@ -131,6 +131,7 @@ export function prepareTypeScriptLowering(
         identities.forFile,
         loweredValues,
         ownerTransports,
+        profile.interfaceDispatch,
       )
     : undefined;
   const evidence = createTypeScriptOptimizationEvidence(

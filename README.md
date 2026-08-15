@@ -42,7 +42,8 @@ profile selects the canonical, open-world-safe result:
   "optimizations": {
     "pointerFlows": "location",
     "scalarProjections": "preserve",
-    "cooperativeEffects": "preserve"
+    "cooperativeEffects": "preserve",
+    "interfaceDispatch": "open-structural"
   }
 }
 ```
@@ -94,6 +95,14 @@ declaration, return contract, and dependent `await` in one transaction. For exam
 `function answer(): number { return 42 }`, and an exact `await answer()` use
 becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`
 return, or provider call remains unchanged.
+
+`optimizations.interfaceDispatch: "declared-closed"` is a separate producer
+contract used by cooperative-effect lowering. It asserts that every runtime
+implementation entering a selected project interface has an exact declared
+project heritage path to that interface. The target then joins interface calls
+to those declarations and settles the complete implementation family
+atomically. The default `"open-structural"` mode never infers closure from
+TypeScript structural compatibility, class names, or same-spelled members.
 
 Generic callable parameters participate in that flow even when their result is
 a type parameter and therefore has no declaration-local return rewrite. Flow

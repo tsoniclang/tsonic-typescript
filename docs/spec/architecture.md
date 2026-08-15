@@ -233,6 +233,28 @@ discarded, returned by a settling callable, or passed through another such
 private forwarder. Export, alias escape, ordinary Promise observation, open
 dispatch, provider behavior, or unresolved transport retains the component.
 
+Calls selected through an interface member remain canonical under the default
+`interfaceDispatch: "open-structural"` profile. The independent
+`interfaceDispatch: "declared-closed"` profile is an explicit producer contract:
+every runtime implementation that can enter a selected project interface must
+have one exact declared project heritage path to that interface. TypeScript
+structural assignability does not establish this contract. Under the selected
+contract, the effect owner creates one transient family for each reached
+interface member and exact-joins every declared class implementation through
+TSTS heritage/member navigation. Cooperative implementations form one bounded
+bidirectional star and callers depend on its coordinator; there is no synthetic
+graph vertex and no implementer clique. The contract return annotation and its
+interface-call awaits settle only when every cooperative implementation settles
+and every other implementation has an exact synchronous body contract. A
+retaining implementation preserves the complete family and every depending
+caller. Unresolved heritage, a missing project implementation, or an
+unprovable implementation contract prevents family admission.
+
+The target does not infer this profile from `implements`, generated names,
+runtime bases, or structural compatibility. It adds no dispatch table, policy
+parameter, wrapper, marker, or source-language rule. Declared heritage is used
+only after the profile owner has selected the closed implementation envelope.
+
 Callable-flow admission and callable-signature rewriting are distinct facts.
 An explicitly authored function-type parameter is eligible for exact flow even
 when its return is a type parameter: all concrete arguments and forwarding
@@ -421,6 +443,11 @@ and becomes one closed immutable profile before compilation. Every semantic
 switch has one JSON owner and one normalized identity. Product configuration,
 CLI resolution, and target defaults must converge on that same typed profile;
 ambient environment state does not select an optimization.
+
+The optimization profile independently selects `pointerFlows`,
+`scalarProjections`, `cooperativeEffects`, and `interfaceDispatch`. Omitting
+`interfaceDispatch` selects `open-structural`; `declared-closed` is never
+implied by cooperative-effect selection.
 
 The immutable evidence artifact binds the canonical profile identity, exact
 source membership, selected/retained decisions, typed reasons, index and
