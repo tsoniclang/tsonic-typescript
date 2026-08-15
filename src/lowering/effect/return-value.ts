@@ -43,7 +43,7 @@ export interface ReturnValueFlow {
   isDefinitelyNonThenable(expression: Node): boolean;
   callResultIsDefinitelyNonThenable(
     call: Node,
-    declarations: readonly Node[],
+    declarations: ReadonlySet<Node>,
     settledDeclarations?: ReadonlySet<Node>,
   ): boolean;
 }
@@ -53,7 +53,8 @@ export function createReturnValueFlow(
   program: TargetProgramIndex,
   directCallDeclaration: (call: Node) => Node | undefined,
   loweredValues?: LoweredValueContract,
-  settledCallDeclarations: (call: Node) => readonly Node[] = () => [],
+  settledCallDeclarations: (call: Node) => ReadonlySet<Node> = () =>
+    noDeclarations,
   transports?: StorageOwnerTransportContract,
 ): ReturnValueFlow {
   const locals = createReturnLocalFlow(source, program);
@@ -109,7 +110,7 @@ export function createReturnValueFlow(
     },
     callResultIsDefinitelyNonThenable(
       call: Node,
-      declarations: readonly Node[],
+      declarations: ReadonlySet<Node>,
       settledDeclarations?: ReadonlySet<Node>,
     ): boolean {
       const pendingBindings = new Set<Node>();
@@ -129,6 +130,8 @@ export function createReturnValueFlow(
     },
   });
 }
+
+const noDeclarations: ReadonlySet<Node> = new Set();
 
 export function expressionIsDefinitelyNonThenable(
   source: TargetSourceProgram,
@@ -252,7 +255,9 @@ function expressionIsDefinitelyNonThenableWithin(
     isCall &&
     calls.isDefinitelyNonThenable(
       { expression: root, scope: value.scope },
-      callDeclaration === undefined ? [] : [callDeclaration],
+      callDeclaration === undefined
+        ? noDeclarations
+        : new Set([callDeclaration]),
       (input, nextPendingDeclarations, selectedDeclarations) =>
         expressionIsDefinitelyNonThenableWithin(
           source,

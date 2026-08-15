@@ -24,8 +24,11 @@ import {
   closeResolutionFromSynchronousCalls,
   closeSynchronousDependencies,
   emptyResolution,
+  markResolutionUnclosed,
   mergeResolution,
   type MutableCallableValueResolution,
+  resolutionHasDependencies,
+  resolutionIsClosed,
   resolutionWith,
   sealResolution,
   synchronousResolutionWith,
@@ -216,12 +219,24 @@ export function createCallableValueFlow(
         .filter(({ resolutions }) =>
           resolutions.every((resolution) =>
             resolution.closed &&
-            resolution.dependencies.every((dependency) => optimized.has(dependency))
+            allDependenciesAreOptimized(resolution.dependencies, optimized)
           )
         )
         .map(({ rewrite }) => rewrite));
     },
   });
+}
+
+function allDependenciesAreOptimized(
+  dependencies: ReadonlySet<Node>,
+  optimized: ReadonlySet<Node>,
+): boolean {
+  for (const dependency of dependencies) {
+    if (!optimized.has(dependency)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function resolveCall(
@@ -288,7 +303,9 @@ function resolveCall(
     allowedCandidateReferences,
     new Set(),
   );
-  return result.closed || result.dependencies.size !== 0 ? result : undefined;
+  return resolutionIsClosed(result) || resolutionHasDependencies(result)
+    ? result
+    : undefined;
 }
 
 function resolveDeclaration(
@@ -357,7 +374,7 @@ function resolveExpression(
     const result = emptyResolution();
     for (const branch of [conditional?.WhenTrue, conditional?.WhenFalse]) {
       if (branch === undefined) {
-        result.closed = false;
+        markResolutionUnclosed(result);
       } else {
         mergeResolution(result, resolveExpression(
           source,

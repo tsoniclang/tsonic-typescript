@@ -131,6 +131,12 @@ negative membership per queried checker type must exceed that bound or fail a
 structural representation assertion; increasing the memory guard is not an
 accepted repair.
 
+Callable-resolution sealing proves ownership transfer directly: finalized
+dependency views expose no `add` or `delete`, the former mutable owner rejects
+all later mutation and a second seal, and its finalized contents remain exact.
+A mutation that restores per-resolution array copies must also fail the guarded
+whole-product memory gate at the committed Node heap limit.
+
 ## Composition And Transaction Proof
 
 Tests overlap effect, pointer, scalar, and structural rewrites at one parent.

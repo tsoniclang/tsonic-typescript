@@ -262,6 +262,15 @@ dependency sets per contract. This keeps contract evidence proportional to
 authored contracts plus canonical calls even when many contracts share one
 forwarder.
 
+Resolution finalization transfers ownership of each dependency set into a
+read-only set view and permanently invalidates its mutable construction owner.
+The finalized view exposes no mutation operation, no mutable owner remains able
+to change its backing storage, and finalization does not copy dependency
+elements. Empty views are shared, singleton views retain the node directly, and
+larger views own the already-built set. This is one lifecycle boundary, not a
+mutable set plus a defensive array copy; the latter creates a whole-program
+peak-memory spike after the checker graph is already resident.
+
 Callable storage may be a public mutable constructor field when the nominal
 class remains a closed project-owned value family. The owner proof inventories
 every exact construction, class-value reference, field write/read/transfer,
