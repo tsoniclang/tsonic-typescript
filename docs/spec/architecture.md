@@ -241,11 +241,29 @@ have one exact declared project heritage path to that interface. TypeScript
 structural assignability does not establish this contract. Under the selected
 contract, the effect owner creates one transient family for each reached
 interface member and exact-joins every declared class implementation through
-TSTS heritage/member navigation. Cooperative implementations form one bounded
-bidirectional star and callers depend on its coordinator; there is no synthetic
-graph vertex and no implementer clique. The contract return annotation and its
-interface-call awaits settle only when every cooperative implementation settles
-and every other implementation has an exact synchronous body contract. A
+TSTS heritage navigation and exact checked member-symbol queries. Cooperative
+implementations form one bounded bidirectional star and callers depend on its
+coordinator; there is no synthetic graph vertex and no implementer clique. The
+effect owner also consumes the checker's exact selected signature, authored
+argument types, parameter types, and contextual-value types at transport sites.
+An ordinary positional call pairs each argument with the corresponding selected
+signature parameter. Rest, spread, unresolved signatures, or a parameter-map
+mismatch are never approximated: every exposed project contract is an open
+boundary. Direct project interface/class surfaces enter the exact structural
+member join. Contracts nested inside a container, tuple, union, intersection,
+or callable contract remain open unless a separately certified direct transport
+reaches them; the owner does not recursively retain an arbitrary checker object
+graph. When one direct checked transport depends on corresponding project
+interface members, those method contracts form one atomic component;
+same-shaped interfaces with no such transport remain unrelated. Contracts that
+share one exact declared class implementation also form one component. A
+project contract transported against an external or otherwise non-rewritable
+interface is an open boundary and the component is retained. Member spelling is
+used only to join properties inside that exact checker-proven transport, never
+to discover a transport or select semantics.
+The component's return annotations and interface-call awaits settle only when
+every cooperative implementation settles and every other implementation has an
+exact synchronous body contract. A
 retaining implementation preserves the complete family and every depending
 caller. Unresolved heritage, a missing project implementation, or an
 unprovable implementation contract prevents family admission.

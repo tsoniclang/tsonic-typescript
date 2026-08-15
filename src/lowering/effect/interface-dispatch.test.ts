@@ -15,6 +15,7 @@ import {
   createFixtureEffectPlan,
   visit,
 } from "./effect.test-support.js";
+import { createInterfaceContractGraph } from "./interface-contract-graph.js";
 import { createDeclaredInterfaceDispatch } from "./interface-dispatch.js";
 import { lowerCooperativeEffects } from "./transform.js";
 import { createTargetProgramIndex } from "../program-index.js";
@@ -193,6 +194,40 @@ export const result = await top();
   assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
 });
 
+test("joins one inherited overloaded implementation body", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class Base {
+  Read(): Promise<number>;
+  async Read(): Promise<number> { return 42; }
+}
+class Derived extends Base implements Reader {}
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+async function top(): Promise<number> {
+  return await read(new Derived());
+}
+export const result = await top();
+`);
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(plan.summary.candidateCount, 3);
+  assert.equal(plan.summary.settledCallableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 3);
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.admittedFamilyCount, 1);
+  assert.equal(evidence.implementationCount, 1);
+  assert.equal(evidence.candidateImplementationCount, 1);
+});
+
 test("settles a family with exact synchronous and cooperative implementations", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;
@@ -357,6 +392,131 @@ export const result = await read(new Pair());
   }
   assert.equal(evidence.admittedCallCount, 2);
   assert.equal(evidence.settledCallCount, 2);
+});
+
+test("settles structurally transported project contracts as one component", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface SourceReader { Read(): Awaitable<number>; }
+interface TargetReader { Read(): Awaitable<number>; }
+class Pair implements SourceReader {
+  async Read(): Promise<number> { return 42; }
+}
+function consume(reader: TargetReader): void { void reader; }
+async function read(reader: SourceReader): Promise<number> {
+  consume(reader);
+  return await reader.Read();
+}
+export const result = await read(new Pair());
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.equal(graph.components[0]?.entries.length, 2);
+  assert.equal(graph.components[0]?.boundary, false);
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, rewritten.sourceFile, (node) =>
+      IsTypeReferenceNode(node) &&
+      ["Promise", "PromiseLike", "Awaitable"].includes(
+        fixture.source.ast.text(fixture.source.ast.name(node)),
+      )
+    ),
+    0,
+  );
+});
+
+test("retains project contracts nested in a structural container", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface SourceReader { Read(): Awaitable<number>; }
+interface TargetReader { Read(): Awaitable<number>; }
+class Pair implements SourceReader {
+  async Read(): Promise<number> { return 42; }
+}
+function consume(readers: readonly TargetReader[]): void { void readers; }
+async function read(readers: readonly SourceReader[]): Promise<number> {
+  consume(readers);
+  return await readers[0]!.Read();
+}
+export const result = await read([new Pair()]);
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.equal(graph.components[0]?.entries.length, 1);
+  assert.equal(graph.components[0]?.boundary, true);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.settledFamilyCount, 0);
+  assert.equal(evidence.rejectedFamilyCount, 1);
+});
+
+test("retains a contract transported through an external interface", () => {
+  const fixture = checkedEffectFixture(`
+import type { ExternalReader } from "provider";
+type Awaitable<T> = T | PromiseLike<T>;
+interface GeneratedReader { Read(): Awaitable<number>; }
+class Pair implements GeneratedReader {
+  async Read(): Promise<number> { return 42; }
+}
+declare function install(view: (reader: ExternalReader) => void): void;
+const forward = (reader: GeneratedReader): void => { void reader; };
+install(forward);
+async function read(reader: GeneratedReader): Promise<number> {
+  return await reader.Read();
+}
+export const result = await read(new Pair());
+`, {
+    "/node_modules/provider/index.d.ts": `
+export type Awaitable<T> = T | PromiseLike<T>;
+export interface ExternalReader { Read(): Awaitable<number>; }
+`,
+  });
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.equal(graph.components[0]?.entries.length, 1);
+  assert.equal(graph.components[0]?.boundary, true);
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 1);
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.settledFamilyCount, 0);
+  assert.equal(evidence.rejectedFamilyCount, 1);
 });
 
 test("rejects same-identity foreign declarations before semantic queries", () => {

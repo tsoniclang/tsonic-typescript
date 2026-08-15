@@ -1,17 +1,13 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
-  KindCallExpression,
   KindClassDeclaration,
   KindClassExpression,
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../profile.js";
-import {
-  callableReturnRewrite,
-  type CallableReturnRewrite,
-} from "./callable-contract.js";
+import type { CallableReturnRewrite } from "./callable-contract.js";
 import type { CooperativeEffectCandidate } from "./candidate-inventory.js";
 import {
   blockCooperativeEffect,
@@ -20,14 +16,19 @@ import {
 import {
   callableBodyResultIsDefinitelyNonThenable,
 } from "./synchronous.js";
+import {
+  createInterfaceContractGraph,
+  type InterfaceContractComponent,
+} from "./interface-contract-graph.js";
+import { declaredInterfaceMemberImplementation } from "./interface-contract-member.js";
 
 export interface DeclaredInterfaceDispatchFamily {
-  readonly contractDeclaration: Node;
+  readonly contractDeclarations: readonly Node[];
   readonly calls: readonly Node[];
   readonly implementations: readonly Node[];
   readonly candidates: readonly CooperativeEffectCandidate[];
   readonly coordinator?: CooperativeEffectCandidate;
-  readonly returnRewrite: CallableReturnRewrite;
+  readonly returnRewrites: readonly CallableReturnRewrite[];
 }
 
 export interface DeclaredInterfaceDispatch {
@@ -75,12 +76,6 @@ export type InterfaceDispatchEvidence =
       readonly settledCallCount: number;
     };
 
-interface PendingFamily {
-  readonly contractDeclaration: Node;
-  readonly calls: Node[];
-  readonly returnRewrite: CallableReturnRewrite;
-}
-
 interface HeritageIndex {
   readonly implementers: ReadonlyMap<Node, readonly Node[]>;
   readonly complete: boolean;
@@ -95,13 +90,13 @@ export function createDeclaredInterfaceDispatch(
   if (profile === "open-structural") {
     return createResult(profile, 0, 0, []);
   }
-  const pending = collectPendingFamilies(source, program);
+  const graph = createInterfaceContractGraph(source, program);
   const heritage = collectHeritageIndex(source, program);
   const families: DeclaredInterfaceDispatchFamily[] = [];
   let rejectedFamilyCount = 0;
-  for (const selected of pending.values()) {
-    const family = heritage.complete
-      ? resolveFamily(source, candidates, heritage, selected)
+  for (const component of graph.components) {
+    const family = heritage.complete && !component.boundary
+      ? resolveFamily(source, candidates, heritage, component)
       : undefined;
     if (family === undefined) {
       rejectedFamilyCount += 1;
@@ -112,56 +107,10 @@ export function createDeclaredInterfaceDispatch(
   }
   return createResult(
     profile,
-    pending.size,
+    graph.consideredCount,
     rejectedFamilyCount,
     families,
   );
-}
-
-function collectPendingFamilies(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-): ReadonlyMap<Node, PendingFamily> {
-  const result = new Map<Node, PendingFamily>();
-  for (const call of program.nodesOfKind(KindCallExpression)) {
-    const semantics = source.semantics.forNode(call);
-    const declaration = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(call),
-    );
-    if (
-      declaration === undefined ||
-      !source.ast.is.IsMethodSignatureDeclaration(declaration) ||
-      !isExactProjectDeclaration(source, declaration)
-    ) {
-      continue;
-    }
-    const owner = source.ast.parent(declaration);
-    if (
-      owner === undefined ||
-      !source.ast.is.IsInterfaceDeclaration(owner) ||
-      !isExactProjectDeclaration(source, owner)
-    ) {
-      continue;
-    }
-    const typeNode = source.ast.typeNode(declaration);
-    const returnRewrite = typeNode === undefined
-      ? undefined
-      : callableReturnRewrite(source, typeNode);
-    if (returnRewrite === undefined) {
-      continue;
-    }
-    const existing = result.get(declaration);
-    if (existing === undefined) {
-      result.set(declaration, {
-        contractDeclaration: declaration,
-        calls: [call],
-        returnRewrite,
-      });
-    } else {
-      existing.calls.push(call);
-    }
-  }
-  return result;
 }
 
 function isExactProjectDeclaration(
@@ -259,50 +208,56 @@ function resolveFamily(
   source: TargetSourceProgram,
   candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
   heritage: HeritageIndex,
-  pending: PendingFamily,
+  component: InterfaceContractComponent,
 ): DeclaredInterfaceDispatchFamily | undefined {
-  const owner = source.ast.parent(pending.contractDeclaration);
-  if (owner === undefined) {
-    return undefined;
-  }
-  const classes = heritage.implementers.get(owner) ?? [];
-  if (classes.length === 0) {
-    return undefined;
-  }
   const implementations = new Set<Node>();
   const selectedCandidates = new Set<CooperativeEffectCandidate>();
-  for (const declaration of classes) {
-    if (!source.ast.is.IsClassDeclaration(declaration)) {
+  for (const entry of component.entries) {
+    const owner = source.ast.parent(entry.declaration);
+    if (owner === undefined) {
       return undefined;
     }
-    const selected = source.navigation.memberImplementation(
-      declaration,
-      pending.contractDeclaration,
-    );
-    if (selected.kind !== "resolved") {
+    const classes = heritage.implementers.get(owner) ?? [];
+    if (classes.length === 0 && entry.calls.length !== 0) {
       return undefined;
     }
-    const implementation = selected.implementation.declaration;
-    implementations.add(implementation);
-    const candidate = candidates.get(implementation);
-    if (candidate !== undefined) {
-      selectedCandidates.add(candidate);
-      continue;
-    }
-    if (!callableBodyResultIsDefinitelyNonThenable(source, implementation)) {
-      return undefined;
+    for (const declaration of classes) {
+      if (!source.ast.is.IsClassDeclaration(declaration)) {
+        return undefined;
+      }
+      const implementation = declaredInterfaceMemberImplementation(
+        source,
+        declaration,
+        entry.declaration,
+      );
+      if (implementation === undefined) {
+        return undefined;
+      }
+      implementations.add(implementation);
+      const candidate = candidates.get(implementation);
+      if (candidate !== undefined) {
+        selectedCandidates.add(candidate);
+        continue;
+      }
+      if (!callableBodyResultIsDefinitelyNonThenable(source, implementation)) {
+        return undefined;
+      }
     }
   }
   const candidateList = Object.freeze([...selectedCandidates]);
   return Object.freeze({
-    contractDeclaration: pending.contractDeclaration,
-    calls: Object.freeze([...pending.calls]),
+    contractDeclarations: Object.freeze(
+      component.entries.map((entry) => entry.declaration),
+    ),
+    calls: Object.freeze(component.entries.flatMap((entry) => entry.calls)),
     implementations: Object.freeze([...implementations]),
     candidates: candidateList,
     ...(candidateList[0] === undefined
       ? {}
       : { coordinator: candidateList[0] }),
-    returnRewrite: pending.returnRewrite,
+    returnRewrites: Object.freeze(
+      component.entries.map((entry) => entry.returnRewrite),
+    ),
   });
 }
 
@@ -370,7 +325,7 @@ function createResult(
         family.candidates.every((candidate) =>
             optimized.has(candidate.declaration)
           )
-          ? [family.returnRewrite]
+          ? family.returnRewrites
           : []
       ));
     },
