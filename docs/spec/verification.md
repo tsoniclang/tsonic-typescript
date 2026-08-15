@@ -109,6 +109,13 @@ loaded pointee, passes the pointer through a settling project call, and removes
 both cooperative callables. A mutation that drops the pointer-value result
 contract must retain the returning callable while the pointee remains
 unclassified.
+Returned-callable verification covers one exact awaited producer whose direct
+returns are a synchronous function and a settling async function. The producer,
+both returned callables, their consumer, and every await must settle together.
+Mutations that add a producer-binding write or a derived override retain the
+complete flow. The AST proof separately distinguishes a fresh returned
+function expression from an existing function-valued reference, so freshness
+cannot become a structural-type shortcut.
 The whole-product guarded run additionally bounds peak RSS while exercising the
 real checker graph. A mutation that restores a mutable owner set or retained
 negative membership per queried checker type must exceed that bound or fail a

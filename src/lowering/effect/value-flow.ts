@@ -19,6 +19,7 @@ import {
   resolvedCallUsesSynchronousTransport,
 } from "./synchronous.js";
 import type { CallableReturnRewrite } from "./callable-contract.js";
+import { createCallableResultInputs } from "./callable-result-inputs.js";
 
 export interface CallableValueResolution {
   readonly dependencies: readonly Node[];
@@ -55,6 +56,7 @@ export function createCallableValueFlow(
 ): CallableValueFlow {
   const candidateSymbols = indexCandidateSymbols(source, candidates);
   const inputs = collectCallableValueInputs(source, program, transports);
+  const results = createCallableResultInputs(source, program);
   const allowedCandidateReferences = new Set<Node>();
   const mutableResolutions = new Map<Node, MutableResolution>();
   const callsByOwner = new Map<Node, MutableResolution[]>();
@@ -65,6 +67,7 @@ export function createCallableValueFlow(
       candidates,
       candidateSymbols,
       inputs,
+      results,
       allowedCandidateReferences,
     );
     if (resolution !== undefined) {
@@ -96,6 +99,7 @@ export function createCallableValueFlow(
           candidates,
           candidateSymbols,
           inputs,
+          results,
           allowedCandidateReferences,
           new Set(),
         ),
@@ -116,6 +120,7 @@ export function createCallableValueFlow(
           candidates,
           candidateSymbols,
           inputs,
+          results,
           allowedCandidateReferences,
           new Set(),
         ));
@@ -163,6 +168,7 @@ function resolveCall(
   candidates: ReadonlySet<Node>,
   candidateSymbols: ReadonlyMap<Symbol, Node>,
   inputs: CallableValueInputs,
+  results: ReturnType<typeof createCallableResultInputs>,
   allowedCandidateReferences: Set<Node>,
 ): MutableResolution | undefined {
   const signature = source.semantics.forNode(call).getResolvedSignature(call);
@@ -184,6 +190,7 @@ function resolveCall(
       candidates,
       candidateSymbols,
       inputs,
+      results,
       allowedCandidateReferences,
       new Set(),
     );
@@ -212,6 +219,7 @@ function resolveCall(
     candidates,
     candidateSymbols,
     inputs,
+    results,
     allowedCandidateReferences,
     new Set(),
   );
@@ -224,6 +232,7 @@ function resolveDeclaration(
   candidates: ReadonlySet<Node>,
   candidateSymbols: ReadonlyMap<Symbol, Node>,
   inputs: CallableValueInputs,
+  results: ReturnType<typeof createCallableResultInputs>,
   allowedCandidateReferences: Set<Node>,
   pending: Set<Node>,
 ): MutableResolution {
@@ -251,6 +260,7 @@ function resolveDeclaration(
         candidates,
         candidateSymbols,
         inputs,
+        results,
         allowedCandidateReferences,
         pending,
       ),
@@ -266,6 +276,7 @@ function resolveExpression(
   candidates: ReadonlySet<Node>,
   candidateSymbols: ReadonlyMap<Symbol, Node>,
   inputs: CallableValueInputs,
+  results: ReturnType<typeof createCallableResultInputs>,
   allowedCandidateReferences: Set<Node>,
   pending: Set<Node>,
 ): MutableResolution {
@@ -286,6 +297,7 @@ function resolveExpression(
           candidates,
           candidateSymbols,
           inputs,
+          results,
           allowedCandidateReferences,
           pending,
         ));
@@ -312,6 +324,30 @@ function resolveExpression(
       ? synchronousResolutionWith(root)
       : unresolved();
   }
+  const returned = results.resultFor(root);
+  if (returned !== undefined) {
+    if (pending.has(returned.declaration)) {
+      return unresolved();
+    }
+    pending.add(returned.declaration);
+    const result = emptyResolution();
+    for (const expression of returned.expressions) {
+      if (expression !== undefined) {
+        mergeResolution(result, resolveExpression(
+          source,
+          expression,
+          candidates,
+          candidateSymbols,
+          inputs,
+          results,
+          allowedCandidateReferences,
+          pending,
+        ));
+      }
+    }
+    pending.delete(returned.declaration);
+    return result;
+  }
   const referenceNode = source.ast.is.IsPropertyAccessExpression(root)
     ? source.ast.as.AsPropertyAccessExpression(root)?.name
     : source.ast.name(root) ?? root;
@@ -335,6 +371,7 @@ function resolveExpression(
       candidates,
       candidateSymbols,
       inputs,
+      results,
       allowedCandidateReferences,
       pending,
     );

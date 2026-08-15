@@ -152,6 +152,12 @@ export function expressionIsDefinitelyNonThenable(
   if (source.ast.is.IsArrayLiteralExpression(root)) {
     return true;
   }
+  if (
+    source.ast.is.IsArrowFunction(root) ||
+    source.ast.is.IsFunctionExpression(root)
+  ) {
+    return true;
+  }
   if (source.ast.is.IsObjectLiteralExpression(root)) {
     return objectLiteralIsDefinitelyNonThenable(source, root);
   }

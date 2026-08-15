@@ -233,6 +233,16 @@ discarded, returned by a settling callable, or passed through another such
 private forwarder. Export, alias escape, ordinary Promise observation, open
 dispatch, provider behavior, or unresolved transport retains the component.
 
+An exact checked project callable may also produce a callable value. The value
+flow may inspect all of its direct return expressions only when the invoked
+binding is unchanged, method dispatch is closed, the implementation body is
+present, and an async producer is consumed through its exact await. Every
+returned function value then joins the same component. A binding write, open
+override, bodyless declaration, unresolved alias, or unawaited async producer
+retains the flow. A fresh function or arrow expression is non-thenable at its
+creation site under the same standard-built-in integrity envelope used for
+fresh arrays and objects; a later reference to a function is not fresh proof.
+
 Callable storage may be a public mutable constructor field when the nominal
 class remains a closed project-owned value family. The owner proof inventories
 every exact construction, class-value reference, field write/read/transfer,

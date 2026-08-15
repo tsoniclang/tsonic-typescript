@@ -58,7 +58,7 @@ export function createFixtureEffectPlan(
   return createClosedCooperativeEffectPlan(
     source,
     createTargetProgramIndex(source, {
-      bindingWrites: false,
+      bindingWrites: true,
       memberDispatch: true,
     }),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
