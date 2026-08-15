@@ -30,6 +30,7 @@ import {
 import {
   createClosedPointerFlowPlan,
 } from "./pointer/flow-plan.js";
+import { createPointerStorageOwnerTransport } from "./pointer/owner-transport.js";
 import { createPointerResultContract } from "./pointer/result-contract.js";
 import { createScalarResultContract } from "./scalar/result-contract.js";
 import { composeLoweredValueContracts } from "./value-contract.js";
@@ -103,7 +104,8 @@ export function prepareTypeScriptLowering(
   const identities = collectSourceIdentities(sourceFiles, sourceIdentityFor);
   const program = createTargetProgramIndex(source, {
     bindingWrites: profile.pointerFlows === "closed-direct" ||
-      profile.scalarProjections === "closed-direct",
+      profile.scalarProjections === "closed-direct" ||
+      profile.cooperativeEffects === "closed-direct",
     memberDispatch: profile.cooperativeEffects === "closed-direct",
   });
   const generatedNames = createProgramGeneratedNames(source, program);
@@ -119,12 +121,17 @@ export function prepareTypeScriptLowering(
     createPointerResultContract(source, pointerFlowPlan),
     createScalarResultContract(source, scalarPlan),
   ]);
+  const ownerTransports = pointerFlowPlan === undefined
+    ? undefined
+    : createPointerStorageOwnerTransport(source, pointerFlowPlan);
   const effectPlan = profile.cooperativeEffects === "closed-direct"
     ? createClosedCooperativeEffectPlan(
         source,
         program,
         identities.forFile,
         loweredValues,
+        ownerTransports,
+        profile.interfaceDispatch,
       )
     : undefined;
   const evidence = createTypeScriptOptimizationEvidence(

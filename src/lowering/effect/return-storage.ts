@@ -8,6 +8,7 @@ import {
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 
 import {
   declarationForSymbols,
@@ -17,7 +18,7 @@ import {
   createReturnParameterFlow,
   type ReturnParameterFlow,
 } from "./return-parameters.js";
-import { auditReturnStorageOwnerBoundaries } from "./return-storage-boundaries.js";
+import { auditStorageOwnerBoundaries } from "./storage-owner-boundaries.js";
 
 export interface ReturnStorageBinding {
   readonly declaration: Node;
@@ -43,17 +44,20 @@ interface MutableStorageBinding {
 export function createReturnStorageFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  transports?: StorageOwnerTransportContract,
 ): ReturnStorageFlow {
   const owners = collectClosedOwners(source, program);
   const bindings = collectStorageBindings(source, owners);
   collectConstructorInputs(source, program, bindings);
   auditStorageReferences(source, program, bindings);
-  auditReturnStorageOwnerBoundaries(
+  auditStorageOwnerBoundaries(
     source,
     program,
     owners,
     bindings,
     (expression) => selectedStorageDeclaration(source, expression),
+    true,
+    transports,
   );
   const flow = closeReturnStorageFlow(source, program, bindings);
   return Object.freeze({

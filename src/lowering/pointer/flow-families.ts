@@ -21,7 +21,7 @@ import { applyGenericPointerBoundaries } from "./flow-family-generics.js";
 import { nonBijectiveIdentityOccurrences } from "./flow-family-identity.js";
 import {
   blockDirectReferenceFamily as blockFamily,
-  canonicalDirectReferenceFamilyEvidence,
+  canonicalDirectReferenceNodeEvidence,
   requireCanonicalDirectReferenceFamily,
   type DirectReferenceFamilyDecision,
   type DirectReferenceFamilyRepresentation,
@@ -96,18 +96,16 @@ export function planDirectReferenceFamilies(
     const representation = familyRepresentations.get(family);
     if (family.blockers.size !== 0) {
       appendFamilyFallback(fallbackReasons, family.blockers, ledger);
-      if (family.canonicalBlockers.size !== 0) {
-        const retention = canonicalDirectReferenceFamilyEvidence(family, ledger);
-        for (const pointerType of family.pointerTypes) {
-          ledger.record("direct-family");
-          representations.set(pointerType, "location");
-          canonicalRetentions.set(pointerType, retention);
+      for (const node of family.canonicalNodes.keys()) {
+        ledger.record("direct-family");
+        if (!family.pointerTypes.has(node) && !family.operations.has(node)) {
+          throw new Error("canonical pointer-family node is outside its family");
         }
-        for (const operation of family.operations.keys()) {
-          ledger.record("direct-family");
-          representations.set(operation, "location");
-          canonicalRetentions.set(operation, retention);
-        }
+        representations.set(node, "location");
+        canonicalRetentions.set(
+          node,
+          canonicalDirectReferenceNodeEvidence(family, node, ledger),
+        );
       }
       continue;
     }
@@ -293,7 +291,7 @@ function directReferenceFamily(
     pointerTypes: new Set(),
     operations: new Map(),
     blockers: new Map(),
-    canonicalBlockers: new Set(),
+    canonicalNodes: new Map(),
   };
   families.set(description.identity, created);
   return created;

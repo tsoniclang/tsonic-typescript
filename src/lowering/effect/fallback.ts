@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type { EffectPropagationEvidence } from "./blocker-propagation.js";
 import type { CooperativeResultConsumptionEvidence } from "./result-consumption.js";
+import type { InterfaceDispatchEvidence } from "./interface-dispatch.js";
 import {
   compareOptimizationOccurrences,
   optimizationOccurrence,
@@ -39,6 +40,7 @@ export interface CooperativeEffectPlanSummary {
   readonly fallbackReasons: readonly CooperativeEffectFallbackEvidence[];
   readonly propagation: EffectPropagationEvidence;
   readonly resultConsumption: CooperativeResultConsumptionEvidence;
+  readonly interfaceDispatch: InterfaceDispatchEvidence;
 }
 
 export interface CooperativeEffectBlockable {
@@ -114,6 +116,7 @@ export function summarizeCooperativeEffects(
   settledAwaitCount: number,
   propagation: EffectPropagationEvidence,
   resultConsumption: CooperativeResultConsumptionEvidence,
+  interfaceDispatch: InterfaceDispatchEvidence,
 ): CooperativeEffectPlanSummary {
   const all = [...candidates];
   const directCounts = new Map<CooperativeEffectFallbackReason, number>();
@@ -174,5 +177,6 @@ export function summarizeCooperativeEffects(
     fallbackReasons: Object.freeze(fallbackReasons),
     propagation,
     resultConsumption,
+    interfaceDispatch,
   });
 }

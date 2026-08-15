@@ -57,6 +57,10 @@ projection, and canonical retention. Mutations change a pointee, operation
 kind, location identity, nil union, provider read/write binding, projection,
 definition/reference edge, caller mapping, or settled hash-nullability row;
 each fails before rewriting.
+Boundary fixtures pair a generic contract or projection with a disconnected
+pointer flow over the same pointee class. They prove the boundary component
+remains canonical while the independently closed component stays direct; a
+mutation that spreads one boundary across the whole pointee family must fail.
 Target tests must not use marker spelling, a scalar authored signature, or a
 GoToTS-specific configuration key as proof.
 
@@ -86,10 +90,89 @@ at the effect inventory, closure, transform-consumption, or evidence gate.
 The return-boundary matrix contrasts an open structural result, a public
 `readonly then?: never` result, and a nominal
 `private readonly then?: never` result: only the nominal contract settles.
+
+Declared-interface fixtures run under both interface-dispatch profiles. The
+open profile preserves the interface signature, interface calls, their callers,
+and their awaits; independently closed concrete methods may still settle. The
+declared-closed profile covers multiple implementations, inherited
+interfaces, distinct same-shaped interfaces, generic heritage, cross-file
+edges, synchronous plus settling implementations, and calls sharing one line.
+It also transports one exact declaration-file synchronous interface into a
+project Awaitable interface and contrasts declaration-file Awaitable/Promise,
+generic-unresolved, and implementation-file ambient counterparts; only the
+fully synchronous external contract may settle.
+It exact-joins each selected member to every project implementation and consumes
+each interface return annotation once. Mutations omit the profile, remove or
+change one exact heritage edge, substitute a structurally matching class or
+same-named member, substitute a foreign checker node with the same source
+identity, leave one implementation genuinely suspending, or omit the interface
+return rewrite; each retains the family or fails its exact join before querying
+foreign semantics.
+Evidence reports contract, implementation-edge, settled-family, retained-family,
+settled-callable, and settled-await counts separately.
 The construction matrix repeats that proof through inheritance and contrasts a
 derived nominal result with public-structural and unmarked bases. Callable
 `then`, `any`, `unknown`, generic, union, intersection, and hidden-thenable
 assignments prevent a false proof.
+
+Callable-storage fixtures include generated-shaped public mutable constructor
+fields, nested project carriers, and exact pointer transport. Positive proofs
+settle construction, copy, write, read, indirect invocation, and
+`address-of`/`load`/`store` as one component. Negative mutations introduce a
+constructor alias, derived class, ambient owner source or sink, widening,
+provider callable write, field-value escape, or unselected pointer-like call;
+each preserves every affected async callable. A project carrier that later
+escapes must invalidate the enclosed owner, while the same carrier wholly
+inside the checked program remains eligible. Pointer transport permission
+comes from validated operation facts, never marker spelling.
+Generic-callable fixtures pass concrete callbacks through a generic kernel, a
+concrete wrapper, and nominal callable storage. The kernel includes callable
+parameters returning a type parameter and an exact reset assignment such as
+`create = undefined`; both must join the same flow without fabricating a
+return-type rewrite. A paired mutation supplies one provider callback to a
+second call of the shared kernel and requires every connected use to remain
+canonical. Further mutations replace the reset with a compound or unresolved
+write and must fail at callable-storage closure.
+A Promise-only parameter supplied by an otherwise settling async callback is a
+separate atomicity mutation: the callback, enclosing caller, both awaits, and
+the Promise-only annotation must all remain canonical. Narrowing only the
+implementation or only the calls must fail strict output typechecking.
+The carrier cost fixture doubles a deep nominal chain and requires the recorded
+class/member/type-edge/propagation work to remain linear; arbitrary checker
+property-graph expansion is outside the admitted algorithm.
+An exact returned-pointer fixture distinguishes the pointer binding from its
+loaded pointee, passes the pointer through a settling project call, and removes
+both cooperative callables. A mutation that drops the pointer-value result
+contract must retain the returning callable while the pointee remains
+unclassified.
+Returned-callable verification covers one exact awaited producer whose direct
+returns are a synchronous function and a settling async function. The producer,
+both returned callables, their consumer, and every await must settle together.
+It also covers a synchronous producer and explicit producer/consumer callable
+annotations. AST inspection requires every nested awaitable return node in both
+contracts to be consumed exactly once, and strict product typechecking proves
+the rewritten producer remains assignable to every rewritten consumer. A
+mutation that omits only the producer's nested return rewrite must fail that
+proof rather than ship a partially settled flow.
+The whole-product memory guard also distinguishes one canonical synchronous
+call closure from a dense contract-to-call reverse graph; retrying with a larger
+heap is not an accepted repair.
+Mutations that add a producer-binding write or a derived override retain the
+complete flow. The AST proof separately distinguishes a fresh returned
+function expression from an existing function-valued reference, so freshness
+cannot become a structural-type shortcut.
+The whole-product guarded run additionally bounds peak RSS while exercising the
+real checker graph. A mutation that restores a mutable owner set or retained
+negative membership per queried checker type must exceed that bound or fail a
+structural representation assertion; increasing the memory guard is not an
+accepted repair.
+
+Callable-resolution sealing proves ownership transfer directly: finalized
+resolution interfaces expose neither backing collection, the former mutable
+owner rejects all later mutation and a second seal, and its finalized iterators
+remain exact. A mutation that restores per-resolution result objects, set
+facades, array copies, or object-freezing passes must also fail the guarded
+whole-product memory gate at the committed Node heap limit.
 
 ## Composition And Transaction Proof
 

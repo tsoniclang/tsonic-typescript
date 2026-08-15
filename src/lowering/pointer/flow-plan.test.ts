@@ -551,6 +551,7 @@ function assertRepresentations(
 ): void {
   const actual: Record<string, string> = {};
   for (const operation of pointerOperations(source)) {
+    assert.equal(plan.operationFor(operation.call), operation);
     actual[operation.operation] = plan.representationFor(operation.call);
   }
   assert.deepEqual(actual, expected);

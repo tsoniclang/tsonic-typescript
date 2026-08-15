@@ -4,6 +4,7 @@ import { KindImportDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { LoweredValueContract } from "../value-contract.js";
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import {
   createTypeScriptRuntimeReturnContract,
   type TypeScriptRuntimeReturnContract,
@@ -42,7 +43,7 @@ export interface ReturnValueFlow {
   isDefinitelyNonThenable(expression: Node): boolean;
   callResultIsDefinitelyNonThenable(
     call: Node,
-    declarations: readonly Node[],
+    declarations: Iterable<Node>,
     settledDeclarations?: ReadonlySet<Node>,
   ): boolean;
 }
@@ -52,10 +53,12 @@ export function createReturnValueFlow(
   program: TargetProgramIndex,
   directCallDeclaration: (call: Node) => Node | undefined,
   loweredValues?: LoweredValueContract,
-  settledCallDeclarations: (call: Node) => readonly Node[] = () => [],
+  settledCallDeclarations: (call: Node) => Iterable<Node> = () =>
+    noDeclarations,
+  transports?: StorageOwnerTransportContract,
 ): ReturnValueFlow {
   const locals = createReturnLocalFlow(source, program);
-  const storage = createReturnStorageFlow(source, program);
+  const storage = createReturnStorageFlow(source, program, transports);
   const runtime = createTypeScriptRuntimeReturnContract(
     source,
     program.nodesOfKind(KindImportDeclaration),
@@ -107,7 +110,7 @@ export function createReturnValueFlow(
     },
     callResultIsDefinitelyNonThenable(
       call: Node,
-      declarations: readonly Node[],
+      declarations: Iterable<Node>,
       settledDeclarations?: ReadonlySet<Node>,
     ): boolean {
       const pendingBindings = new Set<Node>();
@@ -127,6 +130,8 @@ export function createReturnValueFlow(
     },
   });
 }
+
+const noDeclarations: readonly Node[] = Object.freeze([]);
 
 export function expressionIsDefinitelyNonThenable(
   source: TargetSourceProgram,
@@ -148,6 +153,12 @@ export function expressionIsDefinitelyNonThenable(
     return false;
   }
   if (source.ast.is.IsArrayLiteralExpression(root)) {
+    return true;
+  }
+  if (
+    source.ast.is.IsArrowFunction(root) ||
+    source.ast.is.IsFunctionExpression(root)
+  ) {
     return true;
   }
   if (source.ast.is.IsObjectLiteralExpression(root)) {
@@ -244,7 +255,9 @@ function expressionIsDefinitelyNonThenableWithin(
     isCall &&
     calls.isDefinitelyNonThenable(
       { expression: root, scope: value.scope },
-      callDeclaration === undefined ? [] : [callDeclaration],
+      callDeclaration === undefined
+        ? noDeclarations
+        : [callDeclaration],
       (input, nextPendingDeclarations, selectedDeclarations) =>
         expressionIsDefinitelyNonThenableWithin(
           source,

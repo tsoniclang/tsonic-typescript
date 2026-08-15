@@ -14,6 +14,7 @@ import type { TargetProgramIndex } from "../program-index.js";
 import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type { PointerFlowBlocker } from "./flow-graph.js";
 import {
+  blockDirectReferenceFamily,
   type MutableDirectReferenceFamily,
   requireCanonicalDirectReferenceFamily,
 } from "./flow-family-state.js";
@@ -57,6 +58,7 @@ export function applyGenericPointerBoundaries(
           family,
           "generic-storage",
           operand,
+          operationNode,
         );
       }
     }
@@ -194,7 +196,7 @@ function blockSelectedPointerFamilies(
     ledger,
   )) {
     ledger.record("direct-family");
-    requireCanonicalDirectReferenceFamily(family, blocker, anchor);
+    blockDirectReferenceFamily(family, blocker, anchor);
   }
 }
 

@@ -21,6 +21,7 @@ import type {
   CooperativeEffectFallbackReason,
   CooperativeEffectPlanSummary,
 } from "./effect/fallback.js";
+import type { InterfaceDispatchEvidence } from "./effect/interface-dispatch.js";
 
 export interface OptimizationCount<Value extends string> {
   readonly value: Value;
@@ -70,6 +71,7 @@ export type CooperativeEffectOptimizationEvidence =
   | {
       readonly profile: "preserve";
       readonly analyzed: false;
+      readonly interfaceDispatch: InterfaceDispatchEvidence;
     }
   | {
       readonly profile: "closed-direct";
@@ -90,10 +92,11 @@ export type CooperativeEffectOptimizationEvidence =
         readonly ownerEvaluations: number;
         readonly consumerEdges: number;
       };
+      readonly interfaceDispatch: InterfaceDispatchEvidence;
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 8;
+  readonly schemaVersion: 9;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
@@ -113,7 +116,7 @@ export function createTypeScriptOptimizationEvidence(
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 8 as const,
+    schemaVersion: 9 as const,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
@@ -220,7 +223,14 @@ function effectEvidence(
     if (summary !== undefined) {
       throw new Error("preserved cooperative effects cannot carry a closed plan");
     }
-    return Object.freeze({ profile: "preserve", analyzed: false });
+    return Object.freeze({
+      profile: "preserve",
+      analyzed: false,
+      interfaceDispatch: Object.freeze({
+        profile: profile.interfaceDispatch,
+        analyzed: false,
+      }),
+    });
   }
   if (summary === undefined) {
     throw new Error("closed cooperative effects require a closed plan");
@@ -246,6 +256,7 @@ function effectEvidence(
       workCount: summary.propagation.work,
     }),
     resultConsumption: summary.resultConsumption,
+    interfaceDispatch: summary.interfaceDispatch,
   });
 }
 

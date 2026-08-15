@@ -42,7 +42,8 @@ profile selects the canonical, open-world-safe result:
   "optimizations": {
     "pointerFlows": "location",
     "scalarProjections": "preserve",
-    "cooperativeEffects": "preserve"
+    "cooperativeEffects": "preserve",
+    "interfaceDispatch": "open-structural"
   }
 }
 ```
@@ -94,6 +95,35 @@ declaration, return contract, and dependent `await` in one transaction. For exam
 `function answer(): number { return 42 }`, and an exact `await answer()` use
 becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`
 return, or provider call remains unchanged.
+
+`optimizations.interfaceDispatch: "declared-closed"` is a separate producer
+contract used by cooperative-effect lowering. It asserts that every runtime
+implementation entering a selected project interface has an exact declared
+project heritage path to that interface. The target then joins interface calls
+to those declarations and settles the complete implementation family
+atomically. The default `"open-structural"` mode never infers closure from
+TypeScript structural compatibility, class names, or same-spelled members.
+
+Generic callable parameters participate in that flow even when their result is
+a type parameter and therefore has no declaration-local return rewrite. Flow
+eligibility and signature rewriting are separate decisions: exact call-site
+arguments settle the former, while only an exact awaitable annotation creates
+the latter. That annotation must contain its direct value branch; a
+Promise-only callback remains canonical. Exact plain assignments such as
+`create = undefined` add new input
+values to the same parameter flow; compound writes and unresolved assignments
+retain it. A shared generic kernel settles atomically across all concrete uses,
+so one open callback preserves every connected wrapper and consumer.
+
+Generated-shaped public mutable callable fields are eligible only when their
+nominal owner is closed across every constructor use, field access, carrier,
+and call. For example, a class holding `callback: () => Awaitable<T>` may
+settle through its exact zero/copy constructors and through pointer
+`address-of`, `load`, and `store` operations whose facts were validated by the
+pointer plan. Aliasing the constructor, deriving a runtime subclass, widening
+or exporting the owner, sourcing it from an ambient function, or exporting the
+field value retains the original async contract. No class, field, runtime
+function, or pointer operation is selected by name.
 
 The candidate denominator includes every async function, method, function
 expression, and arrow, including inferred-return, generator, bodyless, and
@@ -181,6 +211,13 @@ The closed planner can select only these exact representations:
 - a class-represented pointee becomes the object itself only when its checked
   type symbol has a primary project `ClassDeclaration` and the complete flow
   does not replace the pointee through the pointer.
+
+Representation boundaries are flow-local. A generic callable contract,
+provider binding, or projection keeps its exact connected pointer component on
+`Location<T>`; it does not force disconnected pointers with the same pointee
+class onto that representation. A whole-family decision is used only when the
+entire family is closed. Otherwise independently closed components retain their
+own exact direct decision.
 
 An identity-observing class family can still use the object itself only when
 every pointer producer receives a value proven fresh. The proof accepts an

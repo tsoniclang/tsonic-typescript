@@ -51,7 +51,10 @@ export function createPointerResultContract(
         return true;
       }
       if (operation === undefined) {
-        return false;
+        const representation = flowPlan?.valueRepresentationFor(expression);
+        return representation === "location" ||
+          representation === "mutable-cell" ||
+          representation === "direct-snapshot";
       }
       if (operation.call !== expression) {
         throw new PointerLoweringError(

@@ -24,10 +24,11 @@ test("validates and freezes the external printer configuration", () => {
   assert.deepEqual(result.printer.arguments, ["--mode", "batch"]);
   assert.deepEqual(result.optimizations, {
     identity:
-      "typescript-optimization-v1/pointer=location/scalar=preserve/effects=preserve",
+      "typescript-optimization-v2/pointer=location/scalar=preserve/effects=preserve/interfaces=open-structural",
     pointerFlows: "location",
     scalarProjections: "preserve",
     cooperativeEffects: "preserve",
+    interfaceDispatch: "open-structural",
   });
   assert.ok(Object.isFrozen(result));
   assert.ok(Object.isFrozen(result.printer));
@@ -44,6 +45,7 @@ test("validates and freezes explicit closed-flow optimizations", () => {
         pointerFlows: "closed-direct",
         scalarProjections: "closed-direct",
         cooperativeEffects: "closed-direct",
+        interfaceDispatch: "declared-closed",
       },
     },
   };
@@ -52,10 +54,11 @@ test("validates and freezes explicit closed-flow optimizations", () => {
 
   assert.deepEqual(result.optimizations, {
     identity:
-      "typescript-optimization-v1/pointer=closed-direct/scalar=closed-direct/effects=closed-direct",
+      "typescript-optimization-v2/pointer=closed-direct/scalar=closed-direct/effects=closed-direct/interfaces=declared-closed",
     pointerFlows: "closed-direct",
     scalarProjections: "closed-direct",
     cooperativeEffects: "closed-direct",
+    interfaceDispatch: "declared-closed",
   });
   assert.ok(Object.isFrozen(result.optimizations));
 });
@@ -107,6 +110,16 @@ test("fails closed on absent, unknown, and malformed target options", () => {
       },
     }),
     /'pointerFlows' must be 'location' or 'closed-direct'/,
+  );
+  assert.throws(
+    () => readTypeScriptTargetOptions({
+      id: "typescript",
+      options: {
+        printer: { executable: "tsgo-ast-printer" },
+        optimizations: { interfaceDispatch: "structural-inferred" },
+      },
+    }),
+    /'interfaceDispatch' must be 'open-structural' or 'declared-closed'/,
   );
   assert.throws(
     () => readTypeScriptTargetOptions({

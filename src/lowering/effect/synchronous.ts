@@ -54,13 +54,24 @@ export function callableContractResultIsDefinitelyNonThenable(
   if (type === undefined) {
     return false;
   }
+  return typeHasTrustedSynchronousCallSignatures(source, semantics, type);
+}
+
+export function typeHasTrustedSynchronousCallSignatures(
+  source: TargetSourceProgram,
+  semantics: SourceFileSemantics,
+  type: Type,
+): boolean {
   const signatures = semantics.getCallSignatures(type);
   return signatures.length !== 0 && signatures.every((signature) =>
-    resolvedSignatureResultIsDefinitelyNonThenable(
+    declarationHasTrustedContract(
       source,
-      semantics,
-      signature,
-    )
+      semantics.getSignatureDeclaration(signature),
+    ) && resolvedSignatureResultIsDefinitelyNonThenable(
+        source,
+        semantics,
+        signature,
+      )
   );
 }
 
@@ -78,6 +89,26 @@ export function callableUsesSynchronousTransport(
     source,
     declaration,
   );
+}
+
+export function callableBodyResultIsDefinitelyNonThenable(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  if (
+    !isCallableDeclaration(source, declaration) ||
+    source.ast.body(declaration) === undefined ||
+    source.ast.hasModifierKind(declaration, "async")
+  ) {
+    return false;
+  }
+  const typeNode = source.ast.typeNode(declaration);
+  if (typeNode === undefined) {
+    return false;
+  }
+  const semantics = source.semantics.forNode(typeNode);
+  const type = semantics.getTypeFromTypeNode(typeNode);
+  return type !== undefined && !typeMaySuspend(semantics, type);
 }
 
 export function typeHasDefinitelyNonThenableContract(

@@ -58,7 +58,7 @@ export function collectCallableCollectionInputs(
     ) {
       continue;
     }
-    const sealedValues = Object.freeze([...collection.values]);
+    const sealedValues = Object.freeze(collection.values);
     const extractedDeclarations = Object.freeze([
       ...collection.extractedDeclarations,
     ]);

@@ -76,7 +76,12 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
   }
   rejectUnknownKeys(
     value,
-    new Set(["pointerFlows", "scalarProjections", "cooperativeEffects"]),
+    new Set([
+      "pointerFlows",
+      "scalarProjections",
+      "cooperativeEffects",
+      "interfaceDispatch",
+    ]),
     "TypeScript target optimizations",
   );
   return createTypeScriptOptimizationProfile({
@@ -95,7 +100,22 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
       "cooperativeEffects",
       "preserve",
     ),
+    interfaceDispatch: readInterfaceDispatch(value["interfaceDispatch"]),
   });
+}
+
+function readInterfaceDispatch(
+  value: unknown,
+): "open-structural" | "declared-closed" {
+  if (value === undefined || value === "open-structural") {
+    return "open-structural";
+  }
+  if (value === "declared-closed") {
+    return value;
+  }
+  throw new Error(
+    "TypeScript target optimization 'interfaceDispatch' must be 'open-structural' or 'declared-closed'",
+  );
 }
 
 function readClosedChoice<Canonical extends string>(

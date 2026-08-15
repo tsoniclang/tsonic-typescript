@@ -10,9 +10,11 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 
 import {
   callableDeclarationAllowsSynchronousValue,
+  callableDeclarationHasResolvableType,
 } from "./callable-contract.js";
 import {
   declarationForSymbols,
@@ -31,6 +33,10 @@ import {
   auditCallableLocalUse,
   collectCallableLocals,
 } from "./local-inputs.js";
+import {
+  closeConstructorCallableFields,
+  collectConstructorCallableFields,
+} from "./constructor-fields.js";
 import { closeDependencyCandidates } from "./dependency-closure.js";
 import { collectClosedSingletonCallableFields } from "./singleton-fields.js";
 import { typeMaySuspend } from "./synchronous.js";
@@ -62,9 +68,11 @@ export function collectCallableStorageInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   excludedDeclarations: ReadonlySet<Node>,
+  transports?: StorageOwnerTransportContract,
 ): CallableStorageInputs {
+  const constructorFields = collectConstructorCallableFields(source, program);
   const fields = new Set([
-    ...collectPrivateConstructorFields(source, program),
+    ...constructorFields.fields,
     ...collectClosedSingletonCallableFields(source, program),
   ]);
   const parameters = collectCallableParameters(source, program);
@@ -111,6 +119,11 @@ export function collectCallableStorageInputs(
     invalidOwners,
     program,
   );
+  for (const [parameter, assigned] of parameterClosure.uses.assignedValues) {
+    for (const value of assigned) {
+      append(parameterValues, parameter, value);
+    }
+  }
   const preliminaryParameters = parameterClosure.declarations;
 
   const fieldCounts = new Map<Node, ReferenceCounts>();
@@ -147,6 +160,13 @@ export function collectCallableStorageInputs(
       storageDestinations,
     );
   }
+  const validConstructorFields = closeConstructorCallableFields(
+    source,
+    program,
+    constructorFields,
+    fieldValues,
+    transports,
+  );
 
   const candidateFields = new Set<Node>();
   for (const [field, counts] of fieldCounts) {
@@ -156,7 +176,8 @@ export function collectCallableStorageInputs(
       !invalidOwners.has(constructor) &&
       counts.total === counts.admitted &&
       counts.admitted !== 0 &&
-      fieldValues.has(field)
+      fieldValues.has(field) &&
+      (!constructorFields.fields.has(field) || validConstructorFields.has(field))
     ) {
       candidateFields.add(field);
     }
@@ -194,19 +215,19 @@ export function collectCallableStorageInputs(
   for (const parameter of closedParameters) {
     const inputs = parameterValues.get(parameter);
     if (inputs !== undefined && inputs.length !== 0) {
-      values.set(parameter, Object.freeze([...inputs]));
+      values.set(parameter, Object.freeze(inputs));
     }
   }
   for (const field of closedFields) {
     const inputs = fieldValues.get(field);
     if (inputs !== undefined && inputs.length !== 0) {
-      values.set(field, Object.freeze([...inputs]));
+      values.set(field, Object.freeze(inputs));
     }
   }
   for (const local of closedLocals) {
     const inputs = localValues.get(local);
     if (inputs !== undefined && inputs.length !== 0) {
-      values.set(local, Object.freeze([...inputs]));
+      values.set(local, Object.freeze(inputs));
     }
   }
   const contracts = createCallableStorageContracts(
@@ -216,11 +237,7 @@ export function collectCallableStorageInputs(
   );
   return Object.freeze({
     values,
-    closed: new Set([
-      ...closedParameters,
-      ...closedFields,
-      ...closedLocals,
-    ]),
+    closed: closedDeclarations,
     contracts: Object.freeze(contracts),
   });
 }
@@ -236,29 +253,6 @@ function closeStorageDeclarations(
   ));
 }
 
-function collectPrivateConstructorFields(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-): ReadonlySet<Node> {
-  const fields = new Set<Node>();
-  for (const node of program.nodesOfKind(KindParameter)) {
-    if (
-      !isParameterProperty(source, node) ||
-      !callableDeclarationAllowsSynchronousValue(source, node)
-    ) {
-      continue;
-    }
-    const constructor = source.ast.parent(node);
-    if (
-      constructor !== undefined &&
-      source.ast.is.IsConstructorDeclaration(constructor) &&
-      source.ast.hasModifierKind(constructor, "private")
-    ) {
-      fields.add(node);
-    }
-  }
-  return fields;
-}
 function collectCallableParameters(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
@@ -267,7 +261,7 @@ function collectCallableParameters(
   for (const node of program.nodesOfKind(KindParameter)) {
     if (
       isParameterProperty(source, node) ||
-      !callableDeclarationAllowsSynchronousValue(source, node)
+      !callableDeclarationHasResolvableType(source, node)
     ) {
       continue;
     }

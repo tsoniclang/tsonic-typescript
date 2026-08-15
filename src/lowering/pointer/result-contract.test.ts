@@ -14,6 +14,7 @@ import type {
 import {
   checkedPointerFixture,
   createFixturePointerFlowPlan,
+  variableDeclarationNamed,
   visit,
 } from "./pointer.test-support.js";
 import { createPointerResultContract } from "./result-contract.js";
@@ -97,6 +98,41 @@ export const result = loadPointer(pointer);
     true,
   );
   assert.equal(contract.isDefinitelyNonThenable(load.call, () => false), false);
+});
+
+test("classifies exact pointer values without classifying their pointees", () => {
+  const fixture = checkedPointerFixture(`
+import { allocatePointer, loadPointer } from "./markers.js";
+declare function expose(pointer: import("./markers.js").Pointer<number>): void;
+const pointer = allocatePointer(41);
+expose(pointer);
+const pointee = loadPointer(pointer);
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const contract = createPointerResultContract(fixture.source, plan);
+  const pointer = variableDeclarationNamed(
+    fixture.source,
+    fixture.sourceFile,
+    "pointer",
+  );
+  const pointee = variableDeclarationNamed(
+    fixture.source,
+    fixture.sourceFile,
+    "pointee",
+  );
+  const pointerName = pointer.name;
+  const pointeeName = pointee.name;
+  assert.ok(pointerName !== undefined && pointeeName !== undefined);
+  assert.equal(plan.valueRepresentationFor(pointerName), "location");
+  assert.equal(
+    contract.isDefinitelyNonThenable(pointerName, () => false),
+    true,
+  );
+  assert.equal(plan.valueRepresentationFor(pointeeName), undefined);
+  assert.equal(
+    contract.isDefinitelyNonThenable(pointeeName, () => false),
+    false,
+  );
 });
 
 test("rejects a pointer flow plan from another checked program", () => {
