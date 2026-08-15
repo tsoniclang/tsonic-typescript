@@ -15,6 +15,17 @@ export function callableDeclarationAllowsSynchronousValue(
     undefined;
 }
 
+export function callableDeclarationHasResolvableType(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  const typeNode = source.ast.typeNode(declaration);
+  return typeNode !== undefined && callableTypeNodeIsExact(
+    source,
+    typeNode,
+  ) === true;
+}
+
 export interface CallableReturnRewrite {
   readonly target: Node;
   readonly selection:
@@ -86,73 +97,109 @@ function collectCallableResultRewrites(
   if (returnType === undefined) {
     return undefined;
   }
+  const returnSemantics = source.semantics.forNode(returnType);
+  const selectedReturn = returnSemantics.getTypeFromTypeNode(returnType);
+  if (selectedReturn === undefined) {
+    return undefined;
+  }
   const rewrite = callableReturnRewrite(source, returnType);
-  if (rewrite !== undefined) {
+  if (
+    rewrite !== undefined &&
+    returnRewriteAdmitsDirectValue(source, rewrite)
+  ) {
     result.push(rewrite);
     return true;
   }
-  const returnSemantics = source.semantics.forNode(returnType);
-  const selectedReturn = returnSemantics.getTypeFromTypeNode(returnType);
-  return selectedReturn !== undefined &&
-      !typeMaySuspend(returnSemantics, selectedReturn)
+  return !typeMaySuspend(returnSemantics, selectedReturn)
     ? true
     : undefined;
+}
+
+function returnRewriteAdmitsDirectValue(
+  source: TargetSourceProgram,
+  rewrite: CallableReturnRewrite,
+): boolean {
+  if (rewrite.selection.kind === "union-member") {
+    return true;
+  }
+  const directNode = source.ast.typeArguments(rewrite.target)[
+    rewrite.selection.index
+  ];
+  if (directNode === undefined) {
+    return false;
+  }
+  const semantics = source.semantics.forNode(rewrite.target);
+  const contract = semantics.getTypeFromTypeNode(rewrite.target);
+  const direct = semantics.getTypeFromTypeNode(directNode);
+  return contract !== undefined && direct !== undefined &&
+    returnContractContainsDirectValue(semantics, contract, direct, new Set());
+}
+
+function returnContractContainsDirectValue(
+  semantics: SourceFileSemantics,
+  contract: Type,
+  direct: Type,
+  pending: Set<Type>,
+): boolean {
+  if (sameSelectedType(semantics, contract, direct)) {
+    return true;
+  }
+  if (pending.has(contract) || !semantics.isUnion(contract)) {
+    return false;
+  }
+  pending.add(contract);
+  const contains = semantics.getUnionOrIntersectionTypes(contract).some((member) =>
+    member !== undefined &&
+    returnContractContainsDirectValue(semantics, member, direct, pending)
+  );
+  pending.delete(contract);
+  return contains;
+}
+
+function callableTypeNodeIsExact(
+  source: TargetSourceProgram,
+  node: Node,
+): boolean | undefined {
+  if (source.ast.is.IsParenthesizedTypeNode(node)) {
+    const inner = source.ast.as.AsParenthesizedTypeNode(node)?.Type;
+    return inner === undefined
+      ? undefined
+      : callableTypeNodeIsExact(source, inner);
+  }
+  if (source.ast.is.IsUnionTypeNode(node)) {
+    let callable = false;
+    for (const member of AsUnionTypeNode(node)?.Types?.Nodes ?? []) {
+      if (member === undefined) {
+        return undefined;
+      }
+      const semantics = source.semantics.forNode(member);
+      const selected = semantics.getTypeFromTypeNode(member);
+      if (selected !== undefined && semantics.isNullish(selected)) {
+        continue;
+      }
+      const exact = callableTypeNodeIsExact(source, member);
+      if (exact !== true) {
+        return undefined;
+      }
+      callable = true;
+    }
+    return callable;
+  }
+  return source.ast.is.IsFunctionTypeNode(node) ? true : undefined;
 }
 
 export function callableDeclarationSynchronousReturnTypes(
   source: TargetSourceProgram,
   declaration: Node,
 ): readonly CallableReturnRewrite[] | undefined {
-  const name = source.ast.name(declaration);
-  const semantics = source.semantics.forNode(name ?? declaration);
-  const type = semantics.getTypeAtLocation(name ?? declaration);
-  if (
-    type === undefined ||
-    !callableTypeAllowsSynchronousValue(semantics, type, new Set())
-  ) {
-    return undefined;
-  }
-  const returnTypes = callableReturnTypeNodes(
-    source,
-    source.ast.typeNode(declaration),
-  );
-  const rewrites = returnTypes.map((returnType) =>
-    callableReturnRewrite(source, returnType)
-  );
-  return rewrites.length !== 0 && rewrites.every(isReturnRewrite)
+  const typeNode = source.ast.typeNode(declaration);
+  const rewrites: CallableReturnRewrite[] = [];
+  const callable = typeNode === undefined
+    ? undefined
+    : collectCallableResultRewrites(source, typeNode, rewrites);
+  return callable === true && rewrites.length !== 0
     ? Object.freeze(rewrites)
     : undefined;
-}
-
-function isReturnRewrite(
-  rewrite: CallableReturnRewrite | undefined,
-): rewrite is CallableReturnRewrite {
-  return rewrite !== undefined;
-}
-
-function callableReturnTypeNodes(
-  source: TargetSourceProgram,
-  node: Node | undefined,
-): Node[] {
-  if (node === undefined) {
-    return [];
-  }
-  if (source.ast.is.IsParenthesizedTypeNode(node)) {
-    return callableReturnTypeNodes(
-      source,
-      source.ast.as.AsParenthesizedTypeNode(node)?.Type,
-    );
-  }
-  if (source.ast.is.IsUnionTypeNode(node)) {
-    return source.ast.children(node).flatMap((child) =>
-      callableReturnTypeNodes(source, child)
-    );
-  }
-  if (!source.ast.is.IsFunctionTypeNode(node)) {
-    return [];
-  }
-  const returnType = source.ast.typeNode(node);
-  return returnType === undefined ? [] : [returnType];
 }
 
 export function callableReturnRewrite(
@@ -235,57 +282,4 @@ function exactAwaitableContract(
   const arguments_ = semantics.getTypeArguments(type);
   return arguments_.length === 1 &&
     sameSelectedType(semantics, arguments_[0], innerType);
-}
-
-function callableTypeAllowsSynchronousValue(
-  semantics: SourceFileSemantics,
-  type: Type,
-  pending: Set<Type>,
-): boolean {
-  if (
-    pending.has(type) ||
-    semantics.isAny(type) ||
-    semantics.isUnknown(type)
-  ) {
-    return false;
-  }
-  if (semantics.isNullish(type)) {
-    return true;
-  }
-  if (semantics.isUnion(type)) {
-    pending.add(type);
-    let callable = false;
-    for (const member of semantics.getUnionOrIntersectionTypes(type)) {
-      if (member === undefined || semantics.isNullish(member)) {
-        continue;
-      }
-      if (!callableTypeAllowsSynchronousValue(semantics, member, pending)) {
-        pending.delete(type);
-        return false;
-      }
-      callable = true;
-    }
-    pending.delete(type);
-    return callable;
-  }
-  const signatures = semantics.getCallSignatures(type);
-  return signatures.length !== 0 && signatures.every((signature) => {
-    const returnType = semantics.getReturnTypeOfSignature(signature);
-    return returnType !== undefined && returnTypeAllowsSynchronousValue(
-      semantics,
-      returnType,
-    );
-  });
-}
-
-function returnTypeAllowsSynchronousValue(
-  semantics: SourceFileSemantics,
-  type: Type,
-): boolean {
-  if (!semantics.isUnion(type)) {
-    return !typeMaySuspend(semantics, type);
-  }
-  return semantics.getUnionOrIntersectionTypes(type).some((member) =>
-    member !== undefined && !typeMaySuspend(semantics, member)
-  );
 }

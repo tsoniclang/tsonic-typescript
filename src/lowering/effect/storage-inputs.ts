@@ -14,6 +14,7 @@ import type { StorageOwnerTransportContract } from "../storage-owner-transport.j
 
 import {
   callableDeclarationAllowsSynchronousValue,
+  callableDeclarationHasResolvableType,
 } from "./callable-contract.js";
 import {
   declarationForSymbols,
@@ -118,6 +119,11 @@ export function collectCallableStorageInputs(
     invalidOwners,
     program,
   );
+  for (const [parameter, assigned] of parameterClosure.uses.assignedValues) {
+    for (const value of assigned) {
+      append(parameterValues, parameter, value);
+    }
+  }
   const preliminaryParameters = parameterClosure.declarations;
 
   const fieldCounts = new Map<Node, ReferenceCounts>();
@@ -255,7 +261,7 @@ function collectCallableParameters(
   for (const node of program.nodesOfKind(KindParameter)) {
     if (
       isParameterProperty(source, node) ||
-      !callableDeclarationAllowsSynchronousValue(source, node)
+      !callableDeclarationHasResolvableType(source, node)
     ) {
       continue;
     }

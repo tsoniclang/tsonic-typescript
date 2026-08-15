@@ -95,6 +95,17 @@ declaration, return contract, and dependent `await` in one transaction. For exam
 becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`
 return, or provider call remains unchanged.
 
+Generic callable parameters participate in that flow even when their result is
+a type parameter and therefore has no declaration-local return rewrite. Flow
+eligibility and signature rewriting are separate decisions: exact call-site
+arguments settle the former, while only an exact awaitable annotation creates
+the latter. That annotation must contain its direct value branch; a
+Promise-only callback remains canonical. Exact plain assignments such as
+`create = undefined` add new input
+values to the same parameter flow; compound writes and unresolved assignments
+retain it. A shared generic kernel settles atomically across all concrete uses,
+so one open callback preserves every connected wrapper and consumer.
+
 Generated-shaped public mutable callable fields are eligible only when their
 nominal owner is closed across every constructor use, field access, carrier,
 and call. For example, a class holding `callback: () => Awaitable<T>` may

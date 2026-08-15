@@ -105,6 +105,14 @@ each preserves every affected async callable. A project carrier that later
 escapes must invalidate the enclosed owner, while the same carrier wholly
 inside the checked program remains eligible. Pointer transport permission
 comes from validated operation facts, never marker spelling.
+Generic-callable fixtures pass concrete callbacks through a generic kernel, a
+concrete wrapper, and nominal callable storage. The kernel includes callable
+parameters returning a type parameter and an exact reset assignment such as
+`create = undefined`; both must join the same flow without fabricating a
+return-type rewrite. A paired mutation supplies one provider callback to a
+second call of the shared kernel and requires every connected use to remain
+canonical. Further mutations replace the reset with a compound or unresolved
+write and must fail at callable-storage closure.
 The carrier cost fixture doubles a deep nominal chain and requires the recorded
 class/member/type-edge/propagation work to remain linear; arbitrary checker
 property-graph expansion is outside the admitted algorithm.

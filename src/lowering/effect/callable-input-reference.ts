@@ -9,6 +9,7 @@ import { directContainingCall } from "./syntax.js";
 export interface ParameterUses {
   readonly dependencies: ReadonlyMap<Node, ReadonlySet<Node>>;
   readonly invalid: ReadonlySet<Node>;
+  readonly assignedValues: ReadonlyMap<Node, readonly Node[]>;
 }
 
 export function indexParameterUses(
@@ -22,6 +23,7 @@ export function indexParameterUses(
   const symbols = indexDeclarationSymbols(source, allDeclarations);
   const dependencies = new Map<Node, Set<Node>>();
   const invalid = new Set<Node>();
+  const assignedValues = new Map<Node, Node[]>();
   for (const node of program.nodesOfKind(KindIdentifier)) {
     const parameter = declarationForSymbols(source, symbols, node);
     if (
@@ -29,6 +31,11 @@ export function indexParameterUses(
       node === source.ast.name(parameter) ||
       invalid.has(parameter)
     ) {
+      continue;
+    }
+    const assigned = exactAssignedValue(source, node);
+    if (assigned !== undefined) {
+      append(assignedValues, parameter, assigned);
       continue;
     }
     if (
@@ -54,7 +61,26 @@ export function indexParameterUses(
     }
     targets.add(destination);
   }
-  return { dependencies, invalid };
+  for (const values of assignedValues.values()) {
+    Object.freeze(values);
+  }
+  return { dependencies, invalid, assignedValues };
+}
+
+function exactAssignedValue(
+  source: TargetSourceProgram,
+  reference: Node,
+): Node | undefined {
+  const parent = source.ast.parent(reference);
+  if (
+    parent === undefined ||
+    !source.ast.is.IsBinaryExpression(parent) ||
+    source.ast.operatorKindName(parent) !== "KindEqualsToken" ||
+    source.ast.as.AsBinaryExpression(parent)?.Left !== reference
+  ) {
+    return undefined;
+  }
+  return source.ast.as.AsBinaryExpression(parent)?.Right;
 }
 
 export function trackedInputDestination(
@@ -176,6 +202,15 @@ export function isCallablePresenceObservation(
       : source.semantics.forNode(other).getTypeAtLocation(other);
     return other !== undefined && otherType !== undefined &&
       source.semantics.forNode(other).isNullish(otherType);
+  }
+}
+
+function append(target: Map<Node, Node[]>, key: Node, value: Node): void {
+  const values = target.get(key);
+  if (values === undefined) {
+    target.set(key, [value]);
+  } else {
+    values.push(value);
   }
 }
 

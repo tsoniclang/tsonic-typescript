@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AsTypeReferenceNode } from "@tsonic/tsts/target-ast";
 
+import { createTargetProgramIndex } from "../program-index.js";
 import {
   checkedEffectFixture,
   countAsyncCallables,
   countNodes,
   createFixtureEffectPlan,
 } from "./effect.test-support.js";
+import { collectCallableStorageInputs } from "./storage-inputs.js";
 import { lowerCooperativeEffects } from "./transform.js";
 
 test("settles a callable returned by an exact checked call", () => {
@@ -67,6 +69,173 @@ async function invoke(): Promise<number> {
     "Awaitable",
   ), 0);
 });
+
+test("settles a generic callable factory through a concrete wrapper and field", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+
+function memoizeKernel<T>(
+  copy: (value: T) => T,
+  zero: () => T,
+  create: (() => Awaitable<T>) | undefined,
+): (() => Awaitable<T>) | undefined {
+  let value = zero();
+  return async (): Promise<T> => {
+    if (create !== undefined) {
+      value = copy(await create());
+      create = undefined;
+    }
+    return copy(value);
+  };
+}
+
+function memoizeNumber(
+  create: (() => Awaitable<number>) | undefined,
+): (() => Awaitable<number>) | undefined {
+  return memoizeKernel((value) => value, () => 0, create);
+}
+
+class Checker {
+  declare private readonly then?: never;
+  public constructor(
+    public callback: (() => Awaitable<number>) | undefined,
+  ) {}
+}
+
+const checker = new Checker(undefined);
+checker.callback = memoizeNumber(async (): Promise<number> => 42);
+
+async function invoke(): Promise<number> {
+  return await checker.callback!();
+}
+
+export const result = await invoke();
+`);
+
+  const storage = collectCallableStorageInputs(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: true,
+    }),
+    new Set(),
+  );
+  assert.deepEqual(
+    [...storage.closed].map((node) => fixture.source.ast.text(
+      fixture.source.ast.name(node),
+    )),
+    ["copy", "zero", "create", "create", "callback"],
+  );
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.deepEqual(plan.summary.fallbackReasons, []);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(countNamedTypeReferences(
+    fixture.source,
+    result.sourceFile,
+    "Awaitable",
+  ), 0);
+});
+
+test("retains a shared generic callable factory after one open input", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+declare function remote(): Promise<number>;
+
+function memoizeKernel<T>(
+  copy: (value: T) => T,
+  zero: () => T,
+  create: (() => Awaitable<T>) | undefined,
+): (() => Awaitable<T>) | undefined {
+  let value = zero();
+  return async (): Promise<T> => {
+    if (create !== undefined) {
+      value = copy(await create());
+      create = undefined;
+    }
+    return copy(value);
+  };
+}
+
+const closed = memoizeKernel((value) => value, () => 0, async () => 40);
+const open = memoizeKernel(
+  (value) => value,
+  () => 0,
+  async (): Promise<number> => await remote(),
+);
+
+async function invoke(): Promise<number> {
+  return (await closed!()) + (await open!());
+}
+
+export const result = await invoke();
+`);
+
+  const originalAsyncCallables = countAsyncCallables(
+    fixture.source,
+    fixture.sourceFile,
+  );
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(
+    countAsyncCallables(fixture.source, result.sourceFile),
+    originalAsyncCallables,
+  );
+});
+
+for (const [name, assignment] of [
+  ["compound write", "create ??= async () => zero();"],
+  ["provider assignment", "create = remote;"],
+] as const) {
+  test(`retains generic callable flow after ${name}`, () => {
+    const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+declare function remote<T>(): Promise<T>;
+
+function memoizeKernel<T>(
+  copy: (value: T) => T,
+  zero: () => T,
+  create: (() => Awaitable<T>) | undefined,
+): (() => Awaitable<T>) | undefined {
+  let value = zero();
+  return async (): Promise<T> => {
+    if (create !== undefined) {
+      value = copy(await create());
+      ${assignment}
+    }
+    return copy(value);
+  };
+}
+
+const callback = memoizeKernel((value) => value, () => 0, async () => 42);
+
+async function invoke(): Promise<number> {
+  return await callback!();
+}
+
+export const result = await invoke();
+`);
+
+    const originalAsyncCallables = countAsyncCallables(
+      fixture.source,
+      fixture.sourceFile,
+    );
+    const plan = createFixtureEffectPlan(fixture.source);
+    const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+    plan.finish();
+
+    assert.equal(result.callableCount, 0);
+    assert.equal(
+      countAsyncCallables(fixture.source, result.sourceFile),
+      originalAsyncCallables,
+    );
+  });
+}
 
 test("retains returned callable flow across open method dispatch", () => {
   const fixture = checkedEffectFixture(`

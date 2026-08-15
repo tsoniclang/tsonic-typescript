@@ -233,6 +233,18 @@ discarded, returned by a settling callable, or passed through another such
 private forwarder. Export, alias escape, ordinary Promise observation, open
 dispatch, provider behavior, or unresolved transport retains the component.
 
+Callable-flow admission and callable-signature rewriting are distinct facts.
+An explicitly authored function-type parameter is eligible for exact flow even
+when its return is a type parameter: all concrete arguments and forwarding
+edges determine whether that result suspends. Only an exact awaitable return
+annotation containing its direct value branch creates a type-node rewrite; a
+Promise-only contract remains canonical. Plain `=` writes to such a parameter
+contribute their right-hand values to the same flow; compound writes,
+destructuring, unresolved destinations, or any other write shape retain the
+component. Every instantiation of one generic callable shares its declaration,
+so settlement is atomic across all connected concrete calls rather than
+specialized by spelling or inferred type argument.
+
 An exact checked project callable may also produce a callable value. The value
 flow may inspect all of its direct return expressions only when the invoked
 binding is unchanged, method dispatch is closed, the implementation body is
