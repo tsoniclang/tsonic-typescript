@@ -59,7 +59,7 @@ export interface CooperativeEffectPlan {
   finish(): void;
 }
 
-const noDependencies: ReadonlySet<Node> = new Set();
+const noDependencies: readonly Node[] = Object.freeze([]);
 
 export function createClosedCooperativeEffectPlan(
   source: TargetSourceProgram,
@@ -82,7 +82,8 @@ export function createClosedCooperativeEffectPlan(
     program,
     (call) => calls.get(call)?.declaration,
     loweredValues,
-    (call) => valueFlow.resolutionFor(call)?.dependencies ?? noDependencies,
+    (call) =>
+      valueFlow.resolutionFor(call)?.dependencyNodes() ?? noDependencies,
     transports,
   );
   const resultConsumption = createCooperativeResultConsumption(
@@ -175,7 +176,7 @@ function classifyAwaitDependencies(
   calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
-  conditionalSettlements: (dependencies: ReadonlySet<Node>) =>
+  conditionalSettlements: (dependencies: Iterable<Node>) =>
     ReadonlySet<Node> | undefined,
   node: Node,
 ): void {
@@ -202,7 +203,7 @@ function classifyAwaitDependencies(
     );
     return;
   }
-  for (const declaration of resolution.dependencies) {
+  for (const declaration of resolution.dependencyNodes()) {
     const candidate = candidates.get(declaration);
     if (candidate === undefined) {
       blockCooperativeEffect(owner, "unresolved-call", call ?? node);
@@ -211,11 +212,11 @@ function classifyAwaitDependencies(
     owner.dependencies.add(candidate);
   }
   if (
-    resolution.synchronousDeclarations.size !== 0 &&
+    resolution.synchronousDeclarationCount !== 0 &&
     !returnFlow.callResultIsDefinitelyNonThenable(
       call,
-      resolution.synchronousDeclarations,
-      conditionalSettlements(resolution.dependencies),
+      resolution.synchronousDeclarationNodes(),
+      conditionalSettlements(resolution.dependencyNodes()),
     )
   ) {
     blockCooperativeEffect(owner, "promise-observed", call);
@@ -228,7 +229,7 @@ function classifyReturnDependencies(
   calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
-  conditionalSettlements: (dependencies: ReadonlySet<Node>) =>
+  conditionalSettlements: (dependencies: Iterable<Node>) =>
     ReadonlySet<Node> | undefined,
   node: Node,
 ): void {
@@ -260,7 +261,7 @@ function classifyReturnDependencies(
   if (returnedCall !== undefined) {
     const resolution = valueFlow.resolutionFor(returnedCall);
     if (resolution !== undefined && resolution.closed) {
-      for (const declaration of resolution.dependencies) {
+      for (const declaration of resolution.dependencyNodes()) {
         const candidate = candidates.get(declaration);
         if (candidate === undefined) {
           blockCooperativeEffect(owner, "unresolved-call", returnedCall);
@@ -269,11 +270,11 @@ function classifyReturnDependencies(
         owner.dependencies.add(candidate);
       }
       if (
-        resolution.synchronousDeclarations.size === 0 ||
+        resolution.synchronousDeclarationCount === 0 ||
         returnFlow.callResultIsDefinitelyNonThenable(
           returnedCall,
-          resolution.synchronousDeclarations,
-          conditionalSettlements(resolution.dependencies),
+          resolution.synchronousDeclarationNodes(),
+          conditionalSettlements(resolution.dependencyNodes()),
         )
       ) {
         return;
@@ -310,15 +311,15 @@ function classifyCallUses(
     }
     blockCooperativeEffect(candidate, "promise-observed", call);
   }
-  for (const { call, resolution } of valueFlow.calls) {
-    if (calls.has(call) || resolution.dependencies.size === 0) {
-      continue;
+  valueFlow.forEachCall((call, resolution) => {
+    if (calls.has(call) || resolution.dependencyCount === 0) {
+      return;
     }
     if (
       resolution.closed &&
       containingAwait(source, call) !== undefined
     ) {
-      continue;
+      return;
     }
     const owner = enclosingCandidate(source, candidates, call);
     if (
@@ -326,18 +327,18 @@ function classifyCallUses(
       owner !== undefined &&
       containingReturn(source, call) !== undefined
     ) {
-      continue;
+      return;
     }
     if (resolution.closed && returnedCallHasClosedConsumers(call)) {
-      continue;
+      return;
     }
-    for (const declaration of resolution.dependencies) {
+    for (const declaration of resolution.dependencyNodes()) {
       const candidate = candidates.get(declaration);
       if (candidate !== undefined) {
         blockCooperativeEffect(candidate, "promise-observed", call);
       }
     }
-  }
+  });
 }
 
 function classifyProgramEvidence(
@@ -347,7 +348,7 @@ function classifyProgramEvidence(
   calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
-  conditionalSettlements: (dependencies: ReadonlySet<Node>) =>
+  conditionalSettlements: (dependencies: Iterable<Node>) =>
     ReadonlySet<Node> | undefined,
 ): void {
   const tracked = indexCandidateSymbols(source, candidates.values());
@@ -411,17 +412,18 @@ interface ConditionalSettlementTrie {
 
 function createConditionalSettlementOwner(
   candidates: Iterable<Node>,
-): (dependencies: ReadonlySet<Node>) => ReadonlySet<Node> | undefined {
+): (dependencies: Iterable<Node>) => ReadonlySet<Node> | undefined {
   const order = new Map([...candidates].map((candidate, index) => [
     candidate,
     index,
   ]));
   const root: ConditionalSettlementTrie = { next: new Map() };
   return (dependencies) => {
-    if (dependencies.size === 0) {
+    const unique = new Set(dependencies);
+    if (unique.size === 0) {
       return undefined;
     }
-    const selected = [...dependencies].sort((left, right) => {
+    const selected = [...unique].sort((left, right) => {
       const leftOrder = order.get(left);
       const rightOrder = order.get(right);
       if (leftOrder === undefined || rightOrder === undefined) {
@@ -518,17 +520,17 @@ function collectSettledAwaits(
       ? valueFlow.resolutionFor(call)
       : undefined;
     const dependencies: Iterable<Node> = direct === undefined
-      ? resolution?.dependencies ?? noDependencies
+      ? resolution?.dependencyNodes() ?? noDependencies
       : [direct.declaration];
     if (
       (direct === undefined && (resolution === undefined || !resolution.closed)) ||
       hasRetainedDependency(dependencies, candidates, optimized) ||
       (direct === undefined &&
         resolution !== undefined &&
-        resolution.synchronousDeclarations.size !== 0 &&
+        resolution.synchronousDeclarationCount !== 0 &&
         !returnFlow.callResultIsDefinitelyNonThenable(
           call,
-          resolution.synchronousDeclarations,
+          resolution.synchronousDeclarationNodes(),
           optimized,
         ))
     ) {

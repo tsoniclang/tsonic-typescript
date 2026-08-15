@@ -209,19 +209,19 @@ export function collectCallableStorageInputs(
   for (const parameter of closedParameters) {
     const inputs = parameterValues.get(parameter);
     if (inputs !== undefined && inputs.length !== 0) {
-      values.set(parameter, Object.freeze([...inputs]));
+      values.set(parameter, Object.freeze(inputs));
     }
   }
   for (const field of closedFields) {
     const inputs = fieldValues.get(field);
     if (inputs !== undefined && inputs.length !== 0) {
-      values.set(field, Object.freeze([...inputs]));
+      values.set(field, Object.freeze(inputs));
     }
   }
   for (const local of closedLocals) {
     const inputs = localValues.get(local);
     if (inputs !== undefined && inputs.length !== 0) {
-      values.set(local, Object.freeze([...inputs]));
+      values.set(local, Object.freeze(inputs));
     }
   }
   const contracts = createCallableStorageContracts(
@@ -231,11 +231,7 @@ export function collectCallableStorageInputs(
   );
   return Object.freeze({
     values,
-    closed: new Set([
-      ...closedParameters,
-      ...closedFields,
-      ...closedLocals,
-    ]),
+    closed: closedDeclarations,
     contracts: Object.freeze(contracts),
   });
 }

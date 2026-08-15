@@ -1,19 +1,24 @@
 import type { Node } from "@tsonic/tsts";
 
 export interface CallableValueResolution {
-  readonly dependencies: ReadonlySet<Node>;
-  readonly synchronousDeclarations: ReadonlySet<Node>;
   readonly closed: boolean;
+  readonly dependencyCount: number;
+  readonly synchronousDeclarationCount: number;
+  dependencyNodes(): Iterable<Node>;
+  synchronousDeclarationNodes(): Iterable<Node>;
 }
 
+type NodeStorage = Node | Set<Node> | undefined;
+
 export class MutableCallableValueResolution {
-  #dependencies: Set<Node> | undefined;
-  #synchronousDeclarations: Set<Node> | undefined;
+  #dependencies: NodeStorage;
+  #synchronousDeclarations: NodeStorage;
   #closed: boolean;
+  #sealed = false;
 
   private constructor(
-    dependencies: Set<Node>,
-    synchronousDeclarations: Set<Node>,
+    dependencies: NodeStorage,
+    synchronousDeclarations: NodeStorage,
     closed: boolean,
   ) {
     this.#dependencies = dependencies;
@@ -22,19 +27,19 @@ export class MutableCallableValueResolution {
   }
 
   public static empty(): MutableCallableValueResolution {
-    return new MutableCallableValueResolution(new Set(), new Set(), true);
+    return new MutableCallableValueResolution(undefined, undefined, true);
   }
 
   public static unresolved(): MutableCallableValueResolution {
-    return new MutableCallableValueResolution(new Set(), new Set(), false);
+    return new MutableCallableValueResolution(undefined, undefined, false);
   }
 
   public static withDependency(
     dependency: Node,
   ): MutableCallableValueResolution {
     return new MutableCallableValueResolution(
-      new Set([dependency]),
-      new Set(),
+      dependency,
+      undefined,
       true,
     );
   }
@@ -43,19 +48,38 @@ export class MutableCallableValueResolution {
     declaration: Node,
   ): MutableCallableValueResolution {
     return new MutableCallableValueResolution(
-      new Set(),
-      new Set([declaration]),
+      undefined,
+      declaration,
       true,
     );
   }
 
   public isClosed(): boolean {
-    this.#assertMutable();
     return this.#closed;
   }
 
+  public get closed(): boolean {
+    return this.#closed;
+  }
+
+  public get dependencyCount(): number {
+    return nodeStorageSize(this.#dependencies);
+  }
+
+  public get synchronousDeclarationCount(): number {
+    return nodeStorageSize(this.#synchronousDeclarations);
+  }
+
+  public dependencyNodes(): Iterable<Node> {
+    return nodeStorageNodes(this.#dependencies);
+  }
+
+  public synchronousDeclarationNodes(): Iterable<Node> {
+    return nodeStorageNodes(this.#synchronousDeclarations);
+  }
+
   public hasDependencies(): boolean {
-    return this.#mutableDependencies().size !== 0;
+    return this.#dependencies !== undefined;
   }
 
   public markUnclosed(): void {
@@ -64,27 +88,31 @@ export class MutableCallableValueResolution {
   }
 
   public merge(source: MutableCallableValueResolution): void {
-    const dependencies = this.#mutableDependencies();
-    const synchronousDeclarations = this.#mutableSynchronousDeclarations();
+    this.#assertMutable();
     this.#closed &&= source.isClosed();
-    source.forEachDependency((dependency) => dependencies.add(dependency));
+    source.forEachDependency((dependency) => {
+      this.#dependencies = addNode(this.#dependencies, dependency);
+    });
     source.forEachSynchronousDeclaration((declaration) =>
-      synchronousDeclarations.add(declaration)
+      this.#synchronousDeclarations = addNode(
+        this.#synchronousDeclarations,
+        declaration,
+      )
     );
   }
 
   public mergeDependencyEvidence(
     source: MutableCallableValueResolution,
   ): boolean {
-    const dependencies = this.#mutableDependencies();
+    this.#assertMutable();
     let changed = false;
     if (this.#closed && !source.isClosed()) {
       this.#closed = false;
       changed = true;
     }
     source.forEachDependency((dependency) => {
-      if (!dependencies.has(dependency)) {
-        dependencies.add(dependency);
+      if (!nodeStorageHas(this.#dependencies, dependency)) {
+        this.#dependencies = addNode(this.#dependencies, dependency);
         changed = true;
       }
     });
@@ -92,7 +120,7 @@ export class MutableCallableValueResolution {
   }
 
   public forEachDependency(visitor: (dependency: Node) => void): void {
-    for (const dependency of this.#mutableDependencies()) {
+    for (const dependency of nodeStorageNodes(this.#dependencies)) {
       visitor(dependency);
     }
   }
@@ -100,47 +128,52 @@ export class MutableCallableValueResolution {
   public forEachSynchronousDeclaration(
     visitor: (declaration: Node) => void,
   ): void {
-    for (const declaration of this.#mutableSynchronousDeclarations()) {
+    for (const declaration of nodeStorageNodes(this.#synchronousDeclarations)) {
       visitor(declaration);
     }
   }
 
   public seal(): CallableValueResolution {
-    const dependencies = this.#mutableDependencies();
-    const synchronousDeclarations = this.#mutableSynchronousDeclarations();
-    this.#dependencies = undefined;
-    this.#synchronousDeclarations = undefined;
-    return Object.freeze({
-      dependencies: immutableNodeSet(dependencies),
-      synchronousDeclarations: immutableNodeSet(synchronousDeclarations),
-      closed: this.#closed,
-    });
-  }
-
-  #mutableDependencies(): Set<Node> {
-    const dependencies = this.#dependencies;
-    if (dependencies === undefined) {
-      throw new Error("callable value resolution is already sealed");
-    }
-    return dependencies;
-  }
-
-  #mutableSynchronousDeclarations(): Set<Node> {
-    const declarations = this.#synchronousDeclarations;
-    if (declarations === undefined) {
-      throw new Error("callable value resolution is already sealed");
-    }
-    return declarations;
+    this.#assertMutable();
+    this.#sealed = true;
+    return this;
   }
 
   #assertMutable(): void {
-    if (
-      this.#dependencies === undefined ||
-      this.#synchronousDeclarations === undefined
-    ) {
+    if (this.#sealed) {
       throw new Error("callable value resolution is already sealed");
     }
   }
+}
+
+function addNode(storage: NodeStorage, node: Node): NodeStorage {
+  if (storage === undefined) {
+    return node;
+  }
+  if (storage instanceof Set) {
+    storage.add(node);
+    return storage;
+  }
+  return storage === node ? storage : new Set([storage, node]);
+}
+
+function nodeStorageHas(storage: NodeStorage, node: Node): boolean {
+  return storage instanceof Set ? storage.has(node) : storage === node;
+}
+
+function nodeStorageSize(storage: NodeStorage): number {
+  return storage === undefined ? 0 : storage instanceof Set ? storage.size : 1;
+}
+
+function* nodeStorageNodes(storage: NodeStorage): Iterable<Node> {
+  if (storage === undefined) {
+    return;
+  }
+  if (storage instanceof Set) {
+    yield* storage;
+    return;
+  }
+  yield storage;
 }
 
 export function emptyResolution(): MutableCallableValueResolution {
@@ -197,7 +230,7 @@ export function closeSynchronousDependencies(
     readonly MutableCallableValueResolution[]
   >,
 ): void {
-  const all = [...resolutions];
+  const all = [...new Set(resolutions)];
   const dependents = new Map<
     MutableCallableValueResolution,
     Set<MutableCallableValueResolution>
@@ -254,76 +287,19 @@ export function sealResolution(
   return resolution.seal();
 }
 
-function immutableNodeSet(values: Set<Node>): ReadonlySet<Node> {
-  return values.size === 0 ? emptyImmutableNodeSet : new ImmutableNodeSet(values);
-}
-
-class ImmutableNodeSet implements ReadonlySet<Node> {
-  readonly #single: Node | undefined;
-  readonly #values: Set<Node> | undefined;
-
-  public constructor(values: Set<Node>) {
-    if (values.size === 1) {
-      this.#single = values.values().next().value;
-      this.#values = undefined;
-    } else {
-      this.#single = undefined;
-      this.#values = values;
-    }
-    Object.freeze(this);
-  }
-
-  public get size(): number {
-    return this.#single === undefined ? this.#values?.size ?? 0 : 1;
-  }
-
-  public get [Symbol.toStringTag](): string {
-    return "Set";
-  }
-
-  public has(value: Node): boolean {
-    return this.#single === undefined
-      ? this.#values?.has(value) ?? false
-      : this.#single === value;
-  }
-
-  public *entries(): SetIterator<[Node, Node]> {
-    if (this.#single !== undefined) {
-      yield [this.#single, this.#single];
-      return;
-    }
-    yield* this.#values?.entries() ?? [];
-  }
-
-  public keys(): SetIterator<Node> {
-    return this.values();
-  }
-
-  public *values(): SetIterator<Node> {
-    if (this.#single !== undefined) {
-      yield this.#single;
-      return;
-    }
-    yield* this.#values?.values() ?? [];
-  }
-
-  public [Symbol.iterator](): SetIterator<Node> {
-    return this.values();
-  }
-
-  public forEach(
-    callback: (value: Node, value2: Node, set: ReadonlySet<Node>) => void,
-    thisArg?: unknown,
-  ): void {
-    for (const value of this) {
-      callback.call(thisArg, value, value, this);
+export function sealResolutions(
+  ...sources: readonly Iterable<MutableCallableValueResolution>[]
+): void {
+  const sealed = new Set<MutableCallableValueResolution>();
+  for (const source of sources) {
+    for (const resolution of source) {
+      if (!sealed.has(resolution)) {
+        resolution.seal();
+        sealed.add(resolution);
+      }
     }
   }
 }
-
-const emptyImmutableNodeSet: ReadonlySet<Node> = new ImmutableNodeSet(
-  new Set(),
-);
 
 function mergeDependencyEvidence(
   target: MutableCallableValueResolution,

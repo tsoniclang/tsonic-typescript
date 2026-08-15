@@ -31,7 +31,7 @@ export interface ReturnCallFlow {
   directDeclaration(call: Node): Node | undefined;
   isDefinitelyNonThenable(
     value: ReturnProofValue,
-    declarations: ReadonlySet<Node>,
+    declarations: Iterable<Node>,
     expressionProof: ReturnExpressionProof,
     pendingDeclarations: Set<Node>,
     settledDeclarations?: ReadonlySet<Node>,
@@ -41,7 +41,7 @@ export interface ReturnCallFlow {
 export function createReturnCallFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  settledCallDeclarations: (call: Node) => ReadonlySet<Node>,
+  settledCallDeclarations: (call: Node) => Iterable<Node>,
 ): ReturnCallFlow {
   const directDeclarations = new Map<Node, Node | null>();
   const returns = new Map<Node, readonly (Node | undefined)[]>();
@@ -61,7 +61,7 @@ export function createReturnCallFlow(
     },
     isDefinitelyNonThenable(
       value: ReturnProofValue,
-      declarations: ReadonlySet<Node>,
+      declarations: Iterable<Node>,
       expressionProof: ReturnExpressionProof,
       pendingDeclarations: Set<Node>,
       settledDeclarations?: ReadonlySet<Node>,
@@ -231,9 +231,9 @@ function callableDeclarationIsInspectable(
 function exactCallDeclarations(
   source: TargetSourceProgram,
   value: ReturnProofValue,
-  declarations: ReadonlySet<Node>,
+  declarations: Iterable<Node>,
   settledDeclarations: ReadonlySet<Node> | undefined,
-  settledCallDeclarations: (call: Node) => ReadonlySet<Node>,
+  settledCallDeclarations: (call: Node) => Iterable<Node>,
 ): readonly Node[] {
   const selected = new Set(declarations);
   const semantics = source.semantics.forNode(value.expression);

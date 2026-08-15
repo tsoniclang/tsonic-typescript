@@ -23,16 +23,23 @@ import {
 } from "./syntax.js";
 
 export interface CallableValueInputs {
-  readonly values: ReadonlyMap<Node, readonly Node[]>;
-  readonly closed: ReadonlySet<Node>;
   readonly contracts: readonly CallableCollectionContract[];
   readonly storageContracts: readonly CallableStorageContract[];
+  valuesFor(declaration: Node): readonly Node[] | undefined;
+  isClosed(declaration: Node): boolean;
 }
 
 interface ReferenceCounts {
   total: number;
   admitted: number;
 }
+
+const equalityObservationOperators = new Set([
+  "KindEqualsEqualsToken",
+  "KindExclamationEqualsToken",
+  "KindEqualsEqualsEqualsToken",
+  "KindExclamationEqualsEqualsToken",
+]);
 
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
@@ -134,10 +141,7 @@ export function collectCallableValueInputs(
     );
   }
 
-  const closed = new Set<Node>([
-    ...collections.closed,
-    ...storage.closed,
-  ]);
+  const constructorClosed = new Set<Node>();
   for (const [constructor, classDeclaration] of constructorClasses) {
     const classCounts = classReferences.get(classDeclaration);
     if (
@@ -160,24 +164,26 @@ export function collectCallableValueInputs(
         propertyCounts.total === propertyCounts.admitted &&
         propertyCounts.admitted !== 0
       ) {
-        closed.add(parameter);
+        constructorClosed.add(parameter);
       }
     }
   }
-  for (const [declaration, values] of collections.values) {
-    mutableValues.set(declaration, [...values]);
-  }
-  for (const [declaration, values] of storage.values) {
-    mutableValues.set(declaration, [...values]);
+  for (const values of mutableValues.values()) {
+    Object.freeze(values);
   }
   return Object.freeze({
-    values: new Map([...mutableValues].map(([key, values]) => [
-      key,
-      Object.freeze(values),
-    ])),
-    closed,
     contracts: collections.contracts,
     storageContracts: storage.contracts,
+    valuesFor(declaration: Node): readonly Node[] | undefined {
+      return storage.values.get(declaration) ??
+        collections.values.get(declaration) ??
+        mutableValues.get(declaration);
+    },
+    isClosed(declaration: Node): boolean {
+      return storage.closed.has(declaration) ||
+        collections.closed.has(declaration) ||
+        constructorClosed.has(declaration);
+    },
   });
 }
 
@@ -292,12 +298,9 @@ function isCallablePresenceObservation(
     }
     if (
       !source.ast.is.IsBinaryExpression(parent) ||
-      !new Set([
-        "KindEqualsEqualsToken",
-        "KindExclamationEqualsToken",
-        "KindEqualsEqualsEqualsToken",
-        "KindExclamationEqualsEqualsToken",
-      ]).has(source.ast.operatorKindName(parent) ?? "")
+      !equalityObservationOperators.has(
+        source.ast.operatorKindName(parent) ?? "",
+      )
     ) {
       return false;
     }

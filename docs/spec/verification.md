@@ -132,9 +132,10 @@ structural representation assertion; increasing the memory guard is not an
 accepted repair.
 
 Callable-resolution sealing proves ownership transfer directly: finalized
-dependency views expose no `add` or `delete`, the former mutable owner rejects
-all later mutation and a second seal, and its finalized contents remain exact.
-A mutation that restores per-resolution array copies must also fail the guarded
+resolution interfaces expose neither backing collection, the former mutable
+owner rejects all later mutation and a second seal, and its finalized iterators
+remain exact. A mutation that restores per-resolution result objects, set
+facades, array copies, or object-freezing passes must also fail the guarded
 whole-product memory gate at the committed Node heap limit.
 
 ## Composition And Transaction Proof

@@ -24,13 +24,13 @@ import {
   closeResolutionFromSynchronousCalls,
   closeSynchronousDependencies,
   emptyResolution,
+  sealResolutions,
   markResolutionUnclosed,
   mergeResolution,
   type MutableCallableValueResolution,
   resolutionHasDependencies,
   resolutionIsClosed,
   resolutionWith,
-  sealResolution,
   synchronousResolutionWith,
   unresolved,
 } from "./value-resolution.js";
@@ -38,14 +38,11 @@ import type { CallableValueResolution } from "./value-resolution.js";
 
 export type { CallableValueResolution } from "./value-resolution.js";
 
-export interface CallableValueCall {
-  readonly call: Node;
-  readonly resolution: CallableValueResolution;
-}
-
 export interface CallableValueFlow {
-  readonly calls: readonly CallableValueCall[];
   readonly signatureFamilies: readonly (readonly Node[])[];
+  forEachCall(
+    visitor: (call: Node, resolution: CallableValueResolution) => void,
+  ): void;
   resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
   allowsCandidateReference(node: Node): boolean;
   settledReturnTypes(
@@ -65,6 +62,11 @@ interface ReturnedContractResolution {
   readonly resolution: MutableResolution;
 }
 
+interface DirectResolutionCache {
+  readonly candidates: Map<Node, MutableResolution>;
+  readonly synchronous: Map<Node, MutableResolution>;
+}
+
 export function createCallableValueFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
@@ -78,6 +80,10 @@ export function createCallableValueFlow(
   const mutableResolutions = new Map<Node, MutableResolution>();
   const callsByOwner = new Map<Node, MutableResolution[]>();
   const returnedContracts = new Map<Node, ReturnedContractResolution>();
+  const directResolutions: DirectResolutionCache = {
+    candidates: new Map(),
+    synchronous: new Map(),
+  };
   for (const node of program.nodesOfKind(KindCallExpression)) {
     const resolution = resolveCall(
       source,
@@ -88,6 +94,7 @@ export function createCallableValueFlow(
       results,
       returnedContracts,
       allowedCandidateReferences,
+      directResolutions,
     );
     if (resolution !== undefined) {
       mutableResolutions.set(node, resolution);
@@ -143,12 +150,13 @@ export function createCallableValueFlow(
     }
   );
   closeSynchronousDependencies(mutableResolutions.values(), callsByOwner);
-  const contractResolutionSet = new Set([
-    ...contractResolutions.map(({ resolution }) => resolution),
-    ...storageContractResolutions.map(({ resolution }) => resolution),
-    ...[...returnedContracts.values()].map(({ resolution }) => resolution),
-  ]);
-  for (const resolution of contractResolutionSet) {
+  for (const { resolution } of contractResolutions) {
+    closeResolutionFromSynchronousCalls(resolution, callsByOwner);
+  }
+  for (const { resolution } of storageContractResolutions) {
+    closeResolutionFromSynchronousCalls(resolution, callsByOwner);
+  }
+  for (const { resolution } of returnedContracts.values()) {
     closeResolutionFromSynchronousCalls(resolution, callsByOwner);
   }
   const returnTypeContracts = new Map<Node, MutableReturnTypeContract>();
@@ -165,61 +173,39 @@ export function createCallableValueFlow(
       appendReturnTypeContract(returnTypeContracts, returnType, resolution);
     }
   }
-  const sealedResolutions = new Map<
-    MutableResolution,
-    CallableValueResolution
-  >();
-  const sealedResolution = (resolution: MutableResolution) => {
-    const existing = sealedResolutions.get(resolution);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const sealed = sealResolution(resolution);
-    sealedResolutions.set(resolution, sealed);
-    return sealed;
-  };
-  const resolutions = new Map(
-    [...mutableResolutions].map(([call, resolution]) => [
-      call,
-      sealedResolution(resolution),
-    ]),
+  sealResolutions(
+    mutableResolutions.values(),
+    contractResolutions.map(({ resolution }) => resolution),
+    storageContractResolutions.map(({ resolution }) => resolution),
+    [...returnedContracts.values()].map(({ resolution }) => resolution),
   );
-  const calls = Object.freeze([...resolutions].map(([call, resolution]) =>
-    Object.freeze({ call, resolution })
-  ));
-  const sealedContractResolutions = contractResolutions.map((contract) =>
-    Object.freeze({
-      returnType: contract.returnType,
-      resolution: sealedResolution(contract.resolution),
-    })
-  );
-  const sealedReturnTypeContracts = [...returnTypeContracts.values()].map(
-    (contract) => Object.freeze({
-      rewrite: contract.rewrite,
-      resolutions: Object.freeze(
-        contract.resolutions.map(sealedResolution),
-      ),
-    }),
-  );
-  const signatureFamilies = Object.freeze(sealedContractResolutions
+  const signatureFamilies = Object.freeze(contractResolutions
     .filter(({ resolution }) => resolution.closed)
-    .map(({ resolution }) => Object.freeze([...resolution.dependencies]))
+    .map(({ resolution }) =>
+      Object.freeze([...resolution.dependencyNodes()])
+    )
     .filter((family) => family.length !== 0));
   return Object.freeze({
-    calls,
     signatureFamilies,
+    forEachCall(
+      visitor: (call: Node, resolution: CallableValueResolution) => void,
+    ): void {
+      for (const [call, resolution] of mutableResolutions) {
+        visitor(call, resolution);
+      }
+    },
     resolutionFor(call: Node | undefined) {
-      return call === undefined ? undefined : resolutions.get(call);
+      return call === undefined ? undefined : mutableResolutions.get(call);
     },
     allowsCandidateReference(node: Node) {
       return allowedCandidateReferences.has(node);
     },
     settledReturnTypes(optimized: ReadonlySet<Node>) {
-      return Object.freeze(sealedReturnTypeContracts
+      return Object.freeze([...returnTypeContracts.values()]
         .filter(({ resolutions }) =>
           resolutions.every((resolution) =>
             resolution.closed &&
-            allDependenciesAreOptimized(resolution.dependencies, optimized)
+            allDependenciesAreOptimized(resolution, optimized)
           )
         )
         .map(({ rewrite }) => rewrite));
@@ -228,10 +214,10 @@ export function createCallableValueFlow(
 }
 
 function allDependenciesAreOptimized(
-  dependencies: ReadonlySet<Node>,
+  resolution: CallableValueResolution,
   optimized: ReadonlySet<Node>,
 ): boolean {
-  for (const dependency of dependencies) {
+  for (const dependency of resolution.dependencyNodes()) {
     if (!optimized.has(dependency)) {
       return false;
     }
@@ -248,6 +234,7 @@ function resolveCall(
   results: ReturnType<typeof createCallableResultInputs>,
   returnedContracts: Map<Node, ReturnedContractResolution>,
   allowedCandidateReferences: Set<Node>,
+  directResolutions: DirectResolutionCache,
 ): MutableResolution | undefined {
   const signature = source.semantics.forNode(call).getResolvedSignature(call);
   const declaration = source.semantics.forNode(call)
@@ -275,17 +262,27 @@ function resolveCall(
     );
   if (declaration !== undefined) {
     if (candidates.has(declaration)) {
-      const result = resolutionWith(declaration);
-      if (transported !== undefined) {
-        mergeResolution(result, transported);
+      if (transported === undefined) {
+        return cachedDirectResolution(
+          directResolutions.candidates,
+          declaration,
+          resolutionWith,
+        );
       }
+      const result = resolutionWith(declaration);
+      mergeResolution(result, transported);
       return result;
     }
     if (resolvedCallUsesSynchronousTransport(source, call)) {
-      const result = synchronousResolutionWith(declaration);
-      if (transported !== undefined) {
-        mergeResolution(result, transported);
+      if (transported === undefined) {
+        return cachedDirectResolution(
+          directResolutions.synchronous,
+          declaration,
+          synchronousResolutionWith,
+        );
       }
+      const result = synchronousResolutionWith(declaration);
+      mergeResolution(result, transported);
       return result;
     }
   }
@@ -308,6 +305,20 @@ function resolveCall(
     : undefined;
 }
 
+function cachedDirectResolution(
+  cache: Map<Node, MutableResolution>,
+  declaration: Node,
+  create: (declaration: Node) => MutableResolution,
+): MutableResolution {
+  const existing = cache.get(declaration);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const resolution = create(declaration);
+  cache.set(declaration, resolution);
+  return resolution;
+}
+
 function resolveDeclaration(
   source: TargetSourceProgram,
   declaration: Node,
@@ -328,8 +339,8 @@ function resolveDeclaration(
   if (callableUsesSynchronousTransport(source, declaration)) {
     return synchronousResolutionWith(declaration);
   }
-  const values = inputs.values.get(declaration);
-  if (values === undefined || !inputs.closed.has(declaration)) {
+  const values = inputs.valuesFor(declaration);
+  if (values === undefined || !inputs.isClosed(declaration)) {
     return unresolved();
   }
   pending.add(declaration);
