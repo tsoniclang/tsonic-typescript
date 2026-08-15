@@ -187,11 +187,14 @@ export function createClosedPointerFlowPlan(
       if (node === undefined) {
         return undefined;
       }
+      const direct = representations.get(node);
+      if (direct !== undefined || !source.ast.is.IsIdentifier(node)) {
+        return direct;
+      }
       const reference = source.navigation.sourceReferenceFor(node);
-      return representations.get(node) ??
-        (reference === undefined
-          ? undefined
-          : representations.get(reference.declaration));
+      return reference === undefined
+        ? undefined
+        : representations.get(reference.declaration);
     },
     representationFor(node: Node | undefined): PointerFlowRepresentation {
       return node === undefined

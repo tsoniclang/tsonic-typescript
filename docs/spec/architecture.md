@@ -134,6 +134,8 @@ before either family rewrites the tree. It may not infer the distinction from
 the `Pointer` spelling, object shape, or component membership alone.
 The canonical representation map is the sole value-membership owner; no second
 pointer-value index or retained checker-node set may duplicate it.
+Lookup checks that map first and resolves only an exact identifier reference
+when needed; unrelated return syntax may not trigger broad checker navigation.
 
 The decision order is:
 
