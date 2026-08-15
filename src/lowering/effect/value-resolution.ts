@@ -105,6 +105,20 @@ export function closeSynchronousDependencies(
   }
 }
 
+export function closeResolutionFromSynchronousCalls(
+  resolution: MutableCallableValueResolution,
+  callsByOwner: ReadonlyMap<
+    Node,
+    readonly MutableCallableValueResolution[]
+  >,
+): void {
+  for (const declaration of resolution.synchronousDeclarations) {
+    for (const nested of callsByOwner.get(declaration) ?? []) {
+      mergeDependencyEvidence(resolution, nested);
+    }
+  }
+}
+
 export function sealResolution(
   resolution: MutableCallableValueResolution,
 ): CallableValueResolution {

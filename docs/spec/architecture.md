@@ -254,6 +254,14 @@ that identity, and rewrites it only when the combined dependency closure
 settles. It may not settle a returned implementation while leaving its
 producer or consumer signature awaitable.
 
+Synchronous-call dependency closure is computed once over the canonical call
+resolutions. Collection, storage, and returned-callable contracts project from
+those already-closed resolutions and retain references to their own immutable
+evidence; they do not create a second reverse dependency graph or copy merged
+dependency sets per contract. This keeps contract evidence proportional to
+authored contracts plus canonical calls even when many contracts share one
+forwarder.
+
 Callable storage may be a public mutable constructor field when the nominal
 class remains a closed project-owned value family. The owner proof inventories
 every exact construction, class-value reference, field write/read/transfer,

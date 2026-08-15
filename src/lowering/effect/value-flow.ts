@@ -21,6 +21,7 @@ import {
 import type { CallableReturnRewrite } from "./callable-contract.js";
 import { createCallableResultInputs } from "./callable-result-inputs.js";
 import {
+  closeResolutionFromSynchronousCalls,
   closeSynchronousDependencies,
   emptyResolution,
   mergeResolution,
@@ -53,7 +54,7 @@ type MutableResolution = MutableCallableValueResolution;
 
 interface MutableReturnTypeContract {
   readonly rewrite: CallableReturnRewrite;
-  readonly resolution: MutableResolution;
+  readonly resolutions: MutableResolution[];
 }
 
 interface ReturnedContractResolution {
@@ -138,6 +139,15 @@ export function createCallableValueFlow(
       };
     }
   );
+  closeSynchronousDependencies(mutableResolutions.values(), callsByOwner);
+  const contractResolutionSet = new Set([
+    ...contractResolutions.map(({ resolution }) => resolution),
+    ...storageContractResolutions.map(({ resolution }) => resolution),
+    ...[...returnedContracts.values()].map(({ resolution }) => resolution),
+  ]);
+  for (const resolution of contractResolutionSet) {
+    closeResolutionFromSynchronousCalls(resolution, callsByOwner);
+  }
   const returnTypeContracts = new Map<Node, MutableReturnTypeContract>();
   for (const { returnType, resolution } of contractResolutions) {
     appendReturnTypeContract(returnTypeContracts, returnType, resolution);
@@ -152,17 +162,23 @@ export function createCallableValueFlow(
       appendReturnTypeContract(returnTypeContracts, returnType, resolution);
     }
   }
-  closeSynchronousDependencies([
-    ...mutableResolutions.values(),
-    ...contractResolutions.map(({ resolution }) => resolution),
-    ...storageContractResolutions.map(({ resolution }) => resolution),
-    ...[...returnedContracts.values()].map(({ resolution }) => resolution),
-    ...[...returnTypeContracts.values()].map(({ resolution }) => resolution),
-  ], callsByOwner);
+  const sealedResolutions = new Map<
+    MutableResolution,
+    CallableValueResolution
+  >();
+  const sealedResolution = (resolution: MutableResolution) => {
+    const existing = sealedResolutions.get(resolution);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const sealed = sealResolution(resolution);
+    sealedResolutions.set(resolution, sealed);
+    return sealed;
+  };
   const resolutions = new Map(
     [...mutableResolutions].map(([call, resolution]) => [
       call,
-      sealResolution(resolution),
+      sealedResolution(resolution),
     ]),
   );
   const calls = Object.freeze([...resolutions].map(([call, resolution]) =>
@@ -171,13 +187,15 @@ export function createCallableValueFlow(
   const sealedContractResolutions = contractResolutions.map((contract) =>
     Object.freeze({
       returnType: contract.returnType,
-      resolution: sealResolution(contract.resolution),
+      resolution: sealedResolution(contract.resolution),
     })
   );
   const sealedReturnTypeContracts = [...returnTypeContracts.values()].map(
     (contract) => Object.freeze({
       rewrite: contract.rewrite,
-      resolution: sealResolution(contract.resolution),
+      resolutions: Object.freeze(
+        contract.resolutions.map(sealedResolution),
+      ),
     }),
   );
   const signatureFamilies = Object.freeze(sealedContractResolutions
@@ -195,9 +213,11 @@ export function createCallableValueFlow(
     },
     settledReturnTypes(optimized: ReadonlySet<Node>) {
       return Object.freeze(sealedReturnTypeContracts
-        .filter(({ resolution }) =>
-          resolution.closed &&
-          resolution.dependencies.every((dependency) => optimized.has(dependency))
+        .filter(({ resolutions }) =>
+          resolutions.every((resolution) =>
+            resolution.closed &&
+            resolution.dependencies.every((dependency) => optimized.has(dependency))
+          )
         )
         .map(({ rewrite }) => rewrite));
     },
@@ -490,9 +510,7 @@ function appendReturnTypeContract(
 ): void {
   const existing = target.get(rewrite.target);
   if (existing === undefined) {
-    const combined = emptyResolution();
-    mergeResolution(combined, resolution);
-    target.set(rewrite.target, { rewrite, resolution: combined });
+    target.set(rewrite.target, { rewrite, resolutions: [resolution] });
     return;
   }
   if (
@@ -501,7 +519,9 @@ function appendReturnTypeContract(
   ) {
     throw new Error("callable return contract has conflicting exact selections");
   }
-  mergeResolution(existing.resolution, resolution);
+  if (!existing.resolutions.includes(resolution)) {
+    existing.resolutions.push(resolution);
+  }
 }
 
 function appendResolution(

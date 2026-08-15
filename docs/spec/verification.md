@@ -118,6 +118,9 @@ contracts to be consumed exactly once, and strict product typechecking proves
 the rewritten producer remains assignable to every rewritten consumer. A
 mutation that omits only the producer's nested return rewrite must fail that
 proof rather than ship a partially settled flow.
+The whole-product memory guard also distinguishes one canonical synchronous
+call closure from a dense contract-to-call reverse graph; retrying with a larger
+heap is not an accepted repair.
 Mutations that add a producer-binding write or a derived override retain the
 complete flow. The AST proof separately distinguishes a fresh returned
 function expression from an existing function-valued reference, so freshness
