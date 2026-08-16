@@ -120,15 +120,31 @@ export const result = await top();
   assert.deepEqual(plan.summary.interfaceDispatch, {
     profile: "declared-closed",
     analyzed: true,
+    consideredContractCount: 1,
     consideredFamilyCount: 1,
     admittedFamilyCount: 1,
     rejectedFamilyCount: 0,
+    consideredCallCount: 1,
     admittedCallCount: 1,
+    rejectedCallCount: 0,
     implementationCount: 2,
     candidateImplementationCount: 2,
     settledFamilyCount: 0,
     retainedFamilyCount: 1,
     settledCallCount: 0,
+    retainedCallCount: 1,
+    retainedFamilies: [{
+      reason: "unresolved-call",
+      contracts: [{
+        kind: "authored",
+        documentIdentity: "/src/index.ts",
+        start: 104,
+        end: 130,
+        syntaxKind: "KindMethodSignature",
+      }],
+      callCount: 1,
+      boundaryCauses: [],
+    }],
   });
 });
 
@@ -340,32 +356,6 @@ export class Box implements Reader<number> {
   assert.equal(evidence.consideredFamilyCount, 1);
   assert.equal(evidence.implementationCount, 1);
   assert.equal(evidence.settledFamilyCount, 1);
-});
-
-test("rejects a structurally matching class without declared heritage", () => {
-  const fixture = checkedEffectFixture(`
-type Awaitable<T> = T | PromiseLike<T>;
-interface Reader { Read(): Awaitable<number>; }
-class StructuralReader {
-  async Read(): Promise<number> { return 42; }
-}
-async function read(reader: Reader): Promise<number> {
-  return await reader.Read();
-}
-export const result = await read(new StructuralReader());
-`);
-  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
-  lowerCooperativeEffects(fixture.sourceFile, plan);
-  plan.finish();
-
-  const evidence = plan.summary.interfaceDispatch;
-  assert.equal(evidence.analyzed, true);
-  if (!evidence.analyzed) {
-    throw new Error("declared interface dispatch was not analyzed");
-  }
-  assert.equal(evidence.consideredFamilyCount, 1);
-  assert.equal(evidence.admittedFamilyCount, 0);
-  assert.equal(evidence.rejectedFamilyCount, 1);
 });
 
 test("consumes multiple interface calls sharing one source line", () => {

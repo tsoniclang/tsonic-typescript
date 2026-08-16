@@ -21,6 +21,7 @@ import {
   retainUnprovenInterfaceIngress,
 } from "./interface-contract-ingress.js";
 import type { InterfaceContractRelevance } from "./interface-contract-relevance.js";
+import type { InterfaceContractBoundaryReason } from "./interface-contract-boundary.js";
 import { callCrossesOpaqueInterfaceBoundary } from "./interface-contract-transport-context.js";
 
 export interface InterfaceCallTransportSink {
@@ -31,7 +32,12 @@ export interface InterfaceCallTransportSink {
     sourceExpression: Node,
     crossesOpaqueCall: boolean,
   ): void;
-  markExposedContracts(semantics: SourceFileSemantics, root: Type): void;
+  markExposedContracts(
+    semantics: SourceFileSemantics,
+    root: Type,
+    occurrence: Node,
+    reason: InterfaceContractBoundaryReason,
+  ): void;
 }
 
 export function collectInterfaceCallTransports(
@@ -46,7 +52,7 @@ export function collectInterfaceCallTransports(
     for (const node of program.nodesOfKind(kind)) {
       const semantics = source.semantics.forNode(node);
       const call = semantics.getResolvedCallInfo(node);
-      retainOpenInterfaceReceiver(semantics, call, ingress);
+      retainOpenInterfaceReceiver(semantics, node, call, ingress);
       processCallTransports(
         source,
         semantics,
@@ -88,7 +94,12 @@ function processCallTransports(
   if (transportTypes.some((type) => relevance.contains(semantics, type))) {
     if (!callHasExactPositionalBindings(source, node, call, declaration)) {
       for (const type of transportTypes) {
-        sink.markExposedContracts(semantics, type);
+        sink.markExposedContracts(
+          semantics,
+          type,
+          node,
+          "inexact-call-bindings",
+        );
       }
     } else {
       for (const binding of call.sourceArgumentBindings) {
@@ -144,7 +155,12 @@ function retainUnresolvedCallTransports(
   });
   if (types.some((type) => relevance.contains(semantics, type))) {
     for (const type of types) {
-      sink.markExposedContracts(semantics, type);
+      sink.markExposedContracts(
+        semantics,
+        type,
+        node,
+        "unresolved-call-transport",
+      );
     }
   }
 }
@@ -207,6 +223,11 @@ function retainOpaqueCallResult(
     }
   }
   if (crossesOpaqueCall && relevance.contains(semantics, call.sourceResultType)) {
-    sink.markExposedContracts(semantics, call.sourceResultType);
+    sink.markExposedContracts(
+      semantics,
+      call.sourceResultType,
+      node,
+      "opaque-call-transport",
+    );
   }
 }

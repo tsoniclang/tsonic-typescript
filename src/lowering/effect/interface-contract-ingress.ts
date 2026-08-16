@@ -14,11 +14,12 @@ import {
 import { callCrossesOpaqueInterfaceBoundary } from "./interface-contract-transport-context.js";
 import { transparentExpression } from "./syntax.js";
 import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
+import type { InterfaceContractBoundaryLedger } from "./interface-contract-boundary.js";
 
 export interface InterfaceContractIngress {
   readonly source: TargetSourceProgram;
   readonly entries: InterfaceContractMembership;
-  readonly boundaries: Set<Node>;
+  readonly boundaries: InterfaceContractBoundaryLedger;
   readonly relevance: InterfaceContractRelevance;
   readonly transports?: StorageOwnerTransportContract;
 }
@@ -47,20 +48,29 @@ export function retainUnprovenInterfaceIngress(
       !ingress.source.ast.isDeclarationFile(sourceFile)
     ) {
       for (const contract of targetContracts) {
-        ingress.boundaries.add(contract);
+        ingress.boundaries.mark(
+          contract,
+          "unproven-value-origin",
+          expression,
+        );
       }
     }
     return;
   }
   for (const contract of sourceContracts) {
     if (!interfaceValueOriginIsClosed(expression, contract, ingress)) {
-      ingress.boundaries.add(contract);
+      ingress.boundaries.mark(
+        contract,
+        "unproven-value-origin",
+        expression,
+      );
     }
   }
 }
 
 export function retainOpenInterfaceReceiver(
   semantics: SourceFileSemantics,
+  callNode: Node,
   call: ResolvedSourceCallInfo | undefined,
   ingress: InterfaceContractIngress,
 ): void {
@@ -77,7 +87,11 @@ export function retainOpenInterfaceReceiver(
     receiver === undefined ||
     !interfaceValueOriginIsClosed(receiver, declaration, ingress)
   ) {
-    ingress.boundaries.add(declaration);
+    ingress.boundaries.mark(
+      declaration,
+      "open-interface-receiver",
+      receiver ?? callNode,
+    );
   }
 }
 

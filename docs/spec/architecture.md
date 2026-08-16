@@ -435,6 +435,16 @@ accumulate several blocking facts, but evidence assigns one canonical reason
 using the pinned reason-catalog order. Direct causes remain separately counted
 and source-located; their sum is not the retained denominator.
 
+Interface evidence counts contract declarations, connected families, and calls
+as separate denominators. Every considered family is exactly one settled or
+retained row. Rejected families are retained rows, not omissions from the
+denominator. Each retained row records its complete authored contract identity
+set, call count, and one closed typed reason selected by the owning decision;
+aggregate admitted/rejected counts are projections of those decisions, never a
+substitute for them. Interface-boundary retention additionally records every
+direct boundary cause with a closed reason and exact authored occurrence; a
+boolean boundary flag is only a projection of that ledger.
+
 ## Human-Shaped Output
 
 Generated TypeScript should look like a careful human translation whenever the

@@ -8,11 +8,19 @@ import {
 import type { TargetProgramIndex } from "../program-index.js";
 import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../profile.js";
+import {
+  compareOptimizationOccurrences,
+  optimizationOccurrence,
+  type OptimizationOccurrence,
+  type SourceIdentityResolver,
+} from "../occurrence.js";
 import type { CallableReturnRewrite } from "./callable-contract.js";
 import type { CooperativeEffectCandidate } from "./candidate-inventory.js";
 import {
   blockCooperativeEffect,
+  cooperativeEffectFallbackReasons,
   type CooperativeEffectFallbackReason,
+  type CooperativeEffectRetentionDecisions,
 } from "./fallback.js";
 import {
   callableBodyResultIsDefinitelyNonThenable,
@@ -21,6 +29,7 @@ import {
   createInterfaceContractGraph,
   type InterfaceContractComponent,
 } from "./interface-contract-graph.js";
+import type { InterfaceContractBoundaryCause } from "./interface-contract-boundary.js";
 import { declaredInterfaceMemberImplementation } from "./interface-contract-member.js";
 
 export interface DeclaredInterfaceDispatchFamily {
@@ -34,6 +43,7 @@ export interface DeclaredInterfaceDispatchFamily {
 
 export interface DeclaredInterfaceDispatch {
   readonly profile: TypeScriptInterfaceDispatchProfile;
+  readonly consideredContractCount: number;
   readonly consideredFamilyCount: number;
   readonly rejectedFamilyCount: number;
   readonly families: readonly DeclaredInterfaceDispatchFamily[];
@@ -51,7 +61,38 @@ export interface DeclaredInterfaceDispatch {
   settledReturnTypes(
     optimized: ReadonlySet<Node>,
   ): readonly CallableReturnRewrite[];
-  evidence(optimized: ReadonlySet<Node>): InterfaceDispatchEvidence;
+  evidence(
+    optimized: ReadonlySet<Node>,
+    retentions: CooperativeEffectRetentionDecisions,
+  ): InterfaceDispatchEvidence;
+}
+
+export const interfaceDispatchRejectionReasons = Object.freeze([
+  "open-ingress",
+  "incomplete-heritage",
+  "missing-implementer",
+  "unsupported-implementer",
+  "missing-implementation",
+  "unproven-synchronous-implementation",
+] as const);
+
+export type InterfaceDispatchRejectionReason =
+  typeof interfaceDispatchRejectionReasons[number];
+
+export type InterfaceDispatchRetentionReason =
+  | InterfaceDispatchRejectionReason
+  | CooperativeEffectFallbackReason;
+
+export interface InterfaceDispatchRetentionEvidence {
+  readonly reason: InterfaceDispatchRetentionReason;
+  readonly contracts: readonly OptimizationOccurrence[];
+  readonly callCount: number;
+  readonly boundaryCauses: readonly InterfaceDispatchBoundaryCauseEvidence[];
+}
+
+export interface InterfaceDispatchBoundaryCauseEvidence {
+  readonly reason: InterfaceContractBoundaryCause["reason"];
+  readonly occurrences: readonly OptimizationOccurrence[];
 }
 
 export type InterfaceDispatchEvidence =
@@ -66,15 +107,20 @@ export type InterfaceDispatchEvidence =
   | {
       readonly profile: "declared-closed";
       readonly analyzed: true;
+      readonly consideredContractCount: number;
       readonly consideredFamilyCount: number;
       readonly admittedFamilyCount: number;
       readonly rejectedFamilyCount: number;
+      readonly consideredCallCount: number;
       readonly admittedCallCount: number;
+      readonly rejectedCallCount: number;
       readonly implementationCount: number;
       readonly candidateImplementationCount: number;
       readonly settledFamilyCount: number;
       readonly retainedFamilyCount: number;
       readonly settledCallCount: number;
+      readonly retainedCallCount: number;
+      readonly retainedFamilies: readonly InterfaceDispatchRetentionEvidence[];
     };
 
 interface HeritageIndex {
@@ -82,36 +128,65 @@ interface HeritageIndex {
   readonly complete: boolean;
 }
 
+interface RejectedInterfaceDispatchFamily {
+  readonly component: InterfaceContractComponent;
+  readonly reason: InterfaceDispatchRejectionReason;
+}
+
+type InterfaceDispatchFamilyResolution =
+  | {
+      readonly kind: "admitted";
+      readonly family: DeclaredInterfaceDispatchFamily;
+    }
+  | {
+      readonly kind: "rejected";
+      readonly reason: Exclude<
+        InterfaceDispatchRejectionReason,
+        "open-ingress" | "incomplete-heritage"
+      >;
+    };
+
 export function createDeclaredInterfaceDispatch(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
   profile: TypeScriptInterfaceDispatchProfile,
   transports?: StorageOwnerTransportContract,
+  sourceIdentityFor: SourceIdentityResolver = (sourceFile) =>
+    source.documents.forFile(sourceFile).identity,
 ): DeclaredInterfaceDispatch {
   if (profile === "open-structural") {
-    return createResult(profile, 0, 0, []);
+    return createResult(source, sourceIdentityFor, profile, 0, 0, [], []);
   }
   const graph = createInterfaceContractGraph(source, program, transports);
   const heritage = collectHeritageIndex(source, program);
   const families: DeclaredInterfaceDispatchFamily[] = [];
-  let rejectedFamilyCount = 0;
+  const rejected: RejectedInterfaceDispatchFamily[] = [];
   for (const component of graph.components) {
-    const family = heritage.complete && !component.boundary
-      ? resolveFamily(source, candidates, heritage, component)
-      : undefined;
-    if (family === undefined) {
-      rejectedFamilyCount += 1;
+    if (component.boundary) {
+      rejected.push({ component, reason: "open-ingress" });
       continue;
     }
-    connectFamily(family.candidates);
-    families.push(family);
+    if (!heritage.complete) {
+      rejected.push({ component, reason: "incomplete-heritage" });
+      continue;
+    }
+    const resolution = resolveFamily(source, candidates, heritage, component);
+    if (resolution.kind === "rejected") {
+      rejected.push({ component, reason: resolution.reason });
+      continue;
+    }
+    connectFamily(resolution.family.candidates);
+    families.push(resolution.family);
   }
   return createResult(
+    source,
+    sourceIdentityFor,
     profile,
     graph.consideredCount,
-    rejectedFamilyCount,
+    graph.components.length,
     families,
+    rejected,
   );
 }
 
@@ -201,21 +276,21 @@ function resolveFamily(
   candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
   heritage: HeritageIndex,
   component: InterfaceContractComponent,
-): DeclaredInterfaceDispatchFamily | undefined {
+): InterfaceDispatchFamilyResolution {
   const implementations = new Set<Node>();
   const selectedCandidates = new Set<CooperativeEffectCandidate>();
   for (const entry of component.entries) {
     const owner = source.ast.parent(entry.declaration);
     if (owner === undefined) {
-      return undefined;
+      return { kind: "rejected", reason: "missing-implementation" };
     }
     const classes = heritage.implementers.get(owner) ?? [];
     if (classes.length === 0 && entry.calls.length !== 0) {
-      return undefined;
+      return { kind: "rejected", reason: "missing-implementer" };
     }
     for (const declaration of classes) {
       if (!source.ast.is.IsClassDeclaration(declaration)) {
-        return undefined;
+        return { kind: "rejected", reason: "unsupported-implementer" };
       }
       const implementation = declaredInterfaceMemberImplementation(
         source,
@@ -223,7 +298,7 @@ function resolveFamily(
         entry.declaration,
       );
       if (implementation === undefined) {
-        return undefined;
+        return { kind: "rejected", reason: "missing-implementation" };
       }
       implementations.add(implementation);
       const candidate = candidates.get(implementation);
@@ -232,24 +307,30 @@ function resolveFamily(
         continue;
       }
       if (!callableBodyResultIsDefinitelyNonThenable(source, implementation)) {
-        return undefined;
+        return {
+          kind: "rejected",
+          reason: "unproven-synchronous-implementation",
+        };
       }
     }
   }
   const candidateList = Object.freeze([...selectedCandidates]);
   return Object.freeze({
-    contractDeclarations: Object.freeze(
-      component.entries.map((entry) => entry.declaration),
-    ),
-    calls: Object.freeze(component.entries.flatMap((entry) => entry.calls)),
-    implementations: Object.freeze([...implementations]),
-    candidates: candidateList,
-    ...(candidateList[0] === undefined
-      ? {}
-      : { coordinator: candidateList[0] }),
-    returnRewrites: Object.freeze(
-      component.entries.map((entry) => entry.returnRewrite),
-    ),
+    kind: "admitted",
+    family: Object.freeze({
+      contractDeclarations: Object.freeze(
+        component.entries.map((entry) => entry.declaration),
+      ),
+      calls: Object.freeze(component.entries.flatMap((entry) => entry.calls)),
+      implementations: Object.freeze([...implementations]),
+      candidates: candidateList,
+      ...(candidateList[0] === undefined
+        ? {}
+        : { coordinator: candidateList[0] }),
+      returnRewrites: Object.freeze(
+        component.entries.map((entry) => entry.returnRewrite),
+      ),
+    }),
   });
 }
 
@@ -267,10 +348,13 @@ function connectFamily(
 }
 
 function createResult(
+  source: TargetSourceProgram,
+  sourceIdentityFor: SourceIdentityResolver,
   profile: TypeScriptInterfaceDispatchProfile,
+  consideredContractCount: number,
   consideredFamilyCount: number,
-  rejectedFamilyCount: number,
   families: readonly DeclaredInterfaceDispatchFamily[],
+  rejected: readonly RejectedInterfaceDispatchFamily[],
 ): DeclaredInterfaceDispatch {
   const calls = new Map<Node, DeclaredInterfaceDispatchFamily>();
   for (const family of families) {
@@ -283,8 +367,9 @@ function createResult(
   }
   return Object.freeze({
     profile,
+    consideredContractCount,
     consideredFamilyCount,
-    rejectedFamilyCount,
+    rejectedFamilyCount: rejected.length,
     families: Object.freeze([...families]),
     calls,
     addDependencies(
@@ -321,7 +406,10 @@ function createResult(
           : []
       ));
     },
-    evidence(optimized: ReadonlySet<Node>): InterfaceDispatchEvidence {
+    evidence(
+      optimized: ReadonlySet<Node>,
+      retentions: CooperativeEffectRetentionDecisions,
+    ): InterfaceDispatchEvidence {
       if (profile === "open-structural") {
         return Object.freeze({ profile, analyzed: false });
       }
@@ -330,13 +418,62 @@ function createResult(
           optimized.has(candidate.declaration)
         )
       );
+      const settledSet = new Set(settled);
+      const retainedFamilies = [
+        ...rejected.map((entry) => retentionEvidence(
+          source,
+          sourceIdentityFor,
+          entry.reason,
+          entry.component.entries.map((contract) => contract.declaration),
+          entry.component.entries.reduce(
+            (total, contract) => total + contract.calls.length,
+            0,
+          ),
+          entry.component.boundaryCauses,
+        )),
+        ...families.filter((family) => !settledSet.has(family)).map((family) =>
+          retentionEvidence(
+            source,
+            sourceIdentityFor,
+            retainedFamilyReason(family, retentions),
+            family.contractDeclarations,
+            family.calls.length,
+          )
+        ),
+      ].sort(compareRetentionEvidence);
+      const admittedCallCount = calls.size;
+      const rejectedCallCount = rejected.reduce(
+        (total, entry) => total + entry.component.entries.reduce(
+          (entryTotal, contract) => entryTotal + contract.calls.length,
+          0,
+        ),
+        0,
+      );
+      const consideredCallCount = admittedCallCount + rejectedCallCount;
+      const settledCallCount = settled.reduce(
+        (total, family) => total + family.calls.length,
+        0,
+      );
+      if (
+        consideredFamilyCount !== families.length + rejected.length ||
+        consideredFamilyCount !== settled.length + retainedFamilies.length ||
+        consideredCallCount !== settledCallCount + retainedFamilies.reduce(
+          (total, family) => total + family.callCount,
+          0,
+        )
+      ) {
+        throw new Error("interface dispatch evidence lost a decision row");
+      }
       return Object.freeze({
         profile,
         analyzed: true,
+        consideredContractCount,
         consideredFamilyCount,
         admittedFamilyCount: families.length,
-        rejectedFamilyCount,
-        admittedCallCount: calls.size,
+        rejectedFamilyCount: rejected.length,
+        consideredCallCount,
+        admittedCallCount,
+        rejectedCallCount,
         implementationCount: families.reduce(
           (total, family) => total + family.implementations.length,
           0,
@@ -346,12 +483,64 @@ function createResult(
           0,
         ),
         settledFamilyCount: settled.length,
-        retainedFamilyCount: families.length - settled.length,
-        settledCallCount: settled.reduce(
-          (total, family) => total + family.calls.length,
-          0,
-        ),
+        retainedFamilyCount: retainedFamilies.length,
+        settledCallCount,
+        retainedCallCount: consideredCallCount - settledCallCount,
+        retainedFamilies: Object.freeze(retainedFamilies),
       });
     },
   });
+}
+
+function retainedFamilyReason(
+  family: DeclaredInterfaceDispatchFamily,
+  retentions: CooperativeEffectRetentionDecisions,
+): CooperativeEffectFallbackReason {
+  for (const reason of cooperativeEffectFallbackReasons) {
+    if (family.candidates.some((candidate) => retentions.get(candidate) === reason)) {
+      return reason;
+    }
+  }
+  throw new Error("retained interface family has no canonical blocker");
+}
+
+function retentionEvidence(
+  source: TargetSourceProgram,
+  sourceIdentityFor: SourceIdentityResolver,
+  reason: InterfaceDispatchRetentionReason,
+  declarations: readonly Node[],
+  callCount: number,
+  boundaryCauses: readonly InterfaceContractBoundaryCause[] = [],
+): InterfaceDispatchRetentionEvidence {
+  const contracts = declarations.map((declaration) =>
+    optimizationOccurrence(source, declaration, sourceIdentityFor)
+  ).sort(compareOptimizationOccurrences);
+  if (contracts.length === 0) {
+    throw new Error("interface family evidence has no contract declaration");
+  }
+  return Object.freeze({
+    reason,
+    contracts: Object.freeze(contracts),
+    callCount,
+    boundaryCauses: Object.freeze(boundaryCauses.map((cause) =>
+      Object.freeze({
+        reason: cause.reason,
+        occurrences: Object.freeze(cause.occurrences.map((occurrence) =>
+          optimizationOccurrence(source, occurrence, sourceIdentityFor)
+        ).sort(compareOptimizationOccurrences)),
+      })
+    )),
+  });
+}
+
+function compareRetentionEvidence(
+  left: InterfaceDispatchRetentionEvidence,
+  right: InterfaceDispatchRetentionEvidence,
+): number {
+  const leftContract = left.contracts[0];
+  const rightContract = right.contracts[0];
+  if (leftContract === undefined || rightContract === undefined) {
+    throw new Error("interface family evidence has no canonical contract");
+  }
+  return compareOptimizationOccurrences(leftContract, rightContract);
 }

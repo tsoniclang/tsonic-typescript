@@ -16,6 +16,11 @@ import {
 import { declaredInterfaceMemberImplementation } from "./interface-contract-member.js";
 import { isExactInterfaceProjectDeclaration } from "./interface-contract-declarations.js";
 import { collectInterfaceContractTransports } from "./interface-contract-transport.js";
+import {
+  createInterfaceContractBoundaryLedger,
+  type InterfaceContractBoundaryCause,
+  type InterfaceContractBoundaryLedger,
+} from "./interface-contract-boundary.js";
 
 export interface InterfaceContractEntry {
   readonly declaration: Node;
@@ -26,6 +31,7 @@ export interface InterfaceContractEntry {
 export interface InterfaceContractComponent {
   readonly entries: readonly InterfaceContractEntry[];
   readonly boundary: boolean;
+  readonly boundaryCauses: readonly InterfaceContractBoundaryCause[];
 }
 
 export interface InterfaceContractGraph {
@@ -43,7 +49,7 @@ export interface InterfaceContractIndex {
   readonly entries: ReadonlyMap<Node, MutableInterfaceContractEntry>;
   readonly declarationContracts: ReadonlyMap<Node, readonly Node[]>;
   readonly links: Map<Node, Set<Node>>;
-  readonly boundaries: Set<Node>;
+  readonly boundaries: InterfaceContractBoundaryLedger;
 }
 
 export function createInterfaceContractGraph(
@@ -79,11 +85,11 @@ export function createInterfaceContractGraph(
         returnRewrite: entry.returnRewrite,
       });
     });
+    const boundaryCauses = contracts.boundaries.causesFor(declarations);
     components.push(Object.freeze({
       entries: Object.freeze(entries),
-      boundary: declarations.some((declaration) =>
-        contracts.boundaries.has(declaration)
-      ),
+      boundary: boundaryCauses.length !== 0,
+      boundaryCauses,
     }));
   }
   return Object.freeze({
@@ -121,7 +127,7 @@ function collectContracts(
     });
     links.set(declaration, new Set());
   }
-  const boundaries = new Set<Node>();
+  const boundaries = createInterfaceContractBoundaryLedger();
   return {
     entries,
     declarationContracts: collectDeclarationContracts(
@@ -141,7 +147,7 @@ function collectDeclarationContracts(
   program: TargetProgramIndex,
   entries: ReadonlyMap<Node, MutableInterfaceContractEntry>,
   links: Map<Node, Set<Node>>,
-  boundaries: Set<Node>,
+  boundaries: InterfaceContractBoundaryLedger,
 ): ReadonlyMap<Node, readonly Node[]> {
   const ownerContracts = new Map<Node, Node[]>();
   for (const contract of entries.keys()) {
@@ -183,7 +189,11 @@ function collectDeclarationContracts(
         contract,
       );
       if (implementation === undefined) {
-        boundaries.add(contract);
+        boundaries.mark(
+          contract,
+          "missing-member-implementation",
+          declaration,
+        );
         continue;
       }
       const selected = implementations.get(implementation);

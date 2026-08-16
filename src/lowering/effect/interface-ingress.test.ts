@@ -10,6 +10,65 @@ import {
 import { createInterfaceContractGraph } from "./interface-contract-graph.js";
 import { lowerCooperativeEffects } from "./transform.js";
 
+test("records every structural interface-ingress cause exactly", () => {
+  const sourceText = `
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class StructuralReader {
+  async Read(): Promise<number> { return 42; }
+}
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+export const result = await read(new StructuralReader());
+`;
+  const fixture = checkedEffectFixture(sourceText);
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.consideredFamilyCount, 1);
+  assert.equal(evidence.admittedFamilyCount, 0);
+  assert.equal(evidence.rejectedFamilyCount, 1);
+  assert.equal(evidence.retainedFamilyCount, 1);
+  assert.equal(evidence.retainedCallCount, 1);
+  const structuralReaderOccurrence = {
+    kind: "authored" as const,
+    documentIdentity: "/src/index.ts",
+    start: sourceText.indexOf("new StructuralReader()"),
+    end: sourceText.indexOf("new StructuralReader()") +
+      "new StructuralReader()".length,
+    syntaxKind: "KindNewExpression" as const,
+  };
+  assert.deepEqual(evidence.retainedFamilies, [{
+    reason: "open-ingress",
+    contracts: [{
+      kind: "authored",
+      documentIdentity: "/src/index.ts",
+      start: sourceText.indexOf("Read(): Awaitable<number>;"),
+      end: sourceText.indexOf("Read(): Awaitable<number>;") +
+        "Read(): Awaitable<number>;".length,
+      syntaxKind: "KindMethodSignature",
+    }],
+    callCount: 1,
+    boundaryCauses: [
+      {
+        reason: "unproven-value-origin",
+        occurrences: [structuralReaderOccurrence],
+      },
+      {
+        reason: "untrusted-callable-member",
+        occurrences: [structuralReaderOccurrence],
+      },
+    ],
+  }]);
+});
+
 for (const [name, sourceText] of [
   [
     "an opaque result",

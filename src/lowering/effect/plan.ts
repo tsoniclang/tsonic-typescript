@@ -60,6 +60,7 @@ export function createClosedCooperativeEffectPlan(
     candidates,
     interfaceDispatch,
     transports,
+    sourceIdentityFor,
   );
   const valueFlow = createCallableValueFlow(
     source,
@@ -140,7 +141,7 @@ export function createClosedCooperativeEffectPlan(
     awaits.size,
     propagation,
     resultConsumption.evidence(),
-    interfaces.evidence(optimized),
+    interfaces.evidence(optimized, retentions),
   );
   return createCooperativeEffectPlanLifecycle(source, files, summary);
 }

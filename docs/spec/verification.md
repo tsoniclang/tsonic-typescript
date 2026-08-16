@@ -124,7 +124,13 @@ identity, leave one implementation genuinely suspending, or omit the interface
 return rewrite; each retains the family or fails its exact join before querying
 foreign semantics.
 Evidence reports contract, implementation-edge, settled-family, retained-family,
-settled-callable, and settled-await counts separately.
+settled-callable, and settled-await counts separately. The family denominator
+must exact-partition into settled and retained rows, including rejected
+families. Every retained row carries all contract occurrence identities, its
+call count, and one closed typed owner reason; a mutation that drops rejected
+families from the retained denominator or erases one reason fails the evidence
+gate. Every interface-boundary cause is independently source-located; replacing
+the cause ledger with a boolean set or dropping one cause fails the same gate.
 The construction matrix repeats that proof through inheritance and contrasts a
 derived nominal result with public-structural and unmarked bases. Callable
 `then`, `any`, `unknown`, generic, union, intersection, and hidden-thenable
