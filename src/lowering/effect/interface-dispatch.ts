@@ -6,6 +6,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../profile.js";
 import type { CallableReturnRewrite } from "./callable-contract.js";
 import type { CooperativeEffectCandidate } from "./candidate-inventory.js";
@@ -86,11 +87,12 @@ export function createDeclaredInterfaceDispatch(
   program: TargetProgramIndex,
   candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
   profile: TypeScriptInterfaceDispatchProfile,
+  transports?: StorageOwnerTransportContract,
 ): DeclaredInterfaceDispatch {
   if (profile === "open-structural") {
     return createResult(profile, 0, 0, []);
   }
-  const graph = createInterfaceContractGraph(source, program);
+  const graph = createInterfaceContractGraph(source, program, transports);
   const heritage = collectHeritageIndex(source, program);
   const families: DeclaredInterfaceDispatchFamily[] = [];
   let rejectedFamilyCount = 0;
@@ -111,16 +113,6 @@ export function createDeclaredInterfaceDispatch(
     rejectedFamilyCount,
     families,
   );
-}
-
-function isExactProjectDeclaration(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const sourceFile = source.ast.getSourceFile(declaration);
-  return sourceFile !== undefined &&
-    source.semantics.includes(sourceFile) &&
-    source.navigation.isProjectDeclaration(declaration);
 }
 
 function collectHeritageIndex(

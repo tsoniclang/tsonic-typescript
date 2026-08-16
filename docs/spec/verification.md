@@ -101,6 +101,21 @@ It also transports one exact declaration-file synchronous interface into a
 project Awaitable interface and contrasts declaration-file Awaitable/Promise,
 generic-unresolved, and implementation-file ambient counterparts; only the
 fully synchronous external contract may settle.
+Nested-transport fixtures contrast two exact project carriers preserving the
+same contract identity with a carrier changing contract identity and an
+ambient consumer. Only the exact project-body transport may settle; mutating
+either side to the unmatched or ambient form must retain the family.
+One-way erasure fixtures pass a fresh array literal to an opaque callable, then
+contrast that case with a shared typed array and with a fresh literal assigned
+to erased storage and later recovered directly or through an opaque identity.
+The outbound-only literal may settle; every recovered path must retain. Ingress
+fixtures independently cover an opaque result, a user refinement, ambient
+property and element access, an inferred ambient alias, and a project function
+returning ambient storage. A paired exact project object/property path must
+still settle. Mutations that replace the project root with any ambient source,
+remove the re-entry check, or classify the selected property without its owner
+must fail at the interface-origin gate. These proofs establish that freshness
+is never a general storage or alias exemption.
 It exact-joins each selected member to every project implementation and consumes
 each interface return annotation once. Mutations omit the profile, remove or
 change one exact heritage edge, substitute a structurally matching class or
@@ -125,6 +140,12 @@ each preserves every affected async callable. A project carrier that later
 escapes must invalidate the enclosed owner, while the same carrier wholly
 inside the checked program remains eligible. Pointer transport permission
 comes from validated operation facts, never marker spelling.
+An interface-bearing pointer-load fixture must settle only when the exact
+pointer plan supplies the storage-owner transport and every certified
+result-input origin is closed. Running the identical checked source without
+that transport must retain the interface family and its cooperative effects;
+this mutation proves that declaration shape and marker spelling cannot grant
+permission.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as
@@ -145,6 +166,14 @@ loaded pointee, passes the pointer through a settling project call, and removes
 both cooperative callables. A mutation that drops the pointer-value result
 contract must retain the returning callable while the pointee remains
 unclassified.
+An exact pointer-valued property projection must resolve through the checker's
+selected declaration and settle only when that declaration has one canonical
+representation/pointee contract and the pointee is nominally non-thenable.
+Paired mutations use an ordinary same-shaped property, a callable-`then`
+pointee, and one declaration with conflicting pointer pointees; each must
+retain the callable. The test must inspect the canonical pointer-value evidence
+decision as well as the final async syntax so a missing or bypassed cross-family
+contract cannot pass accidentally.
 Returned-callable verification covers one exact awaited producer whose direct
 returns are a synchronous function and a settling async function. The producer,
 both returned callables, their consumer, and every await must settle together.

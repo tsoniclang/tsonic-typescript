@@ -8,11 +8,13 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import {
   callableReturnRewrite,
   type CallableReturnRewrite,
 } from "./callable-contract.js";
 import { declaredInterfaceMemberImplementation } from "./interface-contract-member.js";
+import { isExactInterfaceProjectDeclaration } from "./interface-contract-declarations.js";
 import { collectInterfaceContractTransports } from "./interface-contract-transport.js";
 
 export interface InterfaceContractEntry {
@@ -47,10 +49,11 @@ export interface InterfaceContractIndex {
 export function createInterfaceContractGraph(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  transports?: StorageOwnerTransportContract,
 ): InterfaceContractGraph {
   const contracts = collectContracts(source, program);
   collectCalls(source, program, contracts.entries);
-  collectInterfaceContractTransports(source, program, contracts);
+  collectInterfaceContractTransports(source, program, contracts, transports);
   const seeds = [...contracts.entries.values()].filter((entry) =>
     entry.calls.length !== 0
   );
@@ -101,8 +104,8 @@ function collectContracts(
     if (
       owner === undefined ||
       !source.ast.is.IsInterfaceDeclaration(owner) ||
-      !isExactProjectDeclaration(source, owner) ||
-      !isExactProjectDeclaration(source, declaration) ||
+      !isExactInterfaceProjectDeclaration(source, owner) ||
+      !isExactInterfaceProjectDeclaration(source, declaration) ||
       typeNode === undefined
     ) {
       continue;
@@ -259,16 +262,6 @@ function collectCalls(
       entries.get(declaration)?.calls.push(call);
     }
   }
-}
-
-function isExactProjectDeclaration(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const sourceFile = source.ast.getSourceFile(declaration);
-  return sourceFile !== undefined &&
-    source.semantics.includes(sourceFile) &&
-    source.navigation.isProjectDeclaration(declaration);
 }
 
 function collectComponent(

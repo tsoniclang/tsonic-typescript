@@ -28,6 +28,12 @@ export function contextualExpression(
   if (source.ast.is.IsReturnStatement(node)) {
     return source.ast.as.AsReturnStatement(node)?.Expression;
   }
+  if (source.ast.is.IsAsExpression(node)) {
+    return source.ast.as.AsAsExpression(node)?.Expression;
+  }
+  if (source.ast.is.IsTypeAssertion(node)) {
+    return source.ast.as.AsTypeAssertion(node)?.Expression;
+  }
   if (
     source.ast.is.IsBinaryExpression(node) &&
     source.ast.operatorKindName(node) === "KindEqualsToken"
@@ -48,49 +54,85 @@ export function selectInterfaceContractContext(
   if (sourceType === undefined) {
     return undefined;
   }
-  const explicitTarget = explicitContextType(source, semantics, owner);
+  const explicitTargets = explicitContextTypes(source, semantics, owner);
   if (
     !relevance.contains(semantics, sourceType) &&
-    (explicitTarget === undefined ||
-      !relevance.contains(semantics, explicitTarget))
+    !explicitTargets.some((target) => relevance.contains(semantics, target))
   ) {
     return undefined;
   }
   const contextual = semantics.selectContextualValueType(expression);
-  if (contextual.kind === "unavailable") {
+  const targetTypes = contextual.kind === "unavailable"
+    ? explicitTargets
+    : contextual.kind === "selected"
+    ? [contextual.type]
+    : [...contextual.types];
+  const selectedTargets = uniqueTypes([...explicitTargets, ...targetTypes]);
+  if (selectedTargets.length === 0) {
     return undefined;
   }
   return Object.freeze({
     semantics,
     sourceType,
-    targetTypes: Object.freeze(
-      contextual.kind === "selected"
-        ? [contextual.type]
-        : [...contextual.types],
-    ),
+    targetTypes: Object.freeze(selectedTargets),
   });
 }
 
-function explicitContextType(
+function explicitContextTypes(
   source: TargetSourceProgram,
   semantics: SourceFileSemantics,
   owner: Node,
-): Type | undefined {
+): readonly Type[] {
   if (source.ast.is.IsBinaryExpression(owner)) {
     const left = source.ast.as.AsBinaryExpression(owner)?.Left;
-    return left === undefined ? undefined : semantics.getTypeAtLocation(left);
+    const type = left === undefined ? undefined : semantics.getTypeAtLocation(left);
+    return type === undefined ? [] : [type];
   }
   if (source.ast.is.IsReturnStatement(owner)) {
     const callable = enclosingCallable(source, owner);
-    const typeNode = source.ast.typeNode(callable);
-    return typeNode === undefined
-      ? undefined
-      : semantics.getTypeFromTypeNode(typeNode);
+    return callable === undefined
+      ? []
+      : callableResultTypes(source, semantics, callable);
+  }
+  if (
+    source.ast.is.IsArrowFunction(owner) ||
+    source.ast.is.IsFunctionExpression(owner)
+  ) {
+    return callableResultTypes(source, semantics, owner);
   }
   const typeNode = source.ast.typeNode(owner);
-  return typeNode === undefined
+  const type = typeNode === undefined
     ? undefined
     : semantics.getTypeFromTypeNode(typeNode);
+  return type === undefined ? [] : [type];
+}
+
+function callableResultTypes(
+  source: TargetSourceProgram,
+  semantics: SourceFileSemantics,
+  callable: Node,
+): readonly Type[] {
+  const typeNode = source.ast.typeNode(callable);
+  const authored = typeNode === undefined
+    ? undefined
+    : semantics.getTypeFromTypeNode(typeNode);
+  if (authored !== undefined) {
+    return [authored];
+  }
+  const name = source.ast.name(callable);
+  const callableType = semantics.getTypeAtLocation(name ?? callable);
+  if (callableType === undefined) {
+    return [];
+  }
+  return uniqueTypes(
+    semantics.getCallSignatures(callableType)
+      .map((signature) => semantics.getReturnTypeOfSignature(signature))
+      .filter((type): type is Type => type !== undefined),
+  );
+}
+
+function uniqueTypes(types: readonly Type[]): Type[] {
+  return types.filter((type, index) => types.indexOf(type) === index);
 }
 
 function enclosingCallable(

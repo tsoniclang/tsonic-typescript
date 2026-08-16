@@ -4,21 +4,32 @@ import type {
   TargetSourceProgram,
 } from "@tsonic/target-api";
 import {
+  KindAsExpression,
+  KindArrowFunction,
   KindBinaryExpression,
-  KindCallExpression,
-  KindNewExpression,
   KindParameter,
   KindPropertyDeclaration,
   KindReturnStatement,
+  KindTypeAssertionExpression,
   KindVariableDeclaration,
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
+import { collectInterfaceCallTransports } from "./interface-contract-call-transport.js";
 import {
   linkInterfaceContracts,
   type InterfaceContractIndex,
-  type MutableInterfaceContractEntry,
 } from "./interface-contract-graph.js";
+import {
+  interfaceContractsForProperty,
+  interfaceContractTypeDeclaration,
+  isInterfaceContractDeclaration,
+} from "./interface-contract-declarations.js";
+import {
+  type InterfaceContractIngress,
+  retainUnprovenInterfaceIngress,
+} from "./interface-contract-ingress.js";
 import {
   contextualExpression,
   selectInterfaceContractContext,
@@ -27,6 +38,7 @@ import {
   createInterfaceContractRelevance,
   type InterfaceContractRelevance,
 } from "./interface-contract-relevance.js";
+import { isFreshInterfaceTransportAggregate } from "./interface-contract-transport-context.js";
 import { typeHasTrustedSynchronousCallSignatures } from "./synchronous.js";
 
 interface PendingTypePair {
@@ -39,16 +51,19 @@ interface TypePairState {
   readonly source: TargetSourceProgram;
   readonly contracts: InterfaceContractIndex;
   rootFile: Node | undefined;
-  readonly roots: Map<Type, Set<Type>>;
+  readonly roots: Map<string, Map<Type, Set<Type>>>;
   readonly relevance: InterfaceContractRelevance;
   readonly seen: Map<Type, Set<Type>>;
   readonly pending: PendingTypePair[];
+  rootSourceIsFresh: boolean;
+  rootCrossesOpaqueCall: boolean;
 }
 
 export function collectInterfaceContractTransports(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   contracts: InterfaceContractIndex,
+  transports?: StorageOwnerTransportContract,
 ): void {
   const state: TypePairState = {
     source,
@@ -58,19 +73,46 @@ export function collectInterfaceContractTransports(
     relevance: createInterfaceContractRelevance(source, contracts),
     seen: new Map(),
     pending: [],
+    rootSourceIsFresh: false,
+    rootCrossesOpaqueCall: false,
   };
-  for (const kind of [KindCallExpression, KindNewExpression]) {
-    for (const node of program.nodesOfKind(kind)) {
-      const semantics = source.semantics.forNode(node);
-      processCallTransports(source, semantics, node, state);
-    }
-  }
+  const ingress: InterfaceContractIngress = {
+    source,
+    entries: contracts.entries,
+    boundaries: contracts.boundaries,
+    relevance: state.relevance,
+    ...(transports === undefined ? {} : { transports }),
+  };
+  collectInterfaceCallTransports(
+    source,
+    program,
+    state.relevance,
+    ingress,
+    {
+      processTypePair(semantics, sourceType, targetType, expression, opaque) {
+        processTypePair(
+          semantics,
+          sourceType,
+          targetType,
+          state,
+          expression,
+          opaque,
+        );
+      },
+      markExposedContracts(semantics, root) {
+        markExposedContracts(semantics, root, state);
+      },
+    },
+    transports,
+  );
   for (const kind of [
     KindVariableDeclaration,
     KindPropertyDeclaration,
     KindParameter,
     KindReturnStatement,
     KindBinaryExpression,
+    KindAsExpression,
+    KindTypeAssertionExpression,
   ]) {
     for (const node of program.nodesOfKind(kind)) {
       const expression = contextualExpression(source, node);
@@ -85,79 +127,57 @@ export function collectInterfaceContractTransports(
       );
       if (context !== undefined) {
         for (const target of context.targetTypes) {
+          retainUnprovenInterfaceIngress(
+            context.semantics,
+            expression,
+            context.sourceType,
+            target,
+            ingress,
+          );
           processTypePair(
             context.semantics,
             context.sourceType,
             target,
             state,
+            expression,
+            false,
           );
         }
       }
     }
   }
-}
-
-function processCallTransports(
-  source: TargetSourceProgram,
-  semantics: SourceFileSemantics,
-  node: Node,
-  state: TypePairState,
-): boolean {
-  const arguments_ = source.ast.arguments(node);
-  const argumentTypes = arguments_.map((argument) =>
-    semantics.getTypeAtLocation(argument)
-  );
-  const signature = semantics.getResolvedSignature(node);
-  const signatureParameters = semantics.getSignatureParameters(signature);
-  const parameterTypes = signatureParameters.map((parameter) =>
-    semantics.getTypeOfSymbol(parameter)
-  );
-  let selected = false;
-  for (const type of [...argumentTypes, ...parameterTypes]) {
-    if (
-      type !== undefined &&
-      typeRequiresDirectTransport(semantics, type, state)
-    ) {
-      selected = true;
-    }
-  }
-  if (!selected) {
-    return false;
-  }
-  const declaration = semantics.getSignatureDeclaration(signature);
-  const declarationParameters = declaration === undefined
-    ? []
-    : source.ast.parameters(declaration);
-  const complex = declaration === undefined ||
-    declarationParameters.length !== signatureParameters.length ||
-    arguments_.some((argument) => source.ast.is.IsSpreadElement(argument)) ||
-    declarationParameters.some((parameter) =>
-      source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !==
-        undefined
-    );
-  if (complex) {
-    for (const type of [...argumentTypes, ...parameterTypes]) {
-      if (type !== undefined) {
-        markExposedContracts(semantics, type, state);
-      }
-    }
-    return true;
-  }
-  for (let index = 0; index < arguments_.length; index += 1) {
-    const sourceType = argumentTypes[index];
-    const targetType = parameterTypes[index];
-    if (sourceType === undefined || targetType === undefined) {
-      if (sourceType !== undefined) {
-        markExposedContracts(semantics, sourceType, state);
-      }
-      if (targetType !== undefined) {
-        markExposedContracts(semantics, targetType, state);
-      }
+  for (const arrow of program.nodesOfKind(KindArrowFunction)) {
+    const body = source.ast.body(arrow);
+    if (body === undefined || source.ast.is.IsBlock(body)) {
       continue;
     }
-    processTypePair(semantics, sourceType, targetType, state);
+    const context = selectInterfaceContractContext(
+      source,
+      arrow,
+      body,
+      state.relevance,
+    );
+    if (context === undefined) {
+      continue;
+    }
+    for (const target of context.targetTypes) {
+      retainUnprovenInterfaceIngress(
+        context.semantics,
+        body,
+        context.sourceType,
+        target,
+        ingress,
+      );
+      processTypePair(
+        context.semantics,
+        context.sourceType,
+        target,
+        state,
+        body,
+        false,
+      );
+    }
   }
-  return true;
 }
 
 function processTypePair(
@@ -165,17 +185,35 @@ function processTypePair(
   source: Type,
   target: Type,
   state: TypePairState,
+  sourceExpression: Node,
+  crossesOpaqueCall: boolean,
 ): void {
   if (state.rootFile !== semantics.sourceFile) {
     state.rootFile = semantics.sourceFile;
     state.roots.clear();
   }
-  if (pairWasSeen(source, target, state.roots)) {
+  const sourceIsFresh = isFreshInterfaceTransportAggregate(
+    state.source,
+    sourceExpression,
+  );
+  const rootKey = `${crossesOpaqueCall ? "opaque" : "project"}:${
+    sourceIsFresh ? "fresh" : "shared"
+  }`;
+  let roots = state.roots.get(rootKey);
+  if (roots === undefined) {
+    roots = new Map();
+    state.roots.set(rootKey, roots);
+  }
+  if (pairWasSeen(source, target, roots)) {
     return;
   }
   state.seen.clear();
+  state.rootSourceIsFresh = sourceIsFresh;
+  state.rootCrossesOpaqueCall = crossesOpaqueCall;
   enqueueTypePair(semantics, source, target, state);
   drainTypePairs(state);
+  state.rootSourceIsFresh = false;
+  state.rootCrossesOpaqueCall = false;
 }
 
 function enqueueTypePair(
@@ -193,18 +231,36 @@ function enqueueTypePair(
   ) {
     return;
   }
-  const sourceIsDirect = typeRequiresDirectTransport(
+  const sourceDirect = state.relevance.directContracts(
     semantics,
     selectedSource,
-    state,
   );
-  const targetIsDirect = typeRequiresDirectTransport(
+  const targetDirect = state.relevance.directContracts(
     semantics,
     selectedTarget,
-    state,
   );
+  const sourceContracts = state.relevance.contracts(semantics, selectedSource);
+  const targetContracts = state.relevance.contracts(semantics, selectedTarget);
+  markUnsharedIndirectContracts(
+    sourceContracts,
+    sourceDirect,
+    targetContracts,
+    state,
+    "source",
+  );
+  markUnsharedIndirectContracts(
+    targetContracts,
+    targetDirect,
+    sourceContracts,
+    state,
+    "target",
+  );
+  if (state.rootCrossesOpaqueCall && !state.rootSourceIsFresh) {
+    markIndirectContracts(sourceContracts, sourceDirect, state);
+    markIndirectContracts(targetContracts, targetDirect, state);
+  }
   if (
-    (!sourceIsDirect && !targetIsDirect) ||
+    (sourceDirect.length === 0 && targetDirect.length === 0) ||
     pairWasSeen(selectedSource, selectedTarget, state.seen)
   ) {
     return;
@@ -216,19 +272,40 @@ function enqueueTypePair(
   });
 }
 
-function typeRequiresDirectTransport(
-  semantics: SourceFileSemantics,
-  type: Type,
+function markUnsharedIndirectContracts(
+  contracts: readonly Node[],
+  direct: readonly Node[],
+  counterpart: readonly Node[],
   state: TypePairState,
-): boolean {
-  const direct = state.relevance.directContracts(semantics, type);
+  side: "source" | "target",
+): void {
   const directSet = new Set(direct);
-  for (const contract of state.relevance.contracts(semantics, type)) {
+  const counterpartSet = new Set(counterpart);
+  for (const contract of contracts) {
+    if (!directSet.has(contract) && !counterpartSet.has(contract)) {
+      if (
+        side === "source" &&
+        counterpartSet.size === 0 &&
+        state.rootSourceIsFresh
+      ) {
+        continue;
+      }
+      state.contracts.boundaries.add(contract);
+    }
+  }
+}
+
+function markIndirectContracts(
+  contracts: readonly Node[],
+  direct: readonly Node[],
+  state: TypePairState,
+): void {
+  const directSet = new Set(direct);
+  for (const contract of contracts) {
     if (!directSet.has(contract)) {
       state.contracts.boundaries.add(contract);
     }
   }
-  return direct.length !== 0;
 }
 
 function drainTypePairs(state: TypePairState): void {
@@ -247,8 +324,14 @@ function analyzeTypePair(
   const { semantics } = pair;
   const sourceType = pair.source;
   const targetType = pair.target;
-  const sourceDeclaration = typeDeclaration(semantics, sourceType);
-  const targetDeclaration = typeDeclaration(semantics, targetType);
+  const sourceDeclaration = interfaceContractTypeDeclaration(
+    semantics,
+    sourceType,
+  );
+  const targetDeclaration = interfaceContractTypeDeclaration(
+    semantics,
+    targetType,
+  );
   if (
     sourceDeclaration !== undefined &&
     targetDeclaration !== undefined &&
@@ -265,8 +348,8 @@ function analyzeTypePair(
     return;
   }
   if (
-    isInterface(state.source, sourceDeclaration) ||
-    isInterface(state.source, targetDeclaration)
+    isInterfaceContractDeclaration(state.source, sourceDeclaration) ||
+    isInterfaceContractDeclaration(state.source, targetDeclaration)
   ) {
     pairObjectMembers(
       semantics,
@@ -378,24 +461,28 @@ function pairObjectMembers(
   );
   for (const targetProperty of semantics.getPropertyInfos(targetType)) {
     const sourceProperty = sourceProperties.get(targetProperty.name);
-    if (sourceProperty === undefined) {
-      continue;
-    }
-    const sourceContracts = contractsForProperty(
-      state.source,
-      semantics,
-      sourceProperty.symbol,
-      sourceDeclaration,
-      sourceProperty.name,
-      state.contracts.entries,
-      state.contracts.declarationContracts,
-    );
-    const targetContracts = contractsForProperty(
+    const targetContracts = interfaceContractsForProperty(
       state.source,
       semantics,
       targetProperty.symbol,
       targetDeclaration,
       targetProperty.name,
+      state.contracts.entries,
+      state.contracts.declarationContracts,
+    );
+    if (sourceProperty === undefined) {
+      for (const contract of targetContracts) {
+        state.contracts.boundaries.add(contract);
+      }
+      markExposedContracts(semantics, targetProperty.type, state);
+      continue;
+    }
+    const sourceContracts = interfaceContractsForProperty(
+      state.source,
+      semantics,
+      sourceProperty.symbol,
+      sourceDeclaration,
+      sourceProperty.name,
       state.contracts.entries,
       state.contracts.declarationContracts,
     );
@@ -490,87 +577,6 @@ function markExposedContracts(
   for (const contract of state.relevance.contracts(semantics, root)) {
     state.contracts.boundaries.add(contract);
   }
-}
-
-function typeDeclaration(
-  semantics: SourceFileSemantics,
-  type: Type,
-): Node | undefined {
-  const target = semantics.isTypeReference(type)
-    ? semantics.getTypeReferenceTarget(type) ?? type
-    : type;
-  const symbols = [
-    semantics.getTypeSymbol(target),
-    semantics.getTypeAliasSymbol(target),
-    semantics.getTypeSymbol(type),
-    semantics.getTypeAliasSymbol(type),
-  ].filter((symbol, index, selected) =>
-    symbol !== undefined && selected.indexOf(symbol) === index
-  );
-  const declarations = symbols.flatMap((symbol) =>
-    semantics.getSymbolDeclarations(symbol)
-  ).filter((declaration, index, selected) =>
-    declaration !== undefined && selected.indexOf(declaration) === index
-  );
-  return declarations.length === 1 ? declarations[0] : undefined;
-}
-
-function contractsForProperty(
-  source: TargetSourceProgram,
-  semantics: SourceFileSemantics,
-  symbol: Parameters<SourceFileSemantics["getSymbolDeclarations"]>[0],
-  owner: Node | undefined,
-  name: string,
-  entries: ReadonlyMap<Node, MutableInterfaceContractEntry>,
-  declarationContracts: ReadonlyMap<Node, readonly Node[]>,
-): readonly Node[] {
-  const result = new Set(
-    semantics.getSymbolDeclarations(symbol)
-      .filter((declaration): declaration is Node =>
-        declaration !== undefined && entries.has(declaration)
-      ),
-  );
-  if (owner !== undefined && isClassLike(source, owner)) {
-    for (const contract of declarationContracts.get(owner) ?? []) {
-      const contractName = source.ast.name(contract);
-      if (
-        contractName !== undefined &&
-        source.ast.text(contractName) === name
-      ) {
-        result.add(contract);
-      }
-    }
-  }
-  return [...result];
-}
-
-function isInterface(
-  source: TargetSourceProgram,
-  declaration: Node | undefined,
-): boolean {
-  return declaration !== undefined &&
-    source.ast.is.IsInterfaceDeclaration(declaration);
-}
-
-function isClassLike(
-  source: TargetSourceProgram,
-  declaration: Node | undefined,
-): boolean {
-  return declaration !== undefined &&
-    (
-      source.ast.is.IsClassDeclaration(declaration) ||
-      source.ast.is.IsClassExpression(declaration)
-    );
-}
-
-function isExactProjectDeclaration(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const sourceFile = source.ast.getSourceFile(declaration);
-  return sourceFile !== undefined &&
-    source.semantics.includes(sourceFile) &&
-    source.navigation.isProjectDeclaration(declaration);
 }
 
 function pairWasSeen(

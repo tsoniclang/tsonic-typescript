@@ -129,13 +129,24 @@ adapter, allowlist, spelling rule, or alternate signature store.
 The pointer decision also publishes whether an exact value occurrence is the
 pointer itself or its loaded pointee. Canonical locations, mutable cells, and
 direct scalar snapshots are definitely non-thenable pointer values; a load is
-not. Cooperative-effect return analysis may consume that immutable distinction
-before either family rewrites the tree. It may not infer the distinction from
-the `Pointer` spelling, object shape, or component membership alone.
-The canonical representation map is the sole value-membership owner; no second
-pointer-value index or retained checker-node set may duplicate it.
-Lookup checks that map first and resolves only an exact identifier reference
-when needed; unrelated return syntax may not trigger broad checker navigation.
+not. A direct-object pointer value is definitely non-thenable only when its
+exact pointee type satisfies the target-language nominal non-thenability
+contract. Cooperative-effect return analysis may consume that immutable
+distinction before either family rewrites the tree. It may not infer the
+distinction from the `Pointer` spelling, object shape, or component membership
+alone.
+
+One closed pointer-value evidence map is the sole value-membership owner. It is
+built once from canonical representation decisions and exact pointer-type
+facts, and records the representation plus pointee contract for each exact
+value node. It may also index the checker's exact selected declaration for an
+identifier, property access, or element access when every pointer annotation
+owned by that declaration agrees on both representation and pointee identity.
+Conflicting annotations leave that declaration unclassified. No second
+pointer-value index, type-wide approximation, or retained checker-node set may
+duplicate this map. Lookup checks the exact value node first and then only its
+checker-selected declaration; unrelated return syntax may not trigger broad
+checker navigation.
 
 The decision order is:
 
@@ -251,10 +262,31 @@ signature parameter. Rest, spread, unresolved signatures, or a parameter-map
 mismatch are never approximated: every exposed project contract is an open
 boundary. Direct project interface/class surfaces enter the exact structural
 member join. Contracts nested inside a container, tuple, union, intersection,
-or callable contract remain open unless a separately certified direct transport
-reaches them; the owner does not recursively retain an arbitrary checker object
-graph. When one direct checked transport depends on corresponding project
-interface members, those method contracts form one atomic component;
+or callable contract remain open unless a separately certified transport
+reaches them. An exact project-body transport may preserve a shared nested
+contract identity; unmatched nested contracts and nested contracts crossing a
+bodyless, ambient, provider, unresolved, rest, or spread boundary remain open.
+One narrower outbound case is also closed: an array or object literal may erase
+a source-only nested contract when the selected target type carries no matching
+contract. Parentheses and authored type operators around that same literal do
+not change freshness. This is one-way permission, not an alias or storage
+assumption. Every later static re-entry into a project interface is checked
+independently through exact resolved-call argument bindings and exact value
+origin. Assertions, refinements, opaque call results, ambient identifiers,
+ambient properties or elements, aliases initialized from them, and project
+results sourced from them retain the reached component. Project properties and
+elements remain closed only when both their checker-selected declaration and
+their owning value have exact project provenance. A declaration-file interface
+may enter only through the separately proved all-synchronous structural
+transport described below. Shared values passed outward remain open when their
+source contract is still statically visible. Root-pair memoization includes
+both opacity and freshness so one safe observation cannot hide a later open
+transport.
+
+The owner compares only bounded relevant-contract sets and does not
+recursively retain an arbitrary checker object graph. When one direct checked
+transport depends on corresponding project interface members, those method
+contracts form one atomic component;
 same-shaped interfaces with no such transport remain unrelated. Contracts that
 share one exact declared class implementation also form one component. A
 project contract transported against an external or otherwise non-rewritable
@@ -366,6 +398,14 @@ remain open owner boundaries until their callback and projection flows have a
 separate complete proof. An external call with the same signature or name
 therefore cannot inherit this permission.
 
+That same immutable contract is the sole authority for interface-bearing values
+crossing a certified storage-owner invocation. Its exact result-input edges let
+interface ingress follow, for example, the value represented by a validated
+pointer load instead of treating the marker declaration as an opaque external
+call. Missing transport evidence, an empty result-input set, or an unselected
+same-shaped call remains opaque. The interface owner does not duplicate pointer
+operation classification or infer transport from a marker name.
+
 Canonical pointer boundaries attach to the exact affected node and propagate
 through its connected component. Generic contracts record the affected
 concrete family but do not taint a disconnected component merely because its
@@ -384,6 +424,9 @@ open. Absence of `then`, or a public structural declaration of it, is not proof
 because width subtyping permits a hidden thenable. `any`, `unknown`, type
 variables, and open structural members remain retained. This is target-language
 Promise-assimilation evidence, not marker or source-language recognition.
+This rule has one target-language owner shared by ordinary effect results and
+pointer-result projections; the pointer family does not carry a second copy of
+the rule.
 
 Settlement reconstructs the complete component atomically: async modifiers,
 Promise or exact awaitable-union return members, awaits, and dependent callable

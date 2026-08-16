@@ -59,6 +59,7 @@ export function createClosedCooperativeEffectPlan(
     program,
     candidates,
     interfaceDispatch,
+    transports,
   );
   const valueFlow = createCallableValueFlow(
     source,

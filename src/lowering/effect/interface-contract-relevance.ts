@@ -5,6 +5,10 @@ import type {
 } from "@tsonic/target-api";
 
 import type { InterfaceContractIndex } from "./interface-contract-graph.js";
+import {
+  interfaceContractTypeDeclaration,
+  isExactInterfaceProjectDeclaration,
+} from "./interface-contract-declarations.js";
 
 export interface InterfaceContractRelevance {
   contains(semantics: SourceFileSemantics, type: Type): boolean;
@@ -85,7 +89,7 @@ function collectContracts(
       const declaration = semantics.getSignatureDeclaration(signature);
       if (
         declaration === undefined ||
-        !isExactProjectDeclaration(source, declaration)
+        !isExactInterfaceProjectDeclaration(source, declaration)
       ) {
         continue;
       }
@@ -113,10 +117,10 @@ function directTypeContracts(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
 ): readonly Node[] {
-  const declaration = typeDeclaration(semantics, type);
+  const declaration = interfaceContractTypeDeclaration(semantics, type);
   if (
     declaration !== undefined &&
-    isExactProjectDeclaration(source, declaration) &&
+    isExactInterfaceProjectDeclaration(source, declaration) &&
     (
       source.ast.is.IsClassDeclaration(declaration) ||
       source.ast.is.IsClassExpression(declaration)
@@ -127,7 +131,7 @@ function directTypeContracts(
   if (
     declaration === undefined ||
     !source.ast.is.IsInterfaceDeclaration(declaration) ||
-    !isExactProjectDeclaration(source, declaration)
+    !isExactInterfaceProjectDeclaration(source, declaration)
   ) {
     return noContracts;
   }
@@ -174,29 +178,6 @@ function appendTypes(
   }
 }
 
-function typeDeclaration(
-  semantics: SourceFileSemantics,
-  type: Type,
-): Node | undefined {
-  const target = semantics.isTypeReference(type)
-    ? semantics.getTypeReferenceTarget(type) ?? type
-    : type;
-  const symbols = [
-    semantics.getTypeSymbol(target),
-    semantics.getTypeAliasSymbol(target),
-    semantics.getTypeSymbol(type),
-    semantics.getTypeAliasSymbol(type),
-  ].filter((symbol, index, selected) =>
-    symbol !== undefined && selected.indexOf(symbol) === index
-  );
-  const declarations = symbols.flatMap((symbol) =>
-    semantics.getSymbolDeclarations(symbol)
-  ).filter((declaration, index, selected) =>
-    declaration !== undefined && selected.indexOf(declaration) === index
-  );
-  return declarations.length === 1 ? declarations[0] : undefined;
-}
-
 function isPrimitiveType(
   semantics: SourceFileSemantics,
   type: Type,
@@ -210,14 +191,4 @@ function isPrimitiveType(
     semantics.isNumberLike(type) ||
     semantics.isBooleanLike(type) ||
     semantics.isBigIntLike(type);
-}
-
-function isExactProjectDeclaration(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const sourceFile = source.ast.getSourceFile(declaration);
-  return sourceFile !== undefined &&
-    source.semantics.includes(sourceFile) &&
-    source.navigation.isProjectDeclaration(declaration);
 }

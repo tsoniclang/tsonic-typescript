@@ -39,6 +39,7 @@ import {
   type PointerPlanningCandidateCounts,
   type PointerPlanningOperations,
 } from "./planning-ledger.js";
+import { closePointerValueEvidence } from "./value-evidence.js";
 
 export type { PointerFlowBlocker } from "./flow-graph.js";
 export type { PointerFlowRepresentation } from "./flow-representation.js";
@@ -69,6 +70,7 @@ export interface ClosedPointerFlowPlan {
   valueRepresentationFor(
     node: Node | undefined,
   ): PointerFlowRepresentation | undefined;
+  valueIsDefinitelyNonThenable(node: Node | undefined): boolean;
   representationFor(node: Node | undefined): PointerFlowRepresentation;
   componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined;
   projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
@@ -165,6 +167,12 @@ export function createClosedPointerFlowPlan(
     ledger,
   );
   const frozenSummaries = Object.freeze(summaries);
+  const pointerValues = closePointerValueEvidence(
+    source,
+    census.facts.pointerTypeEntries,
+    representations,
+    ledger,
+  );
   const representationCounts = countRepresentations(frozenSummaries, ledger);
   const sealedFallbackReasons = sealFallbackEvidence(fallbackReasons, ledger);
   const sealedFamilyFallbackReasons = sealFamilyFallbackEvidence(
@@ -184,22 +192,15 @@ export function createClosedPointerFlowPlan(
     valueRepresentationFor(
       node: Node | undefined,
     ): PointerFlowRepresentation | undefined {
-      if (node === undefined) {
-        return undefined;
-      }
-      const direct = representations.get(node);
-      if (direct !== undefined || !source.ast.is.IsIdentifier(node)) {
-        return direct;
-      }
-      const reference = source.navigation.sourceReferenceFor(node);
-      return reference === undefined
-        ? undefined
-        : representations.get(reference.declaration);
+      return pointerValues.representationFor(node);
+    },
+    valueIsDefinitelyNonThenable(node: Node | undefined): boolean {
+      return pointerValues.isDefinitelyNonThenable(node);
     },
     representationFor(node: Node | undefined): PointerFlowRepresentation {
       return node === undefined
         ? "location"
-        : representations.get(node) ?? "location";
+        : pointerValues.directRepresentationFor(node) ?? "location";
     },
     componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined {
       return node === undefined ? undefined : componentByNode.get(node);

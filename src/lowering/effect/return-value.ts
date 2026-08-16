@@ -36,8 +36,8 @@ import {
 } from "./syntax.js";
 import {
   typeExposesCallableThen,
-  typeHasDefinitelyNonThenableContract,
 } from "./synchronous.js";
+import { typeHasDefinitelyNonThenableContract } from "../thenability.js";
 
 export interface ReturnValueFlow {
   isDefinitelyNonThenable(expression: Node): boolean;

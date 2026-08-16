@@ -1,6 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import { isExactInterfaceProjectDeclaration } from "./interface-contract-declarations.js";
+
 export function declaredInterfaceMemberImplementation(
   source: TargetSourceProgram,
   classDeclaration: Node,
@@ -51,17 +53,7 @@ export function declaredInterfaceMemberImplementation(
       candidate !== undefined &&
       source.ast.is.IsMethodDeclaration(candidate) &&
       source.ast.body(candidate) !== undefined &&
-      isExactProjectDeclaration(source, candidate)
+      isExactInterfaceProjectDeclaration(source, candidate)
     );
   return declarations.length === 1 ? declarations[0] : undefined;
-}
-
-function isExactProjectDeclaration(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const sourceFile = source.ast.getSourceFile(declaration);
-  return sourceFile !== undefined &&
-    source.semantics.includes(sourceFile) &&
-    source.navigation.isProjectDeclaration(declaration);
 }
