@@ -324,7 +324,7 @@ function expressionIsDefinitelyNonThenableWithin(
     : undefined;
   const storageBinding = storage.bindingFor(root);
   const binding = localBinding ?? storageBinding;
-  if (binding === undefined) {
+  if (binding === undefined || binding.inputs.length === 0) {
     return false;
   }
   const scopeResults = results.get(value.scope);

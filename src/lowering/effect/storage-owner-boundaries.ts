@@ -26,6 +26,7 @@ import {
   storageValueTypeIsClosed,
   type StorageOwnerMembership,
 } from "./storage-owner-types.js";
+import { auditStorageOwnerIngress } from "./storage-owner-ingress.js";
 
 export interface StorageOwnerBinding {
   readonly declaration: Node;
@@ -69,6 +70,7 @@ export function auditStorageOwnerBoundaries(
   if (validateStoredValues) {
     rejectOpenStorageValues(source, bindings, owners);
   }
+  auditStorageOwnerIngress(source, program, ownersFor, invalid);
   auditInvocations(
     source,
     program,
@@ -117,7 +119,11 @@ function auditInvocations(
       semantics.getResolvedSignature(node),
     );
     const resultOwners = ownersFor(node);
-    const projectInvocation = declarationHasProjectBody(source, declaration);
+    const projectInvocation = invocationHasProjectImplementation(
+      source,
+      node,
+      declaration,
+    );
     const transport = transports?.transportFor(node);
     if (!projectInvocation && transport === undefined) {
       for (const owner of resultOwners) {
@@ -432,6 +438,30 @@ function declarationHasProjectBody(
     source.navigation.isProjectDeclaration(declaration) &&
     !source.ast.hasModifierKind(declaration, "ambient") &&
     source.ast.body(declaration) !== undefined;
+}
+
+function invocationHasProjectImplementation(
+  source: TargetSourceProgram,
+  invocation: Node,
+  declaration: Node | undefined,
+): boolean {
+  if (declarationHasProjectBody(source, declaration)) {
+    return true;
+  }
+  if (!source.ast.is.IsNewExpression(invocation)) {
+    return false;
+  }
+  const expression = source.ast.as.AsNewExpression(invocation)?.Expression;
+  const selected = expression === undefined
+    ? undefined
+    : source.navigation.sourceReferenceFor(expression)?.declaration;
+  return selected !== undefined &&
+    source.navigation.isProjectDeclaration(selected) &&
+    source.ast.is.IsClassDeclaration(selected) &&
+    source.ast.members(selected).every((member) =>
+      member === undefined ||
+      !source.ast.is.IsConstructorDeclaration(member)
+    );
 }
 
 function transparentChild(source: TargetSourceProgram, node: Node): Node | undefined {

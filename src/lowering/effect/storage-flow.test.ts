@@ -320,7 +320,7 @@ export const result = await invoke();
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
 });
 
-test("keeps a singleton callable field canonical after another construction", () => {
+test("settles a callable field across every exact project construction", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;
 class State {
@@ -338,8 +338,8 @@ export const result = await invoke();
   const result = lowerCooperativeEffects(fixture.sourceFile, plan);
   plan.finish();
 
-  assert.equal(result.callableCount, 0);
-  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+  assert.equal(result.callableCount, 2);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
 });
 
 test("settles a closed callable field through a mutable local", () => {
@@ -419,7 +419,7 @@ export const result = await invoke();
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
 });
 
-test("keeps a callable field open when its factory escapes", () => {
+test("keeps a callable field open when its factory value is aliased", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;
 class Slot {

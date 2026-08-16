@@ -34,11 +34,9 @@ import {
   collectCallableLocals,
 } from "./local-inputs.js";
 import {
-  closeConstructorCallableFields,
-  collectConstructorCallableFields,
-} from "./constructor-fields.js";
+  collectCallableFields,
+} from "./storage-fields.js";
 import { closeDependencyCandidates } from "./dependency-closure.js";
-import { collectClosedSingletonCallableFields } from "./singleton-fields.js";
 import { typeMaySuspend } from "./synchronous.js";
 import { createCallableStorageContracts } from "./storage-contracts.js";
 import type { CallableStorageContract } from "./storage-contracts.js";
@@ -70,11 +68,8 @@ export function collectCallableStorageInputs(
   excludedDeclarations: ReadonlySet<Node>,
   transports?: StorageOwnerTransportContract,
 ): CallableStorageInputs {
-  const constructorFields = collectConstructorCallableFields(source, program);
-  const fields = new Set([
-    ...constructorFields.fields,
-    ...collectClosedSingletonCallableFields(source, program),
-  ]);
+  const callableFields = collectCallableFields(source, program);
+  const fields = callableFields.declarations;
   const parameters = collectCallableParameters(source, program);
   const localValues = collectCallableLocals(
     source,
@@ -89,7 +84,12 @@ export function collectCallableStorageInputs(
   ]);
   const storageSymbols = indexDeclarationSymbols(source, storageDeclarations);
   const parameterValues = new Map<Node, Node[]>();
-  const fieldValues = new Map<Node, Node[]>();
+  const fieldValues = new Map<Node, Node[]>(
+    [...callableFields.initialValues].map(([field, values]) => [
+      field,
+      [...values],
+    ]),
+  );
   const invalidOwners = new Set<Node>();
 
   for (const node of program.nodesOfKinds([
@@ -160,13 +160,7 @@ export function collectCallableStorageInputs(
       storageDestinations,
     );
   }
-  const validConstructorFields = closeConstructorCallableFields(
-    source,
-    program,
-    constructorFields,
-    fieldValues,
-    transports,
-  );
+  const validFields = callableFields.close(fieldValues, transports);
 
   const candidateFields = new Set<Node>();
   for (const [field, counts] of fieldCounts) {
@@ -177,7 +171,7 @@ export function collectCallableStorageInputs(
       counts.total === counts.admitted &&
       counts.admitted !== 0 &&
       fieldValues.has(field) &&
-      (!constructorFields.fields.has(field) || validConstructorFields.has(field))
+      validFields.has(field)
     ) {
       candidateFields.add(field);
     }
