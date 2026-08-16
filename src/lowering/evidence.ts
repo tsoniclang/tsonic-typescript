@@ -16,6 +16,10 @@ import {
   type ScalarProjectionRetentionReason,
   type ScalarRepresentationPlan,
 } from "./scalar/plan.js";
+import {
+  scalarClassRetentionReasons,
+  type ScalarClassRetentionReason,
+} from "./scalar/class-flow.js";
 import type { TargetProgramIndexOperations } from "./program-index.js";
 import type {
   CooperativeEffectFallbackReason,
@@ -65,6 +69,10 @@ export interface ScalarOptimizationEvidence {
   readonly optimizedProjectionCount: number;
   readonly retainedProjectionCount: number;
   readonly fallbackReasons: readonly OptimizationReasonEvidence<ScalarProjectionRetentionReason>[];
+  readonly scalarClassCandidateCount: number;
+  readonly loweredScalarClassCount: number;
+  readonly retainedScalarClassCount: number;
+  readonly scalarClassFallbackReasons: readonly OptimizationReasonEvidence<ScalarClassRetentionReason>[];
 }
 
 export type CooperativeEffectOptimizationEvidence =
@@ -96,7 +104,7 @@ export type CooperativeEffectOptimizationEvidence =
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 10;
+  readonly schemaVersion: 11;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
@@ -116,7 +124,7 @@ export function createTypeScriptOptimizationEvidence(
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 10 as const,
+    schemaVersion: 11 as const,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
@@ -177,12 +185,60 @@ function scalarEvidence(
   if (retainedTotal !== plan.retainedProjectionCount) {
     throw new Error("scalar retention evidence lost a decision row");
   }
+  const classByReason = new Map<
+    ScalarClassRetentionReason,
+    OptimizationOccurrence[]
+  >();
+  for (const retention of plan.scalarClassRetentions) {
+    const occurrence = optimizationOccurrence(
+      source,
+      retention.declaration,
+      sourceIdentityFor,
+    );
+    const occurrences = classByReason.get(retention.reason);
+    if (occurrences === undefined) {
+      classByReason.set(retention.reason, [occurrence]);
+    } else {
+      occurrences.push(occurrence);
+    }
+  }
+  const scalarClassFallbackReasons = scalarClassRetentionReasons.flatMap(
+    (reason) => {
+      const occurrences = classByReason.get(reason);
+      return occurrences === undefined
+        ? []
+        : [Object.freeze({
+            reason,
+            count: occurrences.length,
+            examples: Object.freeze(
+              [...occurrences]
+                .sort(compareOptimizationOccurrences)
+                .slice(0, 8),
+            ),
+          })];
+    },
+  );
+  const retainedClassTotal = scalarClassFallbackReasons.reduce(
+    (total, entry) => total + entry.count,
+    0,
+  );
+  if (
+    retainedClassTotal !== plan.retainedScalarClassCount ||
+    plan.loweredScalarClassCount + plan.retainedScalarClassCount !==
+      plan.scalarClassCandidateCount
+  ) {
+    throw new Error("scalar class evidence lost a decision row");
+  }
   return Object.freeze({
     profile: profile.scalarProjections,
     syntacticProjectionCount: plan.syntacticProjectionCount,
     optimizedProjectionCount: plan.projectionCount,
     retainedProjectionCount: plan.retainedProjectionCount,
     fallbackReasons: Object.freeze(fallbackReasons),
+    scalarClassCandidateCount: plan.scalarClassCandidateCount,
+    loweredScalarClassCount: plan.loweredScalarClassCount,
+    retainedScalarClassCount: plan.retainedScalarClassCount,
+    scalarClassFallbackReasons: Object.freeze(scalarClassFallbackReasons),
   });
 }
 

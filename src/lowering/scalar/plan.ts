@@ -34,6 +34,11 @@ import {
   scalarPrimitiveKind,
   type ScalarPrimitiveKind,
 } from "./portable-type.js";
+import {
+  createScalarClassFlowPlan,
+  type ScalarClassRetention,
+  type ScalarClassRewrite,
+} from "./class-flow.js";
 
 export type { ScalarPrimitiveKind } from "./portable-type.js";
 
@@ -90,10 +95,16 @@ export interface ScalarRepresentationPlan {
   readonly retainedProjectionCount: number;
   readonly decisions: readonly ScalarProjectionDecision[];
   readonly retentions: readonly ScalarProjectionRetention[];
+  readonly scalarClassCandidateCount: number;
+  readonly loweredScalarClassCount: number;
+  readonly retainedScalarClassCount: number;
+  readonly scalarClassRetentions: readonly ScalarClassRetention[];
   owns(source: TargetSourceProgram): boolean;
   decisionFor(access: Node): ScalarProjectionDecision | undefined;
   projectionFor(access: Node): ScalarProjectionPlan | undefined;
   projectionsFor(sourceFile: SourceFile): readonly ScalarProjectionPlan[];
+  scalarClassRewriteFor(node: Node): ScalarClassRewrite | undefined;
+  scalarClassRewritesFor(sourceFile: SourceFile): readonly Node[];
 }
 
 interface TransparentClassProof {
@@ -120,6 +131,19 @@ export function createScalarRepresentationPlan(
   let syntacticProjectionCount = 0;
   const classProofs = new Map<Node, TransparentClassResolution>();
   const portableScalarKinds = new Map<Node, ScalarPrimitiveKind | undefined>();
+  const resolveClass = (declaration: Node): TransparentClassResolution => {
+    let resolution = classProofs.get(declaration);
+    if (resolution === undefined) {
+      resolution = proveTransparentClass(
+        source,
+        program,
+        declaration,
+        portableScalarKinds,
+      );
+      classProofs.set(declaration, resolution);
+    }
+    return resolution;
+  };
   const decisions: ScalarProjectionDecision[] = [];
   for (const node of program.nodesOfKind(KindPropertyAccessExpression)) {
     if (!isSyntacticProjection(node)) {
@@ -138,11 +162,23 @@ export function createScalarRepresentationPlan(
         : retainProjection(node, "profile-preserved"),
     );
   }
+  const optimized = decisions.flatMap((decision) =>
+    decision.kind === "optimized" ? [decision.projection] : []
+  );
+  const scalarClasses = createScalarClassFlowPlan(
+    source,
+    program,
+    profile,
+    resolveClass,
+    new Set(optimized.map((projection) => projection.construction)),
+    new Set(optimized.map((projection) => projection.access)),
+  );
   return sealPlan(
     source,
     profile,
     syntacticProjectionCount,
     decisions,
+    scalarClasses,
   );
 }
 
@@ -151,6 +187,7 @@ function sealPlan(
   profile: ScalarRepresentationProfile,
   syntacticProjectionCount: number,
   decisions: readonly ScalarProjectionDecision[],
+  scalarClasses: ReturnType<typeof createScalarClassFlowPlan>,
 ): ScalarRepresentationPlan {
   if (decisions.length !== syntacticProjectionCount) {
     throw new Error(
@@ -200,6 +237,10 @@ function sealPlan(
     retainedProjectionCount: retentions.length,
     decisions: Object.freeze([...decisions]),
     retentions: Object.freeze(retentions),
+    scalarClassCandidateCount: scalarClasses.candidateCount,
+    loweredScalarClassCount: scalarClasses.loweredCount,
+    retainedScalarClassCount: scalarClasses.retainedCount,
+    scalarClassRetentions: scalarClasses.retentions,
     owns(candidate: TargetSourceProgram): boolean {
       return candidate === source;
     },
@@ -211,6 +252,12 @@ function sealPlan(
     },
     projectionsFor(sourceFile: SourceFile): readonly ScalarProjectionPlan[] {
       return sealedByFile.get(sourceFile) ?? noProjections;
+    },
+    scalarClassRewriteFor(node: Node): ScalarClassRewrite | undefined {
+      return scalarClasses.rewriteFor(node);
+    },
+    scalarClassRewritesFor(sourceFile: SourceFile): readonly Node[] {
+      return scalarClasses.rewritesFor(sourceFile);
     },
   });
 }

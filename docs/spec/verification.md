@@ -75,6 +75,14 @@ evaluation order, precedence, and target-before-argument failure behavior.
 Mutations omit a decision, change selected field identity, substitute a
 foreign plan, and claim a retained result as lowered; each fails at the scalar
 owner or shared lowered-value boundary before rewriting.
+Scalar-class tests exact-partition every transparent-class candidate into one
+eliminated or retained row. They prove cross-file imports remain runtime
+imports, the same-position sentinel preserves constructor-target evaluation,
+portable type references are rewritten, and no class, construction, or field
+projection survives an admitted component. Mutations store one constructed
+value, expose the constructor value, add an observable member, make the result
+type nonportable, omit one rewrite, or change a declaration/reference join;
+each retains the whole class or fails at exact rewrite consumption.
 
 Cooperative-effect tests independently count every async callable syntax form
 before selection and exact-partition the count into settled and retained rows.
