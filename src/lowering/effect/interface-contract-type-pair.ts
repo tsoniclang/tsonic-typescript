@@ -45,6 +45,8 @@ export function enqueueInterfaceContractTypePair(
   if (
     selectedSource === undefined ||
     selectedTarget === undefined ||
+    semantics.isNever(selectedSource) ||
+    semantics.isNever(selectedTarget) ||
     selectedSource === selectedTarget
   ) {
     return;

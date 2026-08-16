@@ -115,3 +115,113 @@ export const result = await read(holder);
     ) > 0,
   );
 });
+
+test("settles optional interface storage behind an exact nil guard", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+type Awaitable<T> = T | PromiseLike<T>;
+interface TypeData { AsStructuredType(): Awaitable<number | undefined>; }
+class Adapter implements TypeData {
+  async AsStructuredType(): Promise<number | undefined> { return 42; }
+}
+class Type {
+  constructor(public data: TypeData | undefined) {}
+  static zero(): Pointer<Type> { return allocatePointer(new Type(void 0)); }
+  static async AsStructuredType(
+    value: Pointer<Type> | undefined,
+  ): Promise<number | undefined> {
+    const receiver = loadPointer(value ?? fail()).data;
+    return await receiver!.AsStructuredType();
+  }
+}
+function fail(): never { throw new Error("nil"); }
+async function create(): Promise<number | undefined> {
+  let data: TypeData | undefined = void 0;
+  data = new Adapter();
+  const value = allocatePointer(new Type(data));
+  return await Type.AsStructuredType(value);
+}
+Type.zero();
+export const result = await create();
+`);
+  const pointerPlan = createFixturePointerFlowPlan(fixture.source);
+  const plan = createClosedCooperativeEffectPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: true,
+      memberDispatch: true,
+    }),
+    (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
+    createPointerResultContract(fixture.source, pointerPlan),
+    createPointerStorageOwnerTransport(fixture.source, pointerPlan),
+    "declared-closed",
+  );
+  const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(
+    evidence.settledFamilyCount,
+    1,
+    JSON.stringify(evidence),
+  );
+  assert.equal(evidence.retainedFamilyCount, 0);
+  assert.equal(
+    results.reduce(
+      (total, result) =>
+        total + countAsyncCallables(fixture.source, result.sourceFile),
+      0,
+    ),
+    0,
+  );
+});
+
+test("retains interface storage behind an open pointer fallback", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class Pair implements Reader {
+  async Read(): Promise<number> { return 42; }
+}
+class Holder { constructor(public reader: Reader) {} }
+declare const external: Pointer<Holder>;
+async function read(value: Pointer<Holder> | undefined): Promise<number> {
+  return await loadPointer(value ?? external).reader.Read();
+}
+const local = allocatePointer(new Holder(new Pair()));
+export const result = await read(local);
+`);
+  const pointerPlan = createFixturePointerFlowPlan(fixture.source);
+  const plan = createClosedCooperativeEffectPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: true,
+      memberDispatch: true,
+    }),
+    (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
+    createPointerResultContract(fixture.source, pointerPlan),
+    createPointerStorageOwnerTransport(fixture.source, pointerPlan),
+    "declared-closed",
+  );
+  for (const sourceFile of fixture.source.navigation.sourceFiles) {
+    lowerCooperativeEffects(sourceFile, plan);
+  }
+  plan.finish();
+
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.settledFamilyCount, 0);
+  assert.equal(evidence.retainedFamilyCount, 1);
+});

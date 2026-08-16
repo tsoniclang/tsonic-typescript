@@ -406,6 +406,15 @@ call. Missing transport evidence, an empty result-input set, or an unselected
 same-shaped call remains opaque. The interface owner does not duplicate pointer
 operation classification or infer transport from a marker name.
 
+Interface ingress follows the value that can exist after successful evaluation,
+not a discarded nil branch. A missing/undefined-only or `never` source cannot
+inject a dynamic implementation. In `value ?? fail()`, the left value is the
+sole successful origin only when the checked fallback type is exactly `never`;
+the emitted guard itself remains unchanged. A mutable local or property is
+closed only when its initializer and every indexed simple assignment have
+closed origins. Compound, iteration, unresolved, or ambient writes retain the
+family. This is one complete write-set proof, not an initializer heuristic.
+
 Canonical pointer boundaries attach to the exact affected node and propagate
 through its connected component. Generic contracts record the affected
 concrete family but do not taint a disconnected component merely because its

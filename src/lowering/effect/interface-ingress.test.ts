@@ -69,6 +69,39 @@ export const result = await read(new StructuralReader());
   }]);
 });
 
+test("retains mutable interface storage after one ambient write", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class Pair implements Reader {
+  async Read(): Promise<number> { return 42; }
+}
+declare const external: Reader;
+let reader: Reader | undefined = undefined;
+reader = new Pair();
+reader = external;
+async function read(): Promise<number> {
+  return await reader!.Read();
+}
+export const result = await read();
+`);
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.settledFamilyCount, 0);
+  assert.equal(evidence.retainedFamilyCount, 1);
+  assert.deepEqual(
+    evidence.retainedFamilies[0]?.boundaryCauses.map((cause) => cause.reason),
+    ["unproven-value-origin", "open-interface-receiver"],
+  );
+});
+
 for (const [name, sourceText] of [
   [
     "an opaque result",

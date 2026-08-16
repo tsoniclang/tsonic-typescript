@@ -1,6 +1,7 @@
 import type { Node, Type } from "@tsonic/tsts";
 import type {
   ResolvedSourceCallInfo,
+  SourceBindingWrite,
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api";
@@ -12,12 +13,14 @@ import {
   type InterfaceContractMembership,
 } from "./interface-contract-declarations.js";
 import { callCrossesOpaqueInterfaceBoundary } from "./interface-contract-transport-context.js";
-import { transparentExpression } from "./syntax.js";
+import { successfulValueExpression } from "./syntax.js";
 import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
+import type { TargetProgramIndex } from "../program-index.js";
 import type { InterfaceContractBoundaryLedger } from "./interface-contract-boundary.js";
 
 export interface InterfaceContractIngress {
   readonly source: TargetSourceProgram;
+  readonly program: TargetProgramIndex;
   readonly entries: InterfaceContractMembership;
   readonly boundaries: InterfaceContractBoundaryLedger;
   readonly relevance: InterfaceContractRelevance;
@@ -31,13 +34,30 @@ export function retainUnprovenInterfaceIngress(
   targetType: Type,
   ingress: InterfaceContractIngress,
 ): void {
-  const targetContracts = ingress.relevance.contracts(semantics, targetType);
+  const selectedSource = semantics.removeMissingOrUndefined(sourceType);
+  if (selectedSource === undefined || semantics.isNever(selectedSource)) {
+    return;
+  }
+  const selectedTarget = semantics.removeMissingOrUndefined(targetType);
+  if (selectedTarget === undefined || semantics.isNever(selectedTarget)) {
+    return;
+  }
+  const targetContracts = ingress.relevance.contracts(
+    semantics,
+    selectedTarget,
+  );
   if (targetContracts.length === 0) {
     return;
   }
-  const sourceContracts = ingress.relevance.contracts(semantics, sourceType);
+  const sourceContracts = ingress.relevance.contracts(
+    semantics,
+    selectedSource,
+  );
   if (sourceContracts.length === 0) {
-    const declaration = interfaceContractTypeDeclaration(semantics, sourceType);
+    const declaration = interfaceContractTypeDeclaration(
+      semantics,
+      selectedSource,
+    );
     const sourceFile = declaration === undefined
       ? undefined
       : ingress.source.ast.getSourceFile(declaration);
@@ -101,11 +121,14 @@ function interfaceValueOriginIsClosed(
   ingress: InterfaceContractIngress,
   seen: Set<Node> = new Set(),
 ): boolean {
-  const expression = transparentExpression(ingress.source, value);
+  const expression = successfulValueExpression(ingress.source, value);
   if (expression === undefined || seen.has(expression)) {
     return false;
   }
   seen.add(expression);
+  if (expressionCannotSupplyImplementation(expression, ingress)) {
+    return true;
+  }
   if (ingress.source.ast.kind(expression) === KindThisKeyword) {
     return thisValueOriginIsClosed(expression, contract, ingress);
   }
@@ -231,7 +254,7 @@ function interfaceContainerOriginIsClosed(
   ingress: InterfaceContractIngress,
   seen: Set<Node>,
 ): boolean {
-  const expression = transparentExpression(ingress.source, value);
+  const expression = successfulValueExpression(ingress.source, value);
   if (expression === undefined || seen.has(expression)) {
     return false;
   }
@@ -337,10 +360,66 @@ function declarationValueOriginIsClosed(
   seen: Set<Node>,
 ): boolean {
   const initializer = declarationInitializer(ingress.source, declaration);
-  if (initializer !== undefined) {
-    return interfaceValueOriginIsClosed(initializer, contract, ingress, seen);
+  if (
+    initializer !== undefined &&
+    !interfaceValueOriginIsClosed(
+      initializer,
+      contract,
+      ingress,
+      new Set(seen),
+    )
+  ) {
+    return false;
+  }
+  if (
+    ingress.source.ast.is.IsVariableDeclaration(declaration) ||
+    ingress.source.ast.is.IsPropertyDeclaration(declaration)
+  ) {
+    for (const write of ingress.program.bindingWritesFor(declaration)) {
+      const input = exactBindingWriteInput(ingress.source, write);
+      if (
+        input === undefined ||
+        !interfaceValueOriginIsClosed(
+          input,
+          contract,
+          ingress,
+          new Set(seen),
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
   return declarationMayReceiveCheckedValues(ingress.source, declaration);
+}
+
+function exactBindingWriteInput(
+  source: TargetSourceProgram,
+  write: SourceBindingWrite,
+): Node | undefined {
+  if (
+    write.kind !== "assignment" ||
+    !source.ast.is.IsBinaryExpression(write.operation) ||
+    source.ast.operatorKindName(write.operation) !== "KindEqualsToken"
+  ) {
+    return undefined;
+  }
+  const assignment = source.ast.as.AsBinaryExpression(write.operation);
+  return assignment?.Left === write.reference ? assignment.Right : undefined;
+}
+
+function expressionCannotSupplyImplementation(
+  expression: Node,
+  ingress: InterfaceContractIngress,
+): boolean {
+  const semantics = ingress.source.semantics.forNode(expression);
+  const type = semantics.getTypeAtLocation(expression);
+  if (type === undefined) {
+    return false;
+  }
+  const selected = semantics.removeMissingOrUndefined(type);
+  return selected === undefined || semantics.isNever(selected);
 }
 
 function declarationMayReceiveCheckedValues(

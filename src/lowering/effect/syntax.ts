@@ -156,6 +156,13 @@ export function exactCallableTarget(
   source: TargetSourceProgram,
   expression: Node | undefined,
 ): Node | undefined {
+  return successfulValueExpression(source, expression);
+}
+
+export function successfulValueExpression(
+  source: TargetSourceProgram,
+  expression: Node | undefined,
+): Node | undefined {
   let current = transparentExpression(source, expression);
   for (;;) {
     if (current === undefined) {

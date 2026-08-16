@@ -116,6 +116,11 @@ still settle. Mutations that replace the project root with any ambient source,
 remove the re-entry check, or classify the selected property without its owner
 must fail at the interface-origin gate. These proofs establish that freshness
 is never a general storage or alias exemption.
+The generated-storage fixture initializes an optional interface to undefined,
+then assigns one exact project implementation and reads it through a certified
+pointer load guarded by `pointer ?? neverReturningFailure()`. The family must
+settle. Mutations add one ambient interface write or replace the never-returning
+fallback with an open pointer; each must retain the family with its exact cause.
 It exact-joins each selected member to every project implementation and consumes
 each interface return annotation once. Mutations omit the profile, remove or
 change one exact heritage edge, substitute a structurally matching class or

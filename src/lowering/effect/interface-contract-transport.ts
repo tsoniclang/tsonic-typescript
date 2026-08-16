@@ -65,6 +65,7 @@ export function collectInterfaceContractTransports(
   };
   const ingress: InterfaceContractIngress = {
     source,
+    program,
     entries: contracts.entries,
     boundaries: contracts.boundaries,
     relevance: state.relevance,
