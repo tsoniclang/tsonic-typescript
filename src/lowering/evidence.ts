@@ -91,6 +91,11 @@ export interface RepresentationProjectionOptimizationEvidence {
   readonly optimizedCount: number;
   readonly retainedCount: number;
   readonly fallbackReasons: readonly OptimizationReasonEvidence<RepresentationProjectionRetentionReason>[];
+  readonly storedFlows: {
+    readonly flowCount: number;
+    readonly constructionCount: number;
+    readonly projectionCount: number;
+  };
   readonly identityCallables: {
     readonly candidateCount: number;
     readonly optimizedCount: number;
@@ -128,7 +133,7 @@ export type CooperativeEffectOptimizationEvidence =
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 13;
+  readonly schemaVersion: 14;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
@@ -150,7 +155,7 @@ export function createTypeScriptOptimizationEvidence(
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 13 as const,
+    schemaVersion: 14 as const,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
@@ -238,6 +243,11 @@ function representationEvidence(
     optimizedCount: plan.optimizedCount,
     retainedCount: plan.retainedCount,
     fallbackReasons: Object.freeze(fallbackReasons),
+    storedFlows: Object.freeze({
+      flowCount: plan.storedFlows.flowCount,
+      constructionCount: plan.storedFlows.constructionCount,
+      projectionCount: plan.storedFlows.projectionCount,
+    }),
     identityCallables: Object.freeze({
       candidateCount: plan.identityCallables.candidateCount,
       optimizedCount: plan.identityCallables.optimizedCount,

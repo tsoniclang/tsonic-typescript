@@ -4,7 +4,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { TargetProgramIndex } from "../program-index.js";
 import type { RepresentationProjectionRetentionReason } from "./plan.js";
 
-type ShapeResult =
+export type RepresentationShapeResult =
   | { readonly kind: "unrelated" }
   | {
       readonly kind: "retained";
@@ -24,7 +24,7 @@ export function identityCallArgument(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   callNode: Node,
-): ShapeResult {
+): RepresentationShapeResult {
   const selected = directCallCandidate(source, callNode);
   if (selected === undefined) {
     return { kind: "unrelated" };
@@ -50,7 +50,7 @@ export function projectionCallShape(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   callNode: Node,
-): ProjectionCallShape | Exclude<ShapeResult, { readonly kind: "proved" }> {
+): ProjectionCallShape | Exclude<RepresentationShapeResult, { readonly kind: "proved" }> {
   const selected = directCallCandidate(source, callNode);
   if (selected === undefined || selected.parameters.length !== 1) {
     return { kind: "unrelated" };
@@ -92,13 +92,22 @@ export function inverseProjectionArgument(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   projection: ProjectionCallShape,
-): ShapeResult {
+): RepresentationShapeResult {
   const outer = source.ast.as.AsCallExpression(projection.call);
   const innerNode = outer?.Arguments?.Nodes[0];
   if (innerNode === undefined || !source.ast.is.IsCallExpression(innerNode)) {
     return { kind: "retained", reason: "unpaired-projection" };
   }
-  const factory = directCallCandidate(source, innerNode);
+  return representationFactoryArgument(source, program, innerNode, projection);
+}
+
+export function representationFactoryArgument(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  callNode: Node,
+  projection: ProjectionCallShape,
+): RepresentationShapeResult {
+  const factory = directCallCandidate(source, callNode);
   if (factory === undefined || factory.parameters.length !== 1) {
     return { kind: "retained", reason: "unpaired-projection" };
   }
@@ -235,6 +244,10 @@ function stableCallable(
     ? source.ast.as.AsMethodDeclaration(declaration)
     : undefined;
   const parent = source.ast.parent(declaration);
+  const stableClass = source.ast.is.IsFunctionDeclaration(declaration) ||
+    parent !== undefined &&
+      source.ast.is.IsClassDeclaration(parent) &&
+      classValueReferencesAreClosed(source, parent);
   return parsed !== undefined &&
     parsed.AsteriskToken === undefined &&
     !source.ast.hasModifierKind(declaration, "async") &&
@@ -242,6 +255,7 @@ function stableCallable(
       source.ast.is.IsDecorator(modifier)
     ) &&
     !program.hasBindingWrite(declaration) &&
+    stableClass &&
     (source.ast.is.IsFunctionDeclaration(declaration) ||
       parent !== undefined &&
         source.ast.is.IsClassDeclaration(parent) &&

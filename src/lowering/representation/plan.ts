@@ -11,7 +11,12 @@ import {
   identityCallArgument,
   inverseProjectionArgument,
   projectionCallShape,
+  type ProjectionCallShape,
 } from "./shape.js";
+import {
+  createStoredRepresentationFlowPlan,
+  type StoredRepresentationFlowPlan,
+} from "./stored-flow.js";
 
 export type RepresentationProjectionProfile = "preserve" | "closed-direct";
 
@@ -29,7 +34,7 @@ export type RepresentationProjectionRetentionReason =
 
 export interface RepresentationProjectionRewrite {
   readonly call: Node;
-  readonly kind: "identity" | "inverse";
+  readonly kind: "identity" | "inverse" | "stored";
   readonly argument: Node;
 }
 
@@ -58,6 +63,7 @@ export interface RepresentationProjectionPlan {
     { readonly kind: "retained" }
   >[];
   readonly identityCallables: IdentityCallablePlan;
+  readonly storedFlows: StoredRepresentationFlowPlan;
   rewriteFor(call: Node): RepresentationProjectionRewrite | undefined;
   rewritesFor(sourceFile: SourceFile): readonly RepresentationProjectionRewrite[];
 }
@@ -73,6 +79,7 @@ export function createRepresentationProjectionPlan(
     throw new Error(`unsupported representation projection profile '${String(profile)}'`);
   }
   const decisions: RepresentationProjectionDecision[] = [];
+  const storedCandidates: ProjectionCallShape[] = [];
   let identityCandidateCount = 0;
   let inverseCandidateCount = 0;
   for (const call of program.nodesOfKind(KindCallExpression)) {
@@ -104,13 +111,25 @@ export function createRepresentationProjectionPlan(
       program,
       projection,
     );
-    decisions.push(inverse.kind === "proved"
-      ? optimized(call, "inverse", inverse.argument)
-      : retained(
-          call,
-          "inverse",
-          inverse.kind === "retained" ? inverse.reason : "unpaired-projection",
-        ));
+    if (inverse.kind === "proved") {
+      decisions.push(optimized(call, "inverse", inverse.argument));
+    } else if (inverse.kind === "retained" && inverse.reason !== "unpaired-projection") {
+      decisions.push(retained(call, "inverse", inverse.reason));
+    } else {
+      storedCandidates.push(projection);
+    }
+  }
+  const storedFlows = createStoredRepresentationFlowPlan(
+    source,
+    program,
+    storedCandidates,
+  );
+  for (const projection of storedCandidates) {
+    const call = source.ast.as.AsCallExpression(projection.call);
+    const argument = call?.Arguments?.Nodes[0];
+    decisions.push(argument !== undefined && storedFlows.projectionFor(projection.call)
+      ? optimized(projection.call, "stored", argument)
+      : retained(projection.call, "inverse", "unpaired-projection"));
   }
   return sealPlan(
     source,
@@ -118,6 +137,7 @@ export function createRepresentationProjectionPlan(
     identityCandidateCount,
     inverseCandidateCount,
     decisions,
+    storedFlows,
     createIdentityCallablePlan(
       source,
       program,
@@ -135,6 +155,7 @@ function sealPlan(
   identityCandidateCount: number,
   inverseCandidateCount: number,
   decisions: readonly RepresentationProjectionDecision[],
+  storedFlows: StoredRepresentationFlowPlan,
   identityCallables: IdentityCallablePlan,
 ): RepresentationProjectionPlan {
   const expected = identityCandidateCount + inverseCandidateCount;
@@ -142,6 +163,15 @@ function sealPlan(
     throw new Error(
       `representation decision mismatch: candidates ${expected}, decisions ${decisions.length}`,
     );
+  }
+  const storedProjectionCount = decisions.filter((decision) =>
+    decision.kind === "optimized" && decision.rewrite.kind === "stored"
+  ).length;
+  if (
+    storedProjectionCount !== storedFlows.projectionCount ||
+    storedFlows.flowCount !== storedFlows.constructionCount
+  ) {
+    throw new Error("stored representation decisions are incoherent");
   }
   const byCall = new Map<Node, RepresentationProjectionRewrite>();
   const byFile = new Map<SourceFile, RepresentationProjectionRewrite[]>();
@@ -185,6 +215,7 @@ function sealPlan(
     decisions: Object.freeze([...decisions]),
     retentions: Object.freeze(retentions),
     identityCallables,
+    storedFlows,
     rewriteFor(call: Node): RepresentationProjectionRewrite | undefined {
       return byCall.get(call);
     },

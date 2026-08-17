@@ -3,6 +3,11 @@ import {
   AsCallExpression,
   AsFunctionDeclaration,
   AsMethodDeclaration,
+  KindCommaToken,
+  NewBinaryExpression,
+  NewParenthesizedExpression,
+  NewToken,
+  NewVoidExpression,
   NodeFactory_NewNodeList,
   NodeFactory_UpdateCallExpression,
   NodeFactory_UpdateFunctionDeclaration,
@@ -20,6 +25,7 @@ import type { RepresentationProjectionPlan } from "./plan.js";
 export interface RepresentationProjectionRewriteResult {
   readonly sourceFile: SourceFile;
   readonly rewriteCount: number;
+  readonly storedConstructionCount: number;
   readonly callableParameterCount: number;
   readonly callableInvocationCount: number;
   readonly callableArgumentCount: number;
@@ -35,8 +41,10 @@ export function createRepresentationProjectionRewriter(
   sourceFile: SourceFile,
 ): RepresentationProjectionRewriter {
   const expected = plan.rewritesFor(sourceFile);
+  const expectedStoredConstructions = plan.storedFlows.constructionsFor(sourceFile);
   const callableSpecializations = plan.identityCallables.specializationsFor(sourceFile);
   const consumed = new Set<Node>();
+  const consumedStoredConstructions = new Set<Node>();
   const consumedOwners = new Map<Node, Set<number>>();
   const consumedOwnerCalls = new Map<Node, Set<number>>();
   const consumedParameterCalls = new Set<Node>();
@@ -57,15 +65,33 @@ export function createRepresentationProjectionRewriter(
         if (directArgument === undefined || call?.Arguments?.Nodes.length !== 1) {
           throw new Error("planned representation call lost its transformed shape");
         }
-        if (selected.kind === "identity") {
-          return directArgument;
+        if (selected.kind === "identity" || selected.kind === "stored") {
+          return directCallResult(factory, call, directArgument);
         }
         const inner = AsCallExpression(directArgument);
         const inverseArgument = inner?.Arguments?.Nodes[0];
         if (inverseArgument === undefined || inner?.Arguments?.Nodes.length !== 1) {
           throw new Error("planned inverse representation lost its inner call");
         }
-        return inverseArgument;
+        return directCallResult(
+          factory,
+          call,
+          directCallResult(factory, inner, inverseArgument),
+        );
+      }
+
+      const storedFlow = plan.storedFlows.constructionFor(original);
+      if (storedFlow !== undefined) {
+        if (consumedStoredConstructions.has(original)) {
+          throw new Error("stored representation construction was visited twice");
+        }
+        const call = AsCallExpression(updated);
+        const argument = call?.Arguments?.Nodes[0];
+        if (argument === undefined || call?.Arguments?.Nodes.length !== 1) {
+          throw new Error("stored representation construction lost its argument");
+        }
+        consumedStoredConstructions.add(original);
+        return directCallResult(factory, call, argument);
       }
 
       const parameterSpecialization =
@@ -120,6 +146,17 @@ export function createRepresentationProjectionRewriter(
           `representation projection consumption mismatch: planned ${expected.length}, consumed ${consumed.size}`,
         );
       }
+      const missingStoredConstruction = expectedStoredConstructions.find(
+        (construction) => !consumedStoredConstructions.has(construction),
+      );
+      if (
+        missingStoredConstruction !== undefined ||
+        consumedStoredConstructions.size !== expectedStoredConstructions.length
+      ) {
+        throw new Error(
+          `stored representation consumption mismatch: planned ${expectedStoredConstructions.length}, consumed ${consumedStoredConstructions.size}`,
+        );
+      }
       assertCallableConsumption(
         plan,
         sourceFile,
@@ -131,12 +168,33 @@ export function createRepresentationProjectionRewriter(
       return Object.freeze({
         sourceFile: transformed,
         rewriteCount: consumed.size,
+        storedConstructionCount: consumedStoredConstructions.size,
         callableParameterCount: countConsumed(consumedOwners),
         callableInvocationCount: consumedParameterCalls.size,
         callableArgumentCount: countConsumed(consumedOwnerCalls),
       });
     },
   });
+}
+
+function directCallResult(
+  factory: NodeFactory,
+  call: NonNullable<ReturnType<typeof AsCallExpression>>,
+  argument: Node,
+): Node {
+  const target = call.Expression;
+  if (target === undefined) {
+    throw new Error("planned representation call lost its target");
+  }
+  const sequence = requiredNode(NewBinaryExpression(
+    factory,
+    undefined,
+    requiredNode(NewVoidExpression(factory, target)),
+    undefined,
+    NewToken(factory, KindCommaToken),
+    argument,
+  ));
+  return requiredNode(NewParenthesizedExpression(factory, sequence));
 }
 
 function updateOwnerCall(

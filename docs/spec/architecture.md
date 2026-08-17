@@ -161,69 +161,50 @@ or generated-text inspection may select a representation.
 
 ## Admitted Families
 
-The profile grows by closed semantic family, not by corpus exception. A family
-is admitted only when its complete semantic denominator is available from
-finalized shared facts or from ordinary checked-TypeScript semantics that do
-not depend on source-language meaning. The current executable families are:
+The profile grows by closed semantic family, not corpus exception. Admission
+requires a complete denominator from finalized facts or ordinary checked-TypeScript semantics:
 
-- **cooperative effects:** remove `async`, `Promise<T>`, and `await` from every
-  complete component that cannot suspend; retain transport for a real open,
-  escaping, thenable, provider, or suspending boundary;
-- **typed pointers:** use a scalar snapshot for a closed read-only flow, one
-  shared `{ value: T }` cell for a closed mutable scalar alias flow, and the
-  represented class object for a proved bijective object flow; retain canonical
-  location semantics for open or observable identity/alias/nil/lifetime cases;
+- **cooperative effects:** remove `async`, `Promise<T>`, and `await` from a complete
+  non-suspending component; retain real open, escaping, thenable, provider, or suspending boundaries;
+- **typed pointers:** use a scalar snapshot for a closed read-only flow, one shared
+  `{ value: T }` cell for mutable scalar aliases, and a represented class for a
+  proved bijection; retain canonical locations for observable identity/alias/nil/lifetime;
 - **scalar projections:** erase representation-only scalar wrappers when all
   uses preserve the same selected value behavior;
-- **representation projections:** erase an exact identity call or an immediate
-  constructor/projection inverse pair, and specialize an exact identity-only
-  callable parameter, when ordinary checked-TypeScript semantics prove that
-  the eliminated calls, allocation, parameter, and arguments are unobservable.
+- **representation projections:** erase an exact identity call, immediate inverse
+  pair, or immutable local wrapper used only by exact projectors, and specialize
+  identity-only callable parameters when every eliminated observation is proved absent.
 
-Value copying/storage, generic operation selection, source-language containers,
-panic/recovery, reflection, and package initialization remain in
-their canonical source form unless a separately versioned shared fact contract
-is added for that family. In particular, a GoToTS runtime import, generated
-class shape, method name, or support-module path is ordinary TypeScript input;
-it is not semantic evidence. The target must not recognize `RuntimeSlice`,
-`GoMap`, interface adapters, defer machinery, or similar declarations by
-spelling or structure and then infer Go behavior.
+Value copying/storage, generic operations, source-language containers, panic/recovery,
+reflection, and package initialization remain canonical without a versioned fact contract.
+A GoToTS import, generated shape, name, or support path is ordinary TypeScript, not
+semantic evidence; `RuntimeSlice`, `GoMap`, adapters, and defer machinery are never inferred by spelling.
 
-An exact TypeScript identity is not source-language inference. Under the
-explicit closed-program profile, a direct one-argument project function or
-stable static method whose only statement returns that exact parameter may be
-replaced by its argument. Likewise, `project(construct(value))` may become
-`value` when selected signatures prove one stable class, `construct` does only
-`new Class(value)`, the constructor does only one parameter-property store,
-and `project` returns that exact stored property. Every binding, constructor,
-property, argument, and selected signature is joined by identity. A write,
-decorator, inheritance, optional/spread or unresolved call, constructor statement, different
-field, open target, or unpaired projection retains the original expression.
-This rule never recognizes helper names and does not generalize to arbitrary
-copy, container, interface, or storage semantics.
+An exact TypeScript identity is not source-language inference. The closed profile may
+replace a stable one-argument project callable that returns its parameter. It may also
+replace `project(construct(value))` when exact signatures prove one stable class, a sole
+`new Class(value)`, one constructor parameter-property store, and projection of that field.
+Every identity is joined. Writes, decorators, inheritance, optional/spread/unresolved calls,
+constructor statements, different fields, open targets, and unpaired calls retain; names never select the rule.
 
-The same owner may remove a callable parameter only when every reference to
-that parameter is one exact direct single-argument invocation, every reference
-to its function or stable static-method owner is one exact direct call, and
-every corresponding supplied value is a proved synchronous identity function.
-It then removes the parameter, replaces each invocation by its argument, and
-removes the corresponding argument from every caller as one complete-flow
-rewrite. A parameter or owner alias, binding write, optional/spread call,
-generator, overload surface, class escape, non-identity input, unresolved
-signature, or overlap with another representation rewrite retains the entire
-candidate. Argument position and callable identity are joined from checked
-nodes; target names never select the rule.
+The inverse pair may cross one local `const` with no annotation, write, export,
+identity observation, alias, or non-projector use. Its initializer is the exact
+transparent constructor and every reference is a matching projector over the same
+field. Binding references and projector arguments join both ways. Rewriting preserves
+target-before-argument evaluation; one missing or foreign reference retains all.
 
-A future admitted family may optimize those forms only after its fact owner
-defines the complete observations needed for the decision (for example slice
-nilness, capacity, backing aliases, reslicing and element addresses), finalizes
-those facts on exact nodes, and exposes the closed configuration choice. Until
-then, doing nothing is canonical retention by ownership, not an unreported
-target decision row.
+The owner may remove a callable parameter only when every parameter reference is one
+direct single-argument call, every owner reference is one exact call, and every input is
+a proved synchronous identity. Parameter, invocation, and all caller arguments change
+atomically. Aliases, writes, optional/spread calls, generators, overloads, class escape,
+non-identity inputs, unresolved signatures, or overlapping rewrites retain the candidate.
 
-Each family has one decision owner and one transformation owner. Cross-family
-coordination exchanges immutable result facts before rewriting; one family may
-not inspect another family's partially rewritten tree.
+A future family requires its owner to define every observation (for example slice nilness,
+capacity, backing aliases, reslicing, and element addresses), finalize exact-node facts,
+and expose a closed profile choice. Until then, canonical retention is the only decision.
+
+Each family has one decision and transformation owner. Families exchange immutable
+results before rewriting and never inspect another family's partially rewritten tree.
 
 ### Scalar Projection Closure
 

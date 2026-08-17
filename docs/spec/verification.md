@@ -240,20 +240,23 @@ no artifacts and the output directory remains untouched in every failure.
 
 ## Human-Source Gate
 
-Exact representation-projection fixtures include a generic identity function
-and a stable static constructor/projector pair. It also includes one generic
-kernel whose callable parameter is invoked directly and supplied only exact
-identity functions across multiple files and callers. The selected profile
-must emit the argument once and no identity call/allocation/parameter/argument;
-the canonical profile must remain byte-stable. Mutations add a constructor
-statement, change the selected field, write the class or static method,
-introduce an optional/spread call, separate the projector from its constructor,
-alias or mutate the callable parameter/owner, or supply one non-identity
-function. Each mutation retains the complete candidate at the representation
-owner. Evidence exact-joins expression and callable candidate totals to
-optimized plus retained rows and records one closed reason for every retained
-candidate. Same-spelled helpers and unrelated wrapper classes are negative
-controls.
+Exact representation-projection fixtures include a generic identity function,
+a stable static constructor/projector pair, and a transparent wrapper stored
+in one non-exported immutable local before repeated projection. They also
+include one generic kernel whose callable parameter is invoked directly and
+supplied only exact identity functions across multiple files and callers. The
+selected profile must emit the argument once and no identity call, wrapper
+allocation, projector call, parameter, or argument; the canonical profile must
+remain byte-stable. Mutations add a constructor statement, change the selected
+field, write or reflect on the class or static method, introduce an
+optional/spread call, separate the projector from its constructor, omit one
+stored-flow reference from either side of the exact join, export/mutate/alias
+or observe the stored wrapper, mutate the callable parameter/owner, or supply
+one non-identity function. Each mutation retains the complete candidate at the
+representation owner. Evidence exact-joins expression, stored-flow, and
+callable candidate totals to optimized plus retained rows and records one
+closed reason for every retained candidate. Same-spelled helpers and unrelated
+wrapper classes are negative controls.
 
 Representative generated artifacts and the twenty largest expansions are
 inspected. The gate rejects, unless an exact typed necessity row owns it:
