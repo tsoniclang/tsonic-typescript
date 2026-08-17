@@ -6,6 +6,11 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { SourceIdentityResolver } from "../occurrence.js";
+import {
+  createOptimizationRetentionLedger,
+  type BoundedOptimizationReasonEvidence,
+} from "../retention-evidence.js";
 import type { RepresentationProjectionProfile } from "./plan.js";
 import { classValueReferencesAreClosed } from "./shape.js";
 
@@ -29,17 +34,14 @@ export interface IdentityCallableSpecialization {
   readonly ownerCalls: readonly Node[];
 }
 
-export interface IdentityCallableRetention {
-  readonly parameter: Node;
-  readonly reason: IdentityCallableRetentionReason;
-}
-
 export interface IdentityCallablePlan {
   readonly candidateCount: number;
   readonly optimizedCount: number;
   readonly retainedCount: number;
   readonly specializations: readonly IdentityCallableSpecialization[];
-  readonly retentions: readonly IdentityCallableRetention[];
+  readonly fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    IdentityCallableRetentionReason
+  >[];
   specializationsForOwner(owner: Node): readonly IdentityCallableSpecialization[];
   specializationsForOwnerCall(call: Node): readonly IdentityCallableSpecialization[];
   specializationForParameterCall(call: Node): IdentityCallableSpecialization | undefined;
@@ -54,11 +56,15 @@ export function createIdentityCallablePlan(
   program: TargetProgramIndex,
   profile: RepresentationProjectionProfile,
   blockedCalls: ReadonlySet<Node>,
+  sourceIdentityFor: SourceIdentityResolver,
 ): IdentityCallablePlan {
-  const decisions: (
-    | { readonly kind: "optimized"; readonly value: IdentityCallableSpecialization }
-    | { readonly kind: "retained"; readonly value: IdentityCallableRetention }
-  )[] = [];
+  const specializations: IdentityCallableSpecialization[] = [];
+  const retentions = createOptimizationRetentionLedger(
+    source,
+    sourceIdentityFor,
+    identityCallableRetentionReasons,
+  );
+  let candidateCount = 0;
   for (const owner of program.nodesOfKinds([
     KindFunctionDeclaration,
     KindMethodDeclaration,
@@ -74,11 +80,9 @@ export function createIdentityCallablePlan(
       if (parameter === undefined || !isCallableParameter(source, parameter)) {
         continue;
       }
+      candidateCount += 1;
       if (profile === "preserve") {
-        decisions.push({
-          kind: "retained",
-          value: Object.freeze({ parameter, reason: "profile-preserved" }),
-        });
+        retentions.record("profile-preserved", parameter);
         continue;
       }
       const decision = resolveSpecialization(
@@ -89,15 +93,20 @@ export function createIdentityCallablePlan(
         parameterIndex,
         blockedCalls,
       );
-      decisions.push(decision.kind === "proved"
-        ? { kind: "optimized", value: decision.specialization }
-        : {
-            kind: "retained",
-            value: Object.freeze({ parameter, reason: decision.reason }),
-          });
+      if (decision.kind === "proved") {
+        specializations.push(decision.specialization);
+      } else {
+        retentions.record(decision.reason, parameter);
+      }
     }
   }
-  return sealIdentityCallablePlan(source, decisions);
+  return sealIdentityCallablePlan(
+    source,
+    candidateCount,
+    specializations,
+    retentions.count,
+    retentions.seal(),
+  );
 }
 
 type SpecializationResolution =
@@ -115,7 +124,7 @@ function resolveSpecialization(
   if (program.hasBindingWrite(parameter)) {
     return { kind: "retained", reason: "mutable-parameter" };
   }
-  const parameterReferences = source.navigation.referencesToDeclaration(parameter);
+  const parameterReferences = program.referencesToDeclaration(parameter);
   const parameterCalls = parameterReferences.map((reference) =>
     directParameterCallForReference(source, reference)
   );
@@ -125,7 +134,7 @@ function resolveSpecialization(
   ) {
     return { kind: "retained", reason: "open-parameter-use" };
   }
-  const ownerReferences = source.navigation.referencesToDeclaration(owner)
+  const ownerReferences = program.referencesToDeclaration(owner)
     .filter((reference) => !isModuleForwardingReference(source, reference));
   const ownerCalls = ownerReferences.map((reference) =>
     directOwnerCallForReference(source, reference)
@@ -173,17 +182,19 @@ function resolveSpecialization(
 
 function sealIdentityCallablePlan(
   source: TargetSourceProgram,
-  decisions: readonly (
-    | { readonly kind: "optimized"; readonly value: IdentityCallableSpecialization }
-    | { readonly kind: "retained"; readonly value: IdentityCallableRetention }
-  )[],
+  candidateCount: number,
+  specializations: readonly IdentityCallableSpecialization[],
+  retainedCount: number,
+  fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    IdentityCallableRetentionReason
+  >[],
 ): IdentityCallablePlan {
-  const specializations = decisions.flatMap((decision) =>
-    decision.kind === "optimized" ? [decision.value] : []
-  );
-  const retentions = decisions.flatMap((decision) =>
-    decision.kind === "retained" ? [decision.value] : []
-  );
+  if (
+    specializations.length + retainedCount !== candidateCount ||
+    fallbackReasons.reduce((sum, row) => sum + row.count, 0) !== retainedCount
+  ) {
+    throw new Error("identity-callable decisions do not partition their denominator");
+  }
   const byOwner = groupSpecializations(specializations, (value) => [value.owner]);
   const byOwnerCall = groupSpecializations(specializations, (value) => value.ownerCalls);
   const byParameterCall = new Map<Node, IdentityCallableSpecialization>();
@@ -203,11 +214,11 @@ function sealIdentityCallablePlan(
     }
   }
   return Object.freeze({
-    candidateCount: decisions.length,
+    candidateCount,
     optimizedCount: specializations.length,
-    retainedCount: retentions.length,
-    specializations: Object.freeze(specializations),
-    retentions: Object.freeze(retentions),
+    retainedCount,
+    specializations: Object.freeze([...specializations]),
+    fallbackReasons,
     specializationsForOwner(owner: Node) {
       return byOwner.get(owner) ?? noSpecializations;
     },
@@ -279,7 +290,7 @@ function supportedOwner(
     source.ast.is.IsClassDeclaration(parent) &&
     source.ast.extendsHeritageElements(parent).length === 0 &&
     !program.hasBindingWrite(parent) &&
-    classValueReferencesAreClosed(source, parent);
+    classValueReferencesAreClosed(source, program, parent);
 }
 
 function isCallableParameter(

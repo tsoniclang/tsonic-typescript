@@ -6,7 +6,10 @@ import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createTargetProgramIndex } from "../program-index.js";
 import { createScalarRepresentationPlan } from "./plan.js";
 import { createRepresentationProjectionPlan } from "../representation/plan.js";
-import { checkedScalarFixture } from "./scalar.test-support.js";
+import {
+  checkedScalarFixture,
+  fixtureSourceIdentityFor,
+} from "./scalar.test-support.js";
 
 test("reports exact scalar retention evidence without machine paths", () => {
   const sourceText = `class Scalar {
@@ -23,20 +26,21 @@ export const result = new Scalar({ amount: 1 }).value;
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: false,
+    declarationReferences: true,
   });
   const plan = createScalarRepresentationPlan(
     fixture.source,
     program,
     profile.scalarProjections,
+    fixtureSourceIdentityFor(fixture.source),
   );
   const representationPlan = createRepresentationProjectionPlan(
     fixture.source,
     program,
     profile.representationProjections,
+    fixtureSourceIdentityFor(fixture.source),
   );
   const evidence = createTypeScriptOptimizationEvidence(
-    fixture.source,
-    () => "index.ts",
     profile,
     ["index.ts"],
     program.operations,

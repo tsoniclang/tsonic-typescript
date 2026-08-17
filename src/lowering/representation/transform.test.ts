@@ -12,6 +12,7 @@ import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createScalarRepresentationPlan } from "../scalar/plan.js";
 import {
   checkedScalarFixture,
+  fixtureSourceIdentityFor,
   visit,
 } from "../scalar/scalar.test-support.js";
 import { createRepresentationProjectionPlan } from "./plan.js";
@@ -34,11 +35,13 @@ test("eliminates exact identity and inverse representation calls", () => {
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: false,
+    declarationReferences: true,
   });
   const plan = createRepresentationProjectionPlan(
     fixture.source,
     program,
     "closed-direct",
+    fixtureSourceIdentityFor(fixture.source),
   );
   const result = lowerRepresentationProjections(fixture.sourceFile, plan);
 
@@ -55,11 +58,13 @@ test("preserves each representation candidate unless selected", () => {
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: false,
+    declarationReferences: true,
   });
   const plan = createRepresentationProjectionPlan(
     fixture.source,
     program,
     "preserve",
+    fixtureSourceIdentityFor(fixture.source),
   );
   const result = lowerRepresentationProjections(fixture.sourceFile, plan);
 
@@ -135,8 +140,10 @@ test("fails closed when an apparent projection pair is not exact", () => {
       createTargetProgramIndex(fixture.source, {
         bindingWrites: true,
         memberDispatch: false,
+        declarationReferences: true,
       }),
       "closed-direct",
+      fixtureSourceIdentityFor(fixture.source),
     );
     const result = lowerRepresentationProjections(fixture.sourceFile, plan);
     assert.equal(plan.optimizedCount, 0);
@@ -155,20 +162,21 @@ test("accounts for every representation candidate in immutable evidence", () => 
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: false,
+    declarationReferences: true,
   });
   const scalar = createScalarRepresentationPlan(
     fixture.source,
     program,
     profile.scalarProjections,
+    fixtureSourceIdentityFor(fixture.source),
   );
   const representation = createRepresentationProjectionPlan(
     fixture.source,
     program,
     profile.representationProjections,
+    fixtureSourceIdentityFor(fixture.source),
   );
   const evidence = createTypeScriptOptimizationEvidence(
-    fixture.source,
-    () => "index.ts",
     profile,
     ["index.ts"],
     program.operations,
@@ -178,7 +186,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     undefined,
   );
 
-  assert.equal(evidence.schemaVersion, 14);
+  assert.equal(evidence.schemaVersion, 15);
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",
     identityCandidateCount: 1,

@@ -6,6 +6,7 @@ import type { Node } from "@tsonic/tsts";
 import { createTargetProgramIndex } from "../program-index.js";
 import {
   checkedScalarFixture,
+  fixtureSourceIdentityFor,
   visit,
 } from "../scalar/scalar.test-support.js";
 import { createRepresentationProjectionPlan } from "./plan.js";
@@ -26,8 +27,10 @@ test("specializes a closed identity callable parameter and every caller", () => 
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     "closed-direct",
+    fixtureSourceIdentityFor(fixture.source),
   );
   const result = lowerRepresentationProjections(fixture.sourceFile, plan);
   const kernel = functionNamed(fixture, result.sourceFile, "kernel");
@@ -50,14 +53,16 @@ test("preserves an identity callable unless the complete family is selected", ()
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     "preserve",
+    fixtureSourceIdentityFor(fixture.source),
   );
   const result = lowerRepresentationProjections(fixture.sourceFile, plan);
 
   assert.equal(plan.identityCallables.candidateCount, 1);
   assert.equal(plan.identityCallables.optimizedCount, 0);
-  assert.deepEqual(plan.identityCallables.retentions.map((entry) => entry.reason), [
+  assert.deepEqual(plan.identityCallables.fallbackReasons.map((entry) => entry.reason), [
     "profile-preserved",
   ]);
   assert.equal(result.callableParameterCount, 0);
@@ -88,8 +93,10 @@ export const second = kernel((value: number): number => value, 42);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     "closed-direct",
+    fixtureSourceIdentityFor(fixture.source),
   );
   const lowered = [...fixture.source.navigation.sourceFiles].map((sourceFile) =>
     lowerRepresentationProjections(sourceFile, plan)
@@ -156,13 +163,15 @@ test("retains the complete callable family at every open boundary", () => {
       createTargetProgramIndex(fixture.source, {
         bindingWrites: true,
         memberDispatch: false,
+        declarationReferences: true,
       }),
       "closed-direct",
+      fixtureSourceIdentityFor(fixture.source),
     );
     const result = lowerRepresentationProjections(fixture.sourceFile, plan);
     assert.equal(plan.identityCallables.optimizedCount, 0, fixtureCase.reason);
     assert.deepEqual(
-      plan.identityCallables.retentions.map((entry) => entry.reason),
+      plan.identityCallables.fallbackReasons.map((entry) => entry.reason),
       [fixtureCase.reason],
       fixtureCase.reason,
     );
@@ -185,13 +194,15 @@ test("retains a callable supplied through a non-function declaration", () => {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     "closed-direct",
+    fixtureSourceIdentityFor(fixture.source),
   );
   const result = lowerRepresentationProjections(fixture.sourceFile, plan);
 
   assert.equal(plan.identityCallables.optimizedCount, 0);
-  assert.deepEqual(plan.identityCallables.retentions.map((entry) => entry.reason), [
+  assert.deepEqual(plan.identityCallables.fallbackReasons.map((entry) => entry.reason), [
     "nonidentity-input",
   ]);
   assert.equal(result.callableParameterCount, 0);

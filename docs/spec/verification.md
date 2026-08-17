@@ -45,9 +45,18 @@ declaration-only members, and external heritage. Binding-write tests cover
 assignment, compound assignment, update, destructuring, iteration, property,
 and read-only occurrences.
 
+Declaration-reference tests independently exact-join every materialized
+project declaration against canonical navigation. Mutations omit or re-parent
+one reference and must retain the complete affected flow. Broad searches prove
+that no family invokes a second whole-program reverse-reference index.
+
 A scaling fixture doubles nodes and edges while keeping shape constant. Actual
 index/planner operation counts must grow proportionally; a quadratic control
 must be distinguishable. Wall time is supporting evidence only.
+Retention-evidence scaling separately grows negative decisions while asserting
+exact counts, deterministic ordering, and a fixed eight-occurrence maximum.
+Restoring raw retained-node or per-candidate decision ledgers must fail the
+structural gate or the guarded whole-product memory bound.
 
 Pointer contract tests exact-join canonical pointer types and operation facts
 to the complete target component. They cover pointer-bearing parameters,

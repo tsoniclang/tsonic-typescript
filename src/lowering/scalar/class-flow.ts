@@ -20,6 +20,11 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { SourceIdentityResolver } from "../occurrence.js";
+import {
+  createOptimizationRetentionLedger,
+  type BoundedOptimizationReasonEvidence,
+} from "../retention-evidence.js";
 import type { ScalarPrimitiveKind } from "./portable-type.js";
 import {
   resolveStoredScalarFlow,
@@ -57,11 +62,6 @@ export interface ScalarClassFlow {
   readonly stored: StoredScalarFlow;
 }
 
-export interface ScalarClassRetention {
-  readonly declaration: Node;
-  readonly reason: ScalarClassRetentionReason;
-}
-
 export type ScalarClassRewrite =
   | { readonly kind: "declaration"; readonly flow: ScalarClassFlow }
   | { readonly kind: "type-reference"; readonly flow: ScalarClassFlow }
@@ -73,7 +73,9 @@ export interface ScalarClassFlowPlan {
   readonly loweredCount: number;
   readonly retainedCount: number;
   readonly flows: readonly ScalarClassFlow[];
-  readonly retentions: readonly ScalarClassRetention[];
+  readonly fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    ScalarClassRetentionReason
+  >[];
   rewriteFor(node: Node): ScalarClassRewrite | undefined;
   rewritesFor(sourceFile: SourceFile): readonly Node[];
 }
@@ -103,19 +105,34 @@ export function createScalarClassFlowPlan(
   resolveShape: ShapeResolver,
   optimizedConstructions: ReadonlySet<Node>,
   optimizedProjections: ReadonlySet<Node>,
+  sourceIdentityFor: SourceIdentityResolver,
 ): ScalarClassFlowPlan {
   const candidates = collectCandidates(source, program, resolveShape);
-  const retentions: ScalarClassRetention[] = [];
+  const retentions = createOptimizationRetentionLedger(
+    source,
+    sourceIdentityFor,
+    scalarClassRetentionReasons,
+  );
   const flows: ScalarClassFlow[] = [];
+  if (profile === "preserve") {
+    for (const candidate of candidates) {
+      retentions.record("profile-preserved", candidate.declaration);
+    }
+    return sealClassPlan(
+      source,
+      candidates.length,
+      flows,
+      retentions.count,
+      retentions.seal(),
+    );
+  }
   const uses = indexCandidateUses(source, program, candidates);
   for (const candidate of candidates) {
     const selected = uses.get(candidate.declaration);
     if (selected === undefined) {
       throw new Error("scalar class candidate lost its exact use ledger");
     }
-    const fixedReason = profile === "preserve"
-      ? "profile-preserved"
-      : classMemberRetention(source, candidate);
+    const fixedReason = classMemberRetention(source, candidate);
     const useResolution = fixedReason === undefined
       ? resolveClassUse(
           source,
@@ -129,10 +146,7 @@ export function createScalarClassFlowPlan(
     const reason = fixedReason ??
       (useResolution?.kind === "retained" ? useResolution.reason : undefined);
     if (reason !== undefined) {
-      retentions.push(Object.freeze({
-        declaration: candidate.declaration,
-        reason,
-      }));
+      retentions.record(reason, candidate.declaration);
       continue;
     }
     if (useResolution?.kind !== "proved") {
@@ -145,7 +159,13 @@ export function createScalarClassFlowPlan(
       stored: useResolution.flow,
     }));
   }
-  return sealClassPlan(source, candidates.length, flows, retentions);
+  return sealClassPlan(
+    source,
+    candidates.length,
+    flows,
+    retentions.count,
+    retentions.seal(),
+  );
 }
 
 function collectCandidates(
@@ -267,11 +287,12 @@ function indexCandidateUses(
     }
     auditClassReferences(
       source,
+      program,
       candidate,
       constructionOwner,
       owner,
     );
-    auditFieldReferences(source, candidate, projectionOwner, owner);
+    auditFieldReferences(source, program, candidate, projectionOwner, owner);
   }
   const sealed = new Map<Node, CandidateUses>();
   for (const [declaration, owner] of byDeclaration) {
@@ -349,11 +370,12 @@ function constructionIsExact(
 
 function auditClassReferences(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   candidate: Candidate,
   constructionOwner: ReadonlyMap<Node, Node>,
   owner: MutableCandidateUses,
 ): void {
-  for (const reference of source.navigation.referencesToDeclaration(
+  for (const reference of program.referencesToDeclaration(
     candidate.declaration,
   )) {
     const importSpecifier = ancestor(source, reference, IsImportSpecifier);
@@ -382,11 +404,12 @@ function auditClassReferences(
 
 function auditFieldReferences(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   candidate: Candidate,
   projectionOwner: ReadonlyMap<Node, Node>,
   owner: MutableCandidateUses,
 ): void {
-  for (const reference of source.navigation.referencesToDeclaration(
+  for (const reference of program.referencesToDeclaration(
     candidate.proof.parameterDeclaration,
   )) {
     const projection = ancestor(source, reference, IsPropertyAccessExpression);
@@ -470,9 +493,15 @@ function sealClassPlan(
   source: TargetSourceProgram,
   candidateCount: number,
   flows: readonly ScalarClassFlow[],
-  retentions: readonly ScalarClassRetention[],
+  retainedCount: number,
+  fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    ScalarClassRetentionReason
+  >[],
 ): ScalarClassFlowPlan {
-  if (flows.length + retentions.length !== candidateCount) {
+  if (
+    flows.length + retainedCount !== candidateCount ||
+    fallbackReasons.reduce((sum, row) => sum + row.count, 0) !== retainedCount
+  ) {
     throw new Error("scalar class decisions do not partition the denominator");
   }
   const rewrites = new Map<Node, ScalarClassRewrite>();
@@ -508,9 +537,9 @@ function sealClassPlan(
   return Object.freeze({
     candidateCount,
     loweredCount: flows.length,
-    retainedCount: retentions.length,
+    retainedCount,
     flows: Object.freeze([...flows]),
-    retentions: Object.freeze([...retentions]),
+    fallbackReasons,
     rewriteFor(node: Node): ScalarClassRewrite | undefined {
       return rewrites.get(node);
     },

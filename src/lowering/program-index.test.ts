@@ -15,6 +15,7 @@ import {
   createTargetProgramIndex,
 } from "./program-index.js";
 import { indexedSource, requireKind } from "./program-index.test-support.js";
+import { checkedScalarFixture } from "./scalar/scalar.test-support.js";
 
 test("indexes every exact node once and preserves kind order", () => {
   const fixture = checkedEffectFixture(indexedSource);
@@ -26,6 +27,7 @@ test("indexes every exact node once and preserves kind order", () => {
   const index = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: true,
+    declarationReferences: true,
   });
 
   assert.deepEqual(index.nodes, expected);
@@ -62,6 +64,7 @@ test("joins shared binding writes and member dispatch to canonical navigation", 
   const index = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: true,
+    declarationReferences: true,
   });
   const methods = index.nodesOfKind(KindMethodDeclaration);
   assert.equal(methods.length, 3);
@@ -90,6 +93,42 @@ test("joins shared binding writes and member dispatch to canonical navigation", 
       reference.sourceFile,
     ),
   );
+});
+
+test("exact-joins project references to canonical navigation", () => {
+  const fixture = checkedEffectFixture(indexedSource);
+  const index = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: true,
+    declarationReferences: true,
+  });
+  assertProjectReferencesReconcile(fixture.source, index);
+});
+
+test("exact-joins aliases, qualified names, properties, and private names", () => {
+  const fixture = checkedScalarFixture(
+    `import { Models as Domain, create } from "./library.js";
+const item: Domain.Box = create();
+const shorthand = { item };
+export const result = shorthand.item.read();`,
+    {
+      additionalFiles: {
+        "/src/library.ts": `export namespace Models {
+  export class Box {
+    #value = 1;
+    read(): number { return this.#value; }
+  }
+}
+export function create(): Models.Box { return new Models.Box(); }`,
+      },
+    },
+  );
+  const index = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: true,
+    declarationReferences: true,
+  });
+  assertProjectReferencesReconcile(fixture.source, index);
 });
 
 test("shared index construction stays linear as independent classes double", () => {
@@ -143,6 +182,7 @@ function measuredIndex(source: TargetSourceProgram) {
   const index = createTargetProgramIndex(measured, {
     bindingWrites: true,
     memberDispatch: true,
+    declarationReferences: true,
   });
   return { index, heritageQueries, memberDispatchQueries };
 }
@@ -152,10 +192,34 @@ function totalOperations(operations: {
   readonly childEdges: number;
   readonly kindEntries: number;
   readonly identifierEntries: number;
+  readonly referenceCandidates: number;
+  readonly projectReferences: number;
   readonly bindingCandidates: number;
   readonly bindingWrites: number;
   readonly heritageEdges: number;
   readonly dispatchMembers: number;
 }): number {
   return Object.values(operations).reduce((total, count) => total + count, 0);
+}
+
+function assertProjectReferencesReconcile(
+  source: TargetSourceProgram,
+  index: ReturnType<typeof createTargetProgramIndex>,
+): void {
+  const declarations = new Set<Node>();
+  for (const node of index.nodes) {
+    const reference = source.navigation.sourceReferenceFor(node);
+    if (reference?.project === true) {
+      declarations.add(reference.declaration);
+    }
+  }
+  assert.ok(declarations.size > 0);
+  let referenceCount = 0;
+  for (const declaration of declarations) {
+    const expected = source.navigation.referencesToDeclaration(declaration);
+    const actual = index.referencesToDeclaration(declaration);
+    assert.deepEqual(actual, expected);
+    referenceCount += actual.length;
+  }
+  assert.equal(index.operations.projectReferences, referenceCount);
 }

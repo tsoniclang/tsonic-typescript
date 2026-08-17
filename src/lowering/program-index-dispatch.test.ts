@@ -71,6 +71,7 @@ test("disabled facets perform zero semantic queries", () => {
   const fixture = checkedEffectFixture(indexedSource);
   let writeQueries = 0;
   let heritageQueries = 0;
+  let referenceQueries = 0;
   const source: TargetSourceProgram = Object.freeze({
     ...fixture.source,
     navigation: Object.freeze({
@@ -83,6 +84,10 @@ test("disabled facets perform zero semantic queries", () => {
         heritageQueries += 1;
         return fixture.source.navigation.declaredHeritage(declaration);
       },
+      sourceReferenceFor(node: Node | undefined) {
+        referenceQueries += 1;
+        return fixture.source.navigation.sourceReferenceFor(node);
+      },
     }),
   });
   const index = createTargetProgramIndex(source, {
@@ -92,8 +97,15 @@ test("disabled facets perform zero semantic queries", () => {
 
   assert.equal(writeQueries, 0);
   assert.equal(heritageQueries, 0);
+  assert.equal(referenceQueries, 0);
   assert.equal(index.operations.bindingCandidates, 0);
   assert.equal(index.operations.bindingWrites, 0);
   assert.equal(index.operations.heritageEdges, 0);
   assert.equal(index.operations.dispatchMembers, 0);
+  assert.equal(index.operations.referenceCandidates, 0);
+  assert.equal(index.operations.projectReferences, 0);
+  assert.throws(
+    () => index.referencesToDeclaration(fixture.sourceFile),
+    /was not selected/u,
+  );
 });

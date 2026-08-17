@@ -3,6 +3,11 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { SourceIdentityResolver } from "../occurrence.js";
+import {
+  createOptimizationRetentionLedger,
+  type BoundedOptimizationReasonEvidence,
+} from "../retention-evidence.js";
 import {
   createIdentityCallablePlan,
   type IdentityCallablePlan,
@@ -38,29 +43,14 @@ export interface RepresentationProjectionRewrite {
   readonly argument: Node;
 }
 
-export type RepresentationProjectionDecision =
-  | {
-      readonly kind: "optimized";
-      readonly call: Node;
-      readonly rewrite: RepresentationProjectionRewrite;
-    }
-  | {
-      readonly kind: "retained";
-      readonly call: Node;
-      readonly candidate: "identity" | "inverse";
-      readonly reason: RepresentationProjectionRetentionReason;
-    };
-
 export interface RepresentationProjectionPlan {
   readonly profile: RepresentationProjectionProfile;
   readonly identityCandidateCount: number;
   readonly inverseCandidateCount: number;
   readonly optimizedCount: number;
   readonly retainedCount: number;
-  readonly decisions: readonly RepresentationProjectionDecision[];
-  readonly retentions: readonly Extract<
-    RepresentationProjectionDecision,
-    { readonly kind: "retained" }
+  readonly fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    RepresentationProjectionRetentionReason
   >[];
   readonly identityCallables: IdentityCallablePlan;
   readonly storedFlows: StoredRepresentationFlowPlan;
@@ -74,11 +64,17 @@ export function createRepresentationProjectionPlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   profile: RepresentationProjectionProfile,
+  sourceIdentityFor: SourceIdentityResolver,
 ): RepresentationProjectionPlan {
   if (profile !== "preserve" && profile !== "closed-direct") {
     throw new Error(`unsupported representation projection profile '${String(profile)}'`);
   }
-  const decisions: RepresentationProjectionDecision[] = [];
+  const rewrites: RepresentationProjectionRewrite[] = [];
+  const retentions = createOptimizationRetentionLedger(
+    source,
+    sourceIdentityFor,
+    representationProjectionRetentionReasons,
+  );
   const storedCandidates: ProjectionCallShape[] = [];
   let identityCandidateCount = 0;
   let inverseCandidateCount = 0;
@@ -86,11 +82,13 @@ export function createRepresentationProjectionPlan(
     const identity = identityCallArgument(source, program, call);
     if (identity.kind !== "unrelated") {
       identityCandidateCount += 1;
-      decisions.push(profile === "preserve"
-        ? retained(call, "identity", "profile-preserved")
-        : identity.kind === "proved"
-        ? optimized(call, "identity", identity.argument)
-        : retained(call, "identity", identity.reason));
+      if (profile === "preserve") {
+        retentions.record("profile-preserved", call);
+      } else if (identity.kind === "proved") {
+        rewrites.push(optimized(call, "identity", identity.argument));
+      } else {
+        retentions.record(identity.reason, call);
+      }
       continue;
     }
     const projection = projectionCallShape(source, program, call);
@@ -99,11 +97,11 @@ export function createRepresentationProjectionPlan(
     }
     inverseCandidateCount += 1;
     if (profile === "preserve") {
-      decisions.push(retained(call, "inverse", "profile-preserved"));
+      retentions.record("profile-preserved", call);
       continue;
     }
     if (projection.kind === "retained") {
-      decisions.push(retained(call, "inverse", projection.reason));
+      retentions.record(projection.reason, call);
       continue;
     }
     const inverse = inverseProjectionArgument(
@@ -112,9 +110,9 @@ export function createRepresentationProjectionPlan(
       projection,
     );
     if (inverse.kind === "proved") {
-      decisions.push(optimized(call, "inverse", inverse.argument));
+      rewrites.push(optimized(call, "inverse", inverse.argument));
     } else if (inverse.kind === "retained" && inverse.reason !== "unpaired-projection") {
-      decisions.push(retained(call, "inverse", inverse.reason));
+      retentions.record(inverse.reason, call);
     } else {
       storedCandidates.push(projection);
     }
@@ -127,24 +125,28 @@ export function createRepresentationProjectionPlan(
   for (const projection of storedCandidates) {
     const call = source.ast.as.AsCallExpression(projection.call);
     const argument = call?.Arguments?.Nodes[0];
-    decisions.push(argument !== undefined && storedFlows.projectionFor(projection.call)
-      ? optimized(projection.call, "stored", argument)
-      : retained(projection.call, "inverse", "unpaired-projection"));
+    if (argument !== undefined && storedFlows.projectionFor(projection.call)) {
+      rewrites.push(optimized(projection.call, "stored", argument));
+    } else {
+      retentions.record("unpaired-projection", projection.call);
+    }
   }
+  const fallbackReasons = retentions.seal();
   return sealPlan(
     source,
     profile,
     identityCandidateCount,
     inverseCandidateCount,
-    decisions,
+    rewrites,
+    retentions.count,
+    fallbackReasons,
     storedFlows,
     createIdentityCallablePlan(
       source,
       program,
       profile,
-      new Set(decisions.flatMap((decision) =>
-        decision.kind === "optimized" ? [decision.call] : []
-      )),
+      new Set(rewrites.map((rewrite) => rewrite.call)),
+      sourceIdentityFor,
     ),
   );
 }
@@ -154,18 +156,22 @@ function sealPlan(
   profile: RepresentationProjectionProfile,
   identityCandidateCount: number,
   inverseCandidateCount: number,
-  decisions: readonly RepresentationProjectionDecision[],
+  rewrites: readonly RepresentationProjectionRewrite[],
+  retainedCount: number,
+  fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    RepresentationProjectionRetentionReason
+  >[],
   storedFlows: StoredRepresentationFlowPlan,
   identityCallables: IdentityCallablePlan,
 ): RepresentationProjectionPlan {
   const expected = identityCandidateCount + inverseCandidateCount;
-  if (decisions.length !== expected) {
+  if (rewrites.length + retainedCount !== expected) {
     throw new Error(
-      `representation decision mismatch: candidates ${expected}, decisions ${decisions.length}`,
+      `representation decision mismatch: candidates ${expected}, decisions ${rewrites.length + retainedCount}`,
     );
   }
-  const storedProjectionCount = decisions.filter((decision) =>
-    decision.kind === "optimized" && decision.rewrite.kind === "stored"
+  const storedProjectionCount = rewrites.filter((rewrite) =>
+    rewrite.kind === "stored"
   ).length;
   if (
     storedProjectionCount !== storedFlows.projectionCount ||
@@ -175,31 +181,26 @@ function sealPlan(
   }
   const byCall = new Map<Node, RepresentationProjectionRewrite>();
   const byFile = new Map<SourceFile, RepresentationProjectionRewrite[]>();
-  const retentions: Extract<
-    RepresentationProjectionDecision,
-    { readonly kind: "retained" }
-  >[] = [];
-  for (const decision of decisions) {
-    if (decision.kind === "retained") {
-      retentions.push(decision);
-      continue;
-    }
-    if (byCall.has(decision.call)) {
+  for (const rewrite of rewrites) {
+    if (byCall.has(rewrite.call)) {
       throw new Error("one representation call cannot be rewritten twice");
     }
-    byCall.set(decision.call, decision.rewrite);
-    const sourceFile = source.ast.getSourceFile(decision.call);
+    byCall.set(rewrite.call, rewrite);
+    const sourceFile = source.ast.getSourceFile(rewrite.call);
     if (sourceFile === undefined) {
       throw new Error("planned representation call has no source file");
     }
     const rewrites = byFile.get(sourceFile);
     if (rewrites === undefined) {
-      byFile.set(sourceFile, [decision.rewrite]);
+      byFile.set(sourceFile, [rewrite]);
     } else {
-      rewrites.push(decision.rewrite);
+      rewrites.push(rewrite);
     }
   }
-  if (byCall.size + retentions.length !== expected) {
+  if (
+    byCall.size + retainedCount !== expected ||
+    fallbackReasons.reduce((sum, row) => sum + row.count, 0) !== retainedCount
+  ) {
     throw new Error("representation decisions do not partition their denominator");
   }
   const sealedByFile = new Map<SourceFile, readonly RepresentationProjectionRewrite[]>();
@@ -211,9 +212,8 @@ function sealPlan(
     identityCandidateCount,
     inverseCandidateCount,
     optimizedCount: byCall.size,
-    retainedCount: retentions.length,
-    decisions: Object.freeze([...decisions]),
-    retentions: Object.freeze(retentions),
+    retainedCount,
+    fallbackReasons,
     identityCallables,
     storedFlows,
     rewriteFor(call: Node): RepresentationProjectionRewrite | undefined {
@@ -229,18 +229,6 @@ function optimized(
   call: Node,
   kind: RepresentationProjectionRewrite["kind"],
   argument: Node,
-): RepresentationProjectionDecision {
-  return Object.freeze({
-    kind: "optimized" as const,
-    call,
-    rewrite: Object.freeze({ call, kind, argument }),
-  });
-}
-
-function retained(
-  call: Node,
-  candidate: "identity" | "inverse",
-  reason: RepresentationProjectionRetentionReason,
-): RepresentationProjectionDecision {
-  return Object.freeze({ kind: "retained" as const, call, candidate, reason });
+): RepresentationProjectionRewrite {
+  return Object.freeze({ call, kind, argument });
 }

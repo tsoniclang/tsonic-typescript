@@ -247,7 +247,7 @@ function stableCallable(
   const stableClass = source.ast.is.IsFunctionDeclaration(declaration) ||
     parent !== undefined &&
       source.ast.is.IsClassDeclaration(parent) &&
-      classValueReferencesAreClosed(source, parent);
+      classValueReferencesAreClosed(source, program, parent);
   return parsed !== undefined &&
     parsed.AsteriskToken === undefined &&
     !source.ast.hasModifierKind(declaration, "async") &&
@@ -313,7 +313,7 @@ function transparentStorageConstructor(
     body !== undefined &&
     source.ast.statements(body).length === 0 &&
     classMembersAreConstructionTransparent(source, classDeclaration) &&
-    classValueReferencesAreClosed(source, classDeclaration) &&
+    classValueReferencesAreClosed(source, program, classDeclaration) &&
     signature !== undefined &&
     source.semantics.forNode(construction).getSignatureDeclaration(signature) ===
       constructor &&
@@ -364,9 +364,10 @@ function classMembersAreConstructionTransparent(
 
 export function classValueReferencesAreClosed(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   classDeclaration: Node,
 ): boolean {
-  return source.navigation.referencesToDeclaration(classDeclaration).every((reference) =>
+  return program.referencesToDeclaration(classDeclaration).every((reference) =>
     isModuleForwardingReference(source, reference) ||
     plainTypeReference(source, reference) ||
     exactConstructionTarget(source, reference) ||

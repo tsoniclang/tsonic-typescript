@@ -89,7 +89,7 @@ export const result = selected.value;
   assert.equal(plan.loweredScalarClassCount, 0);
   assert.equal(plan.retainedScalarClassCount, 1);
   assert.deepEqual(
-    plan.scalarClassRetentions.map((entry) => entry.reason),
+    plan.scalarClassFallbackReasons.map((entry) => entry.reason),
     ["observable-class-value"],
   );
   assert.equal(countNodes(fixture.source, result.sourceFile, IsClassDeclaration), 1);
@@ -206,7 +206,7 @@ export const result = selected.value;
   );
   assert.equal(plan.loweredScalarClassCount, 0);
   assert.deepEqual(
-    plan.scalarClassRetentions.map((entry) => entry.reason),
+    plan.scalarClassFallbackReasons.map((entry) => entry.reason),
     ["open-projection"],
   );
 });
@@ -237,7 +237,7 @@ export const result = new Mode(42).value;
     );
     assert.equal(plan.loweredScalarClassCount, 0);
     assert.deepEqual(
-      plan.scalarClassRetentions.map((entry) => entry.reason),
+      plan.scalarClassFallbackReasons.map((entry) => entry.reason),
       [fixtureCase.reason],
     );
   }

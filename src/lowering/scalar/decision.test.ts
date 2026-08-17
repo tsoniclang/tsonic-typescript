@@ -44,14 +44,10 @@ export const result = [
   );
 
   assert.equal(plan.syntacticProjectionCount, candidates.length);
-  assert.equal(plan.decisions.length, candidates.length);
   assert.equal(plan.projectionCount, 1);
   assert.equal(plan.retainedProjectionCount, 4);
-  for (const candidate of candidates) {
-    assert.ok(plan.decisionFor(candidate) !== undefined);
-  }
   assert.deepEqual(
-    [...new Set(plan.retentions.map((entry) => entry.reason))].sort(),
+    plan.fallbackReasons.map((entry) => entry.reason).sort(),
     [
       "non-scalar-value",
       "nonreadonly-scalar-field",
@@ -60,7 +56,7 @@ export const result = [
     ],
   );
   assert.equal(
-    plan.projectionCount + plan.retentions.length,
+    plan.projectionCount + plan.retainedProjectionCount,
     plan.syntacticProjectionCount,
   );
 });
@@ -79,10 +75,10 @@ export const result = new Scalar(1).value;
     scalarProjectionRetentionReasons,
   );
 
-  assert.deepEqual(preserved.retentions.map((entry) => entry.reason), [
+  assert.deepEqual(preserved.fallbackReasons.map((entry) => entry.reason), [
     "profile-preserved",
   ]);
-  assert.ok(preserved.retentions.every((entry) => accepted.has(entry.reason)));
+  assert.ok(preserved.fallbackReasons.every((entry) => accepted.has(entry.reason)));
 });
 
 function independentProjectionCandidates(

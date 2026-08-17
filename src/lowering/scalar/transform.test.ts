@@ -289,7 +289,7 @@ export const result = new Scalar(1).value;
       "closed-direct",
     );
     assert.equal(plan.projectionCount, 0, label);
-    assert.deepEqual(plan.retentions.map((entry) => entry.reason), [reason], label);
+    assert.deepEqual(plan.fallbackReasons.map((entry) => entry.reason), [reason], label);
   }
 });
 
@@ -349,7 +349,7 @@ test("fails closed when exact selected-field identity is mutated", () => {
   );
   assert.equal(plan.projectionCount, 1);
   assert.equal(plan.retainedProjectionCount, 1);
-  assert.deepEqual(plan.retentions.map((entry) => entry.reason), [
+  assert.deepEqual(plan.fallbackReasons.map((entry) => entry.reason), [
     "open-call-or-projection",
   ]);
 });

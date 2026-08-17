@@ -116,6 +116,8 @@ export function prepareTypeScriptLowering(
       profile.representationProjections === "closed-direct" ||
       profile.cooperativeEffects === "closed-direct",
     memberDispatch: profile.cooperativeEffects === "closed-direct",
+    declarationReferences: profile.scalarProjections === "closed-direct" ||
+      profile.representationProjections === "closed-direct",
   });
   const generatedNames = createProgramGeneratedNames(source, program);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
@@ -125,11 +127,13 @@ export function prepareTypeScriptLowering(
     source,
     program,
     profile.scalarProjections,
+    identities.forFile,
   );
   const representationPlan = createRepresentationProjectionPlan(
     source,
     program,
     profile.representationProjections,
+    identities.forFile,
   );
   const loweredValues = composeLoweredValueContracts([
     createPointerResultContract(source, pointerFlowPlan),
@@ -149,8 +153,6 @@ export function prepareTypeScriptLowering(
       )
     : undefined;
   const evidence = createTypeScriptOptimizationEvidence(
-    source,
-    identities.forFile,
     profile,
     identities.membership,
     program.operations,

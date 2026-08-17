@@ -99,7 +99,7 @@ function resolveFlow(
     return undefined;
   }
 
-  const references = source.navigation.referencesToDeclaration(binding);
+  const references = program.referencesToDeclaration(binding);
   const referenceSet = new Set(references);
   if (
     references.length !== candidateArguments.length ||

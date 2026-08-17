@@ -103,7 +103,7 @@ test("emits deterministic immutable optimization evidence", () => {
   assert.ok(artifact !== undefined);
   assert.equal(artifact.kind, "asset");
   assert.deepEqual(JSON.parse(artifact.text), {
-    schemaVersion: 14,
+    schemaVersion: 15,
     profileIdentity:
       "typescript-optimization-v3/pointer=closed-direct/scalar=closed-direct/representations=preserve/effects=closed-direct/interfaces=open-structural",
     sourceMembership: ["index.ts", "markers.ts"],
@@ -112,6 +112,8 @@ test("emits deterministic immutable optimization evidence", () => {
       childEdges: 80,
       kindEntries: 82,
       identifierEntries: 29,
+      referenceCandidates: 29,
+      projectReferences: 15,
       bindingCandidates: 0,
       bindingWrites: 0,
       heritageEdges: 0,

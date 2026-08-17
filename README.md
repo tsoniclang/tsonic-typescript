@@ -60,12 +60,13 @@ lowering, never one lowering family's partial child output.
 
 Validation maps each selection to one versioned immutable profile identity.
 Lowering then builds one target-program index containing exact source/node
-membership, syntax-kind partitions, binding writes, and member dispatch needed
-by the selected families. Every planner shares that index; disabled facets
-perform no semantic queries. The optimization evidence records the profile
-identity, exact source membership, index work, selected totals, and retained
-reasons so a stale or differently configured result cannot masquerade as the
-same target decision.
+membership, syntax-kind partitions, one canonical declaration-reference join,
+binding writes, and member dispatch needed by the selected families. Every
+planner shares that index; disabled facets perform no semantic queries. The
+optimization evidence records the profile identity, exact source membership,
+index work, selected totals, and exact retained-reason counts with at most eight
+canonical examples per reason. It never retains all rejected AST nodes merely
+to report evidence.
 
 The checked source-file set is the current output membership. No executable
 root or complete module-side-effect contract is supplied to this target, so it

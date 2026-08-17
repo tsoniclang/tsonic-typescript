@@ -65,7 +65,7 @@ export function resolveStoredScalarFlow(
 
   const consumedProjections = new Set<Node>();
   for (const binding of bindings) {
-    for (const reference of source.navigation.referencesToDeclaration(binding)) {
+    for (const reference of program.referencesToDeclaration(binding)) {
       const projection = source.ast.parent(reference);
       const access = AsPropertyAccessExpression(projection);
       if (

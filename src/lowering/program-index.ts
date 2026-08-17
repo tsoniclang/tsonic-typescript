@@ -8,13 +8,20 @@ import {
   KindClassDeclaration,
   KindElementAccessExpression,
   KindIdentifier,
+  KindPrivateIdentifier,
   KindPropertyAccessExpression,
+  KindQualifiedName,
   type Kind,
 } from "@tsonic/tsts/target-ast";
 
+import {
+  createProjectDeclarationReferenceIndex,
+  disabledProjectDeclarationReferenceIndex,
+} from "./reference-index.js";
 export interface TargetProgramIndexSelection {
   readonly bindingWrites: boolean;
   readonly memberDispatch: boolean;
+  readonly declarationReferences?: boolean;
 }
 
 export interface TargetProgramIndexOperations {
@@ -22,6 +29,8 @@ export interface TargetProgramIndexOperations {
   readonly childEdges: number;
   readonly kindEntries: number;
   readonly identifierEntries: number;
+  readonly referenceCandidates: number;
+  readonly projectReferences: number;
   readonly bindingCandidates: number;
   readonly bindingWrites: number;
   readonly heritageEdges: number;
@@ -40,6 +49,7 @@ export interface TargetProgramIndex {
   hasBindingWrite(declaration: Node | undefined): boolean;
   bindingWritesAt(node: Node | undefined): readonly SourceBindingWrite[];
   bindingWritesFor(declaration: Node | undefined): readonly SourceBindingWrite[];
+  referencesToDeclaration(declaration: Node | undefined): readonly Node[];
   memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined;
 }
 
@@ -50,9 +60,13 @@ interface NodeCensus {
   readonly identifierNamesByFile: ReadonlyMap<SourceFile, ReadonlySet<string>>;
   readonly byKind: ReadonlyMap<Kind, readonly Node[]>;
   readonly orderByKind: ReadonlyMap<Kind, Uint32Array>;
-  readonly potentialBindingReferences: readonly Node[];
   readonly childEdges: number;
   readonly identifierEntries: number;
+}
+
+interface CollectedNodeCensus extends NodeCensus {
+  readonly potentialBindingReferences: readonly Node[];
+  readonly referenceCandidates: readonly Node[];
 }
 
 interface BindingWriteIndex {
@@ -67,7 +81,6 @@ interface MemberDispatchIndex {
   readonly heritageEdges: number;
   readonly memberCount: number;
 }
-
 const noNodes = Object.freeze([]) as readonly Node[];
 const noWrites = Object.freeze([]) as readonly SourceBindingWrite[];
 
@@ -75,9 +88,13 @@ export function createTargetProgramIndex(
   source: TargetSourceProgram,
   selection: TargetProgramIndexSelection,
 ): TargetProgramIndex {
-  const census = collectNodeCensus(source);
+  const { potentialBindingReferences, referenceCandidates, ...census } =
+    collectNodeCensus(source, selection);
+  const references = selection.declarationReferences === true
+    ? createProjectDeclarationReferenceIndex(source, referenceCandidates)
+    : disabledProjectDeclarationReferenceIndex();
   const writes = selection.bindingWrites
-    ? collectBindingWrites(source, census.potentialBindingReferences)
+    ? collectBindingWrites(source, potentialBindingReferences)
     : emptyBindingWriteIndex();
   const dispatch = selection.memberDispatch
     ? collectMemberDispatch(source, census.byKind.get(KindClassDeclaration) ?? noNodes)
@@ -87,6 +104,8 @@ export function createTargetProgramIndex(
     childEdges: census.childEdges,
     kindEntries: census.nodes.length,
     identifierEntries: census.identifierEntries,
+    referenceCandidates: references.candidateCount,
+    projectReferences: references.referenceCount,
     bindingCandidates: writes.candidateCount,
     bindingWrites: writes.writeCount,
     heritageEdges: dispatch.heritageEdges,
@@ -137,6 +156,9 @@ export function createTargetProgramIndex(
         ? noWrites
         : writes.byDeclaration.get(declaration) ?? noWrites;
     },
+    referencesToDeclaration(declaration: Node | undefined): readonly Node[] {
+      return references.referencesToDeclaration(declaration);
+    },
     memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined {
       return node === undefined ? undefined : dispatch.byMember.get(node);
     },
@@ -174,8 +196,10 @@ function mergeKindBuckets(
     offsets[selectedBucket] = offset + 1;
   }
 }
-
-function collectNodeCensus(source: TargetSourceProgram): NodeCensus {
+function collectNodeCensus(
+  source: TargetSourceProgram,
+  selection: TargetProgramIndexSelection,
+): CollectedNodeCensus {
   const sourceFiles = Object.freeze([...source.navigation.sourceFiles]);
   const nodes: Node[] = [];
   const seen = new Set<Node>();
@@ -184,6 +208,7 @@ function collectNodeCensus(source: TargetSourceProgram): NodeCensus {
   const byFile = new Map<SourceFile, readonly Node[]>();
   const identifierNamesByFile = new Map<SourceFile, ReadonlySet<string>>();
   const potentialBindingReferences: Node[] = [];
+  const referenceCandidates: Node[] = [];
   let identifierEntries = 0;
   let childEdges = 0;
   for (const sourceFile of sourceFiles) {
@@ -214,12 +239,20 @@ function collectNodeCensus(source: TargetSourceProgram): NodeCensus {
         selected.push(node);
         orderByKind.get(kind)?.push(order);
       }
-      if (
+      if (selection.bindingWrites && (
         kind === KindIdentifier ||
         kind === KindPropertyAccessExpression ||
         kind === KindElementAccessExpression
-      ) {
+      )) {
         potentialBindingReferences.push(node);
+      }
+      if (selection.declarationReferences === true && (
+        kind === KindIdentifier ||
+        kind === KindPrivateIdentifier ||
+        kind === KindPropertyAccessExpression ||
+        kind === KindQualifiedName
+      )) {
+        referenceCandidates.push(node);
       }
       if (kind === KindIdentifier) {
         identifierEntries += 1;
@@ -251,6 +284,7 @@ function collectNodeCensus(source: TargetSourceProgram): NodeCensus {
     byKind: sealedKinds,
     orderByKind: sealedOrders,
     potentialBindingReferences: Object.freeze(potentialBindingReferences),
+    referenceCandidates: Object.freeze(referenceCandidates),
     childEdges,
     identifierEntries,
   });
@@ -305,7 +339,6 @@ function collectBindingWrites(
     writeCount,
   });
 }
-
 function mayReachWrite(source: TargetSourceProgram, node: Node): boolean {
   let current = node;
   for (;;) {

@@ -33,7 +33,7 @@ export const retained = new Aggregate({ amount: 2 }).value;
   const projections = projectionNodes(fixture.sourceFile, fixture.source.ast.children);
   const direct = projections.find((node) => plan.projectionFor(node) !== undefined);
   const retained = projections.find((node) =>
-    plan.decisionFor(node)?.kind === "retained"
+    plan.projectionFor(node) === undefined
   );
 
   assert.ok(direct !== undefined);

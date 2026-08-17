@@ -14,6 +14,7 @@ import { createTargetProgramIndex } from "../program-index.js";
 import {
   checkedScalarFixture,
   countNodes,
+  fixtureSourceIdentityFor,
   visit,
 } from "../scalar/scalar.test-support.js";
 import { createRepresentationProjectionPlan } from "./plan.js";
@@ -52,8 +53,10 @@ test("preserves a stored wrapper unless the closed profile is selected", () => {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     "preserve",
+    fixtureSourceIdentityFor(fixture.source),
   );
   const result = lowerRepresentationProjections(fixture.sourceFile, plan);
 
@@ -101,24 +104,23 @@ test("fails closed when a stored-flow reference identity is mutated", () => {
   const binding = variableNamed(fixture, fixture.sourceFile, "wrapped");
   const references = fixture.source.navigation.referencesToDeclaration(binding);
   assert.equal(references.length, 2);
-  const originalNavigation = fixture.source.navigation;
-  const mutated = {
-    ...fixture.source,
-    navigation: {
-      ...originalNavigation,
-      referencesToDeclaration(declaration: Node) {
-        const selected = originalNavigation.referencesToDeclaration(declaration);
-        return declaration === binding ? selected.slice(0, 1) : selected;
-      },
+  const canonical = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: false,
+    declarationReferences: true,
+  });
+  const mutated = Object.freeze({
+    ...canonical,
+    referencesToDeclaration(declaration: Node | undefined) {
+      const selected = canonical.referencesToDeclaration(declaration);
+      return declaration === binding ? selected.slice(0, 1) : selected;
     },
-  };
+  });
   const plan = createRepresentationProjectionPlan(
+    fixture.source,
     mutated,
-    createTargetProgramIndex(mutated, {
-      bindingWrites: true,
-      memberDispatch: false,
-    }),
     "closed-direct",
+    fixtureSourceIdentityFor(fixture.source),
   );
 
   assert.equal(plan.optimizedCount, 0);
@@ -149,8 +151,10 @@ function createPlan(
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     "closed-direct",
+    fixtureSourceIdentityFor(fixture.source),
   );
 }
 

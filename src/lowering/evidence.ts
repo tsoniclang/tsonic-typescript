@@ -1,23 +1,17 @@
 import type { PointerFlowBlocker } from "./pointer/flow-graph.js";
 import {
-  compareOptimizationOccurrences,
-  optimizationOccurrence,
   type OptimizationOccurrence,
-  type SourceIdentityResolver,
 } from "./occurrence.js";
-import type { TargetSourceProgram } from "@tsonic/target-api";
 import type {
   ClosedPointerFlowPlan,
   PointerFlowRepresentation,
 } from "./pointer/flow-plan.js";
 import type { TypeScriptOptimizationProfile } from "./profile.js";
 import {
-  scalarProjectionRetentionReasons,
   type ScalarProjectionRetentionReason,
   type ScalarRepresentationPlan,
 } from "./scalar/plan.js";
 import {
-  scalarClassRetentionReasons,
   type ScalarClassRetentionReason,
 } from "./scalar/class-flow.js";
 import type { TargetProgramIndexOperations } from "./program-index.js";
@@ -27,12 +21,10 @@ import type {
 } from "./effect/fallback.js";
 import type { InterfaceDispatchEvidence } from "./effect/interface-dispatch.js";
 import {
-  representationProjectionRetentionReasons,
   type RepresentationProjectionPlan,
   type RepresentationProjectionRetentionReason,
 } from "./representation/plan.js";
 import {
-  identityCallableRetentionReasons,
   type IdentityCallableRetentionReason,
 } from "./representation/callable-plan.js";
 
@@ -133,7 +125,7 @@ export type CooperativeEffectOptimizationEvidence =
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 14;
+  readonly schemaVersion: 15;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
@@ -144,8 +136,6 @@ export interface TypeScriptOptimizationEvidence {
 }
 
 export function createTypeScriptOptimizationEvidence(
-  source: TargetSourceProgram,
-  sourceIdentityFor: SourceIdentityResolver,
   profile: TypeScriptOptimizationProfile,
   sourceMembership: readonly string[],
   programIndex: TargetProgramIndexOperations,
@@ -155,15 +145,13 @@ export function createTypeScriptOptimizationEvidence(
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 14 as const,
+    schemaVersion: 15 as const,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
     pointer: pointerEvidence(profile, pointerPlan),
-    scalar: scalarEvidence(source, sourceIdentityFor, profile, scalarPlan),
+    scalar: scalarEvidence(profile, scalarPlan),
     representationProjections: representationEvidence(
-      source,
-      sourceIdentityFor,
       profile,
       representationPlan,
     ),
@@ -172,8 +160,6 @@ export function createTypeScriptOptimizationEvidence(
 }
 
 function representationEvidence(
-  source: TargetSourceProgram,
-  sourceIdentityFor: SourceIdentityResolver,
   profile: TypeScriptOptimizationProfile,
   plan: RepresentationProjectionPlan,
 ): RepresentationProjectionOptimizationEvidence {
@@ -184,50 +170,14 @@ function representationEvidence(
   ) {
     throw new Error("representation evidence received an incoherent decision plan");
   }
-  const byReason = new Map<
-    RepresentationProjectionRetentionReason,
-    OptimizationOccurrence[]
-  >();
-  for (const retention of plan.retentions) {
-    const occurrence = optimizationOccurrence(
-      source,
-      retention.call,
-      sourceIdentityFor,
-    );
-    const occurrences = byReason.get(retention.reason);
-    if (occurrences === undefined) {
-      byReason.set(retention.reason, [occurrence]);
-    } else {
-      occurrences.push(occurrence);
-    }
-  }
-  const fallbackReasons = representationProjectionRetentionReasons.flatMap(
-    (reason) => {
-      const occurrences = byReason.get(reason);
-      return occurrences === undefined
-        ? []
-        : [Object.freeze({
-            reason,
-            count: occurrences.length,
-            examples: Object.freeze(
-              [...occurrences].sort(compareOptimizationOccurrences).slice(0, 8),
-            ),
-          })];
-    },
-  );
+  const fallbackReasons = plan.fallbackReasons;
   if (
     fallbackReasons.reduce((total, entry) => total + entry.count, 0) !==
       plan.retainedCount
   ) {
     throw new Error("representation evidence lost a decision row");
   }
-  const callableFallbackReasons = retentionEvidence(
-    source,
-    sourceIdentityFor,
-    plan.identityCallables.retentions,
-    identityCallableRetentionReasons,
-    (retention) => retention.parameter,
-  );
+  const callableFallbackReasons = plan.identityCallables.fallbackReasons;
   if (
     plan.identityCallables.optimizedCount + plan.identityCallables.retainedCount !==
       plan.identityCallables.candidateCount ||
@@ -242,7 +192,7 @@ function representationEvidence(
     inverseCandidateCount: plan.inverseCandidateCount,
     optimizedCount: plan.optimizedCount,
     retainedCount: plan.retainedCount,
-    fallbackReasons: Object.freeze(fallbackReasons),
+    fallbackReasons,
     storedFlows: Object.freeze({
       flowCount: plan.storedFlows.flowCount,
       constructionCount: plan.storedFlows.constructionCount,
@@ -252,52 +202,12 @@ function representationEvidence(
       candidateCount: plan.identityCallables.candidateCount,
       optimizedCount: plan.identityCallables.optimizedCount,
       retainedCount: plan.identityCallables.retainedCount,
-      fallbackReasons: Object.freeze(callableFallbackReasons),
+      fallbackReasons: callableFallbackReasons,
     }),
   });
 }
 
-function retentionEvidence<
-  Reason extends string,
-  Retention extends { readonly reason: Reason },
->(
-  source: TargetSourceProgram,
-  sourceIdentityFor: SourceIdentityResolver,
-  retentions: readonly Retention[],
-  reasons: readonly Reason[],
-  occurrenceFor: (retention: Retention) => import("@tsonic/tsts").Node,
-): readonly OptimizationReasonEvidence<Reason>[] {
-  const byReason = new Map<Reason, OptimizationOccurrence[]>();
-  for (const retention of retentions) {
-    const occurrence = optimizationOccurrence(
-      source,
-      occurrenceFor(retention),
-      sourceIdentityFor,
-    );
-    const occurrences = byReason.get(retention.reason);
-    if (occurrences === undefined) {
-      byReason.set(retention.reason, [occurrence]);
-    } else {
-      occurrences.push(occurrence);
-    }
-  }
-  return Object.freeze(reasons.flatMap((reason) => {
-    const occurrences = byReason.get(reason);
-    return occurrences === undefined
-      ? []
-      : [Object.freeze({
-          reason,
-          count: occurrences.length,
-          examples: Object.freeze(
-            [...occurrences].sort(compareOptimizationOccurrences).slice(0, 8),
-          ),
-        })];
-  }));
-}
-
 function scalarEvidence(
-  source: TargetSourceProgram,
-  sourceIdentityFor: SourceIdentityResolver,
   profile: TypeScriptOptimizationProfile,
   plan: ScalarRepresentationPlan,
 ): ScalarOptimizationEvidence {
@@ -308,37 +218,7 @@ function scalarEvidence(
   ) {
     throw new Error("scalar evidence received an incoherent decision plan");
   }
-  const byReason = new Map<
-    ScalarProjectionRetentionReason,
-    OptimizationOccurrence[]
-  >();
-  for (const retention of plan.retentions) {
-    const occurrences = byReason.get(retention.reason);
-    const occurrence = optimizationOccurrence(
-      source,
-      retention.access,
-      sourceIdentityFor,
-    );
-    if (occurrences === undefined) {
-      byReason.set(retention.reason, [occurrence]);
-    } else {
-      occurrences.push(occurrence);
-    }
-  }
-  const fallbackReasons = scalarProjectionRetentionReasons.flatMap((reason) => {
-    const occurrences = byReason.get(reason);
-    return occurrences === undefined
-      ? []
-      : [Object.freeze({
-          reason,
-          count: occurrences.length,
-          examples: Object.freeze(
-            [...occurrences]
-              .sort(compareOptimizationOccurrences)
-              .slice(0, 8),
-          ),
-        })];
-  });
+  const fallbackReasons = plan.fallbackReasons;
   const retainedTotal = fallbackReasons.reduce(
     (total, entry) => total + entry.count,
     0,
@@ -346,39 +226,7 @@ function scalarEvidence(
   if (retainedTotal !== plan.retainedProjectionCount) {
     throw new Error("scalar retention evidence lost a decision row");
   }
-  const classByReason = new Map<
-    ScalarClassRetentionReason,
-    OptimizationOccurrence[]
-  >();
-  for (const retention of plan.scalarClassRetentions) {
-    const occurrence = optimizationOccurrence(
-      source,
-      retention.declaration,
-      sourceIdentityFor,
-    );
-    const occurrences = classByReason.get(retention.reason);
-    if (occurrences === undefined) {
-      classByReason.set(retention.reason, [occurrence]);
-    } else {
-      occurrences.push(occurrence);
-    }
-  }
-  const scalarClassFallbackReasons = scalarClassRetentionReasons.flatMap(
-    (reason) => {
-      const occurrences = classByReason.get(reason);
-      return occurrences === undefined
-        ? []
-        : [Object.freeze({
-            reason,
-            count: occurrences.length,
-            examples: Object.freeze(
-              [...occurrences]
-                .sort(compareOptimizationOccurrences)
-                .slice(0, 8),
-            ),
-          })];
-    },
-  );
+  const scalarClassFallbackReasons = plan.scalarClassFallbackReasons;
   const retainedClassTotal = scalarClassFallbackReasons.reduce(
     (total, entry) => total + entry.count,
     0,
@@ -395,11 +243,11 @@ function scalarEvidence(
     syntacticProjectionCount: plan.syntacticProjectionCount,
     optimizedProjectionCount: plan.projectionCount,
     retainedProjectionCount: plan.retainedProjectionCount,
-    fallbackReasons: Object.freeze(fallbackReasons),
+    fallbackReasons,
     scalarClassCandidateCount: plan.scalarClassCandidateCount,
     loweredScalarClassCount: plan.loweredScalarClassCount,
     retainedScalarClassCount: plan.retainedScalarClassCount,
-    scalarClassFallbackReasons: Object.freeze(scalarClassFallbackReasons),
+    scalarClassFallbackReasons,
   });
 }
 

@@ -46,7 +46,7 @@ validated target profile and complete source membership
                          |
                          v
 one immutable target-program index
-  (exact nodes/source files, syntax-kind partitions, shared flow answers)
+  (exact nodes/source files, syntax-kind partitions, references, shared flow answers)
                          |
                          v
 family plans over complete connected flows
@@ -69,8 +69,11 @@ Whole-program families consume one immutable index built once from the
 original checked tree. It contains only target-side coordination needed by
 more than one family. The current shared denominator is exact node/source-file
 membership in source preorder, immutable syntax-kind partitions, canonical
-binding-write joins, and canonical project-member dispatch. Optional facets
-are built only when the selected profile has a consumer.
+declaration-reference joins, canonical binding-write joins, and canonical
+project-member dispatch. The declaration-reference join is materialized once
+from exact checked-node identities and is the only reverse-reference graph used
+by target families. Optional facets are built only when the selected profile
+has a consumer.
 
 The index is coordination state, not a second semantic model. TSTS facts remain
 the semantic authority. Canonical declaration, reference, import, signature,
@@ -82,6 +85,8 @@ expanding the index.
 Index construction and family planning must be proportional to nodes plus
 relevant edges. Repeated whole-program scans, per-candidate hierarchy walks,
 per-candidate import expansion, and output-cardinality proxies are forbidden.
+Temporary candidate arrays used to construct an index facet are released when
+that facet seals; they are not retained alongside the finished index.
 
 The supplied source-file membership is also the current publication
 membership. The target input does not currently carry executable declaration
@@ -581,6 +586,11 @@ source membership, selected/retained decisions, typed reasons, index and
 planner work counts, runtime contract, and target output membership. Input
 semantic and output-membership digests are added only at the layer that owns
 those canonical values; they are not fabricated by lowering.
+
+Retained decisions are represented by exact per-reason counts and at most eight
+canonical source occurrences per reason. A family plan must not retain every
+negative candidate or its AST node merely to construct evidence. The bounded
+examples are diagnostics; the exact counts remain the conservation proof.
 
 ## Complexity And Failure
 
