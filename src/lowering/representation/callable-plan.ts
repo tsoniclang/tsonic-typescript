@@ -256,8 +256,6 @@ function supportedOwner(
 ): boolean {
   if (
     source.ast.body(owner) === undefined ||
-    source.ast.as.AsFunctionDeclaration(owner)?.FullSignature !== undefined ||
-    source.ast.as.AsMethodDeclaration(owner)?.FullSignature !== undefined ||
     program.hasBindingWrite(owner)
   ) {
     return false;
@@ -265,11 +263,16 @@ function supportedOwner(
   if (source.ast.is.IsFunctionDeclaration(owner)) {
     const declaration = source.ast.as.AsFunctionDeclaration(owner);
     return declaration?.name !== undefined &&
+      declaration.FullSignature === undefined &&
       declaration.AsteriskToken === undefined;
+  }
+  if (!source.ast.is.IsMethodDeclaration(owner)) {
+    return false;
   }
   const method = source.ast.as.AsMethodDeclaration(owner);
   const parent = source.ast.parent(owner);
   return method !== undefined &&
+    method.FullSignature === undefined &&
     method.AsteriskToken === undefined &&
     source.ast.hasModifierKind(owner, "static") &&
     parent !== undefined &&
@@ -361,24 +364,7 @@ function isExactIdentityValue(
   if (declaration === undefined || program.hasBindingWrite(declaration)) {
     return false;
   }
-  const functionDeclaration = source.ast.as.AsFunctionDeclaration(declaration);
-  const functionExpression = source.ast.as.AsFunctionExpression(declaration);
-  const arrow = source.ast.as.AsArrowFunction(declaration);
-  if (
-    functionDeclaration === undefined &&
-    functionExpression === undefined &&
-    arrow === undefined
-  ) {
-    return false;
-  }
-  if (
-    source.ast.hasModifierKind(declaration, "async") ||
-    functionDeclaration?.AsteriskToken !== undefined ||
-    functionExpression?.AsteriskToken !== undefined ||
-    functionDeclaration?.FullSignature !== undefined ||
-    functionExpression?.FullSignature !== undefined ||
-    arrow?.FullSignature !== undefined
-  ) {
+  if (!isSupportedIdentityFunction(source, declaration)) {
     return false;
   }
   const parameters = source.ast.parameters(declaration).filter(
@@ -392,6 +378,32 @@ function isExactIdentityValue(
     returned !== undefined &&
     source.ast.is.IsIdentifier(returned) &&
     source.navigation.sourceReferenceFor(returned)?.declaration === parameter;
+}
+
+function isSupportedIdentityFunction(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  if (source.ast.hasModifierKind(declaration, "async")) {
+    return false;
+  }
+  if (source.ast.is.IsFunctionDeclaration(declaration)) {
+    const parsed = source.ast.as.AsFunctionDeclaration(declaration);
+    return parsed !== undefined &&
+      parsed.AsteriskToken === undefined &&
+      parsed.FullSignature === undefined;
+  }
+  if (source.ast.is.IsFunctionExpression(declaration)) {
+    const parsed = source.ast.as.AsFunctionExpression(declaration);
+    return parsed !== undefined &&
+      parsed.AsteriskToken === undefined &&
+      parsed.FullSignature === undefined;
+  }
+  if (source.ast.is.IsArrowFunction(declaration)) {
+    const parsed = source.ast.as.AsArrowFunction(declaration);
+    return parsed !== undefined && parsed.FullSignature === undefined;
+  }
+  return false;
 }
 
 function identityReturnedExpression(

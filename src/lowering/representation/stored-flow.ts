@@ -4,6 +4,7 @@ import {
   AsCallExpression,
   AsVariableDeclaration,
   AsVariableDeclarationList,
+  IsCallExpression,
   IsIdentifier,
   IsVariableDeclaration,
   IsVariableDeclarationList,
@@ -92,7 +93,7 @@ function resolveFlow(
     declaration.Type !== undefined ||
     declaration.ExclamationToken !== undefined ||
     construction === undefined ||
-    AsCallExpression(construction) === undefined ||
+    !IsCallExpression(construction) ||
     !closedConstBinding(source, program, binding)
   ) {
     return undefined;
@@ -146,10 +147,12 @@ function closedConstBinding(
     return false;
   }
   const listNode = source.ast.parent(binding);
+  if (!IsVariableDeclarationList(listNode)) {
+    return false;
+  }
   const list = AsVariableDeclarationList(listNode);
   const statement = source.ast.parent(listNode);
-  return IsVariableDeclarationList(listNode) &&
-    list !== undefined &&
+  return list !== undefined &&
     (list.Flags & NodeFlagsConst) !== 0 &&
     IsVariableStatement(statement) &&
     !source.ast.hasModifierKind(statement, "export") &&

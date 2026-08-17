@@ -170,6 +170,34 @@ test("retains the complete callable family at every open boundary", () => {
   }
 });
 
+test("retains a callable supplied through a non-function declaration", () => {
+  const fixture = checkedScalarFixture(`function kernel(
+    copy: (value: number) => number,
+    value: number,
+  ): number {
+    return copy(value);
+  }
+  const selected = (value: number): number => value;
+  export const value = kernel(selected, 41);
+  `);
+  const plan = createRepresentationProjectionPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: true,
+      memberDispatch: false,
+    }),
+    "closed-direct",
+  );
+  const result = lowerRepresentationProjections(fixture.sourceFile, plan);
+
+  assert.equal(plan.identityCallables.optimizedCount, 0);
+  assert.deepEqual(plan.identityCallables.retentions.map((entry) => entry.reason), [
+    "nonidentity-input",
+  ]);
+  assert.equal(result.callableParameterCount, 0);
+  assert.deepEqual(callArgumentCounts(fixture, result.sourceFile, "kernel"), [2]);
+});
+
 function functionNamed(
   fixture: ReturnType<typeof checkedScalarFixture>,
   root: Node,

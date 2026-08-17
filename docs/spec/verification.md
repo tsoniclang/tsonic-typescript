@@ -258,6 +258,13 @@ callable candidate totals to optimized plus retained rows and records one
 closed reason for every retained candidate. Same-spelled helpers and unrelated
 wrapper classes are negative controls.
 
+A callable supplied through a variable declaration is a required projection
+foil: it must retain the complete callable flow without reading function-node
+fields from that declaration. Stored-flow fixtures likewise place unrelated
+node kinds at construction, declaration-list, and property-access boundaries.
+These cases fail if an unchecked TS-Go `AsX` projection is restored as a kind
+predicate.
+
 Representative generated artifacts and the twenty largest expansions are
 inspected. The gate rejects, unless an exact typed necessity row owns it:
 

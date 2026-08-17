@@ -1,11 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
-  AsNewExpression,
   AsPropertyAccessExpression,
   AsVariableDeclaration,
   AsVariableDeclarationList,
   IsIdentifier,
+  IsNewExpression,
   IsVariableDeclaration,
   IsVariableDeclarationList,
   IsVariableStatement,
@@ -95,7 +95,7 @@ function constructionBinding(
   source: TargetSourceProgram,
   construction: Node,
 ): Node | undefined {
-  if (AsNewExpression(construction) === undefined) {
+  if (!IsNewExpression(construction)) {
     return undefined;
   }
   const declaration = source.ast.parent(construction);
@@ -107,10 +107,12 @@ function constructionBinding(
     return undefined;
   }
   const listNode = source.ast.parent(declaration);
+  if (!IsVariableDeclarationList(listNode)) {
+    return undefined;
+  }
   const list = AsVariableDeclarationList(listNode);
   const statement = source.ast.parent(listNode);
   if (
-    !IsVariableDeclarationList(listNode) ||
     list === undefined ||
     (list.Flags & NodeFlagsConst) === 0 ||
     !IsVariableStatement(statement)

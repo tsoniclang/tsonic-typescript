@@ -159,6 +159,12 @@ The decision order is:
 No package/function allowlist, name heuristic, local override, unchecked cast,
 or generated-text inspection may select a representation.
 
+TS-Go `IsX` predicates are the sole syntax-kind authority. An `AsX` operation
+projects fields only after the node kind is proved by `IsX`, a closed kind
+inventory, or an already validated plan entry; it never classifies an
+uncertain node. A failed kind proof retains the complete flow rather than
+probing another projected layout.
+
 ## Admitted Families
 
 The profile grows by closed semantic family, not corpus exception. Admission

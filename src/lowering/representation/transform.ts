@@ -3,6 +3,8 @@ import {
   AsCallExpression,
   AsFunctionDeclaration,
   AsMethodDeclaration,
+  IsFunctionDeclaration,
+  IsMethodDeclaration,
   KindCommaToken,
   NewBinaryExpression,
   NewParenthesizedExpression,
@@ -249,8 +251,11 @@ function updateOwner(
     parameters.filter((_parameter, index) => !removed.has(index)),
   );
   recordIndexes(original, removed, consumed, "owner");
-  const declaration = AsFunctionDeclaration(updated);
-  if (declaration !== undefined) {
+  if (IsFunctionDeclaration(updated)) {
+    const declaration = AsFunctionDeclaration(updated);
+    if (declaration === undefined) {
+      throw new Error("planned identity-callable function projection failed");
+    }
     return requiredNode(NodeFactory_UpdateFunctionDeclaration(
       factory,
       declaration,
@@ -264,8 +269,11 @@ function updateOwner(
       declaration.Body,
     ));
   }
-  const method = AsMethodDeclaration(updated);
-  if (method !== undefined) {
+  if (IsMethodDeclaration(updated)) {
+    const method = AsMethodDeclaration(updated);
+    if (method === undefined) {
+      throw new Error("planned identity-callable method projection failed");
+    }
     return requiredNode(NodeFactory_UpdateMethodDeclaration(
       factory,
       method,
@@ -284,7 +292,11 @@ function updateOwner(
 }
 
 function sourceParameters(node: Node): readonly Node[] {
-  const declaration = AsFunctionDeclaration(node) ?? AsMethodDeclaration(node);
+  const declaration = IsFunctionDeclaration(node)
+    ? AsFunctionDeclaration(node)
+    : IsMethodDeclaration(node)
+    ? AsMethodDeclaration(node)
+    : undefined;
   return (declaration?.Parameters?.Nodes ?? []).filter(
     (parameter): parameter is Node => parameter !== undefined,
   );

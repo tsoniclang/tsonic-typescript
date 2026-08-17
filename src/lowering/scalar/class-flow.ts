@@ -9,6 +9,7 @@ import {
   IsExportSpecifier,
   IsImportSpecifier,
   IsNewExpression,
+  IsPropertyAccessExpression,
   IsPropertyDeclaration,
   IsSpreadElement,
   IsTypeQueryNode,
@@ -388,9 +389,7 @@ function auditFieldReferences(
   for (const reference of source.navigation.referencesToDeclaration(
     candidate.proof.parameterDeclaration,
   )) {
-    const projection = ancestor(source, reference, (node) =>
-      AsPropertyAccessExpression(node) !== undefined
-    );
+    const projection = ancestor(source, reference, IsPropertyAccessExpression);
     if (
       projection === undefined ||
       projectionOwner.get(projection) !== candidate.declaration
