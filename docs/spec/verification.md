@@ -78,11 +78,13 @@ owner or shared lowered-value boundary before rewriting.
 Scalar-class tests exact-partition every transparent-class candidate into one
 eliminated or retained row. They prove cross-file imports remain runtime
 imports, the same-position sentinel preserves constructor-target evaluation,
-portable type references are rewritten, and no class, construction, or field
-projection survives an admitted component. Mutations store one constructed
-value, expose the constructor value, add an observable member, make the result
-type nonportable, omit one rewrite, or change a declaration/reference join;
-each retains the whole class or fails at exact rewrite consumption.
+portable type references are rewritten, immutable local construction/field
+flows become direct primitive bindings, and no class, construction, or field
+projection survives an admitted component. Boundary cases export or mutate a
+stored value, compare instance identity, expose the constructor value, add an
+observable member, or make the result type nonportable. Mutations omit one
+rewrite or change the exact stored declaration/reference join; each retains
+the whole class or fails at exact rewrite consumption.
 
 Cooperative-effect tests independently count every async callable syntax form
 before selection and exact-partition the count into settled and retained rows.

@@ -83,10 +83,32 @@ export function createScalarRepresentationRewriter(
         if (primitive === undefined) {
           throw new Error("planned scalar class lost its portable type");
         }
-        return resultTypeNode(factory, {
-          kind: "primitive",
+        const resultType = {
+          kind: "primitive" as const,
           primitive,
-        });
+        };
+        if (classRewrite.kind === "type-reference") {
+          return resultTypeNode(factory, resultType);
+        }
+        if (classRewrite.kind === "construction") {
+          const construction = AsNewExpression(updated);
+          const target = construction?.Expression;
+          const argument = construction?.Arguments?.Nodes[0];
+          if (
+            construction === undefined ||
+            target === undefined ||
+            argument === undefined ||
+            construction.Arguments?.Nodes.length !== 1
+          ) {
+            throw new Error("stored scalar construction lost its exact shape");
+          }
+          return projectScalarValue(factory, target, argument, resultType);
+        }
+        const access = AsPropertyAccessExpression(updated);
+        if (access?.Expression === undefined) {
+          throw new Error("stored scalar projection lost its exact receiver");
+        }
+        return projectedStoredScalar(factory, access.Expression, resultType);
       }
       const projection = plan.projectionFor(original);
       if (projection === undefined) {
@@ -149,6 +171,21 @@ export function createScalarRepresentationRewriter(
       });
     },
   });
+}
+
+function projectedStoredScalar(
+  factory: NodeFactory,
+  receiver: Node,
+  resultType: ScalarProjectionResultType,
+): Node {
+  const projected = requiredNode(
+    NewAsExpression(factory, receiver, resultTypeNode(factory, resultType)),
+    "stored scalar projection type preservation",
+  );
+  return requiredNode(
+    NewParenthesizedExpression(factory, projected),
+    "stored scalar projection precedence",
+  );
 }
 
 function scalarClassSentinel(

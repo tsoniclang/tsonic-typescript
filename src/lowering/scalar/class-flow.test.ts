@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  AsPropertyAccessExpression,
   AsImportSpecifier,
   AsVariableDeclaration,
   IsClassDeclaration,
@@ -12,6 +13,8 @@ import {
   IsVariableDeclaration,
   IsVoidExpression,
 } from "@tsonic/tsts/target-ast";
+import type { Node } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import {
   checkedScalarFixture,
@@ -93,7 +96,7 @@ export const result = selected.value;
   assert.equal(countNodes(fixture.source, result.sourceFile, IsNewExpression), 1);
 });
 
-test("rewrites closed type references and retains stored constructions", () => {
+test("rewrites closed type references and immutable stored scalar flows", () => {
   const closed = checkedScalarFixture(`${representationOnlyClass}
 type Alias = Mode;
 export const result = new Mode(42).value;
@@ -120,10 +123,91 @@ export const result = selected.value;
     stored.source,
     "closed-direct",
   );
-  assert.equal(storedPlan.loweredScalarClassCount, 0);
+  const storedResult = lowerScalarRepresentations(
+    stored.sourceFile,
+    storedPlan,
+  );
+  assert.equal(storedPlan.loweredScalarClassCount, 1);
+  assert.equal(storedPlan.retainedScalarClassCount, 0);
+  assert.equal(countNodes(stored.source, storedResult.sourceFile, IsClassDeclaration), 0);
+  assert.equal(countNodes(stored.source, storedResult.sourceFile, IsNewExpression), 0);
+  assert.equal(
+    countNodes(stored.source, storedResult.sourceFile, IsPropertyAccessExpression),
+    0,
+  );
+  assert.equal(
+    countNodes(stored.source, storedResult.sourceFile, IsTypeReferenceNode),
+    0,
+  );
+});
+
+test("retains stored scalar identity and open construction boundaries", () => {
+  const cases = [
+    `${representationOnlyClass}
+const first: Mode = new Mode(42);
+const second: Mode = new Mode(42);
+export const result = first === second;
+`,
+    `${representationOnlyClass}
+export const selected: Mode = new Mode(42);
+export const result = selected.value;
+`,
+  ];
+  for (const sourceText of cases) {
+    const fixture = checkedScalarFixture(sourceText);
+    const plan = createFixtureScalarRepresentationPlan(
+      fixture.source,
+      "closed-direct",
+    );
+    assert.equal(plan.loweredScalarClassCount, 0);
+    assert.equal(plan.retainedScalarClassCount, 1);
+  }
+});
+
+test("fails closed when a stored projection reference join is mutated", () => {
+  const fixture = checkedScalarFixture(`${representationOnlyClass}
+const selected: Mode = new Mode(42);
+export const result = selected.value;
+`);
+  let receiver: Node | undefined;
+  visit(fixture.source, fixture.sourceFile, (node) => {
+    const access = AsPropertyAccessExpression(node);
+    if (
+      receiver === undefined &&
+      access?.Expression !== undefined &&
+      fixture.source.ast.text(access.Expression) === "selected"
+    ) {
+      receiver = access.Expression;
+    }
+  });
+  assert.ok(receiver !== undefined);
+  const selectedReceiver = receiver;
+  const reference = fixture.source.navigation.sourceReferenceFor(selectedReceiver);
+  assert.ok(reference !== undefined);
+  const mutatedSource: TargetSourceProgram = Object.freeze({
+    ...fixture.source,
+    navigation: Object.freeze({
+      ...fixture.source.navigation,
+      sourceReferenceFor(node: Node | undefined) {
+        if (node !== selectedReceiver) {
+          return fixture.source.navigation.sourceReferenceFor(node);
+        }
+        return Object.freeze({
+          ...reference,
+          declaration: fixture.sourceFile,
+        });
+      },
+    }),
+  });
+
+  const plan = createFixtureScalarRepresentationPlan(
+    mutatedSource,
+    "closed-direct",
+  );
+  assert.equal(plan.loweredScalarClassCount, 0);
   assert.deepEqual(
-    storedPlan.scalarClassRetentions.map((entry) => entry.reason),
-    ["open-construction"],
+    plan.scalarClassRetentions.map((entry) => entry.reason),
+    ["open-projection"],
   );
 });
 

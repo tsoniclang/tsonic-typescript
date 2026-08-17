@@ -256,16 +256,21 @@ definite non-thenability; it does not expose another family's representation or
 partially transformed nodes.
 
 The same owner may eliminate a transparent scalar class declaration only when
-every construction and selected-field read of that class is one of those
-already admitted immediate projections, every remaining class reference is an
-exact import, export, or ordinary type reference, the scalar has one portable
-primitive target type, and the class value does not otherwise escape. The
+every construction and selected-field read belongs to one closed component.
+A component may contain an admitted immediate projection or a non-exported
+immutable local binding initialized by one exact construction when every
+reference to that binding is an exact read of the selected readonly field.
+Every remaining class reference must be an exact import, export, or ordinary
+type reference, the scalar must have one portable primitive target type, and
+neither the class value nor any instance identity may otherwise escape. The
 declaration is replaced at the same statement position by one exported or
-local `const` sentinel, every type reference becomes the primitive type, and
-imports remain value imports. Existing projection lowering still evaluates the
-sentinel before the argument. This preserves module execution, cyclic-import
-and temporal-dead-zone behavior while removing the class and every instance
-allocation. Stored constructions, non-immediate field reads, default exports,
+local `const` sentinel, every type reference becomes the primitive type,
+stored constructions become the primitive value, stored field reads become
+direct binding reads, and imports remain value imports. Construction lowering
+still evaluates the sentinel before the argument. This preserves module
+execution, cyclic-import and temporal-dead-zone behavior while removing the
+class and every proved instance allocation. Mutable or exported bindings,
+identity comparisons, open constructions or projections, default exports,
 class-value uses, observable members, and nonportable types retain the complete
 class under a closed reason; partial class rewriting is forbidden.
 

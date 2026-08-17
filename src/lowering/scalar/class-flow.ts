@@ -20,6 +20,10 @@ import {
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { ScalarPrimitiveKind } from "./portable-type.js";
+import {
+  resolveStoredScalarFlow,
+  type StoredScalarFlow,
+} from "./stored-flow.js";
 
 export const scalarClassRetentionReasons = Object.freeze([
   "profile-preserved",
@@ -27,6 +31,7 @@ export const scalarClassRetentionReasons = Object.freeze([
   "observable-class-value",
   "open-construction",
   "open-projection",
+  "observable-instance-value",
   "nonportable-type",
 ] as const);
 
@@ -48,6 +53,7 @@ export interface ScalarClassFlow {
   readonly declaration: Node;
   readonly proof: ScalarClassShapeProof;
   readonly typeReferences: readonly Node[];
+  readonly stored: StoredScalarFlow;
 }
 
 export interface ScalarClassRetention {
@@ -57,7 +63,9 @@ export interface ScalarClassRetention {
 
 export type ScalarClassRewrite =
   | { readonly kind: "declaration"; readonly flow: ScalarClassFlow }
-  | { readonly kind: "type-reference"; readonly flow: ScalarClassFlow };
+  | { readonly kind: "type-reference"; readonly flow: ScalarClassFlow }
+  | { readonly kind: "construction"; readonly flow: ScalarClassFlow }
+  | { readonly kind: "projection"; readonly flow: ScalarClassFlow };
 
 export interface ScalarClassFlowPlan {
   readonly candidateCount: number;
@@ -100,15 +108,25 @@ export function createScalarClassFlowPlan(
   const flows: ScalarClassFlow[] = [];
   const uses = indexCandidateUses(source, program, candidates);
   for (const candidate of candidates) {
-    const reason = profile === "preserve"
+    const selected = uses.get(candidate.declaration);
+    if (selected === undefined) {
+      throw new Error("scalar class candidate lost its exact use ledger");
+    }
+    const fixedReason = profile === "preserve"
       ? "profile-preserved"
-      : classMemberRetention(source, candidate) ??
-        useRetention(
-          uses.get(candidate.declaration),
+      : classMemberRetention(source, candidate);
+    const useResolution = fixedReason === undefined
+      ? resolveClassUse(
+          source,
+          program,
+          selected,
           candidate,
           optimizedConstructions,
           optimizedProjections,
-        );
+        )
+      : undefined;
+    const reason = fixedReason ??
+      (useResolution?.kind === "retained" ? useResolution.reason : undefined);
     if (reason !== undefined) {
       retentions.push(Object.freeze({
         declaration: candidate.declaration,
@@ -116,14 +134,14 @@ export function createScalarClassFlowPlan(
       }));
       continue;
     }
-    const selected = uses.get(candidate.declaration);
-    if (selected === undefined) {
-      throw new Error("scalar class candidate lost its exact use ledger");
+    if (useResolution?.kind !== "proved") {
+      throw new Error("scalar class use resolution disappeared");
     }
     flows.push(Object.freeze({
       declaration: candidate.declaration,
       proof: candidate.proof,
       typeReferences: selected.typeReferences,
+      stored: useResolution.flow,
     }));
   }
   return sealClassPlan(source, candidates.length, flows, retentions);
@@ -414,34 +432,39 @@ function ancestor(
   return undefined;
 }
 
-function useRetention(
+function resolveClassUse(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
   uses: CandidateUses | undefined,
   candidate: Candidate,
   optimizedConstructions: ReadonlySet<Node>,
   optimizedProjections: ReadonlySet<Node>,
-): ScalarClassRetentionReason | undefined {
+):
+  | { readonly kind: "proved"; readonly flow: StoredScalarFlow }
+  | { readonly kind: "retained"; readonly reason: ScalarClassRetentionReason } {
   if (uses === undefined) {
     throw new Error("scalar class candidate has no use decision");
   }
   if (uses.unsupportedClassValue) {
-    return "observable-class-value";
+    return { kind: "retained", reason: "observable-class-value" };
   }
-  if (
-    uses.unsupportedConstruction ||
-    uses.constructions.some((node) => !optimizedConstructions.has(node))
-  ) {
-    return "open-construction";
+  if (uses.unsupportedConstruction) {
+    return { kind: "retained", reason: "open-construction" };
   }
-  if (
-    uses.unsupportedProjection ||
-    uses.projections.some((node) => !optimizedProjections.has(node))
-  ) {
-    return "open-projection";
+  if (uses.unsupportedProjection) {
+    return { kind: "retained", reason: "open-projection" };
   }
   if (candidate.proof.portableResultType === undefined) {
-    return "nonportable-type";
+    return { kind: "retained", reason: "nonportable-type" };
   }
-  return undefined;
+  return resolveStoredScalarFlow(
+    source,
+    program,
+    uses.constructions,
+    uses.projections,
+    optimizedConstructions,
+    optimizedProjections,
+  );
 }
 
 function sealClassPlan(
@@ -463,6 +486,18 @@ function sealClassPlan(
     for (const node of flow.typeReferences) {
       addRewrite(source, rewrites, byFile, node, {
         kind: "type-reference",
+        flow,
+      });
+    }
+    for (const node of flow.stored.constructions) {
+      addRewrite(source, rewrites, byFile, node, {
+        kind: "construction",
+        flow,
+      });
+    }
+    for (const node of flow.stored.projections) {
+      addRewrite(source, rewrites, byFile, node, {
+        kind: "projection",
         flow,
       });
     }
