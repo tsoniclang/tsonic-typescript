@@ -7,6 +7,7 @@ import {
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { SourceIdentityResolver } from "../occurrence.js";
+import type { CooperativeEffectResultProjection } from "../effect/plan.js";
 import {
   createOptimizationRetentionLedger,
   type BoundedOptimizationReasonEvidence,
@@ -17,6 +18,7 @@ import { classValueReferencesAreClosed } from "./shape.js";
 export const identityCallableRetentionReasons = Object.freeze([
   "profile-preserved",
   "mutable-parameter",
+  "nonidentity-contract",
   "open-parameter-use",
   "open-owner-call",
   "nonidentity-input",
@@ -57,6 +59,7 @@ export function createIdentityCallablePlan(
   profile: RepresentationProjectionProfile,
   blockedCalls: ReadonlySet<Node>,
   sourceIdentityFor: SourceIdentityResolver,
+  effectProjection?: CooperativeEffectResultProjection,
 ): IdentityCallablePlan {
   const specializations: IdentityCallableSpecialization[] = [];
   const retentions = createOptimizationRetentionLedger(
@@ -92,6 +95,7 @@ export function createIdentityCallablePlan(
         parameter,
         parameterIndex,
         blockedCalls,
+        effectProjection,
       );
       if (decision.kind === "proved") {
         specializations.push(decision.specialization);
@@ -120,9 +124,17 @@ function resolveSpecialization(
   parameter: Node,
   parameterIndex: number,
   blockedCalls: ReadonlySet<Node>,
+  effectProjection: CooperativeEffectResultProjection | undefined,
 ): SpecializationResolution {
   if (program.hasBindingWrite(parameter)) {
     return { kind: "retained", reason: "mutable-parameter" };
+  }
+  if (!identityCallableContractIsEndomorphic(
+    source,
+    parameter,
+    effectProjection,
+  )) {
+    return { kind: "retained", reason: "nonidentity-contract" };
   }
   const parameterReferences = program.referencesToDeclaration(parameter);
   const parameterCalls = parameterReferences.map((reference) =>
@@ -178,6 +190,40 @@ function resolveSpecialization(
       )),
     }),
   };
+}
+
+function identityCallableContractIsEndomorphic(
+  source: TargetSourceProgram,
+  parameter: Node,
+  effectProjection: CooperativeEffectResultProjection | undefined,
+): boolean {
+  const typeNode = source.ast.typeNode(parameter);
+  if (typeNode === undefined) {
+    return false;
+  }
+  const semantics = source.semantics.forNode(typeNode);
+  const type = semantics.getTypeFromTypeNode(typeNode);
+  const signatures = type === undefined ? [] : semantics.getCallSignatures(type);
+  const signature = signatures[0];
+  if (signature === undefined || signatures.length !== 1) {
+    return false;
+  }
+  const parameters = semantics.getSignatureParameters(signature);
+  const input = parameters[0] === undefined
+    ? undefined
+    : semantics.getTypeOfSymbol(parameters[0]);
+  const returnTypeNode = source.ast.typeNode(typeNode);
+  const projectedReturnType = returnTypeNode === undefined
+    ? undefined
+    : effectProjection?.projectedReturnTypeFor(returnTypeNode);
+  const output = projectedReturnType === undefined
+    ? semantics.getReturnTypeOfSignature(signature)
+    : source.semantics.forNode(projectedReturnType)
+      .getTypeFromTypeNode(projectedReturnType);
+  return parameters.length === 1 &&
+    input !== undefined &&
+    output !== undefined &&
+    semantics.getTypeRelationship(input, output) === "identical";
 }
 
 function sealIdentityCallablePlan(

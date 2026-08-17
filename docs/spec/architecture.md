@@ -185,6 +185,12 @@ requires a complete denominator from finalized facts or ordinary checked-TypeScr
 - **representation projections:** erase an exact identity call, immediate inverse
   pair, or immutable local wrapper used only by exact projectors, and specialize
   identity-only callable parameters when every eliminated observation is proved absent.
+  Callable specialization additionally requires one exact unary endomorphic target
+  contract: its checked input and selected result are the identical type. The selected
+  result may differ from the checked source result only through the cooperative-effect
+  plan's exact return-type projection. Identity implementations at all call sites do not
+  erase a converter contract such as `Storage<T> -> T`, `T -> uint32`, or
+  `Bytes -> RuntimeSlice<byte>`.
 
 Value copying/storage, generic operations, source-language containers, panic/recovery,
 reflection, and package initialization remain canonical without a versioned fact contract.

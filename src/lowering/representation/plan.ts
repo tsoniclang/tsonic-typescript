@@ -4,6 +4,7 @@ import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { SourceIdentityResolver } from "../occurrence.js";
+import type { CooperativeEffectResultProjection } from "../effect/plan.js";
 import {
   createOptimizationRetentionLedger,
   type BoundedOptimizationReasonEvidence,
@@ -65,6 +66,7 @@ export function createRepresentationProjectionPlan(
   program: TargetProgramIndex,
   profile: RepresentationProjectionProfile,
   sourceIdentityFor: SourceIdentityResolver,
+  effectProjection?: CooperativeEffectResultProjection,
 ): RepresentationProjectionPlan {
   if (profile !== "preserve" && profile !== "closed-direct") {
     throw new Error(`unsupported representation projection profile '${String(profile)}'`);
@@ -147,6 +149,7 @@ export function createRepresentationProjectionPlan(
       profile,
       new Set(rewrites.map((rewrite) => rewrite.call)),
       sourceIdentityFor,
+      effectProjection,
     ),
   );
 }

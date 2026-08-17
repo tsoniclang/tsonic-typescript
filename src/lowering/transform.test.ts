@@ -171,6 +171,62 @@ export const result = await kernel((value: number): number => value, 41);
   assert.equal(countNodes(result.sourceFile, fixture.source, IsAwaitExpression), 0);
 });
 
+test("effect settlement does not erase a nonidentity converter contract", () => {
+  const fixture = checkedPointerFixture(`declare const storage: unique symbol;
+interface Stored<Value> { readonly [storage]: Value; }
+type ContainerStorage<Value> = Value extends Stored<infer Storage> ? Storage : Value;
+class Values<Value> {
+  public constructor(public readonly value: Value) {}
+}
+function identity<Value>(value: Value): Value { return value; }
+async function kernel<Value>(
+  fromStorage: (value: ContainerStorage<Value>) => Value,
+  values: Values<ContainerStorage<Value>>,
+): Promise<Value> {
+  return fromStorage(values.value);
+}
+export const result = await kernel<number>(identity, new Values<number>(41));
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    fixture.source,
+    files,
+    {
+      pointerFlows: "closed-direct",
+      scalarProjections: "closed-direct",
+      representationProjections: "closed-direct",
+      cooperativeEffects: "closed-direct",
+    },
+    sourceIdentity(fixture),
+  ));
+  const lowered = files.map((sourceFile) => transaction.lower(sourceFile));
+  transaction.finish();
+  const result = lowered.find((candidate) =>
+    fixture.source.ast.getFileName(candidate.sourceFile) === "/src/index.ts"
+  );
+  assert.ok(result !== undefined);
+
+  let kernel: Node | undefined;
+  visit(fixture.source, result.sourceFile, (node) => {
+    if (
+      fixture.source.ast.is.IsFunctionDeclaration(node) &&
+      fixture.source.ast.text(fixture.source.ast.name(node)) === "kernel"
+    ) {
+      kernel = node;
+    }
+  });
+  assert.ok(kernel !== undefined);
+  assert.equal(fixture.source.ast.parameters(kernel).length, 2);
+  assert.equal(result.representation.callableParameterCount, 0);
+  assert.equal(result.effect?.callableCount, 1);
+  const callableEvidence = transaction.evidence.representationProjections
+    .identityCallables;
+  assert.equal(callableEvidence.optimizedCount, 0);
+  assert.deepEqual(callableEvidence.fallbackReasons.map((row) => row.reason), [
+    "nonidentity-contract",
+  ]);
+});
+
 test("shares one canonical node census across complete-flow planners", () => {
   const fixture = checkedPointerFixture(composedSource);
   const nodes = new Set<Node>();

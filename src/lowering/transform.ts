@@ -129,12 +129,6 @@ export function prepareTypeScriptLowering(
     profile.scalarProjections,
     identities.forFile,
   );
-  const representationPlan = createRepresentationProjectionPlan(
-    source,
-    program,
-    profile.representationProjections,
-    identities.forFile,
-  );
   const loweredValues = composeLoweredValueContracts([
     createPointerResultContract(source, pointerFlowPlan),
     createScalarResultContract(source, scalarPlan),
@@ -152,6 +146,13 @@ export function prepareTypeScriptLowering(
         profile.interfaceDispatch,
       )
     : undefined;
+  const representationPlan = createRepresentationProjectionPlan(
+    source,
+    program,
+    profile.representationProjections,
+    identities.forFile,
+    effectPlan,
+  );
   const evidence = createTypeScriptOptimizationEvidence(
     profile,
     identities.membership,

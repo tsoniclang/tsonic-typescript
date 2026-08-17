@@ -31,9 +31,21 @@ export function callableDeclarationHasResolvableType(
 
 export interface CallableReturnRewrite {
   readonly target: Node;
-  readonly selection:
-    | { readonly kind: "type-argument"; readonly index: number }
-    | { readonly kind: "union-member"; readonly index: number };
+  readonly selection: CallableReturnSelection;
+}
+
+export type CallableReturnSelection =
+  | { readonly kind: "type-argument"; readonly index: number }
+  | { readonly kind: "union-member"; readonly index: number };
+
+export function selectedCallableReturnType(
+  source: TargetSourceProgram,
+  target: Node,
+  selection: CallableReturnSelection,
+): Node | undefined {
+  return selection.kind === "type-argument"
+    ? source.ast.typeArguments(target)[selection.index]
+    : AsUnionTypeNode(target)?.Types?.Nodes[selection.index];
 }
 
 export function callableResultReturnRewrites(

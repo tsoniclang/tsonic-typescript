@@ -46,6 +46,49 @@ test("specializes a closed identity callable parameter and every caller", () => 
   assert.deepEqual(callArgumentCounts(fixture, result.sourceFile, "copy"), []);
 });
 
+test("retains an identity implementation for a nonidentity generic contract", () => {
+  const fixture = checkedScalarFixture(`declare const storage: unique symbol;
+interface Stored<Value> { readonly [storage]: Value; }
+type ContainerStorage<Value> = Value extends Stored<infer Storage> ? Storage : Value;
+class Values<Value> {
+  public constructor(public readonly value: Value) {}
+}
+function identity<Value>(value: Value): Value { return value; }
+function kernel<Value>(
+  fromStorage: (value: ContainerStorage<Value>) => Value,
+  values: Values<ContainerStorage<Value>>,
+): Value {
+  return fromStorage(values.value);
+}
+export const result = kernel<number>(identity, new Values<number>(41));
+`);
+  const plan = createRepresentationProjectionPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: true,
+      memberDispatch: false,
+      declarationReferences: true,
+    }),
+    "closed-direct",
+    fixtureSourceIdentityFor(fixture.source),
+  );
+  const result = lowerRepresentationProjections(fixture.sourceFile, plan);
+
+  assert.equal(plan.identityCallables.candidateCount, 1);
+  assert.equal(plan.identityCallables.optimizedCount, 0);
+  assert.deepEqual(plan.identityCallables.fallbackReasons.map((entry) => entry.reason), [
+    "nonidentity-contract",
+  ]);
+  assert.equal(
+    fixture.source.ast.parameters(
+      functionNamed(fixture, result.sourceFile, "kernel"),
+    ).length,
+    2,
+  );
+  assert.deepEqual(callArgumentCounts(fixture, result.sourceFile, "kernel"), [2]);
+  assert.deepEqual(callArgumentCounts(fixture, result.sourceFile, "fromStorage"), [1]);
+});
+
 test("preserves an identity callable unless the complete family is selected", () => {
   const fixture = checkedScalarFixture(exactIdentityCapability);
   const plan = createRepresentationProjectionPlan(

@@ -274,6 +274,16 @@ node kinds at construction, declaration-list, and property-access boundaries.
 These cases fail if an unchecked TS-Go `AsX` projection is restored as a kind
 predicate.
 
+The callable matrix includes a generic conditional storage contract whose
+concrete caller supplies an exact identity function. The contract remains
+because its checked input and result are not identical at the generic
+declaration. A mutation changing that contract to `T -> T` admits
+specialization, proving the boundary is semantic rather than a blanket
+generic-function exclusion. A composition fixture separately proves that an
+exact cooperative-effect projection from `Awaitable<T>` to `T` may make the
+target contract endomorphic; the representation owner consumes that exact
+projection rather than reimplementing awaitable recognition.
+
 Representative generated artifacts and the twenty largest expansions are
 inspected. The gate rejects, unless an exact typed necessity row owns it:
 
