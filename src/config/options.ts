@@ -79,6 +79,7 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
     new Set([
       "pointerFlows",
       "scalarProjections",
+      "representationProjections",
       "cooperativeEffects",
       "interfaceDispatch",
     ]),
@@ -93,6 +94,11 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
     scalarProjections: readClosedChoice(
       value["scalarProjections"],
       "scalarProjections",
+      "preserve",
+    ),
+    representationProjections: readClosedChoice(
+      value["representationProjections"],
+      "representationProjections",
       "preserve",
     ),
     cooperativeEffects: readClosedChoice(

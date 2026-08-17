@@ -24,9 +24,10 @@ test("validates and freezes the external printer configuration", () => {
   assert.deepEqual(result.printer.arguments, ["--mode", "batch"]);
   assert.deepEqual(result.optimizations, {
     identity:
-      "typescript-optimization-v2/pointer=location/scalar=preserve/effects=preserve/interfaces=open-structural",
+      "typescript-optimization-v3/pointer=location/scalar=preserve/representations=preserve/effects=preserve/interfaces=open-structural",
     pointerFlows: "location",
     scalarProjections: "preserve",
+    representationProjections: "preserve",
     cooperativeEffects: "preserve",
     interfaceDispatch: "open-structural",
   });
@@ -44,6 +45,7 @@ test("validates and freezes explicit closed-flow optimizations", () => {
       optimizations: {
         pointerFlows: "closed-direct",
         scalarProjections: "closed-direct",
+        representationProjections: "closed-direct",
         cooperativeEffects: "closed-direct",
         interfaceDispatch: "declared-closed",
       },
@@ -54,9 +56,10 @@ test("validates and freezes explicit closed-flow optimizations", () => {
 
   assert.deepEqual(result.optimizations, {
     identity:
-      "typescript-optimization-v2/pointer=closed-direct/scalar=closed-direct/effects=closed-direct/interfaces=declared-closed",
+      "typescript-optimization-v3/pointer=closed-direct/scalar=closed-direct/representations=closed-direct/effects=closed-direct/interfaces=declared-closed",
     pointerFlows: "closed-direct",
     scalarProjections: "closed-direct",
+    representationProjections: "closed-direct",
     cooperativeEffects: "closed-direct",
     interfaceDispatch: "declared-closed",
   });
@@ -67,6 +70,16 @@ test("fails closed on absent, unknown, and malformed target options", () => {
   assert.throws(
     () => readTypeScriptTargetOptions({ id: "typescript" }),
     /require a printer configuration/,
+  );
+  assert.throws(
+    () => readTypeScriptTargetOptions({
+      id: "typescript",
+      options: {
+        printer: { executable: "tsgo-ast-printer" },
+        optimizations: { representationProjections: "shape-inferred" },
+      },
+    }),
+    /'representationProjections' must be 'preserve' or 'closed-direct'/,
   );
   assert.throws(
     () => readTypeScriptTargetOptions({

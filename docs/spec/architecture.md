@@ -50,7 +50,7 @@ one immutable target-program index
                          |
                          v
 family plans over complete connected flows
-  (currently effects, pointers, and scalar projections)
+  (effects, pointers, scalar wrappers, and exact representation projections)
                          |
                          v
 one composed post-order AST rewrite transaction
@@ -175,6 +175,10 @@ not depend on source-language meaning. The current executable families are:
   location semantics for open or observable identity/alias/nil/lifetime cases;
 - **scalar projections:** erase representation-only scalar wrappers when all
   uses preserve the same selected value behavior;
+- **representation projections:** erase an exact identity call or an immediate
+  constructor/projection inverse pair, and specialize an exact identity-only
+  callable parameter, when ordinary checked-TypeScript semantics prove that
+  the eliminated calls, allocation, parameter, and arguments are unobservable.
 
 Value copying/storage, generic operation selection, source-language containers,
 panic/recovery, reflection, and package initialization remain in
@@ -184,6 +188,31 @@ class shape, method name, or support-module path is ordinary TypeScript input;
 it is not semantic evidence. The target must not recognize `RuntimeSlice`,
 `GoMap`, interface adapters, defer machinery, or similar declarations by
 spelling or structure and then infer Go behavior.
+
+An exact TypeScript identity is not source-language inference. Under the
+explicit closed-program profile, a direct one-argument project function or
+stable static method whose only statement returns that exact parameter may be
+replaced by its argument. Likewise, `project(construct(value))` may become
+`value` when selected signatures prove one stable class, `construct` does only
+`new Class(value)`, the constructor does only one parameter-property store,
+and `project` returns that exact stored property. Every binding, constructor,
+property, argument, and selected signature is joined by identity. A write,
+decorator, inheritance, optional/spread or unresolved call, constructor statement, different
+field, open target, or unpaired projection retains the original expression.
+This rule never recognizes helper names and does not generalize to arbitrary
+copy, container, interface, or storage semantics.
+
+The same owner may remove a callable parameter only when every reference to
+that parameter is one exact direct single-argument invocation, every reference
+to its function or stable static-method owner is one exact direct call, and
+every corresponding supplied value is a proved synchronous identity function.
+It then removes the parameter, replaces each invocation by its argument, and
+removes the corresponding argument from every caller as one complete-flow
+rewrite. A parameter or owner alias, binding write, optional/spread call,
+generator, overload surface, class escape, non-identity input, unresolved
+signature, or overlap with another representation rewrite retains the entire
+candidate. Argument position and callable identity are joined from checked
+nodes; target names never select the rule.
 
 A future admitted family may optimize those forms only after its fact owner
 defines the complete observations needed for the decision (for example slice
@@ -550,7 +579,8 @@ CLI resolution, and target defaults must converge on that same typed profile;
 ambient environment state does not select an optimization.
 
 The optimization profile independently selects `pointerFlows`,
-`scalarProjections`, `cooperativeEffects`, and `interfaceDispatch`. Omitting
+`scalarProjections`, `representationProjections`, `cooperativeEffects`, and
+`interfaceDispatch`. Omitting
 `interfaceDispatch` selects `open-structural`; `declared-closed` is never
 implied by cooperative-effect selection.
 

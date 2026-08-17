@@ -5,6 +5,7 @@ import { createTypeScriptOptimizationEvidence } from "../evidence.js";
 import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createTargetProgramIndex } from "../program-index.js";
 import { createScalarRepresentationPlan } from "./plan.js";
+import { createRepresentationProjectionPlan } from "../representation/plan.js";
 import { checkedScalarFixture } from "./scalar.test-support.js";
 
 test("reports exact scalar retention evidence without machine paths", () => {
@@ -28,6 +29,11 @@ export const result = new Scalar({ amount: 1 }).value;
     program,
     profile.scalarProjections,
   );
+  const representationPlan = createRepresentationProjectionPlan(
+    fixture.source,
+    program,
+    profile.representationProjections,
+  );
   const evidence = createTypeScriptOptimizationEvidence(
     fixture.source,
     () => "index.ts",
@@ -36,6 +42,7 @@ export const result = new Scalar({ amount: 1 }).value;
     program.operations,
     undefined,
     plan,
+    representationPlan,
     undefined,
   );
 

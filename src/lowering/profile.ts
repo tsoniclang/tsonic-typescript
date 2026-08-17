@@ -1,5 +1,6 @@
 export type TypeScriptPointerFlowProfile = "location" | "closed-direct";
 export type TypeScriptScalarProjectionProfile = "preserve" | "closed-direct";
+export type TypeScriptRepresentationProjectionProfile = "preserve" | "closed-direct";
 export type TypeScriptCooperativeEffectProfile = "preserve" | "closed-direct";
 export type TypeScriptInterfaceDispatchProfile =
   | "open-structural"
@@ -8,6 +9,7 @@ export type TypeScriptInterfaceDispatchProfile =
 export interface TypeScriptOptimizationProfileInput {
   readonly pointerFlows: TypeScriptPointerFlowProfile;
   readonly scalarProjections: TypeScriptScalarProjectionProfile;
+  readonly representationProjections?: TypeScriptRepresentationProjectionProfile;
   readonly cooperativeEffects: TypeScriptCooperativeEffectProfile;
   readonly interfaceDispatch?: TypeScriptInterfaceDispatchProfile;
 }
@@ -16,6 +18,7 @@ export interface TypeScriptOptimizationProfile {
   readonly identity: string;
   readonly pointerFlows: TypeScriptPointerFlowProfile;
   readonly scalarProjections: TypeScriptScalarProjectionProfile;
+  readonly representationProjections: TypeScriptRepresentationProjectionProfile;
   readonly cooperativeEffects: TypeScriptCooperativeEffectProfile;
   readonly interfaceDispatch: TypeScriptInterfaceDispatchProfile;
 }
@@ -24,6 +27,7 @@ const profileCache = new Map<string, TypeScriptOptimizationProfile>();
 const canonicalProfile = createTypeScriptOptimizationProfile({
   pointerFlows: "location",
   scalarProjections: "preserve",
+  representationProjections: "preserve",
   cooperativeEffects: "preserve",
   interfaceDispatch: "open-structural",
 });
@@ -37,13 +41,20 @@ export function createTypeScriptOptimizationProfile(
 ): TypeScriptOptimizationProfile {
   assertChoice(input.pointerFlows, "pointerFlows", "location");
   assertChoice(input.scalarProjections, "scalarProjections", "preserve");
+  const representationProjections = input.representationProjections ?? "preserve";
+  assertChoice(
+    representationProjections,
+    "representationProjections",
+    "preserve",
+  );
   assertChoice(input.cooperativeEffects, "cooperativeEffects", "preserve");
   const interfaceDispatch = input.interfaceDispatch ?? "open-structural";
   assertInterfaceDispatch(interfaceDispatch);
   const identity = [
-    "typescript-optimization-v2",
+    "typescript-optimization-v3",
     `pointer=${input.pointerFlows}`,
     `scalar=${input.scalarProjections}`,
+    `representations=${representationProjections}`,
     `effects=${input.cooperativeEffects}`,
     `interfaces=${interfaceDispatch}`,
   ].join("/");
@@ -55,6 +66,7 @@ export function createTypeScriptOptimizationProfile(
     identity,
     pointerFlows: input.pointerFlows,
     scalarProjections: input.scalarProjections,
+    representationProjections,
     cooperativeEffects: input.cooperativeEffects,
     interfaceDispatch,
   });

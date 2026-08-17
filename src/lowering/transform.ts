@@ -52,11 +52,18 @@ import {
   type ScalarRepresentationRewriter,
   type ScalarRepresentationRewriteResult,
 } from "./scalar/transform.js";
+import { createRepresentationProjectionPlan } from "./representation/plan.js";
+import {
+  createRepresentationProjectionRewriter,
+  type RepresentationProjectionRewriter,
+  type RepresentationProjectionRewriteResult,
+} from "./representation/transform.js";
 
 export interface TypeScriptSourceLoweringResult {
   readonly sourceFile: SourceFile;
   readonly pointer: PointerLoweringResult;
   readonly scalar: ScalarRepresentationRewriteResult;
+  readonly representation: RepresentationProjectionRewriteResult;
   readonly effect?: CooperativeEffectRewriteResult;
 }
 
@@ -85,6 +92,7 @@ interface SourceRewritePlan {
   readonly finalNodes: FinalNodeJournal;
   readonly pointer: PointerRewriteSession;
   readonly scalar: ScalarRepresentationRewriter;
+  readonly representation: RepresentationProjectionRewriter;
   readonly effect?: CooperativeEffectRewriteSession;
 }
 
@@ -105,6 +113,7 @@ export function prepareTypeScriptLowering(
   const program = createTargetProgramIndex(source, {
     bindingWrites: profile.pointerFlows === "closed-direct" ||
       profile.scalarProjections === "closed-direct" ||
+      profile.representationProjections === "closed-direct" ||
       profile.cooperativeEffects === "closed-direct",
     memberDispatch: profile.cooperativeEffects === "closed-direct",
   });
@@ -116,6 +125,11 @@ export function prepareTypeScriptLowering(
     source,
     program,
     profile.scalarProjections,
+  );
+  const representationPlan = createRepresentationProjectionPlan(
+    source,
+    program,
+    profile.representationProjections,
   );
   const loweredValues = composeLoweredValueContracts([
     createPointerResultContract(source, pointerFlowPlan),
@@ -142,6 +156,7 @@ export function prepareTypeScriptLowering(
     program.operations,
     pointerFlowPlan,
     scalarPlan,
+    representationPlan,
     effectPlan?.summary,
   );
   const plans = new Map<SourceFile, SourceRewritePlan>();
@@ -160,6 +175,10 @@ export function prepareTypeScriptLowering(
           finalNodes,
         ),
         scalar: createScalarRepresentationRewriter(scalarPlan, sourceFile),
+        representation: createRepresentationProjectionRewriter(
+          representationPlan,
+          sourceFile,
+        ),
         ...(effectPlan === undefined
           ? {}
           : {
@@ -265,19 +284,29 @@ function createTransaction(
           if (scalarResult === undefined) {
             return plan.finalNodes.record(original, undefined);
           }
+          const representationResult = plan.representation.rewrite(
+            original,
+            scalarResult,
+            factory,
+          );
+          if (representationResult === undefined) {
+            return plan.finalNodes.record(original, undefined);
+          }
           const effectResult = plan.effect === undefined
-            ? scalarResult
-            : plan.effect.rewrite(original, scalarResult, factory);
+            ? representationResult
+            : plan.effect.rewrite(original, representationResult, factory);
           return plan.finalNodes.record(original, effectResult);
         },
       );
       const pointer = plan.pointer.finish(transformed);
       const scalar = plan.scalar.finish(pointer.sourceFile);
-      const effect = plan.effect?.finish(scalar.sourceFile);
+      const representation = plan.representation.finish(scalar.sourceFile);
+      const effect = plan.effect?.finish(representation.sourceFile);
       return Object.freeze({
-        sourceFile: effect?.sourceFile ?? scalar.sourceFile,
+        sourceFile: effect?.sourceFile ?? representation.sourceFile,
         pointer,
         scalar,
+        representation,
         ...(effect === undefined ? {} : { effect }),
       });
     },

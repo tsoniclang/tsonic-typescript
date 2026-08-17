@@ -103,9 +103,9 @@ test("emits deterministic immutable optimization evidence", () => {
   assert.ok(artifact !== undefined);
   assert.equal(artifact.kind, "asset");
   assert.deepEqual(JSON.parse(artifact.text), {
-    schemaVersion: 11,
+    schemaVersion: 13,
     profileIdentity:
-      "typescript-optimization-v2/pointer=closed-direct/scalar=closed-direct/effects=closed-direct/interfaces=open-structural",
+      "typescript-optimization-v3/pointer=closed-direct/scalar=closed-direct/representations=preserve/effects=closed-direct/interfaces=open-structural",
     sourceMembership: ["index.ts", "markers.ts"],
     programIndex: {
       nodeVisits: 82,
@@ -139,6 +139,20 @@ test("emits deterministic immutable optimization evidence", () => {
       loweredScalarClassCount: 0,
       retainedScalarClassCount: 0,
       scalarClassFallbackReasons: [],
+    },
+    representationProjections: {
+      profile: "preserve",
+      identityCandidateCount: 0,
+      inverseCandidateCount: 0,
+      optimizedCount: 0,
+      retainedCount: 0,
+      fallbackReasons: [],
+      identityCallables: {
+        candidateCount: 0,
+        optimizedCount: 0,
+        retainedCount: 0,
+        fallbackReasons: [],
+      },
     },
     cooperativeEffects: {
       profile: "closed-direct",
