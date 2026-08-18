@@ -58,6 +58,21 @@ exact counts, deterministic ordering, and a fixed eight-occurrence maximum.
 Restoring raw retained-node or per-candidate decision ledgers must fail the
 structural gate or the guarded whole-product memory bound.
 
+## Effect Structure Gate
+
+A mechanical source-tree gate exact-checks the cooperative-effect directory
+taxonomy, requires every module to live below a semantic owner, and forbids
+loose files at the effect and flow roots. It rejects catch-all, compatibility,
+legacy, helper, utility, and version-suffixed directories and enforces the
+maintained-file line limit.
+
+The same gate resolves every relative production import and checks the closed
+dependency graph: model and closure foundations, inventory, flow, planning,
+then rewrite. It also rejects production consumers outside the family that
+reach past the documented narrow surface. Test-support modules must retain the
+`.test-support.ts` suffix so they cannot enter the published package. Build and
+broad-search proofs must find no old flat path or compatibility re-export.
+
 Pointer contract tests exact-join canonical pointer types and operation facts
 to the complete target component. They cover pointer-bearing parameters,
 results, direct calls, aliases, fresh allocations, repeated addresses, nil,

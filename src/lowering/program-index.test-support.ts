@@ -13,7 +13,7 @@ import {
   type Kind,
 } from "@tsonic/tsts/target-ast";
 
-import { visit } from "./effect/effect.test-support.js";
+import { visit } from "./effect/test-support/fixture.test-support.js";
 import type { TargetProgramIndex } from "./program-index.js";
 
 export const indexedSource = `

@@ -4,7 +4,7 @@ import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { SourceIdentityResolver } from "../occurrence.js";
-import type { CooperativeEffectResultProjection } from "../effect/plan.js";
+import type { CooperativeEffectResultProjection } from "../effect/planning/plan.js";
 import {
   createOptimizationRetentionLedger,
   type BoundedOptimizationReasonEvidence,

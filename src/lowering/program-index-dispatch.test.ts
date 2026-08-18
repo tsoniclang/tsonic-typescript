@@ -10,7 +10,7 @@ import {
   KindSetAccessor,
 } from "@tsonic/tsts/target-ast";
 
-import { checkedEffectFixture } from "./effect/effect.test-support.js";
+import { checkedEffectFixture } from "./effect/test-support/fixture.test-support.js";
 import { createTargetProgramIndex } from "./program-index.js";
 import {
   assertDispatchReconciles,

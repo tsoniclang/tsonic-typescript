@@ -1,0 +1,211 @@
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join, normalize, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { test } from "node:test";
+
+const repositoryRoot = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../..",
+);
+const sourceRoot = join(repositoryRoot, "src");
+const effectRoot = join(sourceRoot, "lowering", "effect");
+
+const expectedEffectDirectories = Object.freeze([
+  "architecture",
+  "closure",
+  "flow",
+  "inventory",
+  "model",
+  "planning",
+  "rewrite",
+  "test-support",
+]);
+
+const expectedFlowDirectories = Object.freeze([
+  "callable",
+  "collection",
+  "interface",
+  "return",
+  "storage",
+]);
+
+const allowedProductionDependencies = new Map<string, ReadonlySet<string>>([
+  ["closure", new Set(["closure"])],
+  ["flow", new Set(["closure", "flow", "inventory", "model"])],
+  ["inventory", new Set(["closure", "inventory", "model"])],
+  ["model", new Set(["model"])],
+  ["planning", new Set(["closure", "flow", "inventory", "model", "planning"])],
+  ["rewrite", new Set(["model", "planning", "rewrite"])],
+]);
+
+const externalProductionSurface = new Set([
+  "closure/retention.ts",
+  "flow/interface/decision.ts",
+  "planning/plan.ts",
+  "planning/summary.ts",
+  "rewrite/transform.ts",
+]);
+
+test("effect source is nested by semantic owner", () => {
+  assert.deepEqual(directoryNames(effectRoot), expectedEffectDirectories);
+  assert.deepEqual(regularFileNames(effectRoot), []);
+  assert.deepEqual(directoryNames(join(effectRoot, "flow")), expectedFlowDirectories);
+  assert.deepEqual(regularFileNames(join(effectRoot, "flow")), []);
+
+  for (const path of sourceFiles(effectRoot)) {
+    const effectPath = relativePath(effectRoot, path);
+    const segments = effectPath.split("/");
+    assert.ok(segments.length >= 2, `${effectPath} is not nested by owner`);
+    assert.ok(
+      !segments.some((segment) =>
+        ["common", "compat", "helper", "legacy", "misc", "util", "v2"].includes(segment)
+      ),
+      `${effectPath} uses a forbidden catch-all or compatibility directory`,
+    );
+    assert.ok(
+      readFileSync(path, "utf8").split("\n").length <= 600,
+      `${effectPath} exceeds the maintained-file limit`,
+    );
+    if (segments[0] === "test-support") {
+      assert.match(effectPath, /\.test-support\.ts$/u);
+    }
+  }
+});
+
+test("effect production imports follow the semantic layer graph", () => {
+  let internalImportCount = 0;
+  let crossDomainImportCount = 0;
+  for (const importer of productionFiles(effectRoot)) {
+    const importerPath = relativePath(effectRoot, importer);
+    const importerDomain = firstPathSegment(importerPath);
+    const allowed = allowedProductionDependencies.get(importerDomain);
+    assert.notEqual(allowed, undefined, `${importerPath} has no layer policy`);
+    for (const imported of relativeImports(importer)) {
+      if (!isWithin(effectRoot, imported)) {
+        continue;
+      }
+      internalImportCount += 1;
+      const importedDomain = firstPathSegment(relativePath(effectRoot, imported));
+      if (importedDomain !== importerDomain) {
+        crossDomainImportCount += 1;
+      }
+      assert.ok(
+        allowed?.has(importedDomain),
+        `${importerPath} may not import ${relativePath(effectRoot, imported)}`,
+      );
+    }
+  }
+  assert.ok(internalImportCount > 0, "effect import inventory is vacuous");
+  assert.ok(crossDomainImportCount > 0, "effect layer graph is vacuous");
+});
+
+test("effect internals have a closed external production surface", () => {
+  let externalImportCount = 0;
+  for (const importer of productionFiles(sourceRoot)) {
+    if (isWithin(effectRoot, importer)) {
+      continue;
+    }
+    for (const imported of relativeImports(importer)) {
+      if (!isWithin(effectRoot, imported)) {
+        continue;
+      }
+      externalImportCount += 1;
+      const importedPath = relativePath(effectRoot, imported);
+      assert.ok(
+        externalProductionSurface.has(importedPath),
+        `${relativePath(sourceRoot, importer)} imports internal effect module ${importedPath}`,
+      );
+    }
+  }
+  assert.ok(externalImportCount > 0, "effect external surface inventory is vacuous");
+});
+
+test("effect import inventory recognizes every supported import form", () => {
+  assert.deepEqual(
+    relativeImportSpecifiers(`
+import "./side-effect.js";
+import value from "../direct.js";
+export type { Contract } from "./contract.js";
+const deferred = import("../deferred.js");
+`),
+    ["../deferred.js", "../direct.js", "./contract.js", "./side-effect.js"],
+  );
+});
+
+function directoryNames(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort(compareCodeUnits);
+}
+
+function regularFileNames(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort(compareCodeUnits);
+}
+
+function sourceFiles(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      return sourceFiles(path);
+    }
+    return entry.isFile() && entry.name.endsWith(".ts") ? [path] : [];
+  });
+}
+
+function productionFiles(root: string): string[] {
+  return sourceFiles(root).filter((path) =>
+    !path.endsWith(".test.ts") && !path.endsWith(".test-support.ts")
+  );
+}
+
+function relativeImports(importer: string): string[] {
+  const source = readFileSync(importer, "utf8");
+  return relativeImportSpecifiers(source).map((specifier) =>
+    normalize(join(dirname(importer), `${specifier.slice(0, -3)}.ts`))
+  );
+}
+
+function relativeImportSpecifiers(source: string): string[] {
+  const imports: string[] = [];
+  const patterns = [
+    /\bfrom\s+["'](\.\.?\/[^"']+\.js)["']/gu,
+    /\bimport\s*\(\s*["'](\.\.?\/[^"']+\.js)["']\s*\)/gu,
+    /\bimport\s+["'](\.\.?\/[^"']+\.js)["']/gu,
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      const specifier = match[1];
+      if (specifier === undefined) {
+        throw new Error("relative import has no specifier");
+      }
+      imports.push(specifier);
+    }
+  }
+  return imports.sort(compareCodeUnits);
+}
+
+function isWithin(root: string, path: string): boolean {
+  const pathFromRoot = relative(root, path);
+  return pathFromRoot !== "" && !pathFromRoot.startsWith("../");
+}
+
+function relativePath(root: string, path: string): string {
+  return relative(root, path).replaceAll("\\", "/");
+}
+
+function firstPathSegment(path: string): string {
+  const segment = path.split("/")[0];
+  if (segment === undefined || segment.length === 0) {
+    throw new Error(`path has no semantic owner: ${path}`);
+  }
+  return segment;
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
