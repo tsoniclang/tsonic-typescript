@@ -16,12 +16,12 @@ import { createProgramGeneratedNames } from "./generated-names.js";
 import {
   createClosedCooperativeEffectPlan,
   type CooperativeEffectPlan,
-} from "./effect/plan.js";
+} from "./effect/planning/plan.js";
 import {
   createCooperativeEffectRewriteSession,
   type CooperativeEffectRewriteResult,
   type CooperativeEffectRewriteSession,
-} from "./effect/transform.js";
+} from "./effect/rewrite/transform.js";
 import {
   createTypeScriptOptimizationEvidence,
   type TypeScriptOptimizationEvidence,

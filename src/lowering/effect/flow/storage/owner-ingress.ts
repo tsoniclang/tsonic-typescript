@@ -1,0 +1,183 @@
+import type { Node, Symbol } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  KindCallExpression,
+  KindElementAccessExpression,
+  KindIdentifier,
+  KindParameter,
+  KindPropertyAccessExpression,
+} from "@tsonic/tsts/target-ast";
+
+import type { TargetProgramIndex } from "../../../program-index.js";
+import {
+  declarationForSymbols,
+  indexDeclarationSymbols,
+} from "../callable/input-reference.js";
+import {
+  callableDispatchIsClosed,
+  directContainingCall,
+  isModuleForwardingReference,
+} from "../../model/syntax.js";
+import type { StorageOwnerMembership } from "./owner-types.js";
+
+interface OwnerIngress {
+  readonly declaration: Node;
+  readonly owners: ReadonlySet<Node>;
+  open: boolean;
+}
+
+export function auditStorageOwnerIngress(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  ownersFor: (node: Node) => StorageOwnerMembership,
+  invalid: Set<Node>,
+): void {
+  const ingress = collectOwnerIngress(source, program, ownersFor);
+  if (ingress.size === 0) {
+    return;
+  }
+  auditExactInvocations(source, program, ingress);
+  auditCallableReferences(source, program, ingress);
+  for (const entry of ingress.values()) {
+    if (entry.open) {
+      for (const owner of entry.owners) {
+        invalid.add(owner);
+      }
+    }
+  }
+}
+
+function collectOwnerIngress(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  ownersFor: (node: Node) => StorageOwnerMembership,
+): Map<Node, OwnerIngress> {
+  const result = new Map<Node, OwnerIngress>();
+  for (const parameter of program.nodesOfKind(KindParameter)) {
+    const owners = ownersFor(parameter);
+    const declaration = source.ast.parent(parameter);
+    if (
+      owners.length === 0 ||
+      declaration === undefined ||
+      source.ast.is.IsConstructorDeclaration(declaration)
+    ) {
+      continue;
+    }
+    const existing = result.get(declaration);
+    if (existing !== undefined) {
+      const merged = new Set(existing.owners);
+      for (const owner of owners) {
+        merged.add(owner);
+      }
+      result.set(declaration, { ...existing, owners: merged });
+      continue;
+    }
+    result.set(declaration, {
+      declaration,
+      owners: new Set(owners),
+      open: !source.navigation.isProjectDeclaration(declaration) ||
+        source.ast.body(declaration) === undefined ||
+        program.hasBindingWrite(declaration) ||
+        !callableDispatchIsClosed(source, program, declaration),
+    });
+  }
+  return result;
+}
+
+function auditExactInvocations(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  ingress: ReadonlyMap<Node, OwnerIngress>,
+): void {
+  for (const call of program.nodesOfKind(KindCallExpression)) {
+    const semantics = source.semantics.forNode(call);
+    const declaration = semantics.getSignatureDeclaration(
+      semantics.getResolvedSignature(call),
+    );
+    const entry = declaration === undefined ? undefined : ingress.get(declaration);
+    if (entry === undefined) {
+      continue;
+    }
+    if (
+      source.ast.arguments(call).some((argument) =>
+        source.ast.is.IsSpreadElement(argument)
+      ) ||
+      source.ast.parameters(declaration).some((parameter) =>
+        source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !==
+          undefined
+      )
+    ) {
+      entry.open = true;
+    }
+  }
+}
+
+function auditCallableReferences(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  ingress: ReadonlyMap<Node, OwnerIngress>,
+): void {
+  const symbols = indexDeclarationSymbols(source, ingress.keys());
+  for (const node of program.nodesOfKinds([
+    KindIdentifier,
+    KindPropertyAccessExpression,
+    KindElementAccessExpression,
+  ])) {
+    const declaration = selectedCallableDeclaration(source, symbols, node);
+    const entry = declaration === undefined ? undefined : ingress.get(declaration);
+    if (
+      entry === undefined ||
+      node === source.ast.name(declaration) ||
+      isModuleForwardingReference(source, node) ||
+      isTypeOnlyReference(source, node)
+    ) {
+      continue;
+    }
+    const call = directContainingCall(source, node);
+    const semantics = call === undefined ? undefined : source.semantics.forNode(call);
+    const selected = semantics?.getSignatureDeclaration(
+      semantics.getResolvedSignature(call),
+    );
+    if (selected !== declaration) {
+      entry.open = true;
+    }
+  }
+}
+
+function selectedCallableDeclaration(
+  source: TargetSourceProgram,
+  symbols: ReadonlyMap<Symbol, Node>,
+  node: Node,
+): Node | undefined {
+  if (source.ast.is.IsPropertyAccessExpression(node)) {
+    return source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
+      ?.selectedDeclaration;
+  }
+  if (source.ast.is.IsElementAccessExpression(node)) {
+    return source.semantics.forNode(node).getResolvedElementAccessInfo(node)
+      ?.selectedDeclaration;
+  }
+  return source.ast.is.IsIdentifier(node)
+    ? declarationForSymbols(source, symbols, node)
+    : undefined;
+}
+
+function isTypeOnlyReference(source: TargetSourceProgram, node: Node): boolean {
+  let current: Node | undefined = node;
+  while (current !== undefined) {
+    if (source.ast.is.IsTypeReferenceNode(current)) {
+      return true;
+    }
+    if (
+      source.ast.is.IsExpressionStatement(current) ||
+      source.ast.is.IsVariableDeclaration(current) ||
+      source.ast.is.IsCallExpression(current) ||
+      source.ast.is.IsClassDeclaration(current) ||
+      source.ast.is.IsSourceFile(current)
+    ) {
+      return false;
+    }
+    current = source.ast.parent(current);
+  }
+  return false;
+}

@@ -4,8 +4,8 @@ import { test } from "node:test";
 import type { Node } from "@tsonic/tsts";
 import { KindIdentifier, KindMethodDeclaration } from "@tsonic/tsts/target-ast";
 
-import { checkedEffectFixture } from "./effect/effect.test-support.js";
-import { visit } from "./effect/effect.test-support.js";
+import { checkedEffectFixture } from "./effect/test-support/fixture.test-support.js";
+import { visit } from "./effect/test-support/fixture.test-support.js";
 import { createTargetProgramIndex } from "./program-index.js";
 import {
   assertBindingWritesReconcile,

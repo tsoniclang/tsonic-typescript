@@ -10,7 +10,7 @@ import {
   type Kind,
 } from "@tsonic/tsts/target-ast";
 
-import { checkedEffectFixture, visit } from "./effect/effect.test-support.js";
+import { checkedEffectFixture, visit } from "./effect/test-support/fixture.test-support.js";
 import {
   createTargetProgramIndex,
 } from "./program-index.js";

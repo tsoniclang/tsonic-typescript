@@ -17,9 +17,11 @@ import {
 import type { TargetProgramIndexOperations } from "./program-index.js";
 import type {
   CooperativeEffectFallbackReason,
+} from "./effect/closure/retention.js";
+import type {
   CooperativeEffectPlanSummary,
-} from "./effect/fallback.js";
-import type { InterfaceDispatchEvidence } from "./effect/interface-dispatch.js";
+} from "./effect/planning/summary.js";
+import type { InterfaceDispatchEvidence } from "./effect/flow/interface/decision.js";
 import {
   type RepresentationProjectionPlan,
   type RepresentationProjectionRetentionReason,
@@ -43,7 +45,7 @@ export interface OptimizationPropagatedReasonCount<Reason extends string> {
   readonly reason: Reason;
   readonly directCount: number;
   readonly retainedCount: number;
-  readonly directExamples: readonly import("./effect/fallback.js").CooperativeEffectFallbackOccurrence[];
+  readonly directExamples: readonly import("./effect/planning/summary.js").CooperativeEffectFallbackOccurrence[];
 }
 
 export type PointerOptimizationEvidence =

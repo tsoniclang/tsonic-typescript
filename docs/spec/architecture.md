@@ -63,6 +63,41 @@ There is one current path. A family planner records a selected representation
 or one closed typed retention reason. It does not fork into optimized and
 legacy compilers.
 
+## Cooperative Effect Module Structure
+
+The cooperative-effect implementation is physically partitioned by semantic
+owner under `src/lowering/effect/`:
+
+```text
+architecture/                 structural dependency gates
+closure/                      blocker propagation and retention decisions
+flow/
+  callable/                   callable values, aliases, and inputs
+  collection/                 collection-carried callable values
+  interface/                  contract ingress, implementations, and dispatch
+  return/                     return values, callables, and result consumers
+  storage/                    fields, owners, and storage transports
+inventory/                    authored candidate and call census
+model/                        shared immutable contracts and AST navigation
+planning/                     composition, summaries, file plans, and lifecycle
+rewrite/                      exact consumption of immutable AST plans
+test-support/                 test-only checked-source fixture construction
+```
+
+Production dependencies point toward semantic prerequisites: `model` and
+`closure` are foundational; `inventory` may consume them; `flow` may consume
+inventory and those foundations; `planning` composes every domain; and
+`rewrite` consumes only finalized planning and model contracts. Reverse edges
+are forbidden. Tests are colocated with their owner. The effect root and the
+`flow` root contain no loose modules, and catch-all, compatibility, legacy,
+helper, utility, or version-suffixed directories are forbidden.
+
+Production consumers outside the family may import only its deliberate narrow
+surface: retention reason types, interface evidence, planning contracts and
+summaries, and the rewrite transaction. There is no barrel or compatibility
+facade exposing internal flow construction. Moving a concern requires deleting
+its old path and updating every consumer in the same transaction.
+
 ## Program Index
 
 Whole-program families consume one immutable index built once from the
