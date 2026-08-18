@@ -107,13 +107,6 @@ function processCallTransports(
         if (sourceArgument === undefined) {
           throw new Error("resolved call lost its exact source argument");
         }
-        retainUnprovenInterfaceIngress(
-          semantics,
-          sourceArgument.expression,
-          sourceArgument.type,
-          binding.selectedParameterType,
-          ingress,
-        );
         sink.processTypePair(
           semantics,
           sourceArgument.type,
@@ -127,6 +120,13 @@ function processCallTransports(
           binding.selectedParameterType,
           sourceArgument.expression,
           crossesOpaqueCall,
+        );
+        retainUnprovenInterfaceIngress(
+          semantics,
+          sourceArgument.expression,
+          sourceArgument.type,
+          binding.selectedParameterType,
+          ingress,
         );
       }
     }

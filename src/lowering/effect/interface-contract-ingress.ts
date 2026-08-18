@@ -17,12 +17,14 @@ import { successfulValueExpression } from "./syntax.js";
 import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import type { TargetProgramIndex } from "../program-index.js";
 import type { InterfaceContractBoundaryLedger } from "./interface-contract-boundary.js";
+import type { InterfaceContractImplementationLedger } from "./interface-contract-implementations.js";
 
 export interface InterfaceContractIngress {
   readonly source: TargetSourceProgram;
   readonly program: TargetProgramIndex;
   readonly entries: InterfaceContractMembership;
   readonly boundaries: InterfaceContractBoundaryLedger;
+  readonly implementations: InterfaceContractImplementationLedger;
   readonly relevance: InterfaceContractRelevance;
   readonly transports?: StorageOwnerTransportContract;
 }
@@ -68,11 +70,13 @@ export function retainUnprovenInterfaceIngress(
       !ingress.source.ast.isDeclarationFile(sourceFile)
     ) {
       for (const contract of targetContracts) {
-        ingress.boundaries.mark(
-          contract,
-          "unproven-value-origin",
-          expression,
-        );
+        if (!interfaceValueOriginIsClosed(expression, contract, ingress)) {
+          ingress.boundaries.mark(
+            contract,
+            "unproven-value-origin",
+            expression,
+          );
+        }
       }
     }
     return;
@@ -140,7 +144,7 @@ function interfaceValueOriginIsClosed(
     const type = semantics.getTypeAtLocation(expression);
     return declarationIsClosed(declaration, ingress) &&
       type !== undefined &&
-      ingress.relevance.contracts(semantics, type).includes(contract) &&
+      typeProvidesContract(semantics, type, contract, ingress) &&
       access?.Expression !== undefined &&
       interfaceContainerOriginIsClosed(access.Expression, ingress, seen);
   }
@@ -159,7 +163,7 @@ function interfaceValueOriginIsClosed(
       const type = semantics.getTypeAtLocation(element);
       if (
         type !== undefined &&
-        ingress.relevance.contracts(semantics, type).includes(contract) &&
+        typeProvidesContract(semantics, type, contract, ingress) &&
         !interfaceValueOriginIsClosed(element, contract, ingress, seen)
       ) {
         return false;
@@ -194,7 +198,7 @@ function interfaceValueOriginIsClosed(
     const type = semantics.getTypeAtLocation(expression);
     return declarationIsClosed(declaration, ingress) &&
       type !== undefined &&
-      ingress.relevance.contracts(semantics, type).includes(contract);
+      typeProvidesContract(semantics, type, contract, ingress);
   }
   if (ingress.source.ast.is.IsCallExpression(expression)) {
     const transport = ingress.transports?.transportFor(expression);
@@ -233,10 +237,12 @@ function interfaceValueOriginIsClosed(
   );
   if (
     refinement.kind !== "resolved" ||
-    !ingress.relevance.contracts(
+    !typeProvidesContract(
       ingress.source.semantics.forNode(expression),
       refinement.declaredType,
-    ).includes(contract) ||
+      contract,
+      ingress,
+    ) ||
     !declarationIsClosed(refinement.reference.declaration, ingress)
   ) {
     return false;
@@ -333,7 +339,7 @@ function thisValueOriginIsClosed(
   const semantics = ingress.source.semantics.forNode(expression);
   const type = semantics.getTypeAtLocation(expression);
   return type !== undefined &&
-    ingress.relevance.contracts(semantics, type).includes(contract) &&
+    typeProvidesContract(semantics, type, contract, ingress) &&
     thisContainerOriginIsClosed(expression, ingress);
 }
 
@@ -469,4 +475,14 @@ function declarationInitializer(
   return source.ast.is.IsParameterDeclaration(declaration)
     ? source.ast.as.AsParameterDeclaration(declaration)?.Initializer
     : undefined;
+}
+
+function typeProvidesContract(
+  semantics: SourceFileSemantics,
+  type: Type,
+  contract: Node,
+  ingress: InterfaceContractIngress,
+): boolean {
+  return ingress.relevance.contracts(semantics, type).includes(contract) ||
+    ingress.implementations.typeProvidesContract(semantics, type, contract);
 }

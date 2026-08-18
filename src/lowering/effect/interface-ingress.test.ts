@@ -10,7 +10,7 @@ import {
 import { createInterfaceContractGraph } from "./interface-contract-graph.js";
 import { lowerCooperativeEffects } from "./transform.js";
 
-test("records every structural interface-ingress cause exactly", () => {
+test("records one checker-proven implicit interface ingress exactly", () => {
   const sourceText = `
 type Awaitable<T> = T | PromiseLike<T>;
 interface Reader { Read(): Awaitable<number>; }
@@ -33,40 +33,13 @@ export const result = await read(new StructuralReader());
     throw new Error("declared interface dispatch was not analyzed");
   }
   assert.equal(evidence.consideredFamilyCount, 1);
-  assert.equal(evidence.admittedFamilyCount, 0);
-  assert.equal(evidence.rejectedFamilyCount, 1);
-  assert.equal(evidence.retainedFamilyCount, 1);
-  assert.equal(evidence.retainedCallCount, 1);
-  const structuralReaderOccurrence = {
-    kind: "authored" as const,
-    documentIdentity: "/src/index.ts",
-    start: sourceText.indexOf("new StructuralReader()"),
-    end: sourceText.indexOf("new StructuralReader()") +
-      "new StructuralReader()".length,
-    syntaxKind: "KindNewExpression" as const,
-  };
-  assert.deepEqual(evidence.retainedFamilies, [{
-    reason: "open-ingress",
-    contracts: [{
-      kind: "authored",
-      documentIdentity: "/src/index.ts",
-      start: sourceText.indexOf("Read(): Awaitable<number>;"),
-      end: sourceText.indexOf("Read(): Awaitable<number>;") +
-        "Read(): Awaitable<number>;".length,
-      syntaxKind: "KindMethodSignature",
-    }],
-    callCount: 1,
-    boundaryCauses: [
-      {
-        reason: "unproven-value-origin",
-        occurrences: [structuralReaderOccurrence],
-      },
-      {
-        reason: "untrusted-callable-member",
-        occurrences: [structuralReaderOccurrence],
-      },
-    ],
-  }]);
+  assert.equal(evidence.admittedFamilyCount, 1);
+  assert.equal(evidence.rejectedFamilyCount, 0);
+  assert.equal(evidence.settledFamilyCount, 1);
+  assert.equal(evidence.retainedFamilyCount, 0);
+  assert.equal(evidence.settledCallCount, 1);
+  assert.equal(evidence.implementationCount, 1);
+  assert.deepEqual(evidence.retainedFamilies, []);
 });
 
 test("retains mutable interface storage after one ambient write", () => {

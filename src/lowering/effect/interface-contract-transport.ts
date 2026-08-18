@@ -68,6 +68,7 @@ export function collectInterfaceContractTransports(
     program,
     entries: contracts.entries,
     boundaries: contracts.boundaries,
+    implementations: contracts.implementations,
     relevance: state.relevance,
     ...(transports === undefined ? {} : { transports }),
   };
@@ -121,13 +122,6 @@ export function collectInterfaceContractTransports(
       );
       if (context !== undefined) {
         for (const target of context.targetTypes) {
-          retainUnprovenInterfaceIngress(
-            context.semantics,
-            expression,
-            context.sourceType,
-            target,
-            ingress,
-          );
           processTypePair(
             context.semantics,
             context.sourceType,
@@ -135,6 +129,13 @@ export function collectInterfaceContractTransports(
             state,
             expression,
             false,
+          );
+          retainUnprovenInterfaceIngress(
+            context.semantics,
+            expression,
+            context.sourceType,
+            target,
+            ingress,
           );
         }
       }
@@ -155,13 +156,6 @@ export function collectInterfaceContractTransports(
       continue;
     }
     for (const target of context.targetTypes) {
-      retainUnprovenInterfaceIngress(
-        context.semantics,
-        body,
-        context.sourceType,
-        target,
-        ingress,
-      );
       processTypePair(
         context.semantics,
         context.sourceType,
@@ -169,6 +163,13 @@ export function collectInterfaceContractTransports(
         state,
         body,
         false,
+      );
+      retainUnprovenInterfaceIngress(
+        context.semantics,
+        body,
+        context.sourceType,
+        target,
+        ingress,
       );
     }
   }

@@ -292,13 +292,17 @@ dispatch, provider behavior, or unresolved transport retains the component.
 
 Calls selected through an interface member remain canonical under the default
 `interfaceDispatch: "open-structural"` profile. The independent
-`interfaceDispatch: "declared-closed"` profile is an explicit producer contract:
-every runtime implementation that can enter a selected project interface must
-have one exact declared project heritage path to that interface. TypeScript
-structural assignability does not establish this contract. Under the selected
-contract, the effect owner creates one transient family for each reached
-interface member and exact-joins every declared class implementation through
-TSTS heritage navigation and exact checked member-symbol queries. Cooperative
+`interfaceDispatch: "declared-closed"` profile is an explicit complete-flow
+contract: every runtime implementation that can enter a selected project
+interface must resolve to one exact project declaration through a checked value
+transport. An authored `implements` edge is one such transport, but is not
+required; languages with implicit interfaces produce structurally assignable
+values without TypeScript heritage. Structural similarity by itself never
+establishes the contract. Under the selected contract, the effect owner creates
+one transient family for each reached interface member and exact-joins every
+concrete implementation observed at a checker-proven source-type to
+target-interface transport. Inside that selected type pair, the checked member
+symbol must resolve to one exact project callable declaration. Cooperative
 implementations form one bounded bidirectional star and callers depend on its
 coordinator; there is no synthetic graph vertex and no implementer clique. The
 effect owner also consumes the checker's exact selected signature, authored
@@ -334,7 +338,7 @@ recursively retain an arbitrary checker object graph. When one direct checked
 transport depends on corresponding project interface members, those method
 contracts form one atomic component;
 same-shaped interfaces with no such transport remain unrelated. Contracts that
-share one exact declared class implementation also form one component. A
+share one exact concrete project implementation also form one component. A
 project contract transported against an external or otherwise non-rewritable
 interface is an open boundary unless the counterpart callable has one or more
 exact declaration-file signatures and every instantiated result is definitely
@@ -348,7 +352,7 @@ The component's return annotations and interface-call awaits settle only when
 every cooperative implementation settles and every other implementation has an
 exact synchronous body contract. A
 retaining implementation preserves the complete family and every depending
-caller. Unresolved heritage, a missing project implementation, or an
+caller. An unresolved value origin, a missing project implementation, or an
 unprovable implementation contract prevents family admission.
 
 Semantic queries for a selected member or implementation require the exact AST
@@ -358,9 +362,12 @@ range; it retains the family before any query. Document identity establishes
 provenance, not checker-object membership.
 
 The target does not infer this profile from `implements`, generated names,
-runtime bases, or structural compatibility. It adds no dispatch table, policy
-parameter, wrapper, marker, or source-language rule. Declared heritage is used
-only after the profile owner has selected the closed implementation envelope.
+runtime bases, or a Cartesian structural-compatibility scan. It adds no dispatch
+table, policy parameter, wrapper, marker, or source-language rule. Exact
+heritage and exact structural implementations are admitted only when an indexed
+checked value transport selects both the source type and target interface. A
+same-shaped class that never enters the interface is irrelevant and cannot join
+the family.
 
 Callable-flow admission and callable-signature rewriting are distinct facts.
 An explicitly authored function-type parameter is eligible for exact flow even

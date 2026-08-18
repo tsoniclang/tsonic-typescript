@@ -1,10 +1,5 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
-import {
-  KindClassDeclaration,
-  KindClassExpression,
-} from "@tsonic/tsts/target-ast";
-
 import type { TargetProgramIndex } from "../program-index.js";
 import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../profile.js";
@@ -30,7 +25,6 @@ import {
   type InterfaceContractComponent,
 } from "./interface-contract-graph.js";
 import type { InterfaceContractBoundaryCause } from "./interface-contract-boundary.js";
-import { declaredInterfaceMemberImplementation } from "./interface-contract-member.js";
 
 export interface DeclaredInterfaceDispatchFamily {
   readonly contractDeclarations: readonly Node[];
@@ -69,10 +63,7 @@ export interface DeclaredInterfaceDispatch {
 
 export const interfaceDispatchRejectionReasons = Object.freeze([
   "open-ingress",
-  "incomplete-heritage",
   "missing-implementer",
-  "unsupported-implementer",
-  "missing-implementation",
   "unproven-synchronous-implementation",
 ] as const);
 
@@ -123,11 +114,6 @@ export type InterfaceDispatchEvidence =
       readonly retainedFamilies: readonly InterfaceDispatchRetentionEvidence[];
     };
 
-interface HeritageIndex {
-  readonly implementers: ReadonlyMap<Node, readonly Node[]>;
-  readonly complete: boolean;
-}
-
 interface RejectedInterfaceDispatchFamily {
   readonly component: InterfaceContractComponent;
   readonly reason: InterfaceDispatchRejectionReason;
@@ -142,7 +128,7 @@ type InterfaceDispatchFamilyResolution =
       readonly kind: "rejected";
       readonly reason: Exclude<
         InterfaceDispatchRejectionReason,
-        "open-ingress" | "incomplete-heritage"
+        "open-ingress"
       >;
     };
 
@@ -159,7 +145,6 @@ export function createDeclaredInterfaceDispatch(
     return createResult(source, sourceIdentityFor, profile, 0, 0, [], []);
   }
   const graph = createInterfaceContractGraph(source, program, transports);
-  const heritage = collectHeritageIndex(source, program);
   const families: DeclaredInterfaceDispatchFamily[] = [];
   const rejected: RejectedInterfaceDispatchFamily[] = [];
   for (const component of graph.components) {
@@ -167,11 +152,7 @@ export function createDeclaredInterfaceDispatch(
       rejected.push({ component, reason: "open-ingress" });
       continue;
     }
-    if (!heritage.complete) {
-      rejected.push({ component, reason: "incomplete-heritage" });
-      continue;
-    }
-    const resolution = resolveFamily(source, candidates, heritage, component);
+    const resolution = resolveFamily(source, candidates, component);
     if (resolution.kind === "rejected") {
       rejected.push({ component, reason: resolution.reason });
       continue;
@@ -190,116 +171,18 @@ export function createDeclaredInterfaceDispatch(
   );
 }
 
-function collectHeritageIndex(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-): HeritageIndex {
-  const implementers = new Map<Node, Node[]>();
-  const closures = new Map<Node, ReadonlySet<Node> | null>();
-  let complete = true;
-  for (const declaration of program.nodesOfKinds([
-    KindClassDeclaration,
-    KindClassExpression,
-  ])) {
-    if (source.ast.hasModifierKind(declaration, "abstract")) {
-      continue;
-    }
-    const closure = declaredHeritageClosure(
-      source,
-      declaration,
-      closures,
-      new Set(),
-    );
-    if (closure === undefined) {
-      complete = false;
-      continue;
-    }
-    for (const contract of closure) {
-      const selected = implementers.get(contract);
-      if (selected === undefined) {
-        implementers.set(contract, [declaration]);
-      } else {
-        selected.push(declaration);
-      }
-    }
-  }
-  return Object.freeze({ implementers, complete });
-}
-
-function declaredHeritageClosure(
-  source: TargetSourceProgram,
-  declaration: Node,
-  cache: Map<Node, ReadonlySet<Node> | null>,
-  pending: Set<Node>,
-): ReadonlySet<Node> | undefined {
-  const cached = cache.get(declaration);
-  if (cached !== undefined) {
-    return cached ?? undefined;
-  }
-  if (pending.has(declaration)) {
-    cache.set(declaration, null);
-    return undefined;
-  }
-  pending.add(declaration);
-  const heritage = source.navigation.declaredHeritage(declaration);
-  if (heritage.kind === "unresolved") {
-    pending.delete(declaration);
-    cache.set(declaration, null);
-    return undefined;
-  }
-  const closure = new Set<Node>();
-  for (const edge of heritage.edges) {
-    closure.add(edge.target.declaration);
-    const inherited = declaredHeritageClosure(
-      source,
-      edge.target.declaration,
-      cache,
-      pending,
-    );
-    if (inherited === undefined) {
-      pending.delete(declaration);
-      cache.set(declaration, null);
-      return undefined;
-    }
-    for (const inheritedDeclaration of inherited) {
-      closure.add(inheritedDeclaration);
-    }
-  }
-  pending.delete(declaration);
-  const result = Object.freeze(closure);
-  cache.set(declaration, result);
-  return result;
-}
-
 function resolveFamily(
   source: TargetSourceProgram,
   candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
-  heritage: HeritageIndex,
   component: InterfaceContractComponent,
 ): InterfaceDispatchFamilyResolution {
   const implementations = new Set<Node>();
   const selectedCandidates = new Set<CooperativeEffectCandidate>();
   for (const entry of component.entries) {
-    const owner = source.ast.parent(entry.declaration);
-    if (owner === undefined) {
-      return { kind: "rejected", reason: "missing-implementation" };
-    }
-    const classes = heritage.implementers.get(owner) ?? [];
-    if (classes.length === 0 && entry.calls.length !== 0) {
+    if (entry.implementations.length === 0 && entry.calls.length !== 0) {
       return { kind: "rejected", reason: "missing-implementer" };
     }
-    for (const declaration of classes) {
-      if (!source.ast.is.IsClassDeclaration(declaration)) {
-        return { kind: "rejected", reason: "unsupported-implementer" };
-      }
-      const implementation = declaredInterfaceMemberImplementation(
-        source,
-        declaration,
-        entry.declaration,
-      );
-      if (implementation === undefined) {
-        return { kind: "rejected", reason: "missing-implementation" };
-      }
+    for (const implementation of entry.implementations) {
       implementations.add(implementation);
       const candidate = candidates.get(implementation);
       if (candidate !== undefined) {

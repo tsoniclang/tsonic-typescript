@@ -345,6 +345,13 @@ function pairObjectMembers(
       state.contracts.entries,
       state.contracts.declarationContracts,
     );
+    const exactImplicitImplementation = sourceContracts.length === 0 &&
+      targetContracts.length !== 0 &&
+      state.contracts.implementations.recordTypeImplementations(
+        semantics,
+        sourceType,
+        targetContracts,
+      );
     if (sourceContracts.length !== 0 && targetContracts.length !== 0) {
       for (const sourceContract of sourceContracts) {
         for (const targetContract of targetContracts) {
@@ -373,6 +380,7 @@ function pairObjectMembers(
       continue;
     } else if (
       targetContracts.length !== 0 &&
+      !exactImplicitImplementation &&
       !typeHasTrustedSynchronousCallSignatures(
         state.source,
         semantics,
