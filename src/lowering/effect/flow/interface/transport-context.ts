@@ -2,11 +2,13 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { isExactInterfaceProjectDeclaration } from "./declarations.js";
+import type { InterfaceContractMembership } from "./declarations.js";
 import { projectCallableImplementation } from "../../model/project-invocation.js";
 
 export function callCrossesOpaqueInterfaceBoundary(
   source: TargetSourceProgram,
   declaration: Node | undefined,
+  contracts?: InterfaceContractMembership,
 ): boolean {
   if (declaration === undefined) {
     return true;
@@ -18,6 +20,7 @@ export function callCrossesOpaqueInterfaceBoundary(
     return true;
   }
   if (
+    contracts?.has(declaration) === true ||
     source.ast.is.IsFunctionTypeNode(declaration) ||
     source.ast.is.IsConstructorTypeNode(declaration) ||
     source.ast.is.IsCallSignatureDeclaration(declaration) ||

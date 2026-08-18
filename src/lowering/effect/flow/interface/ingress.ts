@@ -283,7 +283,11 @@ function interfaceValueOriginIsClosed(
       : semantics.getSignatureDeclaration(call.selectedSignature);
     return call !== undefined && declaration !== undefined &&
       (
-        !callCrossesOpaqueInterfaceBoundary(ingress.source, declaration) ||
+        !callCrossesOpaqueInterfaceBoundary(
+          ingress.source,
+          declaration,
+          ingress.entries,
+        ) ||
         (
           resolvedCallResultIsDefinitelyNonThenable(
             ingress.source,
@@ -437,7 +441,11 @@ function interfaceContainerOriginIsClosed(
       ? undefined
       : semantics.getSignatureDeclaration(call.selectedSignature);
     return declaration !== undefined &&
-      !callCrossesOpaqueInterfaceBoundary(ingress.source, declaration);
+      !callCrossesOpaqueInterfaceBoundary(
+        ingress.source,
+        declaration,
+        ingress.entries,
+      );
   }
   if (ingress.source.ast.is.IsNewExpression(expression)) {
     const semantics = ingress.source.semantics.forNode(expression);

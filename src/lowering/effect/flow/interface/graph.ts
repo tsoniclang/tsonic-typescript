@@ -4,6 +4,7 @@ import {
   KindClassDeclaration,
   KindClassExpression,
   KindCallExpression,
+  KindMethodDeclaration,
   KindMethodSignature,
 } from "@tsonic/tsts/target-ast";
 
@@ -25,6 +26,8 @@ import {
   type InterfaceContractBoundaryCause,
   type InterfaceContractBoundaryLedger,
 } from "./boundary.js";
+import { collectInterfaceContractComponent } from "./component.js";
+import { createAbstractInvocationTransports } from "./abstract-transport.js";
 
 export interface InterfaceContractEntry {
   readonly declaration: Node;
@@ -43,12 +46,14 @@ export interface InterfaceContractGraph {
   readonly consideredCount: number;
   readonly components: readonly InterfaceContractComponent[];
   readonly boundaryCauses: readonly InterfaceContractBoundaryCause[];
+  readonly invocationTransports?: InvocationTransportContract;
 }
 
 export interface MutableInterfaceContractEntry {
   readonly declaration: Node;
   readonly calls: Node[];
-  readonly returnRewrite: CallableReturnRewrite;
+  readonly returnRewrite?: CallableReturnRewrite;
+  readonly abstractTransport: boolean;
 }
 
 export interface InterfaceContractIndex {
@@ -70,7 +75,7 @@ export function createInterfaceContractGraph(
   collectCalls(source, program, contracts.entries);
   collectInterfaceContractTransports(source, program, contracts, transports);
   const seeds = [...contracts.entries.values()].filter((entry) =>
-    entry.calls.length !== 0
+    entry.returnRewrite !== undefined && entry.calls.length !== 0
   );
   const visited = new Set<Node>();
   const components: InterfaceContractComponent[] = [];
@@ -79,25 +84,25 @@ export function createInterfaceContractGraph(
     if (visited.has(seed.declaration)) {
       continue;
     }
-    const declarations = collectComponent(
+    const declarations = collectInterfaceContractComponent(
       seed.declaration,
       contracts.links,
       visited,
     );
     consideredDeclarations.push(...declarations);
-    const entries = declarations.map((declaration) => {
+    const entries = declarations.flatMap((declaration) => {
       const entry = contracts.entries.get(declaration);
       if (entry === undefined) {
         throw new Error("interface contract graph lost a linked declaration");
       }
-      return Object.freeze({
+      return entry.returnRewrite === undefined ? [] : [Object.freeze({
         declaration: entry.declaration,
         calls: Object.freeze([...entry.calls]),
         implementations: contracts.implementations.implementationsFor(
           entry.declaration,
         ),
         returnRewrite: entry.returnRewrite,
-      });
+      })];
     });
     const boundaryCauses = contracts.boundaries.causesFor(declarations);
     components.push(Object.freeze({
@@ -106,10 +111,15 @@ export function createInterfaceContractGraph(
       boundaryCauses,
     }));
   }
+  const invocationTransports = createAbstractInvocationTransports(
+    source,
+    contracts,
+  );
   return Object.freeze({
     consideredCount: seeds.length,
     components: Object.freeze(components),
     boundaryCauses: contracts.boundaries.causesFor(consideredDeclarations),
+    ...(invocationTransports === undefined ? {} : { invocationTransports }),
   });
 }
 
@@ -120,12 +130,24 @@ function collectContracts(
 ): InterfaceContractIndex {
   const entries = new Map<Node, MutableInterfaceContractEntry>();
   const links = new Map<Node, Set<Node>>();
-  for (const declaration of program.nodesOfKind(KindMethodSignature)) {
+  for (const declaration of program.nodesOfKinds([
+    KindMethodSignature,
+    KindMethodDeclaration,
+  ])) {
     const owner = source.ast.parent(declaration);
     const typeNode = source.ast.typeNode(declaration);
+    const abstractTransport = source.ast.is.IsMethodDeclaration(declaration) &&
+      owner !== undefined &&
+      source.ast.is.IsClassDeclaration(owner) &&
+      source.ast.hasModifierKind(owner, "abstract") &&
+      source.ast.hasModifierKind(declaration, "abstract") &&
+      source.ast.body(declaration) === undefined;
+    const effectContract = source.ast.is.IsMethodSignatureDeclaration(
+      declaration,
+    ) && owner !== undefined && source.ast.is.IsInterfaceDeclaration(owner);
     if (
       owner === undefined ||
-      !source.ast.is.IsInterfaceDeclaration(owner) ||
+      (!effectContract && !abstractTransport) ||
       !isExactInterfaceProjectDeclaration(source, owner) ||
       !isExactInterfaceProjectDeclaration(source, declaration) ||
       typeNode === undefined
@@ -133,13 +155,14 @@ function collectContracts(
       continue;
     }
     const returnRewrite = callableReturnRewrite(source, typeNode);
-    if (returnRewrite === undefined) {
+    if (returnRewrite === undefined && !abstractTransport) {
       continue;
     }
     entries.set(declaration, {
       declaration,
       calls: [],
-      returnRewrite,
+      ...(returnRewrite === undefined ? {} : { returnRewrite }),
+      abstractTransport,
     });
     links.set(declaration, new Set());
   }
@@ -277,25 +300,4 @@ function collectCalls(
       entries.get(declaration)?.calls.push(call);
     }
   }
-}
-
-function collectComponent(
-  seed: Node,
-  links: ReadonlyMap<Node, ReadonlySet<Node>>,
-  visited: Set<Node>,
-): readonly Node[] {
-  const result: Node[] = [];
-  const pending = [seed];
-  while (pending.length !== 0) {
-    const declaration = pending.pop();
-    if (declaration === undefined || visited.has(declaration)) {
-      continue;
-    }
-    visited.add(declaration);
-    result.push(declaration);
-    for (const linked of links.get(declaration) ?? []) {
-      pending.push(linked);
-    }
-  }
-  return result;
 }

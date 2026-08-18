@@ -4,7 +4,10 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { SourceIdentityResolver } from "../../occurrence.js";
 import type { TargetProgramIndex } from "../../program-index.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../../profile.js";
-import type { InvocationTransportContract } from "../../invocation-transport.js";
+import {
+  composeInvocationTransportContracts,
+  type InvocationTransportContract,
+} from "../../invocation-transport.js";
 import type { LoweredValueContract } from "../../value-contract.js";
 import {
   classifyCooperativeEffectCallUses,
@@ -68,11 +71,15 @@ export function createClosedCooperativeEffectPlan(
     transports,
     sourceIdentityFor,
   );
+  const completeTransports = composeInvocationTransportContracts([
+    transports,
+    interfaces.invocationTransports,
+  ]);
   const valueFlow = createCallableValueFlow(
     source,
     program,
     new Set(candidates.keys()),
-    transports,
+    completeTransports,
   );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const returnFlow = createReturnValueFlow(
@@ -82,7 +89,7 @@ export function createClosedCooperativeEffectPlan(
     loweredValues,
     (call) =>
       valueFlow.resolutionFor(call)?.dependencyNodes() ?? noDependencies,
-    transports,
+    completeTransports,
   );
   const resultConsumption = createCooperativeResultConsumption(
     source,

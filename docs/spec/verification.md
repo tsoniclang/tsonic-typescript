@@ -278,6 +278,16 @@ their exact callbacks are not opaque escapes, while their results acquire no
 fabricated origin. Removing the selected pointer fact must restore opaque
 retention; adding a callback as a result origin must fail the negative result-
 provenance fixture.
+Closed abstract-dispatch fixtures use a nominal generic carrier with one
+abstract write and one abstract read. Exact checked heritage, receiver origin,
+implementation membership, argument ingress, implementation return flow, and
+result-carrier provenance must settle the enclosed callable and its caller.
+Mutations replace the implementation return with ambient input, source the
+receiver externally, remove one project body, add an unresolved subclass, or
+substitute an unrelated same-shaped concrete member; every mutation retains
+the complete component. Artifact inspection also requires transport on exactly
+the selected abstract calls and none on the same-spelled control. No runtime or
+generated declaration name may participate in selection.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as

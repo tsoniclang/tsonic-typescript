@@ -84,7 +84,11 @@ export function collectInterfaceCallTransports(
         ...(call === undefined ? {} : { call }),
         crossesOpaqueCall: call !== undefined &&
           transports?.transportFor(node) === undefined &&
-          callCrossesOpaqueInterfaceBoundary(source, declaration),
+          callCrossesOpaqueInterfaceBoundary(
+            source,
+            declaration,
+            ingress.entries,
+          ),
         exactBindings: call !== undefined && callHasExactBindings(
           source,
           node,

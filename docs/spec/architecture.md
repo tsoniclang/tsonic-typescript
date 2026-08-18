@@ -539,6 +539,23 @@ rest, spread, omitted, or defaulted slot cannot be represented. The unresolved
 slot alone remains open. Missing, ambiguous, inapplicable, or corrupt evidence
 grants no transport permission.
 
+An abstract project member is the one intentional multi-implementation form of
+that contract. The declared-closed profile may expose it as invocation
+transport only after the existing checked value-flow owner proves the receiver
+has a closed origin, every reached implementation is one exact project body,
+and the complete contract component has no ambient input, output, override, or
+unresolved member. Every authored argument is then an exact internal input and
+the receiver is the result carrier; ordinary parameter, return, assignment,
+and escape analysis still verifies every value entering or leaving that
+carrier. This permits a nominal project container such as `Carrier<T>` to move
+`T` through its abstract `replace` and `current` members without making either
+call opaque. It does not recognize the carrier or member by spelling, scan all
+structurally similar classes, or grant permission to an external subclass,
+ambient result, bodyless implementation, unrelated same-shaped member, or
+open receiver. The derived transport is composed with fact-owned transports
+through one conflict-rejecting owner before callable, storage, and return flow
+consume it.
+
 Nominal carrier closure is one finite graph over project class storage
 declarations and nested nominal type arguments. It is built once and propagated
 from candidate owners through reverse carrier edges. Per-occurrence analysis

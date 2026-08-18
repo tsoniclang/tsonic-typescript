@@ -49,6 +49,7 @@ export interface DeclaredInterfaceDispatch {
   readonly rejectedFamilyCount: number;
   readonly families: readonly DeclaredInterfaceDispatchFamily[];
   readonly calls: ReadonlyMap<Node, DeclaredInterfaceDispatchFamily>;
+  readonly invocationTransports?: InvocationTransportContract;
   addDependencies(
     owner: CooperativeEffectCandidate,
     family: DeclaredInterfaceDispatchFamily,
@@ -96,7 +97,16 @@ export function createDeclaredInterfaceDispatch(
     source.documents.forFile(sourceFile).identity,
 ): DeclaredInterfaceDispatch {
   if (profile === "open-structural") {
-    return createResult(source, sourceIdentityFor, profile, 0, 0, [], [], []);
+    return createResult(
+      source,
+      sourceIdentityFor,
+      profile,
+      0,
+      0,
+      [],
+      [],
+      [],
+    );
   }
   const graph = createInterfaceContractGraph(
     source,
@@ -128,6 +138,7 @@ export function createDeclaredInterfaceDispatch(
     families,
     rejected,
     graph.boundaryCauses,
+    graph.invocationTransports,
   );
 }
 
@@ -199,6 +210,7 @@ function createResult(
   families: readonly DeclaredInterfaceDispatchFamily[],
   rejected: readonly RejectedInterfaceDispatchFamily[],
   boundaryCauses: readonly InterfaceDispatchBoundaryCauseEvidence[],
+  invocationTransports?: InvocationTransportContract,
 ): DeclaredInterfaceDispatch {
   const calls = new Map<Node, DeclaredInterfaceDispatchFamily>();
   for (const family of families) {
@@ -216,6 +228,7 @@ function createResult(
     rejectedFamilyCount: rejected.length,
     families: Object.freeze([...families]),
     calls,
+    ...(invocationTransports === undefined ? {} : { invocationTransports }),
     addDependencies(
       owner: CooperativeEffectCandidate,
       family: DeclaredInterfaceDispatchFamily,
