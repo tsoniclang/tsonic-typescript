@@ -18,7 +18,7 @@ export interface InterfaceContractImplementationLedger {
   recordDeclaredClass(
     classDeclaration: Node,
     contracts: readonly Node[],
-  ): boolean;
+  ): readonly Node[];
   typeProvidesContract(
     semantics: SourceFileSemantics,
     type: Type,
@@ -74,18 +74,22 @@ export function createInterfaceContractImplementationLedger(
     semantics: SourceFileSemantics,
     sourceType: Type,
     contracts: readonly Node[],
-  ): boolean => {
-    const resolved = resolveImplementations(
-      source,
-      semantics,
-      sourceType,
-      contracts,
-    );
-    if (resolved === undefined) {
-      return false;
+  ): readonly Node[] => {
+    const unresolved: Node[] = [];
+    for (const contract of contracts) {
+      const resolved = resolveContractImplementations(
+        source,
+        semantics,
+        sourceType,
+        contract,
+      );
+      if (resolved === undefined) {
+        unresolved.push(contract);
+      } else {
+        commit(resolved);
+      }
     }
-    commit(resolved);
-    return true;
+    return Object.freeze(unresolved);
   };
   const provides = (
     semantics: SourceFileSemantics,
@@ -116,11 +120,17 @@ export function createInterfaceContractImplementationLedger(
   };
 
   return Object.freeze({
-    recordTypeImplementations: record,
+    recordTypeImplementations(
+      semantics: SourceFileSemantics,
+      sourceType: Type,
+      contracts: readonly Node[],
+    ): boolean {
+      return record(semantics, sourceType, contracts).length === 0;
+    },
     recordDeclaredClass(
       classDeclaration: Node,
       contracts: readonly Node[],
-    ): boolean {
+    ): readonly Node[] {
       const name = source.ast.name(classDeclaration);
       const sourceFile = source.ast.getSourceFile(classDeclaration);
       if (
@@ -128,14 +138,16 @@ export function createInterfaceContractImplementationLedger(
         sourceFile === undefined ||
         !source.semantics.includes(sourceFile)
       ) {
-        return false;
+        return Object.freeze([...contracts]);
       }
       const semantics = source.semantics.forFile(sourceFile);
       const symbol = semantics.getSymbolAtLocation(name);
       const type = symbol === undefined
         ? undefined
         : semantics.getDeclaredTypeOfSymbol(symbol);
-      return type !== undefined && record(semantics, type, contracts);
+      return type === undefined
+        ? Object.freeze([...contracts])
+        : record(semantics, type, contracts);
     },
     typeProvidesContract(
       semantics: SourceFileSemantics,
@@ -152,11 +164,11 @@ export function createInterfaceContractImplementationLedger(
   });
 }
 
-function resolveImplementations(
+function resolveContractImplementations(
   source: TargetSourceProgram,
   semantics: SourceFileSemantics,
   sourceType: Type,
-  contracts: readonly Node[],
+  contract: Node,
 ): readonly ResolvedImplementation[] | undefined {
   const selected = semantics.removeMissingOrUndefined(sourceType);
   if (
@@ -173,11 +185,11 @@ function resolveImplementations(
       if (member === undefined) {
         return undefined;
       }
-      const resolved = resolveImplementations(
+      const resolved = resolveContractImplementations(
         source,
         semantics,
         member,
-        contracts,
+        contract,
       );
       if (resolved === undefined) {
         return undefined;
@@ -190,25 +202,21 @@ function resolveImplementations(
     semantics,
     selected,
   );
-  const result: ResolvedImplementation[] = [];
-  for (const contract of contracts) {
-    const implementation = resolveCallableImplementation(
-      source,
-      semantics,
-      selected,
-      contract,
-    );
-    if (implementation === undefined) {
-      return undefined;
-    }
-    result.push({
-      sourceType: selected,
-      ...(sourceDeclaration === undefined ? {} : { sourceDeclaration }),
-      contract,
-      implementation,
-    });
+  const implementation = resolveCallableImplementation(
+    source,
+    semantics,
+    selected,
+    contract,
+  );
+  if (implementation === undefined) {
+    return undefined;
   }
-  return result;
+  return [Object.freeze({
+    sourceType: selected,
+    ...(sourceDeclaration === undefined ? {} : { sourceDeclaration }),
+    contract,
+    implementation,
+  })];
 }
 
 function resolveCallableImplementation(

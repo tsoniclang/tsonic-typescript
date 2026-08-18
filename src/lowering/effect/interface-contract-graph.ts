@@ -194,14 +194,17 @@ function collectDeclarationContracts(
       continue;
     }
     result.set(declaration, contracts);
-    if (!implementations.recordDeclaredClass(declaration, contracts)) {
-      for (const contract of contracts) {
-        boundaries.mark(
-          contract,
-          "missing-member-implementation",
-          declaration,
-        );
-      }
+    for (
+      const contract of implementations.recordDeclaredClass(
+        declaration,
+        contracts,
+      )
+    ) {
+      boundaries.mark(
+        contract,
+        "missing-member-implementation",
+        declaration,
+      );
     }
   }
   return result;

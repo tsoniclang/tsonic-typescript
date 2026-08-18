@@ -13,7 +13,10 @@ import {
   type InterfaceContractMembership,
 } from "./interface-contract-declarations.js";
 import { callCrossesOpaqueInterfaceBoundary } from "./interface-contract-transport-context.js";
-import { successfulValueExpression } from "./syntax.js";
+import {
+  exactReturnedCall,
+  successfulValueExpression,
+} from "./syntax.js";
 import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import type { TargetProgramIndex } from "../program-index.js";
 import type { InterfaceContractBoundaryLedger } from "./interface-contract-boundary.js";
@@ -44,14 +47,14 @@ export function retainUnprovenInterfaceIngress(
   if (selectedTarget === undefined || semantics.isNever(selectedTarget)) {
     return;
   }
-  const targetContracts = ingress.relevance.contracts(
+  const targetContracts = ingress.relevance.valueContracts(
     semantics,
     selectedTarget,
   );
   if (targetContracts.length === 0) {
     return;
   }
-  const sourceContracts = ingress.relevance.contracts(
+  const sourceContracts = ingress.relevance.valueContracts(
     semantics,
     selectedSource,
   );
@@ -125,7 +128,7 @@ function interfaceValueOriginIsClosed(
   ingress: InterfaceContractIngress,
   seen: Set<Node> = new Set(),
 ): boolean {
-  const expression = successfulValueExpression(ingress.source, value);
+  const expression = successfulInterfaceValueExpression(ingress.source, value);
   if (expression === undefined || seen.has(expression)) {
     return false;
   }
@@ -260,7 +263,7 @@ function interfaceContainerOriginIsClosed(
   ingress: InterfaceContractIngress,
   seen: Set<Node>,
 ): boolean {
-  const expression = successfulValueExpression(ingress.source, value);
+  const expression = successfulInterfaceValueExpression(ingress.source, value);
   if (expression === undefined || seen.has(expression)) {
     return false;
   }
@@ -341,6 +344,16 @@ function thisValueOriginIsClosed(
   return type !== undefined &&
     typeProvidesContract(semantics, type, contract, ingress) &&
     thisContainerOriginIsClosed(expression, ingress);
+}
+
+function successfulInterfaceValueExpression(
+  source: TargetSourceProgram,
+  value: Node,
+): Node | undefined {
+  const expression = successfulValueExpression(source, value);
+  return expression === undefined
+    ? undefined
+    : exactReturnedCall(source, expression) ?? expression;
 }
 
 function thisContainerOriginIsClosed(

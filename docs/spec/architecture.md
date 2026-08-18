@@ -316,11 +316,22 @@ An ordinary positional call pairs each argument with the corresponding selected
 signature parameter. Rest, spread, unresolved signatures, or a parameter-map
 mismatch are never approximated: every exposed project contract is an open
 boundary. Direct project interface/class surfaces enter the exact structural
-member join. Contracts nested inside a container, tuple, union, intersection,
-or callable contract remain open unless a separately certified transport
-reaches them. An exact project-body transport may preserve a shared nested
-contract identity; unmatched nested contracts and nested contracts crossing a
+member join. The owner distinguishes a value-bearing contract from a callable
+capability whose parameter or result type merely mentions that contract.
+Readable fields, indexes, tuple elements, array elements, unions, and
+intersections carry values. A call or construct signature does not carry one
+of its parameter or result values until that operation occurs; every project
+invocation is checked independently. An opaque call that returns only such a
+capability therefore does not fabricate a nested interface value, while an
+opaque result with a readable interface-bearing field or element remains open.
+Passing a project callable outward marks every interface-bearing callable
+parameter as opaque ingress because the provider may invoke it. An exact
+project-body transport may preserve a shared nested contract identity;
+unmatched value-bearing contracts and value-bearing contracts crossing a
 bodyless, ambient, provider, unresolved, rest, or spread boundary remain open.
+The value-bearing walk is cycle-safe and finite; exceeding its fixed type
+budget falls back to the broader relevant-contract set rather than granting
+settlement.
 One narrower outbound case is also closed: an array or object literal may erase
 a source-only nested contract when the selected target type carries no matching
 contract. Parentheses and authored type operators around that same literal do
@@ -337,6 +348,10 @@ transport described below. Shared values passed outward remain open when their
 source contract is still statically visible. Root-pair memoization includes
 both opacity and freshness so one safe observation cannot hide a later open
 transport.
+An exact awaited project call has the same value provenance as that call: its
+body-to-result transport is independently analyzed before family admission.
+Await does not make an ambient, bodyless, unresolved, or non-call expression
+transparent.
 
 The owner compares only bounded relevant-contract sets and does not
 recursively retain an arbitrary checker object graph. When one direct checked
@@ -344,6 +359,10 @@ transport depends on corresponding project interface members, those method
 contracts form one atomic component;
 same-shaped interfaces with no such transport remain unrelated. Contracts that
 share one exact concrete project implementation also form one component. A
+declared class admits implementation evidence independently for each reached
+member contract. One unresolved sibling contract remains open but does not
+erase an exact implementation for another member; a union-valued source still
+requires every selected union member to resolve for that one contract. A
 project contract transported against an external or otherwise non-rewritable
 interface is an open boundary unless the counterpart callable has one or more
 exact declaration-file signatures and every instantiated result is definitely

@@ -254,6 +254,64 @@ export const result = await read(create());
   assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
 });
 
+test("settles an exact awaited project result", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class Pair implements Reader {
+  async Read(): Promise<number> { return 42; }
+}
+async function create(): Promise<Reader> { return new Pair(); }
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+export const result = await read(await create());
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.equal(graph.components[0]?.boundary, false);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 1);
+});
+
+test("retains an awaited ambient interface result", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class Pair implements Reader {
+  async Read(): Promise<number> { return 42; }
+}
+declare function create(): Promise<Reader>;
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+export const result = await read(await create());
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.equal(graph.components[0]?.boundary, true);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 1);
+});
+
 test("settles an exact project property rooted at this", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;

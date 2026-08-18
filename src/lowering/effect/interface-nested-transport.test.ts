@@ -254,3 +254,111 @@ export const result = await read(recovered[0]!);
   }
   assert.equal(evidence.settledFamilyCount, 0);
 });
+
+test("preserves an exact project class through a fresh adapter resolver", () => {
+  const fixture = checkedEffectFixture(`
+import { createAdapter, register } from "provider";
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class Pair implements Reader {
+  declare private readonly brand: void;
+  async Read(): Promise<number> { return 42; }
+}
+const PairAdapter: {
+  new (value: Pair): { readonly value: Pair };
+  is(value: object): value is { readonly value: Pair };
+} = createAdapter<Pair>();
+register<Pair>(() => PairAdapter);
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+export const result = await read(new Pair());
+`, {
+    "/node_modules/provider/index.d.ts": `
+export interface Adapter<T> {
+  new (value: T): { readonly value: T };
+  is(value: object): value is { readonly value: T };
+}
+export type AdapterResolver<T> = () => Adapter<T>;
+export declare function createAdapter<T>(): Adapter<T>;
+export declare function register<T>(resolver: AdapterResolver<T>): void;
+`,
+  });
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+
+  assert.equal(graph.components.length, 1);
+  assert.deepEqual(
+    graph.components[0]?.boundaryCauses.map((cause) => ({
+      reason: cause.reason,
+      occurrences: cause.occurrences.map((occurrence) =>
+        fixture.source.ast.kindName(occurrence)
+      ),
+    })),
+    [],
+  );
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
+});
+
+test("retains an interface supplied to an outbound project callback", () => {
+  const fixture = checkedEffectFixture(`
+import { observe } from "provider";
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+observe<Reader>(async (reader): Promise<void> => {
+  await reader.Read();
+});
+`, {
+    "/node_modules/provider/index.d.ts": `
+export declare function observe<T>(
+  callback: (reader: T) => void,
+): void;
+`,
+  });
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+
+  assert.equal(graph.components.length, 1);
+  assert.equal(graph.components[0]?.boundary, true);
+});
+
+test("retains a readable interface value produced by an opaque call", () => {
+  const fixture = checkedEffectFixture(`
+import { createBox } from "provider";
+type Awaitable<T> = T | PromiseLike<T>;
+export interface Reader { Read(): Awaitable<number>; }
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+export const result = await read(createBox<Reader>().value);
+`, {
+    "/node_modules/provider/index.d.ts": `
+export declare function createBox<T>(): {
+  readonly value: T;
+};
+`,
+  });
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+
+  assert.equal(graph.components.length, 1);
+  assert.equal(graph.components[0]?.boundary, true);
+});

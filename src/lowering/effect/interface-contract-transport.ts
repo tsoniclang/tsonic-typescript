@@ -36,6 +36,7 @@ import {
   enqueueInterfaceContractTypePair,
   interfaceContractTypePairWasSeen,
   markInterfaceContractsExposed,
+  markInterfaceValueContractsExposed,
   type InterfaceContractTypePairState,
 } from "./interface-contract-type-pair.js";
 
@@ -90,6 +91,15 @@ export function collectInterfaceContractTransports(
       },
       markExposedContracts(semantics, root, occurrence, reason) {
         markInterfaceContractsExposed(
+          semantics,
+          root,
+          state,
+          reason,
+          occurrence,
+        );
+      },
+      markExposedValueContracts(semantics, root, occurrence, reason) {
+        markInterfaceValueContractsExposed(
           semantics,
           root,
           state,

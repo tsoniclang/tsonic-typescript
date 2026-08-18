@@ -126,6 +126,14 @@ Nested-transport fixtures contrast two exact project carriers preserving the
 same contract identity with a carrier changing contract identity and an
 ambient consumer. Only the exact project-body transport may settle; mutating
 either side to the unmatched or ambient form must retain the family.
+Capability fixtures pass an immediate adapter resolver whose external factory
+result exposes the project type only through call and construct signatures;
+that mention must not become value ingress. A mutation that restores generic-
+argument-as-value classification retains the family. Counter-fixtures place an
+interface in a readable property returned by the same opaque provider and in a
+parameter of an outward project callback; both must retain at the opaque
+transport gate. A mutation that treats either readable data or callable input
+as capability-only must settle incorrectly and fail.
 One-way erasure fixtures pass a fresh array literal to an opaque callable, then
 contrast that case with a shared typed array and with a fresh literal assigned
 to erased storage and later recovered directly or through an opaque identity.
@@ -149,6 +157,14 @@ same-named member, substitute a foreign checker node with the same source
 identity, leave one implementation genuinely suspending, or omit the interface
 return rewrite; each retains the family or fails its exact join before querying
 foreign semantics.
+A declared class implementing two project contracts, one through an exact
+project body and one through an ambient base member, must admit only the exact
+contract. A mutation that restores class-wide all-or-nothing admission must
+retain both and fail the per-contract implementation count.
+An awaited exact project result whose body returns one exact implementation
+must settle the same interface family as the unawaited project result. Replacing
+its producer with an ambient declaration must retain the family, proving await
+itself grants no provenance.
 Evidence reports contract, implementation-edge, settled-family, retained-family,
 settled-callable, and settled-await counts separately. The family denominator
 must exact-partition into settled and retained rows, including rejected

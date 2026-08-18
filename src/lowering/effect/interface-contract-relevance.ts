@@ -13,6 +13,7 @@ import {
 export interface InterfaceContractRelevance {
   contains(semantics: SourceFileSemantics, type: Type): boolean;
   contracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
+  valueContracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
   directContracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
 }
 
@@ -22,10 +23,12 @@ export function createInterfaceContractRelevance(
 ): InterfaceContractRelevance {
   let sourceFile: Node | undefined;
   let cache = new WeakMap<Type, readonly Node[]>();
+  let valueCache = new WeakMap<Type, readonly Node[]>();
   const selectCache = (semantics: SourceFileSemantics) => {
     if (sourceFile !== semantics.sourceFile) {
       sourceFile = semantics.sourceFile;
       cache = new WeakMap<Type, readonly Node[]>();
+      valueCache = new WeakMap<Type, readonly Node[]>();
     }
     return cache;
   };
@@ -47,6 +50,25 @@ export function createInterfaceContractRelevance(
       return selectedContracts(semantics, type).length !== 0;
     },
     contracts: selectedContracts,
+    valueContracts(
+      semantics: SourceFileSemantics,
+      type: Type,
+    ): readonly Node[] {
+      selectCache(semantics);
+      const cached = valueCache.get(type);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const result = collectValueContracts(
+        semantics,
+        type,
+        source,
+        contracts,
+        selectedContracts(semantics, type),
+      );
+      valueCache.set(type, result);
+      return result;
+    },
     directContracts(semantics: SourceFileSemantics, type: Type): readonly Node[] {
       const selected = semantics.removeMissingOrUndefined(type);
       return selected === undefined
@@ -57,6 +79,7 @@ export function createInterfaceContractRelevance(
 }
 
 const noContracts = Object.freeze([]) as readonly Node[];
+const maximumValueContractTypeCount = 4_096;
 
 function collectContracts(
   semantics: SourceFileSemantics,
@@ -142,6 +165,73 @@ function directTypeContracts(
         result.add(member);
       }
     }
+  }
+  return result.size === 0
+    ? noContracts
+    : Object.freeze([...result]);
+}
+
+function collectValueContracts(
+  semantics: SourceFileSemantics,
+  root: Type,
+  source: TargetSourceProgram,
+  contracts: InterfaceContractIndex,
+  fallback: readonly Node[],
+): readonly Node[] {
+  const result = new Set<Node>();
+  const pending = [root];
+  const seen = new Set<Type>();
+  while (pending.length !== 0) {
+    const type = pending.pop();
+    if (type === undefined || seen.has(type)) {
+      continue;
+    }
+    if (seen.size >= maximumValueContractTypeCount) {
+      return fallback;
+    }
+    seen.add(type);
+    const selected = semantics.removeMissingOrUndefined(type);
+    if (selected === undefined || isPrimitiveType(semantics, selected)) {
+      continue;
+    }
+    for (const contract of directTypeContracts(
+      semantics,
+      selected,
+      source,
+      contracts,
+    )) {
+      result.add(contract);
+    }
+    if (semantics.isUnion(selected) || semantics.isIntersection(selected)) {
+      appendTypes(pending, semantics.getUnionOrIntersectionTypes(selected));
+      continue;
+    }
+    if (semantics.isTuple(selected)) {
+      appendTypes(pending, semantics.getTupleElementTypes(selected));
+      continue;
+    }
+    if (
+      semantics.getCallSignatures(selected).length !== 0 ||
+      semantics.getConstructSignatures(selected).length !== 0
+    ) {
+      continue;
+    }
+    if (semantics.isArrayLike(selected)) {
+      appendTypes(pending, semantics.getTypeArguments(selected));
+      appendTypes(
+        pending,
+        semantics.getIndexInfos(selected).map((index) => index.valueType),
+      );
+      continue;
+    }
+    appendTypes(
+      pending,
+      semantics.getPropertyInfos(selected).map((property) => property.type),
+    );
+    appendTypes(
+      pending,
+      semantics.getIndexInfos(selected).map((index) => index.valueType),
+    );
   }
   return result.size === 0
     ? noContracts
