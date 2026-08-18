@@ -136,10 +136,14 @@ pointer itself or its loaded pointee. Canonical locations, mutable cells, and
 direct scalar snapshots are definitely non-thenable pointer values; a load is
 not. A direct-object pointer value is definitely non-thenable only when its
 exact pointee type satisfies the target-language nominal non-thenability
-contract. Cooperative-effect return analysis may consume that immutable
-distinction before either family rewrites the tree. It may not infer the
-distinction from the `Pointer` spelling, object shape, or component membership
-alone.
+contract. An expression outside every pointer-rewrite component remains a
+canonical location when its checker-selected type resolves to the exact symbol
+owned by a certified pointer fact. This covers an inferred result such as a
+generic runtime collection returning `Pointer<T>` without treating an ordinary
+same-shaped type as a pointer. Cooperative-effect return analysis may consume
+these immutable distinctions before either family rewrites the tree. It may
+not infer them from the `Pointer` spelling, object shape, or component
+membership alone.
 
 One closed pointer-value evidence map is the sole value-membership owner. It is
 built once from canonical representation decisions and exact pointer-type
@@ -147,11 +151,12 @@ facts, and records the representation plus pointee contract for each exact
 value node. It may also index the checker's exact selected declaration for an
 identifier, property access, or element access when every pointer annotation
 owned by that declaration agrees on both representation and pointee identity.
-Conflicting annotations leave that declaration unclassified. No second
-pointer-value index, type-wide approximation, or retained checker-node set may
-duplicate this map. Lookup checks the exact value node first and then only its
-checker-selected declaration; unrelated return syntax may not trigger broad
-checker navigation.
+Conflicting annotations leave that declaration unclassified. For an expression
+with no representation entry, that same owner may compare the checker-selected
+type symbol against the symbols selected by canonical pointer facts; equality
+means the expression is unrewritten canonical location transport. No second
+pointer-value index, structural type approximation, retained checker-node set,
+or marker-name lookup may duplicate this map.
 
 The decision order is:
 

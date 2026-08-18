@@ -1,5 +1,8 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { Node, Symbol, Type } from "@tsonic/tsts";
+import type {
+  SourceFileSemantics,
+  TargetSourceProgram,
+} from "@tsonic/target-api";
 
 import { typeHasDefinitelyNonThenableContract } from "../thenability.js";
 import type { PointerTypeEntry } from "./flow-fact-ledger.js";
@@ -37,6 +40,7 @@ export function closePointerValueEvidence(
   ledger: PointerPlanningLedger,
 ): ClosedPointerValueEvidence {
   const contracts = new Map<Node, PointerValueContract>();
+  const canonicalPointerSymbols = new Set<Symbol>();
   for (const [node, representation] of representations) {
     ledger.record("representation");
     contracts.set(node, representationContracts[representation]);
@@ -48,6 +52,9 @@ export function closePointerValueEvidence(
     const owner = pointerValueOwner(source, entry.node);
     const pointee = source.semantics.forNode(entry.fact.pointee)
       .getTypeFromTypeNode(entry.fact.pointee);
+    for (const symbol of pointerTypeSymbols(source, entry.node)) {
+      canonicalPointerSymbols.add(symbol);
+    }
     if (owner === undefined || pointee === undefined) {
       continue;
     }
@@ -79,16 +86,84 @@ export function closePointerValueEvidence(
       ) {
         return true;
       }
-      return contract?.representation === "direct-object" &&
+      if (
+        contract?.representation === "direct-object" &&
         contract.pointee !== undefined &&
         node !== undefined &&
         typeHasDefinitelyNonThenableContract(
           source,
           source.semantics.forNode(node),
           contract.pointee,
+        )
+      ) {
+        return true;
+      }
+      return contract === undefined &&
+        node !== undefined &&
+        expressionSelectsCanonicalPointer(
+          source,
+          node,
+          canonicalPointerSymbols,
         );
     },
   });
+}
+
+function expressionSelectsCanonicalPointer(
+  source: TargetSourceProgram,
+  node: Node,
+  canonicalPointerSymbols: ReadonlySet<Symbol>,
+): boolean {
+  if (canonicalPointerSymbols.size === 0) {
+    return false;
+  }
+  const semantics = source.semantics.forNode(node);
+  const type = semantics.getTypeAtLocation(node);
+  const selected = type === undefined
+    ? undefined
+    : semantics.removeMissingOrUndefined(type);
+  return selected !== undefined &&
+    selectedTypeSymbols(semantics, selected).some((symbol) =>
+      canonicalPointerSymbols.has(symbol)
+    );
+}
+
+function pointerTypeSymbols(
+  source: TargetSourceProgram,
+  subject: Node,
+): readonly Symbol[] {
+  const reference = source.ast.is.IsTypeReferenceNode(subject)
+    ? subject
+    : source.ast.parent(subject);
+  if (
+    reference === undefined ||
+    !source.ast.is.IsTypeReferenceNode(reference)
+  ) {
+    throw new Error("validated pointer fact lost its canonical type reference");
+  }
+  const semantics = source.semantics.forNode(reference);
+  const type = semantics.getTypeFromTypeNode(reference);
+  if (type === undefined) {
+    throw new Error("validated pointer fact lost its canonical selected type");
+  }
+  return selectedTypeSymbols(semantics, type);
+}
+
+function selectedTypeSymbols(
+  semantics: SourceFileSemantics,
+  type: Type,
+): readonly Symbol[] {
+  const target = semantics.isTypeReference(type)
+    ? semantics.getTypeReferenceTarget(type) ?? type
+    : type;
+  return [
+    semantics.getTypeSymbol(target),
+    semantics.getTypeAliasSymbol(target),
+    semantics.getTypeSymbol(type),
+    semantics.getTypeAliasSymbol(type),
+  ].filter((symbol, index, selected): symbol is Symbol =>
+    symbol !== undefined && selected.indexOf(symbol) === index
+  );
 }
 
 function mergeOwnerContract(

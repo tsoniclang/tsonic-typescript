@@ -206,6 +206,11 @@ pointee, and one declaration with conflicting pointer pointees; each must
 retain the callable. The test must inspect the canonical pointer-value evidence
 decision as well as the final async syntax so a missing or bypassed cross-family
 contract cannot pass accidentally.
+An ambient generic runtime contract returning an inferred canonical pointer
+must settle through exact pointer-fact symbol identity when no pointer rewrite
+owns the call. Replacing that result with an ordinary structurally identical
+generic type must retain the callable. This pair proves the path uses neither
+marker spelling nor structural compatibility.
 Returned-callable verification covers one exact awaited producer whose direct
 returns are a synchronous function and a settling async function. The producer,
 both returned callables, their consumer, and every await must settle together.
