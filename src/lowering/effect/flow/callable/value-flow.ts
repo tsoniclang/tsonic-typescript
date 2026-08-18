@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 
 import {
   collectCallableValueInputs,
@@ -71,7 +71,7 @@ export function createCallableValueFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   candidates: ReadonlySet<Node>,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
 ): CallableValueFlow {
   const candidateSymbols = indexCandidateSymbols(source, candidates);
   const inputs = collectCallableValueInputs(source, program, transports);

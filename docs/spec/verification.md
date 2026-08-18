@@ -133,22 +133,34 @@ implementations, inherited interfaces and implementations, distinct
 same-shaped interfaces, generic transports, cross-file edges, synchronous plus
 settling implementations, and calls sharing one line. A same-shaped class with
 no checked value transport into the interface must not join the family.
-It also transports one exact declaration-file synchronous interface into a
-project Awaitable interface and contrasts declaration-file Awaitable/Promise,
-generic-unresolved, and implementation-file ambient counterparts; only the
-fully synchronous external contract may settle.
+It also transports exact declaration-file synchronous concrete and interface
+types into a project Awaitable interface and contrasts declaration-file
+Awaitable/Promise, generic-unresolved, and implementation-file ambient
+counterparts; only a fully synchronous exact external contract may settle.
 Nested-transport fixtures contrast two exact project carriers preserving the
 same contract identity with a carrier changing contract identity and an
 ambient consumer. Only the exact project-body transport may settle; mutating
 either side to the unmatched or ambient form must retain the family.
+The nested matrix recursively covers exact union members, tuples, arrays,
+matching generic arguments, callable parameters/results, optional properties,
+and string/number index signatures. Mutations drop or duplicate one selected
+union member, alter one type argument, make an optional target required,
+remove a property provider, substitute an incompatible index domain, or make a
+callable result thenable; each must retain the reached contract at the nested
+member/callable owner rather than flattening the type to a mention set.
 Capability fixtures pass an immediate adapter resolver whose external factory
 result exposes the project type only through call and construct signatures;
 that mention must not become value ingress. A mutation that restores generic-
 argument-as-value classification retains the family. Counter-fixtures place an
-interface in a readable property returned by the same opaque provider and in a
-parameter of an outward project callback; both must retain at the opaque
-transport gate. A mutation that treats either readable data or callable input
-as capability-only must settle incorrectly and fail.
+interface in a readable provider result and in a parameter of an outward
+project callback; both must retain at the opaque transport gate. Directional
+fixtures contrast fresh outbound literals and shared readonly aggregates with
+shared writable properties, indexes, and sequences. The first two cannot
+receive a replacement interface value and may settle; every writable or
+provider-invoked path must retain. Mutations reverse one direction, drop
+readonly evidence, reuse fresh memoization for a shared value, or treat
+callable input as capability-only; each must settle or retain incorrectly and
+fail.
 One-way erasure fixtures pass a fresh array literal to an opaque callable, then
 contrast that case with a shared typed array and with a fresh literal assigned
 to erased storage and later recovered directly or through an opaque identity.
@@ -160,6 +172,19 @@ still settle. Mutations that replace the project root with any ambient source,
 remove the re-entry check, or classify the selected property without its owner
 must fail at the interface-origin gate. These proofs establish that freshness
 is never a general storage or alias exemption.
+Composite-origin fixtures additionally cover conditional, nullish/logical,
+comma and simple-assignment expressions, array elements, object properties,
+shorthand properties, and object spread. Every value-producing branch must
+prove the same reached contract. Replacing one branch with an ambient value,
+dropping one object value, or treating a method/accessor declaration as stored
+data must fail at `unproven-value-origin`.
+
+Resolved-call fixtures exact-join ordinary arguments, fixed tuple spreads,
+variadic tuple spreads, and open sequence spreads into rest parameters. The
+authored argument set, effective argument ordinals, spread-element ordinals,
+parameter indexes, and parameter forms are all consumed. Mutations omit,
+duplicate, reorder, or retarget one binding and must retain the affected
+contract as `inexact-call-bindings`; no syntax-derived fallback may pass.
 The generated-storage fixture initializes an optional interface to undefined,
 then assigns one exact project implementation and reads it through a certified
 pointer load guarded by `pointer ?? neverReturningFailure()`. The family must
@@ -188,6 +213,14 @@ call count, and one closed typed owner reason; a mutation that drops rejected
 families from the retained denominator or erases one reason fails the evidence
 gate. Every interface-boundary cause is independently source-located; replacing
 the cause ledger with a boolean set or dropping one cause fails the same gate.
+Every product checkpoint also reports family and occurrence counts for
+`unproven-value-origin`, `unmatched-nested-contract`,
+`opaque-call-transport`, `untrusted-callable-member`,
+`missing-transport-member`, and `inexact-call-bindings`, plus generated
+`async` and `await` syntax counts, against the frozen parent artifact. A
+reduction is accepted only with the focused positive and adversarial proofs
+above; a retained residual is evidence, not a reason to remove `Promise`
+syntax heuristically.
 The construction matrix repeats that proof through inheritance and contrasts a
 derived nominal result with public-structural and unmarked bases. Callable
 `then`, `any`, `unknown`, generic, union, intersection, and hidden-thenable
@@ -348,6 +381,13 @@ guard. Evidence separates semantic checking, index construction, each family
 planner, rewriting, encoding, printer transfer, strict typecheck, startup, and
 runtime. It reports wall time, peak RSS, source/JavaScript bytes, module count,
 allocations when available, and selected/retained denominators.
+
+Focused semantic fixtures also run one test file per guarded process so a
+single failed shape cannot retain every checker graph in the batch. Assertions
+over semantic evidence report closed identities, reason names, and bounded
+counts; they never ask the test framework to render raw TS-Go nodes or checker
+objects, whose cyclic graphs can turn one ordinary mismatch into an
+out-of-memory failure.
 
 Performance comparisons use pinned tools, immutable fixtures, warmup policy,
 and at least three isolated samples. The target reports absolute values and

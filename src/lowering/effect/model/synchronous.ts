@@ -212,7 +212,7 @@ function sameSelectedTypeWithin(
   if (left === undefined || right === undefined) {
     return false;
   }
-  if (left === right) {
+  if (left === right || semantics.isTypeIdenticalTo(left, right)) {
     return true;
   }
   const known = pairs.get(left)?.get(right);

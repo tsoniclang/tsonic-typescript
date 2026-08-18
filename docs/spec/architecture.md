@@ -348,11 +348,23 @@ coordinator; there is no synthetic graph vertex and no implementer clique. The
 effect owner also consumes the checker's exact selected signature, authored
 argument types, parameter types, and contextual-value types at transport sites.
 An ordinary positional call pairs each argument with the corresponding selected
-signature parameter. Rest, spread, unresolved signatures, or a parameter-map
-mismatch are never approximated: every exposed project contract is an open
-boundary. Direct project interface/class surfaces enter the exact structural
-member join. The owner distinguishes a value-bearing contract from a callable
-capability whose parameter or result type merely mentions that contract.
+signature parameter. Rest and spread calls are admitted only when checked call
+evidence exact-joins every authored argument to one contiguous effective
+argument sequence and then to the selected ordinary parameter, rest element,
+or rest sequence. Missing, duplicated, reordered, unresolved, or internally
+inconsistent bindings retain every exposed project contract as an
+`inexact-call-bindings` boundary; syntax is never reconstructed heuristically.
+Direct project interface/class surfaces enter one recursive structural join.
+That join pairs unions by exact selected member, tuple and array elements,
+matching generic arguments, callable parameters/results, readable properties,
+optional properties, and string/number indexes. An optional source member may
+be absent only when the selected target member also accepts absence. An
+optional named property may be paired with an exact compatible index domain,
+and an index may be supplied by every exact named property in its domain.
+Missing, ambiguous, or incompatible children retain only the reached contract
+under the closed member or callable reason. The owner distinguishes a
+value-bearing contract from a callable capability whose parameter or result
+type merely mentions that contract.
 Readable fields, indexes, tuple elements, array elements, unions, and
 intersections carry values. A call or construct signature does not carry one
 of its parameter or result values until that operation occurs; every project
@@ -360,29 +372,38 @@ invocation is checked independently. An opaque call that returns only such a
 capability therefore does not fabricate a nested interface value, while an
 opaque result with a readable interface-bearing field or element remains open.
 Passing a project callable outward marks every interface-bearing callable
-parameter as opaque ingress because the provider may invoke it. An exact
-project-body transport may preserve a shared nested contract identity;
-unmatched value-bearing contracts and value-bearing contracts crossing a
-bodyless, ambient, provider, unresolved, rest, or spread boundary remain open.
+parameter as opaque ingress because the provider may invoke it. Opaque calls
+are directional rather than globally opaque: return values, provider-invoked
+callback parameters, and externally writable shared properties, indexes, or
+sequence elements are ingress and remain open; a fresh outbound aggregate or
+an exact shared readonly projection cannot receive a replacement value and may
+remain closed. Exact project-body transport may preserve a shared nested
+contract identity. Unmatched value-bearing contracts and any ambiguous opaque
+direction remain open.
 The value-bearing walk is cycle-safe and finite; exceeding its fixed type
 budget falls back to the broader relevant-contract set rather than granting
 settlement.
-One narrower outbound case is also closed: an array or object literal may erase
-a source-only nested contract when the selected target type carries no matching
-contract. Parentheses and authored type operators around that same literal do
-not change freshness. This is one-way permission, not an alias or storage
-assumption. Every later static re-entry into a project interface is checked
-independently through exact resolved-call argument bindings and exact value
-origin. Assertions, refinements, opaque call results, ambient identifiers,
+One-way outbound erasure is also closed for an exact fresh array or object
+literal when the selected target type carries no matching contract. Parentheses
+and authored type operators around that literal do not change freshness.
+Conditional, nullish/logical, comma, simple-assignment, array-element, and
+object-member value origins are closed only when every value-producing branch
+recursively proves the same reached contract; method/accessor declarations do
+not fabricate stored values. This is one-way permission, not an alias or
+storage assumption. Every later static re-entry into a project interface is
+checked independently through exact resolved-call argument bindings and exact
+value origin. Assertions, refinements, opaque call results, ambient identifiers,
 ambient properties or elements, aliases initialized from them, and project
 results sourced from them retain the reached component. Project properties and
 elements remain closed only when both their checker-selected declaration and
-their owning value have exact project provenance. A declaration-file interface
-may enter only through the separately proved all-synchronous structural
-transport described below. Shared values passed outward remain open when their
-source contract is still statically visible. Root-pair memoization includes
-both opacity and freshness so one safe observation cannot hide a later open
-transport.
+their owning value have exact project provenance. A declaration-file concrete
+type or interface may enter only when its selected callable member has one or
+more exact declaration-file signatures, every instantiated result is
+definitely non-thenable, and the checked source type exact-joins that member to
+the reached project contract. Shared writable values passed outward remain
+open; shared readonly and fresh values are analyzed by the directional rule
+above. Root-pair memoization separates fresh and shared observations so one
+safe observation cannot hide a later open transport.
 An exact awaited project call has the same value provenance as that call: its
 body-to-result transport is independently analyzed before family admission.
 Await does not make an ambient, bodyless, unresolved, or non-call expression
@@ -399,8 +420,8 @@ member contract. One unresolved sibling contract remains open but does not
 erase an exact implementation for another member; a union-valued source still
 requires every selected union member to resolve for that one contract. A
 project contract transported against an external or otherwise non-rewritable
-interface is an open boundary unless the counterpart callable has one or more
-exact declaration-file signatures and every instantiated result is definitely
+type is an open boundary unless the counterpart callable has one or more exact
+declaration-file signatures and every instantiated result is definitely
 non-thenable. That closed external contract needs no target rewrite and joins
 the family as a synchronous implementation obligation. An overload that may
 suspend, an unresolved type variable, `any`, `unknown`, or an implementation-

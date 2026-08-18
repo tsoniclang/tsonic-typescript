@@ -8,7 +8,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import {
   callableReturnRewrite,
   type CallableReturnRewrite,
@@ -60,7 +60,7 @@ export interface InterfaceContractIndex {
 export function createInterfaceContractGraph(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
 ): InterfaceContractGraph {
   const contracts = collectContracts(source, program);
   collectCalls(source, program, contracts.entries);

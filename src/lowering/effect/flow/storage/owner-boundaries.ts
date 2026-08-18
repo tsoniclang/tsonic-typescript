@@ -17,7 +17,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import { isTransparentParent } from "../callable/input-reference.js";
 import {
   collectStorageOwnerCarriers,
@@ -46,7 +46,7 @@ export function auditStorageOwnerBoundaries(
   bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
   validateStoredValues: boolean,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
 ): void {
   if (owners.size === 0) {
     return;
@@ -108,7 +108,7 @@ function auditInvocations(
   typeOwners: Map<Type, StorageOwnerMembership>,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
-  transports: StorageOwnerTransportContract | undefined,
+  transports: InvocationTransportContract | undefined,
 ): void {
   for (const node of program.nodesOfKinds([
     KindCallExpression,

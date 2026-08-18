@@ -8,6 +8,10 @@ import {
   interfaceContractTypeDeclaration,
   isExactInterfaceProjectDeclaration,
 } from "./declarations.js";
+import {
+  callableUsesSynchronousTransport,
+  typeHasTrustedSynchronousCallSignatures,
+} from "../../model/synchronous.js";
 
 export interface InterfaceContractImplementationLedger {
   recordTypeImplementations(
@@ -240,18 +244,32 @@ function resolveCallableImplementation(
   if (symbol === undefined) {
     return undefined;
   }
-  const candidates = [
+  const declarations = [
     semantics.getSymbolValueDeclaration(symbol),
     ...semantics.getSymbolDeclarations(symbol),
   ].filter((candidate, index, selected): candidate is Node =>
     candidate !== undefined && selected.indexOf(candidate) === index
-  ).map((candidate) => callableImplementationNode(source, candidate)).filter(
+  );
+  const candidates = declarations.map((candidate) =>
+    callableImplementationNode(source, candidate)
+  ).filter(
     (candidate, index, selected): candidate is Node =>
       candidate !== undefined &&
       selected.indexOf(candidate) === index &&
-      isExactInterfaceProjectDeclaration(source, candidate),
+      isExactInterfaceImplementationDeclaration(source, candidate),
   );
-  return candidates.length === 1 ? candidates[0] : undefined;
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+  const memberType = semantics.getTypeOfSymbol(symbol);
+  return declarations.length !== 0 &&
+      declarations.every((declaration) =>
+        declarationFileSynchronousImplementation(source, declaration)
+      ) &&
+      memberType !== undefined &&
+      typeHasTrustedSynchronousCallSignatures(source, semantics, memberType)
+    ? declarations[0]
+    : undefined;
 }
 
 function callableImplementationNode(
@@ -272,13 +290,41 @@ function callableImplementationNode(
     : source.ast.is.IsPropertyAssignment(declaration)
     ? source.ast.as.AsPropertyAssignment(declaration)?.Initializer
     : undefined;
-  return initializer !== undefined &&
+  if (
+    initializer !== undefined &&
       (
         source.ast.is.IsArrowFunction(initializer) ||
         source.ast.is.IsFunctionExpression(initializer)
       )
-    ? initializer
+  ) {
+    return initializer;
+  }
+  return callableUsesSynchronousTransport(source, declaration)
+    ? declaration
     : undefined;
+}
+
+function isExactInterfaceImplementationDeclaration(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  if (isExactInterfaceProjectDeclaration(source, declaration)) {
+    return true;
+  }
+  const sourceFile = source.ast.getSourceFile(declaration);
+  return sourceFile !== undefined &&
+    source.ast.isDeclarationFile(sourceFile) &&
+    callableUsesSynchronousTransport(source, declaration);
+}
+
+function declarationFileSynchronousImplementation(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  const sourceFile = source.ast.getSourceFile(declaration);
+  return sourceFile !== undefined &&
+    source.ast.isDeclarationFile(sourceFile) &&
+    callableUsesSynchronousTransport(source, declaration);
 }
 
 function addToSet<Key, Value>(

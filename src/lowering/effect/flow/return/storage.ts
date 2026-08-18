@@ -7,7 +7,7 @@ import {
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 
 import {
   declarationForSymbols,
@@ -47,7 +47,7 @@ interface MutableStorageBinding {
 export function createReturnStorageFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
 ): ReturnStorageFlow {
   const owners = collectClosedStorageOwners(source, program);
   const bindings = collectStorageBindings(source, owners);

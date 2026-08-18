@@ -30,7 +30,7 @@ import {
 import {
   createClosedPointerFlowPlan,
 } from "./pointer/flow-plan.js";
-import { createPointerStorageOwnerTransport } from "./pointer/owner-transport.js";
+import { createPointerInvocationTransport } from "./pointer/invocation-transport.js";
 import { createPointerResultContract } from "./pointer/result-contract.js";
 import { createScalarResultContract } from "./scalar/result-contract.js";
 import { composeLoweredValueContracts } from "./value-contract.js";
@@ -135,7 +135,7 @@ export function prepareTypeScriptLowering(
   ]);
   const ownerTransports = pointerFlowPlan === undefined
     ? undefined
-    : createPointerStorageOwnerTransport(source, pointerFlowPlan);
+    : createPointerInvocationTransport(source, pointerFlowPlan);
   const effectPlan = profile.cooperativeEffects === "closed-direct"
     ? createClosedCooperativeEffectPlan(
         source,

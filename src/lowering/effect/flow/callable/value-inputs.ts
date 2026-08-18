@@ -9,7 +9,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 
 import {
   collectCallableCollectionInputs,
@@ -44,7 +44,7 @@ const equalityObservationOperators = new Set([
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
 ): CallableValueInputs {
   const collections = collectCallableCollectionInputs(source, program);
   const mutableValues = new Map<Node, Node[]>();

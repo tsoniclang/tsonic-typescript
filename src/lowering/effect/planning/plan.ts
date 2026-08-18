@@ -4,7 +4,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { SourceIdentityResolver } from "../../occurrence.js";
 import type { TargetProgramIndex } from "../../program-index.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../../profile.js";
-import type { StorageOwnerTransportContract } from "../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../invocation-transport.js";
 import type { LoweredValueContract } from "../../value-contract.js";
 import {
   classifyCooperativeEffectCallUses,
@@ -55,7 +55,7 @@ export function createClosedCooperativeEffectPlan(
   program: TargetProgramIndex,
   sourceIdentityFor: SourceIdentityResolver,
   loweredValues?: LoweredValueContract,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
   interfaceDispatch: TypeScriptInterfaceDispatchProfile = "open-structural",
 ): CooperativeEffectPlan {
   const candidates = collectCooperativeEffectCandidates(source, program);

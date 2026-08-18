@@ -15,7 +15,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import { collectInterfaceCallTransports } from "./call-transport.js";
 import type { InterfaceContractIndex } from "./graph.js";
 import {
@@ -50,7 +50,7 @@ export function collectInterfaceContractTransports(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   contracts: InterfaceContractIndex,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
 ): void {
   const state: TypePairState = {
     source,
@@ -62,7 +62,6 @@ export function collectInterfaceContractTransports(
     seen: new Map(),
     pending: [],
     rootSourceIsFresh: false,
-    rootCrossesOpaqueCall: false,
   };
   const ingress: InterfaceContractIngress = {
     source,
@@ -79,14 +78,13 @@ export function collectInterfaceContractTransports(
     state.relevance,
     ingress,
     {
-      processTypePair(semantics, sourceType, targetType, expression, opaque) {
+      processTypePair(semantics, sourceType, targetType, expression) {
         processTypePair(
           semantics,
           sourceType,
           targetType,
           state,
           expression,
-          opaque,
         );
       },
       markExposedContracts(semantics, root, occurrence, reason) {
@@ -106,6 +104,11 @@ export function collectInterfaceContractTransports(
           reason,
           occurrence,
         );
+      },
+      markAllContracts(occurrence, reason) {
+        for (const contract of state.contracts.entries.keys()) {
+          state.contracts.boundaries.mark(contract, reason, occurrence);
+        }
       },
     },
     transports,
@@ -138,7 +141,6 @@ export function collectInterfaceContractTransports(
             target,
             state,
             expression,
-            false,
           );
           retainUnprovenInterfaceIngress(
             context.semantics,
@@ -172,7 +174,6 @@ export function collectInterfaceContractTransports(
         target,
         state,
         body,
-        false,
       );
       retainUnprovenInterfaceIngress(
         context.semantics,
@@ -191,7 +192,6 @@ function processTypePair(
   target: Type,
   state: TypePairState,
   sourceExpression: Node,
-  crossesOpaqueCall: boolean,
 ): void {
   if (state.rootFile !== semantics.sourceFile) {
     state.rootFile = semantics.sourceFile;
@@ -201,9 +201,7 @@ function processTypePair(
     state.source,
     sourceExpression,
   );
-  const rootKey = `${crossesOpaqueCall ? "opaque" : "project"}:${
-    sourceIsFresh ? "fresh" : "shared"
-  }`;
+  const rootKey = sourceIsFresh ? "fresh" : "shared";
   let roots = state.roots.get(rootKey);
   if (roots === undefined) {
     roots = new Map();
@@ -214,11 +212,9 @@ function processTypePair(
   }
   state.seen.clear();
   state.rootSourceIsFresh = sourceIsFresh;
-  state.rootCrossesOpaqueCall = crossesOpaqueCall;
   state.rootOccurrence = sourceExpression;
   enqueueInterfaceContractTypePair(semantics, source, target, state);
   drainInterfaceContractTypePairs(state);
   state.rootSourceIsFresh = false;
-  state.rootCrossesOpaqueCall = false;
   state.rootOccurrence = undefined;
 }

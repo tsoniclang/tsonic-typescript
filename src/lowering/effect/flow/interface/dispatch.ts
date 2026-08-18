@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../../../profile.js";
 import {
   compareOptimizationOccurrences,
@@ -18,7 +18,7 @@ import {
   type CooperativeEffectRetentionDecisions,
 } from "../../closure/retention.js";
 import {
-  callableBodyResultIsDefinitelyNonThenable,
+  callableUsesSynchronousTransport,
 } from "../../model/synchronous.js";
 import {
   createInterfaceContractGraph,
@@ -90,7 +90,7 @@ export function createDeclaredInterfaceDispatch(
   program: TargetProgramIndex,
   candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
   profile: TypeScriptInterfaceDispatchProfile,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
   sourceIdentityFor: SourceIdentityResolver = (sourceFile) =>
     source.documents.forFile(sourceFile).identity,
 ): DeclaredInterfaceDispatch {
@@ -142,7 +142,7 @@ function resolveFamily(
         selectedCandidates.add(candidate);
         continue;
       }
-      if (!callableBodyResultIsDefinitelyNonThenable(source, implementation)) {
+      if (!callableUsesSynchronousTransport(source, implementation)) {
         return {
           kind: "rejected",
           reason: "unproven-synchronous-implementation",

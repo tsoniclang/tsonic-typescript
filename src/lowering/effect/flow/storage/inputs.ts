@@ -10,7 +10,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 
 import {
   callableDeclarationAllowsSynchronousValue,
@@ -66,7 +66,7 @@ export function collectCallableStorageInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   excludedDeclarations: ReadonlySet<Node>,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
 ): CallableStorageInputs {
   const callableFields = collectCallableFields(source, program);
   const fields = callableFields.declarations;

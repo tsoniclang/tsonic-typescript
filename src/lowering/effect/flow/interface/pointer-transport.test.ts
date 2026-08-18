@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createTargetProgramIndex } from "../../../program-index.js";
-import { createPointerStorageOwnerTransport } from "../../../pointer/owner-transport.js";
+import { createPointerInvocationTransport } from "../../../pointer/invocation-transport.js";
 import {
   checkedPointerFixture,
   createFixturePointerFlowPlan,
@@ -40,7 +40,7 @@ export const result = await read(holder);
     program,
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
-    createPointerStorageOwnerTransport(fixture.source, pointerPlan),
+    createPointerInvocationTransport(fixture.source, pointerPlan),
     "declared-closed",
   );
   const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
@@ -154,7 +154,7 @@ export const result = await create();
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
-    createPointerStorageOwnerTransport(fixture.source, pointerPlan),
+    createPointerInvocationTransport(fixture.source, pointerPlan),
     "declared-closed",
   );
   const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
@@ -209,7 +209,7 @@ export const result = await read(local);
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
-    createPointerStorageOwnerTransport(fixture.source, pointerPlan),
+    createPointerInvocationTransport(fixture.source, pointerPlan),
     "declared-closed",
   );
   for (const sourceFile of fixture.source.navigation.sourceFiles) {

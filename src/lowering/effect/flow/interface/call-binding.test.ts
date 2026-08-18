@@ -1,0 +1,134 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { ResolvedSourceCallInfo } from "@tsonic/target-api";
+import { KindCallExpression } from "@tsonic/tsts/target-ast";
+
+import { createTargetProgramIndex } from "../../../program-index.js";
+import {
+  checkedEffectFixture,
+  countAsyncCallables,
+  createFixtureEffectPlan,
+} from "../../test-support/fixture.test-support.js";
+import { lowerCooperativeEffects } from "../../rewrite/transform.js";
+import { createInterfaceContractGraph } from "./graph.js";
+import { callHasExactBindings } from "./call-binding.js";
+
+const prelude = `
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class Pair implements Reader {
+  async Read(): Promise<number> { return 42; }
+}
+function consume(...readers: Reader[]): Reader { return readers[0]!; }
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+`;
+
+for (const [name, sourceText] of [
+  [
+    "ordinary rest elements",
+    `export const result = await read(consume(new Pair(), new Pair()));`,
+  ],
+  [
+    "tuple spread elements",
+    `const readers: readonly [Pair, Pair] = [new Pair(), new Pair()];
+export const result = await read(consume(...readers));`,
+  ],
+  [
+    "sequence spread into rest",
+    `const readers: Pair[] = [new Pair(), new Pair()];
+export const result = await read(consume(...readers));`,
+  ],
+] as const) {
+  test(`exactly binds ${name}`, () => {
+    const fixture = checkedEffectFixture(`${prelude}\n${sourceText}`);
+    const graph = createInterfaceContractGraph(
+      fixture.source,
+      createTargetProgramIndex(fixture.source, {
+        bindingWrites: false,
+        memberDispatch: false,
+      }),
+    );
+    assert.equal(graph.components.length, 1);
+    assert.ok(!graph.components[0]?.boundaryCauses.some((cause) =>
+      cause.reason === "inexact-call-bindings"
+    ));
+
+    const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+    const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+    plan.finish();
+    assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
+  });
+}
+
+test("rejects every corrupted spread-binding dimension", () => {
+  const fixture = checkedEffectFixture(`${prelude}
+const readers: readonly [Pair, Pair] = [new Pair(), new Pair()];
+export const result = await read(consume(...readers));
+`);
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: false,
+    memberDispatch: false,
+  });
+  const selected = [...program.nodesOfKind(KindCallExpression)].flatMap(
+    (node) => {
+      const semantics = fixture.source.semantics.forNode(node);
+      const call = semantics.getResolvedCallInfo(node);
+      return call !== undefined &&
+          call.sourceArguments.length === 1 &&
+          call.sourceArgumentBindings.length === 2
+        ? [{ node, call, semantics }]
+        : [];
+    },
+  )[0];
+  assert.ok(selected !== undefined);
+  const declaration = selected.semantics.getSignatureDeclaration(
+    selected.call.selectedSignature,
+  );
+  assert.equal(
+    callHasExactBindings(
+      fixture.source,
+      selected.node,
+      selected.call,
+      declaration,
+    ),
+    true,
+  );
+
+  const bindings = selected.call.sourceArgumentBindings;
+  const first = bindings[0]!;
+  const second = bindings[1]!;
+  const mutations: readonly ResolvedSourceCallInfo[] = [
+    withBindings(selected.call, [second]),
+    withBindings(selected.call, [first, first]),
+    withBindings(selected.call, [second, first]),
+    withBindings(selected.call, [
+      first,
+      { ...second, spreadElementIndex: 7 },
+    ]),
+    withBindings(selected.call, [
+      { ...first, sourceParameterIndex: 1 },
+      second,
+    ]),
+    { ...selected.call, call: selected.call.sourceArguments[0]!.expression },
+  ];
+  for (const mutation of mutations) {
+    assert.equal(
+      callHasExactBindings(
+        fixture.source,
+        selected.node,
+        mutation,
+        declaration,
+      ),
+      false,
+    );
+  }
+});
+
+function withBindings(
+  call: ResolvedSourceCallInfo,
+  bindings: ResolvedSourceCallInfo["sourceArgumentBindings"],
+): ResolvedSourceCallInfo {
+  return { ...call, sourceArgumentBindings: Object.freeze([...bindings]) };
+}

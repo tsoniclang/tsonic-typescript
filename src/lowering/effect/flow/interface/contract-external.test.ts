@@ -12,6 +12,7 @@ import {
 } from "../../test-support/fixture.test-support.js";
 import { createInterfaceContractGraph } from "./graph.js";
 import { lowerCooperativeEffects } from "../../rewrite/transform.js";
+import { assertNoInterfaceBoundaryCauses } from "./boundary.test-support.js";
 
 test("settles an exact declaration-file synchronous interface transport", () => {
   const fixture = checkedEffectFixture(`
@@ -163,4 +164,108 @@ export interface ExternalReader<T> { Read(): T; }
 
   assert.equal(graph.components.length, 1);
   assert.equal(graph.components[0]?.boundary, true);
+});
+
+test("settles a concrete synchronous declaration-file result", () => {
+  const fixture = checkedEffectFixture(`
+import { createReader } from "provider";
+type Awaitable<T> = T | PromiseLike<T>;
+interface GeneratedReader { Read(): Awaitable<number>; }
+class LocalReader implements GeneratedReader {
+  async Read(): Promise<number> { return 42; }
+}
+async function read(reader: GeneratedReader): Promise<number> {
+  return await reader.Read();
+}
+export const result = (await read(createReader())) +
+  (await read(new LocalReader()));
+`, {
+    "/node_modules/provider/index.d.ts": `
+export declare class RuntimeReader { Read(): number; }
+export declare function createReader(): RuntimeReader;
+`,
+  });
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+
+  assert.equal(graph.components.length, 1);
+  assertNoInterfaceBoundaryCauses(graph.components[0]);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
+});
+
+test("settles an overloaded synchronous declaration-file result", () => {
+  const fixture = checkedEffectFixture(`
+import { create } from "provider";
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+export const result = await read(create());
+`, {
+    "/node_modules/provider/index.d.ts": `
+export interface ExternalReader {
+  Read(): number;
+  Read(value?: undefined): number;
+}
+export declare function create(): ExternalReader;
+`,
+  });
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assertNoInterfaceBoundaryCauses(graph.components[0]);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
+});
+
+test("retains an overloaded declaration-file result that may suspend", () => {
+  const fixture = checkedEffectFixture(`
+import { create } from "provider";
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+export const result = await read(create());
+`, {
+    "/node_modules/provider/index.d.ts": `
+export interface ExternalReader {
+  Read(): number;
+  Read(value?: undefined): Promise<number>;
+}
+export declare function create(): ExternalReader;
+`,
+  });
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.ok(graph.components[0]?.boundaryCauses.length !== 0);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+  assert.ok(countAsyncCallables(fixture.source, rewritten.sourceFile) > 0);
 });

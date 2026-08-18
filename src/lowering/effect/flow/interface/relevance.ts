@@ -45,6 +45,25 @@ export function createInterfaceContractRelevance(
     selected.set(type, result);
     return result;
   };
+  const selectedValueContracts = (
+    semantics: SourceFileSemantics,
+    type: Type,
+  ): readonly Node[] => {
+    selectCache(semantics);
+    const cached = valueCache.get(type);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const result = collectValueContracts(
+      semantics,
+      type,
+      source,
+      contracts,
+      selectedContracts(semantics, type),
+    );
+    valueCache.set(type, result);
+    return result;
+  };
   return Object.freeze({
     contains(semantics: SourceFileSemantics, type: Type): boolean {
       return selectedContracts(semantics, type).length !== 0;
@@ -54,20 +73,7 @@ export function createInterfaceContractRelevance(
       semantics: SourceFileSemantics,
       type: Type,
     ): readonly Node[] {
-      selectCache(semantics);
-      const cached = valueCache.get(type);
-      if (cached !== undefined) {
-        return cached;
-      }
-      const result = collectValueContracts(
-        semantics,
-        type,
-        source,
-        contracts,
-        selectedContracts(semantics, type),
-      );
-      valueCache.set(type, result);
-      return result;
+      return selectedValueContracts(semantics, type);
     },
     directContracts(semantics: SourceFileSemantics, type: Type): readonly Node[] {
       const selected = semantics.removeMissingOrUndefined(type);

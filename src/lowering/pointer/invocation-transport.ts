@@ -2,22 +2,22 @@ import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type {
-  StorageOwnerInvocationTransport,
-  StorageOwnerTransportContract,
-} from "../storage-owner-transport.js";
+  InvocationTransport,
+  InvocationTransportContract,
+} from "../invocation-transport.js";
 import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 
-export function createPointerStorageOwnerTransport(
+export function createPointerInvocationTransport(
   source: TargetSourceProgram,
   plan: ClosedPointerFlowPlan,
-): StorageOwnerTransportContract {
+): InvocationTransportContract {
   if (!plan.owns(source)) {
     throw new Error(
-      "pointer owner transport received a flow plan from another checked program",
+      "pointer invocation transport received a flow plan from another checked program",
     );
   }
   return Object.freeze({
-    transportFor(call: Node): StorageOwnerInvocationTransport | undefined {
+    transportFor(call: Node): InvocationTransport | undefined {
       const operation = plan.operationFor(call);
       return operation === undefined ? undefined : pointerTransport(operation);
     },
@@ -26,7 +26,7 @@ export function createPointerStorageOwnerTransport(
 
 function pointerTransport(
   operation: PointerOperationFact,
-): StorageOwnerInvocationTransport | undefined {
+): InvocationTransport | undefined {
   switch (operation.operation) {
     case "address-of":
       return transport(
@@ -64,7 +64,7 @@ function pointerTransport(
 function transport(
   inputs: readonly Node[],
   resultInputs: readonly Node[],
-): StorageOwnerInvocationTransport {
+): InvocationTransport {
   return Object.freeze({
     inputs: Object.freeze([...inputs]),
     resultInputs: Object.freeze([...resultInputs]),
