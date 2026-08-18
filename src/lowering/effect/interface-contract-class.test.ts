@@ -38,6 +38,50 @@ export const result = (await first(new Pair())) + (await second(new Pair()));
   assert.equal(graph.components[0]?.boundary, false);
 });
 
+test("retains only the declared contract whose implementation is external", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+declare class ExternalBase {
+  Remote(): Promise<number>;
+}
+interface DirectReader { Read(): Awaitable<number>; }
+interface RemoteReader { Remote(): Awaitable<number>; }
+class Pair extends ExternalBase implements DirectReader, RemoteReader {
+  async Read(): Promise<number> { return 42; }
+}
+async function direct(reader: DirectReader): Promise<number> {
+  return await reader.Read();
+}
+async function remote(reader: RemoteReader): Promise<number> {
+  return await reader.Remote();
+}
+export const result = (await direct(new Pair())) + (await remote(new Pair()));
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+
+  assert.deepEqual(
+    graph.components.map((component) => ({
+      boundary: component.boundary,
+      implementationCount: component.entries.reduce(
+        (total, entry) => total + entry.implementations.length,
+        0,
+      ),
+    })).sort((left, right) =>
+      Number(left.boundary) - Number(right.boundary)
+    ),
+    [
+      { boundary: false, implementationCount: 1 },
+      { boundary: true, implementationCount: 0 },
+    ],
+  );
+});
+
 test("retains a declared class contract exposed to an external interface", () => {
   const fixture = checkedEffectFixture(`
 import type { ExternalReader } from "provider";

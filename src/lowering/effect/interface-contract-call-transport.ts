@@ -38,6 +38,12 @@ export interface InterfaceCallTransportSink {
     occurrence: Node,
     reason: InterfaceContractBoundaryReason,
   ): void;
+  markExposedValueContracts(
+    semantics: SourceFileSemantics,
+    root: Type,
+    occurrence: Node,
+    reason: InterfaceContractBoundaryReason,
+  ): void;
 }
 
 export function collectInterfaceCallTransports(
@@ -107,13 +113,15 @@ function processCallTransports(
         if (sourceArgument === undefined) {
           throw new Error("resolved call lost its exact source argument");
         }
-        retainUnprovenInterfaceIngress(
-          semantics,
-          sourceArgument.expression,
-          sourceArgument.type,
-          binding.selectedParameterType,
-          ingress,
-        );
+        if (crossesOpaqueCall) {
+          retainOpaqueCallableInputs(
+            semantics,
+            sourceArgument.type,
+            sourceArgument.expression,
+            relevance,
+            sink,
+          );
+        }
         sink.processTypePair(
           semantics,
           sourceArgument.type,
@@ -128,6 +136,13 @@ function processCallTransports(
           sourceArgument.expression,
           crossesOpaqueCall,
         );
+        retainUnprovenInterfaceIngress(
+          semantics,
+          sourceArgument.expression,
+          sourceArgument.type,
+          binding.selectedParameterType,
+          ingress,
+        );
       }
     }
   }
@@ -140,6 +155,34 @@ function processCallTransports(
     relevance,
     sink,
   );
+}
+
+function retainOpaqueCallableInputs(
+  semantics: SourceFileSemantics,
+  type: Type,
+  occurrence: Node,
+  relevance: InterfaceContractRelevance,
+  sink: InterfaceCallTransportSink,
+): void {
+  for (const signature of [
+    ...semantics.getCallSignatures(type),
+    ...semantics.getConstructSignatures(type),
+  ]) {
+    for (const parameter of semantics.getSignatureParameters(signature)) {
+      const parameterType = semantics.getTypeOfSymbol(parameter);
+      if (
+        parameterType !== undefined &&
+        relevance.contains(semantics, parameterType)
+      ) {
+        sink.markExposedValueContracts(
+          semantics,
+          parameterType,
+          occurrence,
+          "opaque-call-transport",
+        );
+      }
+    }
+  }
 }
 
 function retainUnresolvedCallTransports(
@@ -223,7 +266,7 @@ function retainOpaqueCallResult(
     }
   }
   if (crossesOpaqueCall && relevance.contains(semantics, call.sourceResultType)) {
-    sink.markExposedContracts(
+    sink.markExposedValueContracts(
       semantics,
       call.sourceResultType,
       node,

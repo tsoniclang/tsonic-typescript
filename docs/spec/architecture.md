@@ -136,10 +136,14 @@ pointer itself or its loaded pointee. Canonical locations, mutable cells, and
 direct scalar snapshots are definitely non-thenable pointer values; a load is
 not. A direct-object pointer value is definitely non-thenable only when its
 exact pointee type satisfies the target-language nominal non-thenability
-contract. Cooperative-effect return analysis may consume that immutable
-distinction before either family rewrites the tree. It may not infer the
-distinction from the `Pointer` spelling, object shape, or component membership
-alone.
+contract. An expression outside every pointer-rewrite component remains a
+canonical location when its checker-selected type resolves to the exact symbol
+owned by a certified pointer fact. This covers an inferred result such as a
+generic runtime collection returning `Pointer<T>` without treating an ordinary
+same-shaped type as a pointer. Cooperative-effect return analysis may consume
+these immutable distinctions before either family rewrites the tree. It may
+not infer them from the `Pointer` spelling, object shape, or component
+membership alone.
 
 One closed pointer-value evidence map is the sole value-membership owner. It is
 built once from canonical representation decisions and exact pointer-type
@@ -147,11 +151,12 @@ facts, and records the representation plus pointee contract for each exact
 value node. It may also index the checker's exact selected declaration for an
 identifier, property access, or element access when every pointer annotation
 owned by that declaration agrees on both representation and pointee identity.
-Conflicting annotations leave that declaration unclassified. No second
-pointer-value index, type-wide approximation, or retained checker-node set may
-duplicate this map. Lookup checks the exact value node first and then only its
-checker-selected declaration; unrelated return syntax may not trigger broad
-checker navigation.
+Conflicting annotations leave that declaration unclassified. For an expression
+with no representation entry, that same owner may compare the checker-selected
+type symbol against the symbols selected by canonical pointer facts; equality
+means the expression is unrewritten canonical location transport. No second
+pointer-value index, structural type approximation, retained checker-node set,
+or marker-name lookup may duplicate this map.
 
 The decision order is:
 
@@ -292,13 +297,17 @@ dispatch, provider behavior, or unresolved transport retains the component.
 
 Calls selected through an interface member remain canonical under the default
 `interfaceDispatch: "open-structural"` profile. The independent
-`interfaceDispatch: "declared-closed"` profile is an explicit producer contract:
-every runtime implementation that can enter a selected project interface must
-have one exact declared project heritage path to that interface. TypeScript
-structural assignability does not establish this contract. Under the selected
-contract, the effect owner creates one transient family for each reached
-interface member and exact-joins every declared class implementation through
-TSTS heritage navigation and exact checked member-symbol queries. Cooperative
+`interfaceDispatch: "declared-closed"` profile is an explicit complete-flow
+contract: every runtime implementation that can enter a selected project
+interface must resolve to one exact project declaration through a checked value
+transport. An authored `implements` edge is one such transport, but is not
+required; languages with implicit interfaces produce structurally assignable
+values without TypeScript heritage. Structural similarity by itself never
+establishes the contract. Under the selected contract, the effect owner creates
+one transient family for each reached interface member and exact-joins every
+concrete implementation observed at a checker-proven source-type to
+target-interface transport. Inside that selected type pair, the checked member
+symbol must resolve to one exact project callable declaration. Cooperative
 implementations form one bounded bidirectional star and callers depend on its
 coordinator; there is no synthetic graph vertex and no implementer clique. The
 effect owner also consumes the checker's exact selected signature, authored
@@ -307,11 +316,22 @@ An ordinary positional call pairs each argument with the corresponding selected
 signature parameter. Rest, spread, unresolved signatures, or a parameter-map
 mismatch are never approximated: every exposed project contract is an open
 boundary. Direct project interface/class surfaces enter the exact structural
-member join. Contracts nested inside a container, tuple, union, intersection,
-or callable contract remain open unless a separately certified transport
-reaches them. An exact project-body transport may preserve a shared nested
-contract identity; unmatched nested contracts and nested contracts crossing a
+member join. The owner distinguishes a value-bearing contract from a callable
+capability whose parameter or result type merely mentions that contract.
+Readable fields, indexes, tuple elements, array elements, unions, and
+intersections carry values. A call or construct signature does not carry one
+of its parameter or result values until that operation occurs; every project
+invocation is checked independently. An opaque call that returns only such a
+capability therefore does not fabricate a nested interface value, while an
+opaque result with a readable interface-bearing field or element remains open.
+Passing a project callable outward marks every interface-bearing callable
+parameter as opaque ingress because the provider may invoke it. An exact
+project-body transport may preserve a shared nested contract identity;
+unmatched value-bearing contracts and value-bearing contracts crossing a
 bodyless, ambient, provider, unresolved, rest, or spread boundary remain open.
+The value-bearing walk is cycle-safe and finite; exceeding its fixed type
+budget falls back to the broader relevant-contract set rather than granting
+settlement.
 One narrower outbound case is also closed: an array or object literal may erase
 a source-only nested contract when the selected target type carries no matching
 contract. Parentheses and authored type operators around that same literal do
@@ -328,13 +348,21 @@ transport described below. Shared values passed outward remain open when their
 source contract is still statically visible. Root-pair memoization includes
 both opacity and freshness so one safe observation cannot hide a later open
 transport.
+An exact awaited project call has the same value provenance as that call: its
+body-to-result transport is independently analyzed before family admission.
+Await does not make an ambient, bodyless, unresolved, or non-call expression
+transparent.
 
 The owner compares only bounded relevant-contract sets and does not
 recursively retain an arbitrary checker object graph. When one direct checked
 transport depends on corresponding project interface members, those method
 contracts form one atomic component;
 same-shaped interfaces with no such transport remain unrelated. Contracts that
-share one exact declared class implementation also form one component. A
+share one exact concrete project implementation also form one component. A
+declared class admits implementation evidence independently for each reached
+member contract. One unresolved sibling contract remains open but does not
+erase an exact implementation for another member; a union-valued source still
+requires every selected union member to resolve for that one contract. A
 project contract transported against an external or otherwise non-rewritable
 interface is an open boundary unless the counterpart callable has one or more
 exact declaration-file signatures and every instantiated result is definitely
@@ -348,7 +376,7 @@ The component's return annotations and interface-call awaits settle only when
 every cooperative implementation settles and every other implementation has an
 exact synchronous body contract. A
 retaining implementation preserves the complete family and every depending
-caller. Unresolved heritage, a missing project implementation, or an
+caller. An unresolved value origin, a missing project implementation, or an
 unprovable implementation contract prevents family admission.
 
 Semantic queries for a selected member or implementation require the exact AST
@@ -358,9 +386,12 @@ range; it retains the family before any query. Document identity establishes
 provenance, not checker-object membership.
 
 The target does not infer this profile from `implements`, generated names,
-runtime bases, or structural compatibility. It adds no dispatch table, policy
-parameter, wrapper, marker, or source-language rule. Declared heritage is used
-only after the profile owner has selected the closed implementation envelope.
+runtime bases, or a Cartesian structural-compatibility scan. It adds no dispatch
+table, policy parameter, wrapper, marker, or source-language rule. Exact
+heritage and exact structural implementations are admitted only when an indexed
+checked value transport selects both the source type and target interface. A
+same-shaped class that never enters the interface is irrelevant and cannot join
+the family.
 
 Callable-flow admission and callable-signature rewriting are distinct facts.
 An explicitly authored function-type parameter is eligible for exact flow even

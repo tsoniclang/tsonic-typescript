@@ -59,25 +59,31 @@ export function enqueueInterfaceContractTypePair(
     semantics,
     selectedTarget,
   );
-  const sourceContracts = state.relevance.contracts(semantics, selectedSource);
-  const targetContracts = state.relevance.contracts(semantics, selectedTarget);
+  const sourceValues = state.relevance.valueContracts(
+    semantics,
+    selectedSource,
+  );
+  const targetValues = state.relevance.valueContracts(
+    semantics,
+    selectedTarget,
+  );
   markUnsharedIndirectContracts(
-    sourceContracts,
+    sourceValues,
     sourceDirect,
-    targetContracts,
+    targetValues,
     state,
     "source",
   );
   markUnsharedIndirectContracts(
-    targetContracts,
+    targetValues,
     targetDirect,
-    sourceContracts,
+    sourceValues,
     state,
     "target",
   );
   if (state.rootCrossesOpaqueCall && !state.rootSourceIsFresh) {
-    markIndirectContracts(sourceContracts, sourceDirect, state);
-    markIndirectContracts(targetContracts, targetDirect, state);
+    markIndirectContracts(sourceValues, sourceDirect, state);
+    markIndirectContracts(targetValues, targetDirect, state);
   }
   if (
     (sourceDirect.length === 0 && targetDirect.length === 0) ||
@@ -345,6 +351,13 @@ function pairObjectMembers(
       state.contracts.entries,
       state.contracts.declarationContracts,
     );
+    const exactImplicitImplementation = sourceContracts.length === 0 &&
+      targetContracts.length !== 0 &&
+      state.contracts.implementations.recordTypeImplementations(
+        semantics,
+        sourceType,
+        targetContracts,
+      );
     if (sourceContracts.length !== 0 && targetContracts.length !== 0) {
       for (const sourceContract of sourceContracts) {
         for (const targetContract of targetContracts) {
@@ -373,6 +386,7 @@ function pairObjectMembers(
       continue;
     } else if (
       targetContracts.length !== 0 &&
+      !exactImplicitImplementation &&
       !typeHasTrustedSynchronousCallSignatures(
         state.source,
         semantics,
@@ -452,6 +466,18 @@ export function markInterfaceContractsExposed(
   occurrence: Node = currentOccurrence(state),
 ): void {
   for (const contract of state.relevance.contracts(semantics, root)) {
+    state.contracts.boundaries.mark(contract, reason, occurrence);
+  }
+}
+
+export function markInterfaceValueContractsExposed(
+  semantics: SourceFileSemantics,
+  root: Type,
+  state: InterfaceContractTypePairState,
+  reason: InterfaceContractBoundaryReason,
+  occurrence: Node = currentOccurrence(state),
+): void {
+  for (const contract of state.relevance.valueContracts(semantics, root)) {
     state.contracts.boundaries.mark(contract, reason, occurrence);
   }
 }

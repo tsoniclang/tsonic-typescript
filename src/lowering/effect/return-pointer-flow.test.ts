@@ -120,6 +120,89 @@ export const result = loadPointer((await selected(
   );
 });
 
+test("settles an inferred canonical pointer result from a generic runtime contract", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+class Item {
+  declare private readonly then?: never;
+}
+declare class RuntimeSlice<T> {
+  get(index: number): T;
+}
+export async function selected(
+  values: RuntimeSlice<Pointer<Item> | undefined>,
+): Promise<Pointer<Item> | undefined> {
+  return values.get(0);
+}
+`);
+  const pointerPlan = createFixturePointerFlowPlan(fixture.source);
+  const plan = createClosedCooperativeEffectPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: true,
+    }),
+    (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
+    createPointerResultContract(fixture.source, pointerPlan),
+  );
+  const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+
+  assert.equal(plan.summary.settledCallableCount, 1);
+  assert.equal(
+    results.reduce(
+      (total, result) =>
+        total + countAsyncCallables(fixture.source, result.sourceFile),
+      0,
+    ),
+    0,
+  );
+});
+
+test("does not infer pointer behavior from a structurally identical runtime result", () => {
+  const fixture = checkedPointerFixture(`
+interface OrdinaryPointer<T> { value: T }
+class Item {
+  declare private readonly then?: never;
+}
+declare class RuntimeSlice<T> {
+  get(index: number): T;
+}
+export async function selected(
+  values: RuntimeSlice<OrdinaryPointer<Item> | undefined>,
+): Promise<OrdinaryPointer<Item> | undefined> {
+  return values.get(0);
+}
+`);
+  const pointerPlan = createFixturePointerFlowPlan(fixture.source);
+  const plan = createClosedCooperativeEffectPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: true,
+    }),
+    (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
+    createPointerResultContract(fixture.source, pointerPlan),
+  );
+  const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+
+  assert.equal(plan.summary.settledCallableCount, 0);
+  assert.equal(plan.summary.retainedCallableCount, 1);
+  assert.equal(
+    results.reduce(
+      (total, result) =>
+        total + countAsyncCallables(fixture.source, result.sourceFile),
+      0,
+    ),
+    1,
+  );
+});
+
 test("does not infer pointer behavior from an ordinary field shape", () => {
   const fixture = checkedPointerFixture(`
 interface Thenable {

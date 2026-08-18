@@ -113,9 +113,11 @@ The return-boundary matrix contrasts an open structural result, a public
 Declared-interface fixtures run under both interface-dispatch profiles. The
 open profile preserves the interface signature, interface calls, their callers,
 and their awaits; independently closed concrete methods may still settle. The
-declared-closed profile covers multiple implementations, inherited
-interfaces, distinct same-shaped interfaces, generic heritage, cross-file
-edges, synchronous plus settling implementations, and calls sharing one line.
+declared-closed profile covers explicit and implicit implementations, multiple
+implementations, inherited interfaces and implementations, distinct
+same-shaped interfaces, generic transports, cross-file edges, synchronous plus
+settling implementations, and calls sharing one line. A same-shaped class with
+no checked value transport into the interface must not join the family.
 It also transports one exact declaration-file synchronous interface into a
 project Awaitable interface and contrasts declaration-file Awaitable/Promise,
 generic-unresolved, and implementation-file ambient counterparts; only the
@@ -124,6 +126,14 @@ Nested-transport fixtures contrast two exact project carriers preserving the
 same contract identity with a carrier changing contract identity and an
 ambient consumer. Only the exact project-body transport may settle; mutating
 either side to the unmatched or ambient form must retain the family.
+Capability fixtures pass an immediate adapter resolver whose external factory
+result exposes the project type only through call and construct signatures;
+that mention must not become value ingress. A mutation that restores generic-
+argument-as-value classification retains the family. Counter-fixtures place an
+interface in a readable property returned by the same opaque provider and in a
+parameter of an outward project callback; both must retain at the opaque
+transport gate. A mutation that treats either readable data or callable input
+as capability-only must settle incorrectly and fail.
 One-way erasure fixtures pass a fresh array literal to an opaque callable, then
 contrast that case with a shared typed array and with a fresh literal assigned
 to erased storage and later recovered directly or through an opaque identity.
@@ -140,13 +150,21 @@ then assigns one exact project implementation and reads it through a certified
 pointer load guarded by `pointer ?? neverReturningFailure()`. The family must
 settle. Mutations add one ambient interface write or replace the never-returning
 fallback with an open pointer; each must retain the family with its exact cause.
-It exact-joins each selected member to every project implementation and consumes
+It exact-joins each selected member to every reached project implementation and consumes
 each interface return annotation once. Mutations omit the profile, remove or
-change one exact heritage edge, substitute a structurally matching class or
+change one exact implementation edge, substitute an unrelated same-shaped class or
 same-named member, substitute a foreign checker node with the same source
 identity, leave one implementation genuinely suspending, or omit the interface
 return rewrite; each retains the family or fails its exact join before querying
 foreign semantics.
+A declared class implementing two project contracts, one through an exact
+project body and one through an ambient base member, must admit only the exact
+contract. A mutation that restores class-wide all-or-nothing admission must
+retain both and fail the per-contract implementation count.
+An awaited exact project result whose body returns one exact implementation
+must settle the same interface family as the unawaited project result. Replacing
+its producer with an ambient declaration must retain the family, proving await
+itself grants no provenance.
 Evidence reports contract, implementation-edge, settled-family, retained-family,
 settled-callable, and settled-await counts separately. The family denominator
 must exact-partition into settled and retained rows, including rejected
@@ -204,6 +222,11 @@ pointee, and one declaration with conflicting pointer pointees; each must
 retain the callable. The test must inspect the canonical pointer-value evidence
 decision as well as the final async syntax so a missing or bypassed cross-family
 contract cannot pass accidentally.
+An ambient generic runtime contract returning an inferred canonical pointer
+must settle through exact pointer-fact symbol identity when no pointer rewrite
+owns the call. Replacing that result with an ordinary structurally identical
+generic type must retain the callable. This pair proves the path uses neither
+marker spelling nor structural compatibility.
 Returned-callable verification covers one exact awaited producer whose direct
 returns are a synchronous function and a settling async function. The producer,
 both returned callables, their consumer, and every await must settle together.

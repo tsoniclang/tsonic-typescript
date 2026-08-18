@@ -100,11 +100,13 @@ return, or provider call remains unchanged.
 
 `optimizations.interfaceDispatch: "declared-closed"` is a separate producer
 contract used by cooperative-effect lowering. It asserts that every runtime
-implementation entering a selected project interface has an exact declared
-project heritage path to that interface. The target then joins interface calls
-to those declarations and settles the complete implementation family
-atomically. The default `"open-structural"` mode never infers closure from
-TypeScript structural compatibility, class names, or same-spelled members.
+implementation entering a selected project interface can be exact-joined from
+its checked value transport to one project callable declaration. Authored
+`implements` heritage is sufficient but not required, so implicit-interface
+producers remain optimizable. The target settles the complete reached
+implementation family atomically. The default `"open-structural"` mode never
+infers closure from TypeScript structural compatibility, class names, or
+same-spelled members.
 
 Generic callable parameters participate in that flow even when their result is
 a type parameter and therefore has no declaration-local return rewrite. Flow
@@ -164,12 +166,15 @@ provider calls remain open.
 
 Composed lowerings exchange result facts before rewriting rather than inspect
 one another's output. Pointer and scalar planning supply the cooperative-effect
-planner with one exact-node lowered-value contract. Thus canonical
+planner with one lowered-value contract rooted in exact facts. Thus canonical
 `addressOf(record.value)` is known to become a fresh non-thenable `Location`,
 while `loadPointer(pointer)` remains open when the pointee may itself be
 thenable. An eliminated `new Width(value).value` projection is known to produce
-its selected scalar value. Direct pointer representations delegate the proof
-to the exact operand they preserve. The bridge consumes finalized facts and
+its selected scalar value. A generic runtime call whose checker-selected result
+resolves to the exact fact-certified pointer symbol remains canonical location
+transport when no pointer rewrite owns that call; a same-shaped ordinary type
+does not qualify. Direct pointer representations delegate the proof to the
+exact operand they preserve. The bridge consumes finalized facts and
 whole-program plans; it never recognizes a marker or wrapper by spelling.
 
 ## Scalar projections
