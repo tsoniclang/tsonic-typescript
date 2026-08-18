@@ -1,10 +1,11 @@
-import type { Signature, Type } from "@tsonic/tsts";
+import type { Node, Signature, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api";
 
 import { sameSelectedType } from "../../model/synchronous.js";
+import { projectCallableImplementation } from "../../model/project-invocation.js";
 import {
   indexCoversProperty,
   indexDomainCovers,
@@ -265,6 +266,28 @@ function retainSignatureInputs(
       );
     }
     return;
+  }
+  const implementation = projectCallableImplementation(
+    state.source,
+    semantics.getSignatureDeclaration(sources[0]),
+  );
+  if (implementation !== undefined) {
+    const declarations = sourceParameters.map((parameter) =>
+      parameter.declaration
+    );
+    if (
+      declarations.every((declaration): declaration is Node =>
+        declaration !== undefined &&
+        state.source.ast.is.IsParameterDeclaration(declaration) &&
+        state.source.navigation.isProjectDeclaration(declaration) &&
+        state.source.ast.parent(declaration) === implementation
+      )
+    ) {
+      for (const declaration of declarations) {
+        state.sink.markOpaqueInput(declaration);
+      }
+      return;
+    }
   }
   for (const parameter of sourceParameters) {
     markAllRelevantSourceContracts(

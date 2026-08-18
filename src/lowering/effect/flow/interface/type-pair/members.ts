@@ -56,6 +56,7 @@ export function pairObjectMembers(
     pairProperty(
       semantics,
       sourceType,
+      targetType,
       sourceProperty,
       targetProperty,
       sourceDeclaration,
@@ -79,6 +80,7 @@ export function pairObjectMembers(
 function pairProperty(
   semantics: SourceFileSemantics,
   sourceType: Type,
+  targetType: Type,
   sourceProperty: TypePropertyInfo,
   targetProperty: TypePropertyInfo,
   sourceDeclaration: Node | undefined,
@@ -119,6 +121,13 @@ function pairProperty(
       sourceType,
       targetContracts,
     );
+  const exactReverseImplicitImplementation = sourceContracts.length !== 0 &&
+    targetContracts.length === 0 &&
+    state.contracts.implementations.recordTypeImplementations(
+      semantics,
+      targetType,
+      sourceContracts,
+    );
   if (sourceContracts.length !== 0 && targetContracts.length !== 0) {
     for (const sourceContract of sourceContracts) {
       for (const targetContract of targetContracts) {
@@ -131,6 +140,7 @@ function pairProperty(
     }
   } else if (
     sourceContracts.length !== 0 &&
+    !exactReverseImplicitImplementation &&
     !typeHasTrustedSynchronousCallSignatures(
       state.source,
       semantics,

@@ -81,6 +81,17 @@ function select(value: Target): Reader { return value.map(new Pair()); }
 const source: Source = { map: (_value) => new Pair() };`,
     "select(source)",
   ],
+  [
+    "an interface member paired to an implicit concrete implementation",
+    `class StructuralReader {
+  Read(): Awaitable<number> { return 42; }
+}
+type Source = { readonly value: Reader };
+type Target = { readonly value: StructuralReader };
+function select(value: Target): Reader { return value.value; }
+const source: Source = { value: new StructuralReader() };`,
+    "select(source)",
+  ],
 ] as const) {
   test(`conserves interface contracts through ${name}`, () => {
     const fixture = checkedEffectFixture(`${prelude}

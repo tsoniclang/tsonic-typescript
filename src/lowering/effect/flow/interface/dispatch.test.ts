@@ -133,6 +133,7 @@ export const result = await top();
     retainedFamilyCount: 1,
     settledCallCount: 0,
     retainedCallCount: 1,
+    boundaryCauses: [],
     retainedFamilies: [{
       reason: "unresolved-call",
       contracts: [{
@@ -465,7 +466,7 @@ export const result = await read([new Pair()]);
   assert.equal(evidence.rejectedFamilyCount, 0);
 });
 
-test("retains a contract transported through an external interface", () => {
+test("settles an unused external callback input", () => {
   const fixture = checkedEffectFixture(`
 import type { ExternalReader } from "provider";
 type Awaitable<T> = T | PromiseLike<T>;
@@ -495,19 +496,19 @@ export interface ExternalReader { Read(): Awaitable<number>; }
   );
   assert.equal(graph.components.length, 1);
   assert.equal(graph.components[0]?.entries.length, 1);
-  assert.equal(graph.components[0]?.boundary, true);
+  assert.equal(graph.components[0]?.boundary, false);
   const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
   const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
   plan.finish();
 
-  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 1);
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
   const evidence = plan.summary.interfaceDispatch;
   assert.equal(evidence.analyzed, true);
   if (!evidence.analyzed) {
     throw new Error("declared interface dispatch was not analyzed");
   }
-  assert.equal(evidence.settledFamilyCount, 0);
-  assert.equal(evidence.rejectedFamilyCount, 1);
+  assert.equal(evidence.settledFamilyCount, 1);
+  assert.equal(evidence.rejectedFamilyCount, 0);
 });
 
 test("rejects same-identity foreign declarations before semantic queries", () => {

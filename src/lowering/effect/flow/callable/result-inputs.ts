@@ -8,10 +8,10 @@ import {
 } from "../../model/callable-contract.js";
 import {
   callableDispatchIsClosed,
-  exactCallableTarget,
   isFunctionLike,
   transparentExpression,
 } from "../../model/syntax.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 export interface CallableResultInput {
   readonly declaration: Node;
@@ -44,21 +44,10 @@ export function createCallableResultInputs(
         results.set(expression, null);
         return undefined;
       }
-      const semantics = source.semantics.forNode(selected.call);
-      const declaration = semantics.getSignatureDeclaration(
-        semantics.getResolvedSignature(selected.call),
-      );
-      const callExpression = source.ast.as.AsCallExpression(selected.call)
-        ?.Expression;
-      const target = exactCallableTarget(source, callExpression);
-      const referenceNode = target !== undefined &&
-          source.ast.is.IsPropertyAccessExpression(target)
-        ? source.ast.as.AsPropertyAccessExpression(target)?.name
-        : source.ast.name(target) ?? target;
-      const reference = source.navigation.sourceReferenceFor(referenceNode);
+      const declaration = resolveProjectInvocation(source, selected.call)
+        ?.implementation;
       if (
         declaration === undefined ||
-        reference?.declaration !== declaration ||
         !source.navigation.isProjectDeclaration(declaration) ||
         !callableDispatchIsClosed(source, program, declaration) ||
         program.hasBindingWrite(declaration) ||

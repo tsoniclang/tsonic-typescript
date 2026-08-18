@@ -56,17 +56,32 @@ function pointerTransport(
     case "hash-pointer":
       return transport([operation.pointerExpression], []);
     case "bind-pointer":
+      return transport([
+        operation.identityExpression,
+        operation.readExpression,
+        operation.writeExpression,
+      ]);
     case "project-pointer":
-      return undefined;
+      return transport([
+        operation.pointerExpression,
+        operation.fromSourceExpression,
+        operation.toSourceExpression,
+      ]);
   }
 }
 
 function transport(
-  inputs: readonly Node[],
-  resultInputs: readonly Node[],
+  inputExpressions: readonly Node[],
+  resultOriginExpressions?: readonly Node[],
 ): InvocationTransport {
   return Object.freeze({
-    inputs: Object.freeze([...inputs]),
-    resultInputs: Object.freeze([...resultInputs]),
+    inputExpressions: Object.freeze([...inputExpressions]),
+    ...(resultOriginExpressions === undefined
+      ? {}
+      : {
+          resultOriginExpressions: Object.freeze([
+            ...resultOriginExpressions,
+          ]),
+        }),
   });
 }

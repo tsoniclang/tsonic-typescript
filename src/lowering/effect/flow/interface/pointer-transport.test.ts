@@ -116,6 +116,155 @@ export const result = await read(holder);
   );
 });
 
+test("does not treat exact pointer projection callbacks as opaque escapes", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { allocatePointer, projectPointer } from "./markers.js";
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class DirectReader implements Reader {
+  async Read(): Promise<number> { return 41; }
+}
+class Holder {
+  constructor(public reader: Reader) {}
+}
+const source: Pointer<Holder> = allocatePointer(new Holder(new DirectReader()));
+projectPointer<Holder, Holder>(source, value => value, value => value);
+async function read(reader: Reader): Promise<number> {
+  return (await reader.Read()) + 1;
+}
+export const result = await read(new DirectReader());
+`);
+  const pointerPlan = createFixturePointerFlowPlan(fixture.source);
+  const plan = createClosedCooperativeEffectPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: true,
+    }),
+    (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
+    createPointerResultContract(fixture.source, pointerPlan),
+    createPointerInvocationTransport(fixture.source, pointerPlan),
+    "declared-closed",
+  );
+  const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.settledFamilyCount, 1, JSON.stringify(evidence));
+  assert.equal(evidence.retainedFamilyCount, 0);
+  assert.equal(
+    results.reduce(
+      (total, result) =>
+        total + countAsyncCallables(fixture.source, result.sourceFile),
+      0,
+    ),
+    0,
+  );
+});
+
+test("does not invent a value origin for a pointer projection result", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer, projectPointer } from "./markers.js";
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+declare const external: Reader;
+const source: Pointer<number> = allocatePointer(1);
+const projected = projectPointer<number, Reader>(
+  source,
+  () => external,
+  () => 0,
+);
+async function read(): Promise<number> {
+  return await loadPointer(projected!).Read();
+}
+export const result = await read();
+`);
+  const pointerPlan = createFixturePointerFlowPlan(fixture.source);
+  const plan = createClosedCooperativeEffectPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: true,
+    }),
+    (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
+    createPointerResultContract(fixture.source, pointerPlan),
+    createPointerInvocationTransport(fixture.source, pointerPlan),
+    "declared-closed",
+  );
+  for (const sourceFile of fixture.source.navigation.sourceFiles) {
+    lowerCooperativeEffects(sourceFile, plan);
+  }
+  plan.finish();
+
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.settledFamilyCount, 0);
+  assert.equal(evidence.retainedFamilyCount, 1);
+  assert.ok(evidence.boundaryCauses.some((cause) =>
+    cause.reason === "unproven-value-origin"
+  ));
+});
+
+test("does not treat exact pointer binding callbacks as opaque escapes", () => {
+  const fixture = checkedPointerFixture(`
+import { bindPointer } from "./markers.js";
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class DirectReader implements Reader {
+  async Read(): Promise<number> { return 41; }
+}
+let holder = new DirectReader() as Reader;
+bindPointer<Reader>({}, () => holder, value => { holder = value; });
+async function read(reader: Reader): Promise<number> {
+  return (await reader.Read()) + 1;
+}
+export const result = await read(new DirectReader());
+`);
+  const pointerPlan = createFixturePointerFlowPlan(fixture.source);
+  const plan = createClosedCooperativeEffectPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: true,
+      memberDispatch: true,
+    }),
+    (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
+    createPointerResultContract(fixture.source, pointerPlan),
+    createPointerInvocationTransport(fixture.source, pointerPlan),
+    "declared-closed",
+  );
+  const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.settledFamilyCount, 1, JSON.stringify(evidence));
+  assert.equal(evidence.retainedFamilyCount, 0);
+  assert.equal(
+    results.reduce(
+      (total, result) =>
+        total + countAsyncCallables(fixture.source, result.sourceFile),
+      0,
+    ),
+    0,
+  );
+});
+
 test("settles optional interface storage behind an exact nil guard", () => {
   const fixture = checkedPointerFixture(`
 import type { Pointer } from "./markers.js";

@@ -31,7 +31,7 @@ import {
   opaqueInterfaceSourceContainsContracts,
   retainOpaqueInterfaceInputs,
 } from "./opaque-exposure.js";
-import { callHasExactBindings } from "./call-binding.js";
+import { callHasExactBindings } from "../invocation/call-binding.js";
 
 export interface InterfaceCallTransportSink {
   processTypePair(
@@ -52,10 +52,14 @@ export interface InterfaceCallTransportSink {
     occurrence: Node,
     reason: InterfaceContractBoundaryReason,
   ): void;
-  markAllContracts(
-    occurrence: Node,
-    reason: InterfaceContractBoundaryReason,
-  ): void;
+}
+
+interface InterfaceCallTransportAnalysis {
+  readonly node: Node;
+  readonly semantics: SourceFileSemantics;
+  readonly call?: ResolvedSourceCallInfo;
+  readonly crossesOpaqueCall: boolean;
+  readonly exactBindings: boolean;
 }
 
 export function collectInterfaceCallTransports(
@@ -66,35 +70,60 @@ export function collectInterfaceCallTransports(
   sink: InterfaceCallTransportSink,
   transports?: InvocationTransportContract,
 ): void {
+  const calls: InterfaceCallTransportAnalysis[] = [];
   for (const kind of [KindCallExpression, KindNewExpression]) {
     for (const node of program.nodesOfKind(kind)) {
       const semantics = source.semantics.forNode(node);
       const call = semantics.getResolvedCallInfo(node);
-      retainOpenInterfaceReceiver(semantics, node, call, ingress);
-      processCallTransports(
-        source,
-        semantics,
+      const declaration = call === undefined
+        ? undefined
+        : semantics.getSignatureDeclaration(call.selectedSignature);
+      calls.push({
         node,
-        call,
-        relevance,
-        ingress,
-        sink,
-        transports,
-      );
+        semantics,
+        ...(call === undefined ? {} : { call }),
+        crossesOpaqueCall: call !== undefined &&
+          transports?.transportFor(node) === undefined &&
+          callCrossesOpaqueInterfaceBoundary(source, declaration),
+        exactBindings: call !== undefined && callHasExactBindings(
+          source,
+          node,
+          call,
+          declaration,
+        ),
+      });
     }
+  }
+  for (const analysis of calls) {
+    retainOpaqueCallInputs(
+      source,
+      relevance,
+      ingress,
+      sink,
+      analysis,
+    );
+  }
+  for (const analysis of calls) {
+    const { node, semantics, call } = analysis;
+    retainOpenInterfaceReceiver(semantics, node, call, ingress);
+    processCallTransports(
+      source,
+      relevance,
+      ingress,
+      sink,
+      analysis,
+    );
   }
 }
 
 function processCallTransports(
   source: TargetSourceProgram,
-  semantics: SourceFileSemantics,
-  node: Node,
-  call: ResolvedSourceCallInfo | undefined,
   relevance: InterfaceContractRelevance,
   ingress: InterfaceContractIngress,
   sink: InterfaceCallTransportSink,
-  transports?: InvocationTransportContract,
+  analysis: InterfaceCallTransportAnalysis,
 ): void {
+  const { node, semantics, call, crossesOpaqueCall, exactBindings } = analysis;
   if (call === undefined) {
     retainUnresolvedCallTransports(source, semantics, node, relevance, sink);
     return;
@@ -106,15 +135,6 @@ function processCallTransports(
       binding.selectedParameterType,
     ]),
   ];
-  const declaration = semantics.getSignatureDeclaration(call.selectedSignature);
-  const crossesOpaqueCall = transports?.transportFor(node) === undefined &&
-    callCrossesOpaqueInterfaceBoundary(source, declaration);
-  const exactBindings = callHasExactBindings(
-    source,
-    node,
-    call,
-    declaration,
-  );
   if (transportTypes.some((type) => relevance.contains(semantics, type))) {
     if (!exactBindings) {
       for (const type of transportTypes) {
@@ -155,52 +175,9 @@ function processCallTransports(
       }
     }
   }
-  if (crossesOpaqueCall && exactBindings) {
-    for (const binding of call.sourceArgumentBindings) {
-      const sourceArgument = call.sourceArguments[binding.sourceArgumentIndex];
-      if (sourceArgument === undefined) {
-        throw new Error("resolved call lost its exact source argument");
-      }
-      retainOpaqueInterfaceInputs(
-        source,
-        semantics,
-        binding.sourceForm === "value"
-          ? sourceArgument.type
-          : binding.selectedArgumentType,
-        binding.selectedParameterType,
-        isFreshInterfaceTransportAggregate(
-          source,
-          sourceArgument.expression,
-        ),
-        relevance,
-        {
-          markAllProjectContracts() {
-            sink.markAllContracts(
-              sourceArgument.expression,
-              "opaque-call-transport",
-            );
-          },
-          markExposedContracts(selectedSemantics, root) {
-            sink.markExposedContracts(
-              selectedSemantics,
-              root,
-              sourceArgument.expression,
-              "opaque-call-transport",
-            );
-          },
-          markExposedValueContracts(selectedSemantics, root) {
-            sink.markExposedValueContracts(
-              selectedSemantics,
-              root,
-              sourceArgument.expression,
-              "opaque-call-transport",
-            );
-          },
-        },
-      );
-    }
-  } else if (
+  if (
     crossesOpaqueCall &&
+    !exactBindings &&
     call.sourceArguments.some((argument) =>
       opaqueInterfaceSourceContainsContracts(
         semantics,
@@ -209,7 +186,29 @@ function processCallTransports(
       )
     )
   ) {
-    sink.markAllContracts(node, "inexact-call-bindings");
+    for (const argument of call.sourceArguments) {
+      if (
+        !opaqueInterfaceSourceContainsContracts(
+          semantics,
+          argument.type,
+          relevance,
+        )
+      ) {
+        continue;
+      }
+      sink.markExposedContracts(
+        semantics,
+        argument.type,
+        node,
+        "inexact-call-bindings",
+      );
+      sink.markExposedValueContracts(
+        semantics,
+        argument.type,
+        node,
+        "inexact-call-bindings",
+      );
+    }
   }
   retainOpaqueCallResult(
     source,
@@ -221,6 +220,59 @@ function processCallTransports(
     ingress,
     sink,
   );
+}
+
+function retainOpaqueCallInputs(
+  source: TargetSourceProgram,
+  relevance: InterfaceContractRelevance,
+  ingress: InterfaceContractIngress,
+  sink: InterfaceCallTransportSink,
+  analysis: InterfaceCallTransportAnalysis,
+): void {
+  const { call, crossesOpaqueCall, exactBindings, semantics } = analysis;
+  if (call === undefined || !crossesOpaqueCall || !exactBindings) {
+    return;
+  }
+  for (const binding of call.sourceArgumentBindings) {
+    const sourceArgument = call.sourceArguments[binding.sourceArgumentIndex];
+    if (sourceArgument === undefined) {
+      throw new Error("resolved call lost its exact source argument");
+    }
+    retainOpaqueInterfaceInputs(
+      source,
+      semantics,
+      binding.sourceForm === "value"
+        ? sourceArgument.type
+        : binding.selectedArgumentType,
+      binding.selectedParameterType,
+      isFreshInterfaceTransportAggregate(
+        source,
+        sourceArgument.expression,
+      ),
+      relevance,
+      {
+        markOpaqueInput(declaration) {
+          ingress.opaqueInputs.mark(declaration);
+        },
+        markExposedContracts(selectedSemantics, root) {
+          sink.markExposedContracts(
+            selectedSemantics,
+            root,
+            sourceArgument.expression,
+            "opaque-call-transport",
+          );
+        },
+        markExposedValueContracts(selectedSemantics, root) {
+          sink.markExposedValueContracts(
+            selectedSemantics,
+            root,
+            sourceArgument.expression,
+            "opaque-call-transport",
+          );
+        },
+      },
+    );
+  }
 }
 
 function retainUnresolvedCallTransports(

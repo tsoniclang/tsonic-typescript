@@ -64,6 +64,31 @@ export const result = await invoke();
   );
 });
 
+test("settles a callback parameter beside an independently bound rest slot", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+async function base(): Promise<number> { return 40; }
+async function invoke(
+  callback: () => Awaitable<number>,
+  ...labels: string[]
+): Promise<number> {
+  return (await callback()) + labels.length;
+}
+export const result = await invoke(
+  async (): Promise<number> => (await base()) + 1,
+  "one",
+);
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 3);
+  assert.equal(result.awaitCount, 3);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+});
+
 test("settles a closed callable field through an exact location", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;

@@ -9,6 +9,7 @@ import type {
 } from "@tsonic/target-api";
 
 import { typeHasDefinitelyNonThenableContract } from "../../thenability.js";
+import { resolveProjectInvocation } from "./project-invocation.js";
 
 export function resolvedCallUsesSynchronousTransport(
   source: TargetSourceProgram,
@@ -16,9 +17,11 @@ export function resolvedCallUsesSynchronousTransport(
 ): boolean {
   const semantics = source.semantics.forNode(call);
   const signature = semantics.getResolvedSignature(call);
-  const declaration = semantics.getSignatureDeclaration(signature);
-  return declarationUsesSynchronousBody(source, declaration) ||
-    (declarationHasTrustedContract(source, declaration) &&
+  const contract = semantics.getSignatureDeclaration(signature);
+  const implementation = resolveProjectInvocation(source, call)
+    ?.implementation;
+  return declarationUsesSynchronousBody(source, implementation) ||
+    (declarationHasTrustedContract(source, contract) &&
       resolvedSignatureResultIsDefinitelyNonThenable(
         source,
         semantics,

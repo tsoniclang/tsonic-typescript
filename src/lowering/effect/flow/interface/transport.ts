@@ -31,6 +31,7 @@ import {
   type InterfaceContractRelevance,
 } from "./relevance.js";
 import { isFreshInterfaceTransportAggregate } from "./transport-context.js";
+import { createOpaqueInterfaceInputLedger } from "./opaque-inputs.js";
 import {
   drainInterfaceContractTypePairs,
   enqueueInterfaceContractTypePair,
@@ -63,6 +64,7 @@ export function collectInterfaceContractTransports(
     pending: [],
     rootSourceIsFresh: false,
   };
+  const opaqueInputs = createOpaqueInterfaceInputLedger();
   const ingress: InterfaceContractIngress = {
     source,
     program,
@@ -70,6 +72,7 @@ export function collectInterfaceContractTransports(
     boundaries: contracts.boundaries,
     implementations: contracts.implementations,
     relevance: state.relevance,
+    opaqueInputs,
     ...(transports === undefined ? {} : { transports }),
   };
   collectInterfaceCallTransports(
@@ -104,11 +107,6 @@ export function collectInterfaceContractTransports(
           reason,
           occurrence,
         );
-      },
-      markAllContracts(occurrence, reason) {
-        for (const contract of state.contracts.entries.keys()) {
-          state.contracts.boundaries.mark(contract, reason, occurrence);
-        }
       },
     },
     transports,

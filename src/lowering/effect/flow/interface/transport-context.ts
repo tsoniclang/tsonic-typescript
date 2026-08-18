@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { isExactInterfaceProjectDeclaration } from "./declarations.js";
+import { projectCallableImplementation } from "../../model/project-invocation.js";
 
 export function callCrossesOpaqueInterfaceBoundary(
   source: TargetSourceProgram,
@@ -25,25 +26,7 @@ export function callCrossesOpaqueInterfaceBoundary(
   ) {
     return false;
   }
-  if (source.ast.body(declaration) !== undefined) {
-    return false;
-  }
-  const name = source.ast.name(declaration);
-  if (name === undefined) {
-    return true;
-  }
-  const semantics = source.semantics.forNode(declaration);
-  const symbol = semantics.getSymbolAtLocation(name);
-  if (symbol === undefined) {
-    return true;
-  }
-  const implementations = semantics.getSymbolDeclarations(symbol).filter(
-    (candidate): candidate is Node =>
-      candidate !== undefined &&
-      isExactInterfaceProjectDeclaration(source, candidate) &&
-      source.ast.body(candidate) !== undefined,
-  );
-  return implementations.length !== 1;
+  return projectCallableImplementation(source, declaration) === undefined;
 }
 
 export function isFreshInterfaceTransportAggregate(

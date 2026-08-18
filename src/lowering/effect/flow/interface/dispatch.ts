@@ -27,6 +27,7 @@ import {
 import type { InterfaceContractBoundaryCause } from "./boundary.js";
 import {
   type InterfaceDispatchEvidence,
+  type InterfaceDispatchBoundaryCauseEvidence,
   type InterfaceDispatchRejectionReason,
   type InterfaceDispatchRetentionEvidence,
   type InterfaceDispatchRetentionReason,
@@ -95,9 +96,14 @@ export function createDeclaredInterfaceDispatch(
     source.documents.forFile(sourceFile).identity,
 ): DeclaredInterfaceDispatch {
   if (profile === "open-structural") {
-    return createResult(source, sourceIdentityFor, profile, 0, 0, [], []);
+    return createResult(source, sourceIdentityFor, profile, 0, 0, [], [], []);
   }
-  const graph = createInterfaceContractGraph(source, program, transports);
+  const graph = createInterfaceContractGraph(
+    source,
+    program,
+    transports,
+    sourceIdentityFor,
+  );
   const families: DeclaredInterfaceDispatchFamily[] = [];
   const rejected: RejectedInterfaceDispatchFamily[] = [];
   for (const component of graph.components) {
@@ -121,6 +127,7 @@ export function createDeclaredInterfaceDispatch(
     graph.components.length,
     families,
     rejected,
+    graph.boundaryCauses,
   );
 }
 
@@ -191,6 +198,7 @@ function createResult(
   consideredFamilyCount: number,
   families: readonly DeclaredInterfaceDispatchFamily[],
   rejected: readonly RejectedInterfaceDispatchFamily[],
+  boundaryCauses: readonly InterfaceDispatchBoundaryCauseEvidence[],
 ): DeclaredInterfaceDispatch {
   const calls = new Map<Node, DeclaredInterfaceDispatchFamily>();
   for (const family of families) {
@@ -322,6 +330,7 @@ function createResult(
         retainedFamilyCount: retainedFamilies.length,
         settledCallCount,
         retainedCallCount: consideredCallCount - settledCallCount,
+        boundaryCauses: Object.freeze([...boundaryCauses]),
         retainedFamilies: Object.freeze(retainedFamilies),
       });
     },
@@ -358,14 +367,7 @@ function retentionEvidence(
     reason,
     contracts: Object.freeze(contracts),
     callCount,
-    boundaryCauses: Object.freeze(boundaryCauses.map((cause) =>
-      Object.freeze({
-        reason: cause.reason,
-        occurrences: Object.freeze(cause.occurrences.map((occurrence) =>
-          optimizationOccurrence(source, occurrence, sourceIdentityFor)
-        ).sort(compareOptimizationOccurrences)),
-      })
-    )),
+    boundaryCauses: Object.freeze([...boundaryCauses]),
   });
 }
 

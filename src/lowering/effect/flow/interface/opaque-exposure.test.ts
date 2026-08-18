@@ -48,6 +48,149 @@ consume({ reader: new Pair() });`,
   });
 }
 
+test("does not retain an opaque callback input that never reaches behavior", () => {
+  const fixture = checkedEffectFixture(`${prelude}
+declare function inspect(callback: (reader: Reader) => void): void;
+inspect((reader) => {
+  const copied = reader;
+  void copied;
+});
+export const result = await read(new Pair());
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assertNoInterfaceBoundaryCauses(graph.components[0]);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
+});
+
+test("retains an opaque callback input at its exact interface dispatch", () => {
+  const fixture = checkedEffectFixture(`${prelude}
+const visit = async (reader: Reader): Promise<void> => {
+  await reader.Read();
+};
+declare function inspect(callback: (reader: Reader) => void): void;
+inspect(visit);
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.ok(graph.components[0]?.boundaryCauses.some((cause) =>
+    cause.reason === "opaque-call-transport"
+  ));
+});
+
+test("retains an opaque callback input forwarded through a project call", () => {
+  const fixture = checkedEffectFixture(`${prelude}
+async function forward(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+declare function inspect(callback: (reader: Reader) => void): void;
+inspect(async (reader): Promise<void> => {
+  await forward(reader);
+});
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.ok(graph.components[0]?.boundaryCauses.some((cause) =>
+    cause.reason === "opaque-call-transport"
+  ));
+});
+
+test("retains a callback without one exact project implementation", () => {
+  const fixture = checkedEffectFixture(`${prelude}
+declare const visit: (reader: Reader) => void;
+declare function inspect(callback: (reader: Reader) => void): void;
+inspect(visit);
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.ok(graph.components[0]?.boundaryCauses.some((cause) =>
+    cause.reason === "opaque-call-transport"
+  ));
+});
+
+test("bounds deep opaque exposure to its exact reached contract", () => {
+  const depth = 260;
+  const carriers = Array.from({ length: depth }, (_, index) =>
+    `interface Carrier${String(index)} { value: Carrier${String(index + 1)}; }`
+  ).join("\n");
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+interface Writer { Write(): Awaitable<number>; }
+class Pair implements Reader {
+  async Read(): Promise<number> { return 20; }
+}
+class Pen implements Writer {
+  async Write(): Promise<number> { return 22; }
+}
+${carriers}
+interface Carrier${String(depth)} { reader: Reader; }
+declare const carrier: Carrier0;
+declare function mutate(value: Carrier0): void;
+mutate(carrier);
+async function read(value: Reader): Promise<number> {
+  return await value.Read();
+}
+async function write(value: Writer): Promise<number> {
+  return await value.Write();
+}
+export const result = [await read(new Pair()), await write(new Pen())];
+`);
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.consideredFamilyCount, 2);
+  assert.equal(evidence.settledFamilyCount, 1);
+  assert.equal(evidence.retainedFamilyCount, 1);
+  assert.equal(
+    evidence.boundaryCauses.find((cause) =>
+      cause.reason === "opaque-call-transport"
+    )?.occurrenceCount,
+    1,
+  );
+  assert.equal(
+    evidence.retainedFamilies.filter((family) =>
+      family.boundaryCauses.some((cause) =>
+        cause.reason === "opaque-call-transport"
+      )
+    ).length,
+    1,
+  );
+});
+
 for (const [name, sourceText] of [
   [
     "a readonly sequence",

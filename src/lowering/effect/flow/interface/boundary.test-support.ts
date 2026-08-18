@@ -7,7 +7,7 @@ export function assertNoInterfaceBoundaryCauses(
 ): void {
   const causes = component?.boundaryCauses ?? [];
   const summary = causes.map((cause) =>
-    `${cause.reason}:${cause.occurrences.length}`
+    `${cause.reason}:${cause.occurrenceCount}`
   ).join(", ");
   assert.equal(
     causes.length,

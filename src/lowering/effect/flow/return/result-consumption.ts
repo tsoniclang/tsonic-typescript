@@ -15,6 +15,10 @@ import {
   isFunctionLike,
   isModuleForwardingReference,
 } from "../../model/syntax.js";
+import {
+  projectCallableImplementation,
+  resolveProjectInvocation,
+} from "../../model/project-invocation.js";
 
 export interface CooperativeResultConsumption {
   returnedCallHasClosedConsumers(call: Node): boolean;
@@ -202,10 +206,7 @@ function indexCallsByDeclaration(
 ): ReadonlyMap<Node, readonly Node[]> {
   const mutable = new Map<Node, Node[]>();
   for (const call of calls) {
-    const semantics = source.semantics.forNode(call);
-    const declaration = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(call),
-    );
+    const declaration = resolveProjectInvocation(source, call)?.implementation;
     if (
       declaration === undefined ||
       !source.navigation.isProjectDeclaration(declaration)
@@ -253,7 +254,8 @@ function indexReferencesByDeclaration(
 ): ReadonlyMap<Node, readonly Node[]> {
   const mutable = new Map<Node, Node[]>();
   for (const node of references) {
-    const declaration = source.navigation.sourceReferenceFor(node)?.declaration;
+    const selected = source.navigation.sourceReferenceFor(node)?.declaration;
+    const declaration = projectCallableImplementation(source, selected) ?? selected;
     if (declaration === undefined) {
       continue;
     }

@@ -103,7 +103,8 @@ export function markAllRelevantSourceContracts(
       continue;
     }
     if (seen.size >= maximumOpaqueExposureTypeCount) {
-      sink.markAllProjectContracts();
+      sink.markExposedContracts(semantics, root);
+      sink.markExposedValueContracts(semantics, root);
       return;
     }
     seen.add(type);

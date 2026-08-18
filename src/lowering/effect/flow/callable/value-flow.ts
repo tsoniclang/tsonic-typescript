@@ -20,6 +20,7 @@ import {
 } from "../../model/synchronous.js";
 import type { CallableReturnRewrite } from "../../model/callable-contract.js";
 import { createCallableResultInputs } from "./result-inputs.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import {
   closeResolutionFromSynchronousCalls,
   closeSynchronousDependencies,
@@ -237,8 +238,9 @@ function resolveCall(
   directResolutions: DirectResolutionCache,
 ): MutableResolution | undefined {
   const signature = source.semantics.forNode(call).getResolvedSignature(call);
-  const declaration = source.semantics.forNode(call)
+  const contract = source.semantics.forNode(call)
     .getSignatureDeclaration(signature);
+  const declaration = resolveProjectInvocation(source, call)?.implementation;
   const expression = source.ast.as.AsCallExpression(call)?.Expression;
   const target = exactCallableTarget(source, expression);
   const referenceNode = target !== undefined &&
@@ -247,7 +249,8 @@ function resolveCall(
     : source.ast.name(target) ?? target;
   const reference = source.navigation.sourceReferenceFor(referenceNode);
   const transported = reference === undefined || !reference.project ||
-      reference.declaration === declaration
+      reference.declaration === declaration ||
+      reference.declaration === contract
     ? undefined
     : resolveDeclaration(
       source,
@@ -273,18 +276,22 @@ function resolveCall(
       mergeResolution(result, transported);
       return result;
     }
-    if (resolvedCallUsesSynchronousTransport(source, call)) {
-      if (transported === undefined) {
-        return cachedDirectResolution(
-          directResolutions.synchronous,
-          declaration,
-          synchronousResolutionWith,
-        );
-      }
-      const result = synchronousResolutionWith(declaration);
-      mergeResolution(result, transported);
-      return result;
+  }
+  const synchronousDeclaration = declaration ?? contract;
+  if (
+    synchronousDeclaration !== undefined &&
+    resolvedCallUsesSynchronousTransport(source, call)
+  ) {
+    if (transported === undefined) {
+      return cachedDirectResolution(
+        directResolutions.synchronous,
+        synchronousDeclaration,
+        synchronousResolutionWith,
+      );
     }
+    const result = synchronousResolutionWith(synchronousDeclaration);
+    mergeResolution(result, transported);
+    return result;
   }
   if (reference === undefined || !reference.project) {
     return undefined;

@@ -1,6 +1,7 @@
 import type { Signature, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "@tsonic/target-api";
 
+import { sameSelectedType, typeMaySuspend } from "../../../model/synchronous.js";
 import {
   type InterfaceContractTypePairEnqueue,
   type InterfaceContractTypePairState,
@@ -89,7 +90,12 @@ function pairSignatureFamily(
   const sourceReturn = semantics.getReturnTypeOfSignature(source);
   const targetReturn = semantics.getReturnTypeOfSignature(target);
   if (sourceReturn !== undefined && targetReturn !== undefined) {
-    enqueue(semantics, sourceReturn, targetReturn, state);
+    enqueue(
+      semantics,
+      directEffectResultType(semantics, sourceReturn) ?? sourceReturn,
+      directEffectResultType(semantics, targetReturn) ?? targetReturn,
+      state,
+    );
   }
 }
 
@@ -111,4 +117,156 @@ function markIncompatibleSignatures(
     state,
     "incompatible-call-signature",
   );
+}
+
+function directEffectResultType(
+  semantics: SourceFileSemantics,
+  type: Type,
+): Type | undefined {
+  const selected = semantics.removeMissingOrUndefined(type);
+  if (selected === undefined || semantics.isNever(selected)) {
+    return selected;
+  }
+  if (!semantics.isUnion(selected)) {
+    if (!typeMaySuspend(semantics, selected)) {
+      return selected;
+    }
+    return exactThenableFulfillmentType(semantics, selected);
+  }
+  const members = semantics.getUnionOrIntersectionTypes(selected);
+  if (members.some((member) => member === undefined)) {
+    return undefined;
+  }
+  const direct: Type[] = [];
+  const fulfilled: Type[] = [];
+  for (const member of members) {
+    if (member === undefined) {
+      return undefined;
+    }
+    const value = exactThenableFulfillmentType(semantics, member);
+    if (value === undefined) {
+      direct.push(member);
+    } else {
+      fulfilled.push(value);
+    }
+  }
+  if (fulfilled.length === 0) {
+    return !typeMaySuspend(semantics, selected) ? selected : undefined;
+  }
+  const value = fulfilled[0]!;
+  if (
+    !fulfilled.slice(1).every((candidate) =>
+      sameSelectedType(semantics, value, candidate)
+    ) ||
+    (direct.length !== 0 && !sameTypeMembers(semantics, direct, value))
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+function exactThenableFulfillmentType(
+  semantics: SourceFileSemantics,
+  type: Type,
+): Type | undefined {
+  if (
+    semantics.isAny(type) ||
+    semantics.isUnknown(type) ||
+    semantics.isNever(type)
+  ) {
+    return undefined;
+  }
+  const then = semantics.getPropertyInfos(type).filter((property) =>
+    property.name === "then"
+  );
+  if (then.length !== 1) {
+    return undefined;
+  }
+  const thenCallable = singleCallableAlternative(semantics, then[0]!.type);
+  if (thenCallable === undefined) {
+    return undefined;
+  }
+  const thenSignatures = semantics.getCallSignatures(thenCallable);
+  if (thenSignatures.length !== 1 || thenSignatures[0] === undefined) {
+    return undefined;
+  }
+  const callback = firstParameterType(semantics, thenSignatures[0]);
+  if (callback === undefined) {
+    return undefined;
+  }
+  const callbackCallable = singleCallableAlternative(semantics, callback);
+  if (callbackCallable === undefined) {
+    return undefined;
+  }
+  const callbackSignatures = semantics.getCallSignatures(callbackCallable);
+  if (callbackSignatures.length !== 1 || callbackSignatures[0] === undefined) {
+    return undefined;
+  }
+  return firstParameterType(semantics, callbackSignatures[0]);
+}
+
+function firstParameterType(
+  semantics: SourceFileSemantics,
+  signature: Signature,
+): Type | undefined {
+  const parameters = semantics.getSignatureParameterInfos(signature);
+  return parameters.length === 0
+    ? undefined
+    : semantics.removeMissingOrUndefined(parameters[0]!.type);
+}
+
+function singleCallableAlternative(
+  semantics: SourceFileSemantics,
+  type: Type,
+): Type | undefined {
+  const selected = semantics.removeMissingOrUndefined(type);
+  if (selected === undefined) {
+    return undefined;
+  }
+  if (!semantics.isUnion(selected)) {
+    return semantics.getCallSignatures(selected).length === 0
+      ? undefined
+      : selected;
+  }
+  const callable = semantics.getUnionOrIntersectionTypes(selected).filter(
+    (member): member is Type =>
+      member !== undefined &&
+      !semantics.isNullish(member) &&
+      semantics.getCallSignatures(member).length !== 0,
+  );
+  const nonCallable = semantics.getUnionOrIntersectionTypes(selected).filter(
+    (member): member is Type =>
+      member !== undefined &&
+      !semantics.isNullish(member) &&
+      semantics.getCallSignatures(member).length === 0,
+  );
+  return callable.length === 1 && nonCallable.length === 0
+    ? callable[0]
+    : undefined;
+}
+
+function sameTypeMembers(
+  semantics: SourceFileSemantics,
+  direct: readonly Type[],
+  fulfilled: Type,
+): boolean {
+  const expected = semantics.isUnion(fulfilled)
+    ? semantics.getUnionOrIntersectionTypes(fulfilled).filter(
+      (member): member is Type => member !== undefined,
+    )
+    : [fulfilled];
+  if (direct.length !== expected.length) {
+    return false;
+  }
+  const unmatched = new Set(expected.keys());
+  for (const member of direct) {
+    const match = [...unmatched].find((index) =>
+      sameSelectedType(semantics, member, expected[index])
+    );
+    if (match === undefined) {
+      return false;
+    }
+    unmatched.delete(match);
+  }
+  return unmatched.size === 0;
 }

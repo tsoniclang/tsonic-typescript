@@ -26,6 +26,7 @@ const expectedFlowDirectories = Object.freeze([
   "callable",
   "collection",
   "interface",
+  "invocation",
   "return",
   "storage",
 ]);

@@ -10,6 +10,7 @@ import {
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
 
 import {
   collectCallableCollectionInputs,
@@ -21,6 +22,7 @@ import {
   directContainingCall,
   isModuleForwardingReference,
 } from "../../model/syntax.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 export interface CallableValueInputs {
   readonly contracts: readonly CallableCollectionContract[];
@@ -50,7 +52,7 @@ export function collectCallableValueInputs(
   const mutableValues = new Map<Node, Node[]>();
   const constructorParameters = new Set<Node>();
   const constructorClasses = new Map<Node, Node>();
-  const invalidConstructors = new Set<Node>();
+  const invalidConstructorParameters = new Set<Node>();
   for (const node of program.nodesOfKinds([
     KindConstructor,
     KindNewExpression,
@@ -68,36 +70,34 @@ export function collectCallableValueInputs(
     if (!source.ast.is.IsNewExpression(node)) {
       continue;
     }
-    const semantics = source.semantics.forNode(node);
-    const signature = semantics.getResolvedSignature(node);
-    const declaration = semantics.getSignatureDeclaration(signature);
+    const declaration = resolveProjectInvocation(source, node)?.implementation;
     if (
       declaration === undefined ||
       !source.ast.is.IsConstructorDeclaration(declaration)
     ) {
       continue;
     }
-    const parameters = source.ast.parameters(declaration);
-    const arguments_ = source.ast.arguments(node);
-    if (
-      arguments_.some((argument) => source.ast.is.IsSpreadElement(argument)) ||
-      parameters.some((parameter) =>
-        source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined
-      )
-    ) {
-      invalidConstructors.add(declaration);
+    const invocation = exactSourceCallImplementationInputs(source, node);
+    if (invocation === undefined || invocation.declaration !== declaration) {
+      for (const parameter of source.ast.parameters(declaration)) {
+        if (
+          parameter !== undefined &&
+          isReadonlyParameterProperty(source, parameter)
+        ) {
+          invalidConstructorParameters.add(parameter);
+        }
+      }
       continue;
     }
-    for (let index = 0; index < parameters.length; index += 1) {
-      const parameter = parameters[index];
-      const argument = arguments_[index];
-      if (
-        parameter !== undefined &&
-        argument !== undefined &&
-        isReadonlyParameterProperty(source, parameter)
-      ) {
+    for (const [parameter, argument] of invocation.inputs) {
+      if (isReadonlyParameterProperty(source, parameter)) {
         append(mutableValues, parameter, argument);
         constructorParameters.add(parameter);
+      }
+    }
+    for (const parameter of invocation.unresolvedParameters) {
+      if (isReadonlyParameterProperty(source, parameter)) {
+        invalidConstructorParameters.add(parameter);
       }
     }
   }
@@ -145,7 +145,6 @@ export function collectCallableValueInputs(
   for (const [constructor, classDeclaration] of constructorClasses) {
     const classCounts = classReferences.get(classDeclaration);
     if (
-      invalidConstructors.has(constructor) ||
       classCounts === undefined ||
       classCounts.total !== classCounts.admitted ||
       classCounts.admitted === 0
@@ -159,6 +158,7 @@ export function collectCallableValueInputs(
       if (
         parameter !== undefined &&
         isReadonlyParameterProperty(source, parameter) &&
+        !invalidConstructorParameters.has(parameter) &&
         mutableValues.has(parameter) &&
         propertyCounts !== undefined &&
         propertyCounts.total === propertyCounts.admitted &&

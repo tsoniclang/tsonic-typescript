@@ -340,3 +340,31 @@ export const result = await new Holder(new Pair()).Read();
   plan.finish();
   assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
 });
+
+test("settles an exact project class value entering an interface", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Factory { Create(): Awaitable<number>; }
+class PairFactory {
+  static async Create(): Promise<number> { return 42; }
+}
+async function create(factory: Factory): Promise<number> {
+  return await factory.Create();
+}
+export const result = await create(PairFactory);
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.equal(graph.components[0]?.boundary, false);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
+});

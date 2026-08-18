@@ -1,8 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 
 export interface InvocationTransport {
-  readonly inputs: readonly Node[];
-  readonly resultInputs: readonly Node[];
+  readonly inputExpressions: readonly Node[];
+  readonly resultOriginExpressions?: readonly Node[];
 }
 
 export interface InvocationTransportContract {

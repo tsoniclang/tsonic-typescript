@@ -11,7 +11,10 @@ import {
 } from "../../test-support/fixture.test-support.js";
 import { lowerCooperativeEffects } from "../../rewrite/transform.js";
 import { createInterfaceContractGraph } from "./graph.js";
-import { callHasExactBindings } from "./call-binding.js";
+import {
+  callHasExactBindings,
+  exactSourceCallBindings,
+} from "../invocation/call-binding.js";
 
 const prelude = `
 type Awaitable<T> = T | PromiseLike<T>;
@@ -54,6 +57,20 @@ export const result = await read(consume(...readers));`,
     assert.ok(!graph.components[0]?.boundaryCauses.some((cause) =>
       cause.reason === "inexact-call-bindings"
     ));
+    const consumeCall = [...createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }).nodesOfKind(KindCallExpression)].find((node) => {
+      const expression = fixture.source.ast.as.AsCallExpression(node)?.Expression;
+      return expression !== undefined &&
+        fixture.source.ast.is.IsIdentifier(expression) &&
+        fixture.source.ast.text(expression) === "consume";
+    });
+    assert.ok(consumeCall !== undefined);
+    const exact = exactSourceCallBindings(fixture.source, consumeCall);
+    assert.ok(exact !== undefined);
+    assert.ok(exact.bindings.length >= 1);
+    assert.equal(new Set(exact.bindings.map(({ parameter }) => parameter)).size, 1);
 
     const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
     const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);

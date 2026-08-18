@@ -9,6 +9,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
 import {
   declarationForSymbols,
   indexDeclarationSymbols,
@@ -19,10 +20,15 @@ import {
   isModuleForwardingReference,
 } from "../../model/syntax.js";
 import type { StorageOwnerMembership } from "./owner-types.js";
+import {
+  projectCallableImplementation,
+  resolveProjectInvocation,
+} from "../../model/project-invocation.js";
 
 interface OwnerIngress {
   readonly declaration: Node;
   readonly owners: ReadonlySet<Node>;
+  readonly parameters: ReadonlySet<Node>;
   open: boolean;
 }
 
@@ -69,12 +75,17 @@ function collectOwnerIngress(
       for (const owner of owners) {
         merged.add(owner);
       }
-      result.set(declaration, { ...existing, owners: merged });
+      result.set(declaration, {
+        ...existing,
+        owners: merged,
+        parameters: new Set([...existing.parameters, parameter]),
+      });
       continue;
     }
     result.set(declaration, {
       declaration,
       owners: new Set(owners),
+      parameters: new Set([parameter]),
       open: !source.navigation.isProjectDeclaration(declaration) ||
         source.ast.body(declaration) === undefined ||
         program.hasBindingWrite(declaration) ||
@@ -90,21 +101,17 @@ function auditExactInvocations(
   ingress: ReadonlyMap<Node, OwnerIngress>,
 ): void {
   for (const call of program.nodesOfKind(KindCallExpression)) {
-    const semantics = source.semantics.forNode(call);
-    const declaration = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(call),
-    );
+    const declaration = resolveProjectInvocation(source, call)?.implementation;
     const entry = declaration === undefined ? undefined : ingress.get(declaration);
     if (entry === undefined) {
       continue;
     }
+    const invocation = exactSourceCallImplementationInputs(source, call);
     if (
-      source.ast.arguments(call).some((argument) =>
-        source.ast.is.IsSpreadElement(argument)
-      ) ||
-      source.ast.parameters(declaration).some((parameter) =>
-        source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !==
-          undefined
+      invocation === undefined ||
+      invocation.declaration !== declaration ||
+      invocation.unresolvedParameters.some((parameter) =>
+        entry.parameters.has(parameter)
       )
     ) {
       entry.open = true;
@@ -134,10 +141,9 @@ function auditCallableReferences(
       continue;
     }
     const call = directContainingCall(source, node);
-    const semantics = call === undefined ? undefined : source.semantics.forNode(call);
-    const selected = semantics?.getSignatureDeclaration(
-      semantics.getResolvedSignature(call),
-    );
+    const selected = call === undefined
+      ? undefined
+      : resolveProjectInvocation(source, call)?.implementation;
     if (selected !== declaration) {
       entry.open = true;
     }
@@ -150,12 +156,18 @@ function selectedCallableDeclaration(
   node: Node,
 ): Node | undefined {
   if (source.ast.is.IsPropertyAccessExpression(node)) {
-    return source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
-      ?.selectedDeclaration;
+    return projectCallableImplementation(
+      source,
+      source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
+        ?.selectedDeclaration,
+    );
   }
   if (source.ast.is.IsElementAccessExpression(node)) {
-    return source.semantics.forNode(node).getResolvedElementAccessInfo(node)
-      ?.selectedDeclaration;
+    return projectCallableImplementation(
+      source,
+      source.semantics.forNode(node).getResolvedElementAccessInfo(node)
+        ?.selectedDeclaration,
+    );
   }
   return source.ast.is.IsIdentifier(node)
     ? declarationForSymbols(source, symbols, node)

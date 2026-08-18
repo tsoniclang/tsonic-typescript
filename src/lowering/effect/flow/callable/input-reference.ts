@@ -5,6 +5,7 @@ import { KindIdentifier } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
 
 import { directContainingCall } from "../../model/syntax.js";
+import { exactSourceCallBindings } from "../invocation/call-binding.js";
 
 export interface ParameterUses {
   readonly dependencies: ReadonlyMap<Node, ReadonlySet<Node>>;
@@ -121,17 +122,13 @@ export function trackedInputDestination(
       source.ast.is.IsCallExpression(parent) ||
       source.ast.is.IsNewExpression(parent)
     ) {
-      const index = source.ast.arguments(parent).indexOf(current);
-      if (index < 0) {
-        return undefined;
-      }
-      const semantics = source.semantics.forNode(parent);
-      const declaration = semantics.getSignatureDeclaration(
-        semantics.getResolvedSignature(parent),
+      const bindings = exactSourceCallBindings(source, parent)?.bindings.filter(
+        ({ argument, evidence }) =>
+          argument === current && evidence.sourceForm === "value",
       );
-      const destination = declaration === undefined
-        ? undefined
-        : source.ast.parameters(declaration)[index];
+      const destination = bindings?.length === 1
+        ? bindings[0]?.parameter
+        : undefined;
       return destination !== undefined && declarations.has(destination)
         ? destination
         : undefined;

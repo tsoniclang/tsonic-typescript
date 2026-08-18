@@ -365,21 +365,36 @@ Missing, ambiguous, or incompatible children retain only the reached contract
 under the closed member or callable reason. The owner distinguishes a
 value-bearing contract from a callable capability whose parameter or result
 type merely mentions that contract.
+Callable result transport compares the direct effect payload, not incidental
+`Promise` packaging: `() => Promise<T>` and `() => T | PromiseLike<T>` pair as
+`T` only when both types expose one exact fulfillment type and every direct
+union member is that same type. Ambiguous thenables, multiple call signatures,
+type variables, `any`, and `unknown` retain the reached contract.
+Callable parameters are paired contravariantly. Consequently the exact
+concrete implementation may occur on either side of a nested member pair; the
+single implementation ledger records the checker-selected concrete type in
+both orientations instead of treating the reverse orientation as an untrusted
+callable member.
 Readable fields, indexes, tuple elements, array elements, unions, and
 intersections carry values. A call or construct signature does not carry one
 of its parameter or result values until that operation occurs; every project
 invocation is checked independently. An opaque call that returns only such a
 capability therefore does not fabricate a nested interface value, while an
 opaque result with a readable interface-bearing field or element remains open.
-Passing a project callable outward marks every interface-bearing callable
-parameter as opaque ingress because the provider may invoke it. Opaque calls
-are directional rather than globally opaque: return values, provider-invoked
-callback parameters, and externally writable shared properties, indexes, or
-sequence elements are ingress and remain open; a fresh outbound aggregate or
-an exact shared readonly projection cannot receive a replacement value and may
-remain closed. Exact project-body transport may preserve a shared nested
-contract identity. Unmatched value-bearing contracts and any ambiguous opaque
-direction remain open.
+Passing a project callable outward records each exact project implementation
+parameter as a potential opaque input before any value-origin decision runs.
+That root retains only a contract actually reached from the parameter through
+an interface call, project forwarding call, or writable project storage; an
+unused parameter or a use that cannot observe interface behavior does not
+retain an unrelated contract. A callback without one exact project body, an
+inexact argument binding, or an ambiguous callable shape remains conservative.
+Opaque calls are directional rather than globally opaque: return values,
+reached provider-invoked callback inputs, and externally writable shared
+properties, indexes, or sequence elements are ingress and remain open; a fresh
+outbound aggregate or an exact shared readonly projection cannot receive a
+replacement value and may remain closed. Exact project-body transport may
+preserve a shared nested contract identity. Unmatched value-bearing contracts
+and any ambiguous opaque direction remain open.
 The value-bearing walk is cycle-safe and finite; exceeding its fixed type
 budget falls back to the broader relevant-contract set rather than granting
 settlement.
@@ -392,11 +407,14 @@ recursively proves the same reached contract; method/accessor declarations do
 not fabricate stored values. This is one-way permission, not an alias or
 storage assumption. Every later static re-entry into a project interface is
 checked independently through exact resolved-call argument bindings and exact
-value origin. Assertions, refinements, opaque call results, ambient identifiers,
-ambient properties or elements, aliases initialized from them, and project
-results sourced from them retain the reached component. Project properties and
-elements remain closed only when both their checker-selected declaration and
-their owning value have exact project provenance. A declaration-file concrete
+value origin. Assertions, user refinements, opaque call results, ambient
+identifiers, ambient properties or elements, aliases initialized from them,
+and project results sourced from them retain the reached component. An exact
+project class declaration used as a value is analyzed through its checked
+static-side type; constructing that class is analyzed separately through its
+instance type. Project properties and elements remain closed only when both
+their checker-selected declaration and their owning value have exact project
+provenance. A declaration-file concrete
 type or interface may enter only when its selected callable member has one or
 more exact declaration-file signatures, every instantiated result is
 definitely non-thenable, and the checked source type exact-joins that member to
@@ -510,6 +528,17 @@ field-value escape retain the complete callable component. Public visibility
 alone is neither permission nor a blocker: closure of the observable owner
 flow is the decision.
 
+All effect flows share one exact project-invocation owner. It validates the
+checker-selected call, selected signature declaration, sole project
+implementation, authored arguments, and every effective argument binding
+before exposing any parameter input. Overload contracts map to their one
+checker-backed implementation through source navigation; consumers never pair
+arguments and parameters independently by array position. A non-rest
+implementation parameter may retain its exact value input even when a separate
+rest, spread, omitted, or defaulted slot cannot be represented. The unresolved
+slot alone remains open. Missing, ambiguous, inapplicable, or corrupt evidence
+grants no transport permission.
+
 Nominal carrier closure is one finite graph over project class storage
 declarations and nested nominal type arguments. It is built once and propagated
 from candidate owners through reverse carrier edges. Per-occurrence analysis
@@ -526,10 +555,13 @@ must not trade bounded graph traversal for a dense checker-type-by-owner table.
 The pointer family may certify owner transport for validated `address-of`,
 `allocate`, `load`, `store`, pointer-equality, and pointer-hash facts. The effect
 owner consumes those exact-node facts through an immutable transport contract;
-it does not recognize imports or calls by spelling. Bind/project operations
-remain open owner boundaries until their callback and projection flows have a
-separate complete proof. An external call with the same signature or name
-therefore cannot inherit this permission.
+it does not recognize imports or calls by spelling. A selected `bind-pointer`
+or `project-pointer` fact also proves that the marker invocation itself does
+not hand its callbacks to an opaque external consumer. It does not prove a
+result origin: bind/project results remain open until a separate exact value
+flow supplies one. Thus transport presence and result provenance are distinct,
+and an external call with the same signature or name cannot inherit either
+permission.
 
 That same immutable contract is the sole authority for interface-bearing values
 crossing a certified storage-owner invocation. Its exact result-input edges let
@@ -581,11 +613,15 @@ Interface evidence counts contract declarations, connected families, and calls
 as separate denominators. Every considered family is exactly one settled or
 retained row. Rejected families are retained rows, not omissions from the
 denominator. Each retained row records its complete authored contract identity
-set, call count, and one closed typed reason selected by the owning decision;
-aggregate admitted/rejected counts are projections of those decisions, never a
-substitute for them. Interface-boundary retention additionally records every
-direct boundary cause with a closed reason and exact authored occurrence; a
-boolean boundary flag is only a projection of that ledger.
+set, call count, one closed typed owner reason, and the closed boundary reasons
+that apply to that family; aggregate admitted/rejected counts are projections
+of those decisions, never a substitute for them. One boundary ledger assigns
+each exact authored occurrence a compact identity once and joins it only to the
+contracts reachable from the checked transported value. Budget exhaustion
+reselects those exact relevant contracts from the root; it never poisons every
+project contract. For each closed boundary reason, evidence reports the exact
+unique occurrence count and at most eight canonical occurrences. A boolean
+boundary flag is only a projection of that ledger.
 
 ## Human-Shaped Output
 
@@ -681,9 +717,11 @@ semantic and output-membership digests are added only at the layer that owns
 those canonical values; they are not fabricated by lowering.
 
 Retained decisions are represented by exact per-reason counts and at most eight
-canonical source occurrences per reason. A family plan must not retain every
-negative candidate or its AST node merely to construct evidence. The bounded
-examples are diagnostics; the exact counts remain the conservation proof.
+canonical source occurrences per reason. Family rows may reference the same
+bounded reason evidence but may not copy its complete occurrence set. A family
+plan must not retain every negative candidate or its AST node merely to
+construct evidence. The bounded examples are diagnostics; the exact counts
+remain the conservation proof.
 
 ## Complexity And Failure
 

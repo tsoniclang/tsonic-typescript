@@ -1,4 +1,12 @@
 import type { Node } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api";
+
+import {
+  compareOptimizationOccurrences,
+  optimizationOccurrence,
+  type OptimizationOccurrence,
+  type SourceIdentityResolver,
+} from "../../../occurrence.js";
 
 export const interfaceContractBoundaryReasons = Object.freeze([
   "missing-member-implementation",
@@ -19,7 +27,8 @@ export type InterfaceContractBoundaryReason =
 
 export interface InterfaceContractBoundaryCause {
   readonly reason: InterfaceContractBoundaryReason;
-  readonly occurrences: readonly Node[];
+  readonly occurrenceCount: number;
+  readonly examples: readonly OptimizationOccurrence[];
 }
 
 export interface InterfaceContractBoundaryLedger {
@@ -32,11 +41,35 @@ export interface InterfaceContractBoundaryLedger {
   causesFor(contracts: readonly Node[]): readonly InterfaceContractBoundaryCause[];
 }
 
-export function createInterfaceContractBoundaryLedger(): InterfaceContractBoundaryLedger {
+const maximumBoundaryExamples = 8;
+
+export function createInterfaceContractBoundaryLedger(
+  source: TargetSourceProgram,
+  sourceIdentityFor: SourceIdentityResolver,
+): InterfaceContractBoundaryLedger {
   const entries = new Map<
     Node,
-    Map<InterfaceContractBoundaryReason, Set<Node>>
+    Map<InterfaceContractBoundaryReason, Set<number>>
   >();
+  const occurrenceIdentifiers = new WeakMap<Node, number>();
+  const occurrences = new Map<number, OptimizationOccurrence>();
+  let nextOccurrenceIdentifier = 0;
+
+  const identifierFor = (occurrence: Node): number => {
+    const existing = occurrenceIdentifiers.get(occurrence);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const identifier = nextOccurrenceIdentifier;
+    nextOccurrenceIdentifier += 1;
+    occurrenceIdentifiers.set(occurrence, identifier);
+    occurrences.set(
+      identifier,
+      optimizationOccurrence(source, occurrence, sourceIdentityFor),
+    );
+    return identifier;
+  };
+
   return Object.freeze({
     mark(
       contract: Node,
@@ -50,9 +83,9 @@ export function createInterfaceContractBoundaryLedger(): InterfaceContractBounda
       }
       const occurrences = reasons.get(reason);
       if (occurrences === undefined) {
-        reasons.set(reason, new Set([occurrence]));
+        reasons.set(reason, new Set([identifierFor(occurrence)]));
       } else {
-        occurrences.add(occurrence);
+        occurrences.add(identifierFor(occurrence));
       }
     },
     has(contract: Node): boolean {
@@ -61,7 +94,7 @@ export function createInterfaceContractBoundaryLedger(): InterfaceContractBounda
     causesFor(
       contracts: readonly Node[],
     ): readonly InterfaceContractBoundaryCause[] {
-      const selected = new Map<InterfaceContractBoundaryReason, Set<Node>>();
+      const selected = new Map<InterfaceContractBoundaryReason, Set<number>>();
       for (const contract of contracts) {
         for (const [reason, occurrences] of entries.get(contract) ?? []) {
           let selectedOccurrences = selected.get(reason);
@@ -76,15 +109,46 @@ export function createInterfaceContractBoundaryLedger(): InterfaceContractBounda
       }
       return Object.freeze(
         interfaceContractBoundaryReasons.flatMap((reason) => {
-          const occurrences = selected.get(reason);
-          return occurrences === undefined
-            ? []
-            : [Object.freeze({
-                reason,
-                occurrences: Object.freeze([...occurrences]),
-              })];
+          const selectedOccurrences = selected.get(reason);
+          if (selectedOccurrences === undefined) {
+            return [];
+          }
+          const examples: OptimizationOccurrence[] = [];
+          for (const identifier of selectedOccurrences) {
+            insertCanonicalExample(
+              examples,
+              requiredOccurrence(occurrences, identifier),
+            );
+          }
+          return [Object.freeze({
+            reason,
+            occurrenceCount: selectedOccurrences.size,
+            examples: Object.freeze(examples),
+          })];
         }),
       );
     },
   });
+}
+
+function insertCanonicalExample(
+  examples: OptimizationOccurrence[],
+  occurrence: OptimizationOccurrence,
+): void {
+  examples.push(occurrence);
+  examples.sort(compareOptimizationOccurrences);
+  if (examples.length > maximumBoundaryExamples) {
+    examples.length = maximumBoundaryExamples;
+  }
+}
+
+function requiredOccurrence(
+  occurrences: ReadonlyMap<number, OptimizationOccurrence>,
+  identifier: number,
+): OptimizationOccurrence {
+  const occurrence = occurrences.get(identifier);
+  if (occurrence === undefined) {
+    throw new Error("interface boundary lost an occurrence identity");
+  }
+  return occurrence;
 }

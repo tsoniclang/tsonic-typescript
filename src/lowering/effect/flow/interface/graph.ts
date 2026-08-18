@@ -9,6 +9,7 @@ import {
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import type { SourceIdentityResolver } from "../../../occurrence.js";
 import {
   callableReturnRewrite,
   type CallableReturnRewrite,
@@ -41,6 +42,7 @@ export interface InterfaceContractComponent {
 export interface InterfaceContractGraph {
   readonly consideredCount: number;
   readonly components: readonly InterfaceContractComponent[];
+  readonly boundaryCauses: readonly InterfaceContractBoundaryCause[];
 }
 
 export interface MutableInterfaceContractEntry {
@@ -61,8 +63,10 @@ export function createInterfaceContractGraph(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   transports?: InvocationTransportContract,
+  sourceIdentityFor: SourceIdentityResolver = (sourceFile) =>
+    source.documents.forFile(sourceFile).identity,
 ): InterfaceContractGraph {
-  const contracts = collectContracts(source, program);
+  const contracts = collectContracts(source, program, sourceIdentityFor);
   collectCalls(source, program, contracts.entries);
   collectInterfaceContractTransports(source, program, contracts, transports);
   const seeds = [...contracts.entries.values()].filter((entry) =>
@@ -70,6 +74,7 @@ export function createInterfaceContractGraph(
   );
   const visited = new Set<Node>();
   const components: InterfaceContractComponent[] = [];
+  const consideredDeclarations: Node[] = [];
   for (const seed of seeds) {
     if (visited.has(seed.declaration)) {
       continue;
@@ -79,6 +84,7 @@ export function createInterfaceContractGraph(
       contracts.links,
       visited,
     );
+    consideredDeclarations.push(...declarations);
     const entries = declarations.map((declaration) => {
       const entry = contracts.entries.get(declaration);
       if (entry === undefined) {
@@ -103,12 +109,14 @@ export function createInterfaceContractGraph(
   return Object.freeze({
     consideredCount: seeds.length,
     components: Object.freeze(components),
+    boundaryCauses: contracts.boundaries.causesFor(consideredDeclarations),
   });
 }
 
 function collectContracts(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  sourceIdentityFor: SourceIdentityResolver,
 ): InterfaceContractIndex {
   const entries = new Map<Node, MutableInterfaceContractEntry>();
   const links = new Map<Node, Set<Node>>();
@@ -135,7 +143,10 @@ function collectContracts(
     });
     links.set(declaration, new Set());
   }
-  const boundaries = createInterfaceContractBoundaryLedger();
+  const boundaries = createInterfaceContractBoundaryLedger(
+    source,
+    sourceIdentityFor,
+  );
   const implementations = createInterfaceContractImplementationLedger(
     source,
     (left, right) => linkInterfaceContracts(left, right, links),

@@ -14,6 +14,7 @@ import {
   type CooperativeEffectFallbackReason,
 } from "../closure/retention.js";
 import { callableDispatchIsClosed } from "../model/syntax.js";
+import { resolveProjectInvocation } from "../model/project-invocation.js";
 import { sameSelectedType } from "../model/synchronous.js";
 
 export interface CooperativeEffectCandidate {
@@ -82,12 +83,8 @@ export function collectCooperativeEffectCalls(
 ): ReadonlyMap<Node, CooperativeEffectCandidate> {
   const calls = new Map<Node, CooperativeEffectCandidate>();
   for (const node of program.nodesOfKind(KindCallExpression)) {
-    const semantics = source.semantics.forNode(node);
-    const signature = semantics.getResolvedSignature(node);
-    const declaration = semantics.getSignatureDeclaration(signature);
-    const candidate = declaration === undefined
-      ? undefined
-      : candidates.get(declaration);
+    const declaration = resolveProjectInvocation(source, node)?.implementation;
+    const candidate = declaration === undefined ? undefined : candidates.get(declaration);
     if (candidate !== undefined) {
       calls.set(node, candidate);
     }
