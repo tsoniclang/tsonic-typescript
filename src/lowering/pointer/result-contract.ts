@@ -51,10 +51,7 @@ export function createPointerResultContract(
         return true;
       }
       if (operation === undefined) {
-        const representation = flowPlan?.valueRepresentationFor(expression);
-        return representation === "location" ||
-          representation === "mutable-cell" ||
-          representation === "direct-snapshot";
+        return flowPlan?.valueIsDefinitelyNonThenable(expression) === true;
       }
       if (operation.call !== expression) {
         throw new PointerLoweringError(

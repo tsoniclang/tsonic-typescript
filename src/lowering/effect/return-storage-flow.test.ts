@@ -8,6 +8,33 @@ import {
 } from "./effect.test-support.js";
 import { lowerCooperativeEffects } from "./transform.js";
 
+test("settles a public project-owned storage family", () => {
+  const fixture = checkedEffectFixture(`
+class Result {
+  declare private readonly then?: never;
+  constructor(readonly value: number) {}
+}
+class Holder {
+  constructor(public result: Result | undefined) {}
+}
+const first = new Holder(undefined);
+const second = new Holder(new Result(42));
+first.result = second.result;
+async function value(): Promise<Result | undefined> {
+  return first.result;
+}
+export const result = await value();
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 1);
+  assert.equal(result.awaitCount, 1);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+});
+
 test("preserves a field through an open nominal carrier", () => {
   const fixture = checkedEffectFixture(`
 interface Result { readonly value: number }

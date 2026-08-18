@@ -34,7 +34,11 @@ import { createCallableValueFlow } from "./value-flow.js";
 
 export type { CooperativeEffectFilePlan } from "./file-plan.js";
 
-export interface CooperativeEffectPlan {
+export interface CooperativeEffectResultProjection {
+  projectedReturnTypeFor(target: Node): Node | undefined;
+}
+
+export interface CooperativeEffectPlan extends CooperativeEffectResultProjection {
   readonly source: TargetSourceProgram;
   readonly summary: CooperativeEffectPlanSummary;
   begin(sourceFile: SourceFile): CooperativeEffectFilePlan;
@@ -59,6 +63,8 @@ export function createClosedCooperativeEffectPlan(
     program,
     candidates,
     interfaceDispatch,
+    transports,
+    sourceIdentityFor,
   );
   const valueFlow = createCallableValueFlow(
     source,
@@ -139,7 +145,7 @@ export function createClosedCooperativeEffectPlan(
     awaits.size,
     propagation,
     resultConsumption.evidence(),
-    interfaces.evidence(optimized),
+    interfaces.evidence(optimized, retentions),
   );
   return createCooperativeEffectPlanLifecycle(source, files, summary);
 }

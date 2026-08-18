@@ -1,7 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
-  KindClassDeclaration,
   KindElementAccessExpression,
   KindIdentifier,
   KindNewExpression,
@@ -19,6 +18,10 @@ import {
   type ReturnParameterFlow,
 } from "./return-parameters.js";
 import { auditStorageOwnerBoundaries } from "./storage-owner-boundaries.js";
+import {
+  collectClosedStorageOwners,
+  storageDeclarationCanBeTracked,
+} from "./storage-owners.js";
 
 export interface ReturnStorageBinding {
   readonly declaration: Node;
@@ -46,7 +49,7 @@ export function createReturnStorageFlow(
   program: TargetProgramIndex,
   transports?: StorageOwnerTransportContract,
 ): ReturnStorageFlow {
-  const owners = collectClosedOwners(source, program);
+  const owners = collectClosedStorageOwners(source, program);
   const bindings = collectStorageBindings(source, owners);
   collectConstructorInputs(source, program, bindings);
   auditStorageReferences(source, program, bindings);
@@ -97,46 +100,6 @@ function closeReturnStorageFlow(
   });
 }
 
-function collectClosedOwners(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-): ReadonlySet<Node> {
-  const owners = new Set<Node>();
-  for (const node of program.nodesOfKind(KindClassDeclaration)) {
-    if (
-      !source.navigation.isProjectDeclaration(node) ||
-      source.ast.extendsHeritageElements(node).length !== 0 ||
-      source.ast.hasModifierKind(node, "abstract") ||
-      source.ast.hasModifierKind(node, "ambient") ||
-      hasDecorator(source, node)
-    ) {
-      continue;
-    }
-    const members = source.ast.members(node).filter(
-      (member): member is Node => member !== undefined,
-    );
-    const constructors = members.filter((member) =>
-      source.ast.is.IsConstructorDeclaration(member)
-    );
-    const nominal = members.some((member) =>
-      !source.ast.hasModifierKind(member, "static") &&
-      (source.ast.hasModifierKind(member, "private") ||
-        source.ast.hasModifierKind(member, "protected"))
-    );
-    if (
-      nominal &&
-      constructors.length === 1 &&
-      constructors.every((constructor) =>
-        source.ast.body(constructor) !== undefined &&
-        source.ast.hasModifierKind(constructor, "private")
-      )
-    ) {
-      owners.add(node);
-    }
-  }
-  return owners;
-}
-
 function collectStorageBindings(
   source: TargetSourceProgram,
   owners: ReadonlySet<Node>,
@@ -155,20 +118,28 @@ function collectStorageBindings(
         valid: true,
       });
     }
-    const constructor = source.ast.members(owner).find((member) =>
-      member !== undefined && source.ast.is.IsConstructorDeclaration(member)
-    );
-    for (const parameter of source.ast.parameters(constructor)) {
-      if (parameter === undefined || !storageFieldIsSupported(source, parameter)) {
+    for (const constructor of source.ast.members(owner)) {
+      if (
+        constructor === undefined ||
+        !source.ast.is.IsConstructorDeclaration(constructor)
+      ) {
         continue;
       }
-      const initializer = storageInitializer(source, parameter);
-      bindings.set(parameter, {
-        declaration: parameter,
-        owner,
-        inputs: initializer === undefined ? [] : [initializer],
-        valid: true,
-      });
+      for (const parameter of source.ast.parameters(constructor)) {
+        if (
+          parameter === undefined ||
+          !storageFieldIsSupported(source, parameter)
+        ) {
+          continue;
+        }
+        const initializer = storageInitializer(source, parameter);
+        bindings.set(parameter, {
+          declaration: parameter,
+          owner,
+          inputs: initializer === undefined ? [] : [initializer],
+          valid: true,
+        });
+      }
     }
   }
   return bindings;
@@ -178,24 +149,7 @@ function storageFieldIsSupported(
   source: TargetSourceProgram,
   declaration: Node,
 ): boolean {
-  const name = source.ast.name(declaration);
-  if (
-    source.ast.hasModifierKind(declaration, "static") ||
-    hasDecorator(source, declaration) ||
-    (name !== undefined && source.ast.is.IsComputedPropertyName(name))
-  ) {
-    return false;
-  }
-  if (source.ast.is.IsPropertyDeclaration(declaration)) {
-    return !source.ast.hasModifierKind(declaration, "ambient");
-  }
-  const parent = source.ast.parent(declaration);
-  return source.ast.is.IsParameterDeclaration(declaration) &&
-    parent !== undefined &&
-    source.ast.is.IsConstructorDeclaration(parent) &&
-    (["public", "private", "protected", "readonly"] as const).some((modifier) =>
-      source.ast.hasModifierKind(declaration, modifier)
-    );
+  return storageDeclarationCanBeTracked(source, declaration);
 }
 
 function storageInitializer(
@@ -345,10 +299,4 @@ function identifierBelongsToSelectedAccess(
     (source.ast.is.IsPropertyAccessExpression(parent) ||
       source.ast.is.IsElementAccessExpression(parent)) &&
     selectedStorageDeclaration(source, parent) === declaration;
-}
-
-function hasDecorator(source: TargetSourceProgram, node: Node): boolean {
-  return source.ast.modifiers(node).some((modifier) =>
-    source.ast.is.IsDecorator(modifier)
-  );
 }

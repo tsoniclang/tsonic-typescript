@@ -4,9 +4,9 @@
 ordinary TypeScript.
 
 [`docs/spec/`](docs/spec/README.md) is the governing target contract. This
-README summarizes the currently implemented pointer, scalar, and cooperative-
-effect profiles; it does not narrow the complete architecture or verification
-requirements in that specification.
+README summarizes the currently implemented pointer, scalar, representation,
+and cooperative-effect profiles; it does not narrow the complete architecture
+or verification requirements in that specification.
 
 The target transforms TSTS's exact checked TS-Go-contract AST directly. It does
 not parse source again, join by ranges, recognize marker spellings, or patch
@@ -42,6 +42,7 @@ profile selects the canonical, open-world-safe result:
   "optimizations": {
     "pointerFlows": "location",
     "scalarProjections": "preserve",
+    "representationProjections": "preserve",
     "cooperativeEffects": "preserve",
     "interfaceDispatch": "open-structural"
   }
@@ -59,12 +60,13 @@ lowering, never one lowering family's partial child output.
 
 Validation maps each selection to one versioned immutable profile identity.
 Lowering then builds one target-program index containing exact source/node
-membership, syntax-kind partitions, binding writes, and member dispatch needed
-by the selected families. Every planner shares that index; disabled facets
-perform no semantic queries. The optimization evidence records the profile
-identity, exact source membership, index work, selected totals, and retained
-reasons so a stale or differently configured result cannot masquerade as the
-same target decision.
+membership, syntax-kind partitions, one canonical declaration-reference join,
+binding writes, and member dispatch needed by the selected families. Every
+planner shares that index; disabled facets perform no semantic queries. The
+optimization evidence records the profile identity, exact source membership,
+index work, selected totals, and exact retained-reason counts with at most eight
+canonical examples per reason. It never retains all rejected AST nodes merely
+to report evidence.
 
 The checked source-file set is the current output membership. No executable
 root or complete module-side-effect contract is supplied to this target, so it
@@ -186,6 +188,33 @@ open target, mutable binding, observable construction, mutable field,
 non-scalar value, nonportable cross-module type, and open semantic evidence are
 the complete retention reasons. Other class uses remain unchanged because the
 optimization owns only the closed immediate projection occurrence.
+
+## Representation projections
+
+`optimizations.representationProjections: "closed-direct"` removes two
+ordinary checked-TypeScript identities without recognizing generated names. A
+direct one-argument project function or stable static method whose sole
+statement returns that exact parameter becomes the argument. An immediate
+`project(construct(value))` becomes `value` only when exact selected signatures
+join a behavior-free one-property constructor, a factory that returns that
+construction, and a projector that returns the same property. The replacement
+evaluates `value` exactly once.
+
+The same profile removes a callable parameter when every use invokes it
+directly with one argument, every exact call of the owning function supplies a
+proved identity function, and no alias, mutation, optional/spread call, or open
+owner reference exists. The parameter, each invocation, and the corresponding
+argument at every caller are removed in one whole-program transaction. For
+example, `kernel((value) => value, item)` becomes `kernel(item)` while
+`copy(item)` inside `kernel` becomes `item`.
+
+The canonical `"preserve"` profile changes nothing. The closed profile retains
+mutable or open bindings, optional/spread calls, inheritance, decorators,
+constructor behavior, a mismatched property, or a projection without its exact
+inverse, an escaped callable parameter, or one non-identity caller. This family
+proves TypeScript expression equivalence; it does not
+infer source-language copy, storage, container, or interface behavior from a
+class or method spelling.
 
 ## Pointer representations
 

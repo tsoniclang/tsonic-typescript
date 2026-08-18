@@ -45,9 +45,18 @@ declaration-only members, and external heritage. Binding-write tests cover
 assignment, compound assignment, update, destructuring, iteration, property,
 and read-only occurrences.
 
+Declaration-reference tests independently exact-join every materialized
+project declaration against canonical navigation. Mutations omit or re-parent
+one reference and must retain the complete affected flow. Broad searches prove
+that no family invokes a second whole-program reverse-reference index.
+
 A scaling fixture doubles nodes and edges while keeping shape constant. Actual
 index/planner operation counts must grow proportionally; a quadratic control
 must be distinguishable. Wall time is supporting evidence only.
+Retention-evidence scaling separately grows negative decisions while asserting
+exact counts, deterministic ordering, and a fixed eight-occurrence maximum.
+Restoring raw retained-node or per-candidate decision ledgers must fail the
+structural gate or the guarded whole-product memory bound.
 
 Pointer contract tests exact-join canonical pointer types and operation facts
 to the complete target component. They cover pointer-bearing parameters,
@@ -75,6 +84,16 @@ evaluation order, precedence, and target-before-argument failure behavior.
 Mutations omit a decision, change selected field identity, substitute a
 foreign plan, and claim a retained result as lowered; each fails at the scalar
 owner or shared lowered-value boundary before rewriting.
+Scalar-class tests exact-partition every transparent-class candidate into one
+eliminated or retained row. They prove cross-file imports remain runtime
+imports, the same-position sentinel preserves constructor-target evaluation,
+portable type references are rewritten, immutable local construction/field
+flows become direct primitive bindings, and no class, construction, or field
+projection survives an admitted component. Boundary cases export or mutate a
+stored value, compare instance identity, expose the constructor value, add an
+observable member, or make the result type nonportable. Mutations omit one
+rewrite or change the exact stored declaration/reference join; each retains
+the whole class or fails at exact rewrite consumption.
 
 Cooperative-effect tests independently count every async callable syntax form
 before selection and exact-partition the count into settled and retained rows.
@@ -101,6 +120,26 @@ It also transports one exact declaration-file synchronous interface into a
 project Awaitable interface and contrasts declaration-file Awaitable/Promise,
 generic-unresolved, and implementation-file ambient counterparts; only the
 fully synchronous external contract may settle.
+Nested-transport fixtures contrast two exact project carriers preserving the
+same contract identity with a carrier changing contract identity and an
+ambient consumer. Only the exact project-body transport may settle; mutating
+either side to the unmatched or ambient form must retain the family.
+One-way erasure fixtures pass a fresh array literal to an opaque callable, then
+contrast that case with a shared typed array and with a fresh literal assigned
+to erased storage and later recovered directly or through an opaque identity.
+The outbound-only literal may settle; every recovered path must retain. Ingress
+fixtures independently cover an opaque result, a user refinement, ambient
+property and element access, an inferred ambient alias, and a project function
+returning ambient storage. A paired exact project object/property path must
+still settle. Mutations that replace the project root with any ambient source,
+remove the re-entry check, or classify the selected property without its owner
+must fail at the interface-origin gate. These proofs establish that freshness
+is never a general storage or alias exemption.
+The generated-storage fixture initializes an optional interface to undefined,
+then assigns one exact project implementation and reads it through a certified
+pointer load guarded by `pointer ?? neverReturningFailure()`. The family must
+settle. Mutations add one ambient interface write or replace the never-returning
+fallback with an open pointer; each must retain the family with its exact cause.
 It exact-joins each selected member to every project implementation and consumes
 each interface return annotation once. Mutations omit the profile, remove or
 change one exact heritage edge, substitute a structurally matching class or
@@ -109,7 +148,13 @@ identity, leave one implementation genuinely suspending, or omit the interface
 return rewrite; each retains the family or fails its exact join before querying
 foreign semantics.
 Evidence reports contract, implementation-edge, settled-family, retained-family,
-settled-callable, and settled-await counts separately.
+settled-callable, and settled-await counts separately. The family denominator
+must exact-partition into settled and retained rows, including rejected
+families. Every retained row carries all contract occurrence identities, its
+call count, and one closed typed owner reason; a mutation that drops rejected
+families from the retained denominator or erases one reason fails the evidence
+gate. Every interface-boundary cause is independently source-located; replacing
+the cause ledger with a boolean set or dropping one cause fails the same gate.
 The construction matrix repeats that proof through inheritance and contrasts a
 derived nominal result with public-structural and unmarked bases. Callable
 `then`, `any`, `unknown`, generic, union, intersection, and hidden-thenable
@@ -125,6 +170,12 @@ each preserves every affected async callable. A project carrier that later
 escapes must invalidate the enclosed owner, while the same carrier wholly
 inside the checked program remains eligible. Pointer transport permission
 comes from validated operation facts, never marker spelling.
+An interface-bearing pointer-load fixture must settle only when the exact
+pointer plan supplies the storage-owner transport and every certified
+result-input origin is closed. Running the identical checked source without
+that transport must retain the interface family and its cooperative effects;
+this mutation proves that declaration shape and marker spelling cannot grant
+permission.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as
@@ -145,6 +196,14 @@ loaded pointee, passes the pointer through a settling project call, and removes
 both cooperative callables. A mutation that drops the pointer-value result
 contract must retain the returning callable while the pointee remains
 unclassified.
+An exact pointer-valued property projection must resolve through the checker's
+selected declaration and settle only when that declaration has one canonical
+representation/pointee contract and the pointee is nominally non-thenable.
+Paired mutations use an ordinary same-shaped property, a callable-`then`
+pointee, and one declaration with conflicting pointer pointees; each must
+retain the callable. The test must inspect the canonical pointer-value evidence
+decision as well as the final async syntax so a missing or bypassed cross-family
+contract cannot pass accidentally.
 Returned-callable verification covers one exact awaited producer whose direct
 returns are a synchronous function and a settling async function. The producer,
 both returned callables, their consumer, and every await must settle together.
@@ -189,6 +248,41 @@ missing result, extra result, and failure in a later batch: the backend returns
 no artifacts and the output directory remains untouched in every failure.
 
 ## Human-Source Gate
+
+Exact representation-projection fixtures include a generic identity function,
+a stable static constructor/projector pair, and a transparent wrapper stored
+in one non-exported immutable local before repeated projection. They also
+include one generic kernel whose callable parameter is invoked directly and
+supplied only exact identity functions across multiple files and callers. The
+selected profile must emit the argument once and no identity call, wrapper
+allocation, projector call, parameter, or argument; the canonical profile must
+remain byte-stable. Mutations add a constructor statement, change the selected
+field, write or reflect on the class or static method, introduce an
+optional/spread call, separate the projector from its constructor, omit one
+stored-flow reference from either side of the exact join, export/mutate/alias
+or observe the stored wrapper, mutate the callable parameter/owner, or supply
+one non-identity function. Each mutation retains the complete candidate at the
+representation owner. Evidence exact-joins expression, stored-flow, and
+callable candidate totals to optimized plus retained rows and records one
+closed reason for every retained candidate. Same-spelled helpers and unrelated
+wrapper classes are negative controls.
+
+A callable supplied through a variable declaration is a required projection
+foil: it must retain the complete callable flow without reading function-node
+fields from that declaration. Stored-flow fixtures likewise place unrelated
+node kinds at construction, declaration-list, and property-access boundaries.
+These cases fail if an unchecked TS-Go `AsX` projection is restored as a kind
+predicate.
+
+The callable matrix includes a generic conditional storage contract whose
+concrete caller supplies an exact identity function. The contract remains
+because its checked input and result are not identical at the generic
+declaration. A mutation changing that contract to `T -> T` admits
+specialization, proving the boundary is semantic rather than a blanket
+generic-function exclusion. A composition fixture separately proves that an
+exact cooperative-effect projection from `Awaitable<T>` to `T` may make the
+target contract endomorphic; the representation owner consumes that exact
+projection rather than reimplementing awaitable recognition.
 
 Representative generated artifacts and the twenty largest expansions are
 inspected. The gate rejects, unless an exact typed necessity row owns it:

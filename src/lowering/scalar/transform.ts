@@ -3,6 +3,7 @@ import type {
   SourceFile,
 } from "@tsonic/tsts";
 import {
+  AsClassDeclaration,
   AsNewExpression,
   AsPropertyAccessExpression,
   KindBigIntKeyword,
@@ -13,9 +14,15 @@ import {
   NewAsExpression,
   NewBinaryExpression,
   NewKeywordTypeNode,
+  NewNumericLiteral,
   NewParenthesizedExpression,
   NewToken,
+  NewVariableDeclaration,
+  NewVariableDeclarationList,
+  NewVariableStatement,
   NewVoidExpression,
+  NodeFactory_NewNodeList,
+  NodeFlagsConst,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
 import type {
@@ -33,6 +40,7 @@ export interface ScalarRepresentationRewriteResult {
   readonly sourceFile: SourceFile;
   readonly profile: ScalarRepresentationProfile;
   readonly projectionCount: number;
+  readonly scalarClassRewriteCount: number;
 }
 
 export interface ScalarRepresentationRewriter {
@@ -45,7 +53,9 @@ export function createScalarRepresentationRewriter(
   sourceFile: SourceFile,
 ): ScalarRepresentationRewriter {
   const expected = plan.projectionsFor(sourceFile);
+  const expectedClassRewrites = plan.scalarClassRewritesFor(sourceFile);
   const consumed = new Set<Node>();
+  const consumedClassRewrites = new Set<Node>();
   let finished = false;
   return Object.freeze({
     rewrite(
@@ -56,13 +66,55 @@ export function createScalarRepresentationRewriter(
       if (finished) {
         throw new Error("scalar representation rewriter is already finished");
       }
+      const classRewrite = plan.scalarClassRewriteFor(original);
+      if (classRewrite !== undefined) {
+        if (consumedClassRewrites.has(original)) {
+          throw new Error("scalar class node was visited more than once");
+        }
+        consumedClassRewrites.add(original);
+        if (classRewrite.kind === "declaration") {
+          const declaration = AsClassDeclaration(updated);
+          if (declaration?.name === undefined) {
+            throw new Error("planned scalar class lost its declaration shape");
+          }
+          return scalarClassSentinel(factory, declaration);
+        }
+        const primitive = classRewrite.flow.proof.portableResultType;
+        if (primitive === undefined) {
+          throw new Error("planned scalar class lost its portable type");
+        }
+        const resultType = {
+          kind: "primitive" as const,
+          primitive,
+        };
+        if (classRewrite.kind === "type-reference") {
+          return resultTypeNode(factory, resultType);
+        }
+        if (classRewrite.kind === "construction") {
+          const construction = AsNewExpression(updated);
+          const target = construction?.Expression;
+          const argument = construction?.Arguments?.Nodes[0];
+          if (
+            construction === undefined ||
+            target === undefined ||
+            argument === undefined ||
+            construction.Arguments?.Nodes.length !== 1
+          ) {
+            throw new Error("stored scalar construction lost its exact shape");
+          }
+          return projectScalarValue(factory, target, argument, resultType);
+        }
+        const access = AsPropertyAccessExpression(updated);
+        if (access?.Expression === undefined) {
+          throw new Error("stored scalar projection lost its exact receiver");
+        }
+        return projectedStoredScalar(factory, access.Expression, resultType);
+      }
       const projection = plan.projectionFor(original);
       if (projection === undefined) {
         return updated;
       }
-      if (consumed.has(original)) {
-        throw new Error("scalar projection was visited more than once");
-      }
+      consumeProjection(consumed, original);
       const access = AsPropertyAccessExpression(updated);
       const construction = access?.Expression === undefined
         ? undefined
@@ -80,7 +132,6 @@ export function createScalarRepresentationRewriter(
           "planned scalar projection lost its exact transformed shape",
         );
       }
-      consumed.add(original);
       return projectScalarValue(
         factory,
         target,
@@ -101,13 +152,86 @@ export function createScalarRepresentationRewriter(
           `scalar projection consumption mismatch: planned ${expected.length}, consumed ${consumed.size}`,
         );
       }
+      const missingClassRewrite = expectedClassRewrites.find((node) =>
+        !consumedClassRewrites.has(node)
+      );
+      if (
+        missingClassRewrite !== undefined ||
+        consumedClassRewrites.size !== expectedClassRewrites.length
+      ) {
+        throw new Error(
+          `scalar class consumption mismatch: planned ${expectedClassRewrites.length}, consumed ${consumedClassRewrites.size}`,
+        );
+      }
       return Object.freeze({
         sourceFile: transformed,
         profile: plan.profile,
         projectionCount: consumed.size,
+        scalarClassRewriteCount: consumedClassRewrites.size,
       });
     },
   });
+}
+
+function projectedStoredScalar(
+  factory: NodeFactory,
+  receiver: Node,
+  resultType: ScalarProjectionResultType,
+): Node {
+  const projected = requiredNode(
+    NewAsExpression(factory, receiver, resultTypeNode(factory, resultType)),
+    "stored scalar projection type preservation",
+  );
+  return requiredNode(
+    NewParenthesizedExpression(factory, projected),
+    "stored scalar projection precedence",
+  );
+}
+
+function scalarClassSentinel(
+  factory: NodeFactory,
+  declaration: NonNullable<ReturnType<typeof AsClassDeclaration>>,
+): Node {
+  if (declaration.name === undefined) {
+    throw new Error("planned scalar class sentinel has no name");
+  }
+  const zero = requiredNode(
+    NewNumericLiteral(factory, "0", 0),
+    "scalar class sentinel zero",
+  );
+  const initializer = requiredNode(
+    NewVoidExpression(factory, zero),
+    "scalar class sentinel initializer",
+  );
+  const variable = requiredNode(
+    NewVariableDeclaration(
+      factory,
+      declaration.name,
+      undefined,
+      undefined,
+      initializer,
+    ),
+    "scalar class sentinel declaration",
+  );
+  const declarations = requiredNode(
+    NewVariableDeclarationList(
+      factory,
+      NodeFactory_NewNodeList(factory, [variable]),
+      NodeFlagsConst,
+    ),
+    "scalar class sentinel declaration list",
+  );
+  return requiredNode(
+    NewVariableStatement(factory, declaration.modifiers, declarations),
+    "scalar class sentinel statement",
+  );
+}
+
+function consumeProjection(consumed: Set<Node>, original: Node): void {
+  if (consumed.has(original)) {
+    throw new Error("scalar projection was visited more than once");
+  }
+  consumed.add(original);
 }
 
 export function lowerScalarRepresentations(

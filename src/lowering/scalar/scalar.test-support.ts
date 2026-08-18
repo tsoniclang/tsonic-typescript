@@ -33,9 +33,20 @@ export function createFixtureScalarRepresentationPlan(
     createTargetProgramIndex(source, {
       bindingWrites: true,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     profile,
+    fixtureSourceIdentityFor(source),
   );
+}
+
+export function fixtureSourceIdentityFor(
+  source: TargetSourceProgram,
+): (sourceFile: SourceFile) => string {
+  return (sourceFile) => {
+    const fileName = source.ast.getFileName(sourceFile);
+    return fileName.startsWith("/src/") ? fileName.slice(5) : fileName;
+  };
 }
 
 export function checkedScalarFixture(

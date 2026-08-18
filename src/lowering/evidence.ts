@@ -1,27 +1,32 @@
 import type { PointerFlowBlocker } from "./pointer/flow-graph.js";
 import {
-  compareOptimizationOccurrences,
-  optimizationOccurrence,
   type OptimizationOccurrence,
-  type SourceIdentityResolver,
 } from "./occurrence.js";
-import type { TargetSourceProgram } from "@tsonic/target-api";
 import type {
   ClosedPointerFlowPlan,
   PointerFlowRepresentation,
 } from "./pointer/flow-plan.js";
 import type { TypeScriptOptimizationProfile } from "./profile.js";
 import {
-  scalarProjectionRetentionReasons,
   type ScalarProjectionRetentionReason,
   type ScalarRepresentationPlan,
 } from "./scalar/plan.js";
+import {
+  type ScalarClassRetentionReason,
+} from "./scalar/class-flow.js";
 import type { TargetProgramIndexOperations } from "./program-index.js";
 import type {
   CooperativeEffectFallbackReason,
   CooperativeEffectPlanSummary,
 } from "./effect/fallback.js";
 import type { InterfaceDispatchEvidence } from "./effect/interface-dispatch.js";
+import {
+  type RepresentationProjectionPlan,
+  type RepresentationProjectionRetentionReason,
+} from "./representation/plan.js";
+import {
+  type IdentityCallableRetentionReason,
+} from "./representation/callable-plan.js";
 
 export interface OptimizationCount<Value extends string> {
   readonly value: Value;
@@ -65,6 +70,30 @@ export interface ScalarOptimizationEvidence {
   readonly optimizedProjectionCount: number;
   readonly retainedProjectionCount: number;
   readonly fallbackReasons: readonly OptimizationReasonEvidence<ScalarProjectionRetentionReason>[];
+  readonly scalarClassCandidateCount: number;
+  readonly loweredScalarClassCount: number;
+  readonly retainedScalarClassCount: number;
+  readonly scalarClassFallbackReasons: readonly OptimizationReasonEvidence<ScalarClassRetentionReason>[];
+}
+
+export interface RepresentationProjectionOptimizationEvidence {
+  readonly profile: TypeScriptOptimizationProfile["representationProjections"];
+  readonly identityCandidateCount: number;
+  readonly inverseCandidateCount: number;
+  readonly optimizedCount: number;
+  readonly retainedCount: number;
+  readonly fallbackReasons: readonly OptimizationReasonEvidence<RepresentationProjectionRetentionReason>[];
+  readonly storedFlows: {
+    readonly flowCount: number;
+    readonly constructionCount: number;
+    readonly projectionCount: number;
+  };
+  readonly identityCallables: {
+    readonly candidateCount: number;
+    readonly optimizedCount: number;
+    readonly retainedCount: number;
+    readonly fallbackReasons: readonly OptimizationReasonEvidence<IdentityCallableRetentionReason>[];
+  };
 }
 
 export type CooperativeEffectOptimizationEvidence =
@@ -96,39 +125,89 @@ export type CooperativeEffectOptimizationEvidence =
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 9;
+  readonly schemaVersion: 16;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
   readonly pointer: PointerOptimizationEvidence;
   readonly scalar: ScalarOptimizationEvidence;
+  readonly representationProjections: RepresentationProjectionOptimizationEvidence;
   readonly cooperativeEffects: CooperativeEffectOptimizationEvidence;
 }
 
 export function createTypeScriptOptimizationEvidence(
-  source: TargetSourceProgram,
-  sourceIdentityFor: SourceIdentityResolver,
   profile: TypeScriptOptimizationProfile,
   sourceMembership: readonly string[],
   programIndex: TargetProgramIndexOperations,
   pointerPlan: ClosedPointerFlowPlan | undefined,
   scalarPlan: ScalarRepresentationPlan,
+  representationPlan: RepresentationProjectionPlan,
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 9 as const,
+    schemaVersion: 16 as const,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
     pointer: pointerEvidence(profile, pointerPlan),
-    scalar: scalarEvidence(source, sourceIdentityFor, profile, scalarPlan),
+    scalar: scalarEvidence(profile, scalarPlan),
+    representationProjections: representationEvidence(
+      profile,
+      representationPlan,
+    ),
     cooperativeEffects: effectEvidence(profile, effectSummary),
   });
 }
 
+function representationEvidence(
+  profile: TypeScriptOptimizationProfile,
+  plan: RepresentationProjectionPlan,
+): RepresentationProjectionOptimizationEvidence {
+  if (
+    plan.profile !== profile.representationProjections ||
+    plan.optimizedCount + plan.retainedCount !==
+      plan.identityCandidateCount + plan.inverseCandidateCount
+  ) {
+    throw new Error("representation evidence received an incoherent decision plan");
+  }
+  const fallbackReasons = plan.fallbackReasons;
+  if (
+    fallbackReasons.reduce((total, entry) => total + entry.count, 0) !==
+      plan.retainedCount
+  ) {
+    throw new Error("representation evidence lost a decision row");
+  }
+  const callableFallbackReasons = plan.identityCallables.fallbackReasons;
+  if (
+    plan.identityCallables.optimizedCount + plan.identityCallables.retainedCount !==
+      plan.identityCallables.candidateCount ||
+    callableFallbackReasons.reduce((total, entry) => total + entry.count, 0) !==
+      plan.identityCallables.retainedCount
+  ) {
+    throw new Error("identity-callable evidence lost a decision row");
+  }
+  return Object.freeze({
+    profile: plan.profile,
+    identityCandidateCount: plan.identityCandidateCount,
+    inverseCandidateCount: plan.inverseCandidateCount,
+    optimizedCount: plan.optimizedCount,
+    retainedCount: plan.retainedCount,
+    fallbackReasons,
+    storedFlows: Object.freeze({
+      flowCount: plan.storedFlows.flowCount,
+      constructionCount: plan.storedFlows.constructionCount,
+      projectionCount: plan.storedFlows.projectionCount,
+    }),
+    identityCallables: Object.freeze({
+      candidateCount: plan.identityCallables.candidateCount,
+      optimizedCount: plan.identityCallables.optimizedCount,
+      retainedCount: plan.identityCallables.retainedCount,
+      fallbackReasons: callableFallbackReasons,
+    }),
+  });
+}
+
 function scalarEvidence(
-  source: TargetSourceProgram,
-  sourceIdentityFor: SourceIdentityResolver,
   profile: TypeScriptOptimizationProfile,
   plan: ScalarRepresentationPlan,
 ): ScalarOptimizationEvidence {
@@ -139,37 +218,7 @@ function scalarEvidence(
   ) {
     throw new Error("scalar evidence received an incoherent decision plan");
   }
-  const byReason = new Map<
-    ScalarProjectionRetentionReason,
-    OptimizationOccurrence[]
-  >();
-  for (const retention of plan.retentions) {
-    const occurrences = byReason.get(retention.reason);
-    const occurrence = optimizationOccurrence(
-      source,
-      retention.access,
-      sourceIdentityFor,
-    );
-    if (occurrences === undefined) {
-      byReason.set(retention.reason, [occurrence]);
-    } else {
-      occurrences.push(occurrence);
-    }
-  }
-  const fallbackReasons = scalarProjectionRetentionReasons.flatMap((reason) => {
-    const occurrences = byReason.get(reason);
-    return occurrences === undefined
-      ? []
-      : [Object.freeze({
-          reason,
-          count: occurrences.length,
-          examples: Object.freeze(
-            [...occurrences]
-              .sort(compareOptimizationOccurrences)
-              .slice(0, 8),
-          ),
-        })];
-  });
+  const fallbackReasons = plan.fallbackReasons;
   const retainedTotal = fallbackReasons.reduce(
     (total, entry) => total + entry.count,
     0,
@@ -177,12 +226,28 @@ function scalarEvidence(
   if (retainedTotal !== plan.retainedProjectionCount) {
     throw new Error("scalar retention evidence lost a decision row");
   }
+  const scalarClassFallbackReasons = plan.scalarClassFallbackReasons;
+  const retainedClassTotal = scalarClassFallbackReasons.reduce(
+    (total, entry) => total + entry.count,
+    0,
+  );
+  if (
+    retainedClassTotal !== plan.retainedScalarClassCount ||
+    plan.loweredScalarClassCount + plan.retainedScalarClassCount !==
+      plan.scalarClassCandidateCount
+  ) {
+    throw new Error("scalar class evidence lost a decision row");
+  }
   return Object.freeze({
     profile: profile.scalarProjections,
     syntacticProjectionCount: plan.syntacticProjectionCount,
     optimizedProjectionCount: plan.projectionCount,
     retainedProjectionCount: plan.retainedProjectionCount,
-    fallbackReasons: Object.freeze(fallbackReasons),
+    fallbackReasons,
+    scalarClassCandidateCount: plan.scalarClassCandidateCount,
+    loweredScalarClassCount: plan.loweredScalarClassCount,
+    retainedScalarClassCount: plan.retainedScalarClassCount,
+    scalarClassFallbackReasons,
   });
 }
 

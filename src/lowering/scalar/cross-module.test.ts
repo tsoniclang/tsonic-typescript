@@ -103,7 +103,7 @@ class Replacement {
     "closed-direct",
   );
   assert.equal(mutatedPlan.projectionCount, 0);
-  assert.deepEqual(mutatedPlan.retentions.map((entry) => entry.reason), [
+  assert.deepEqual(mutatedPlan.fallbackReasons.map((entry) => entry.reason), [
     "mutable-class-binding",
   ]);
 });
@@ -162,7 +162,7 @@ export const result = new Scalar(42).value;
     "closed-direct",
   );
   assert.equal(literalPlan.projectionCount, 0);
-  assert.deepEqual(literalPlan.retentions.map((entry) => entry.reason), [
+  assert.deepEqual(literalPlan.fallbackReasons.map((entry) => entry.reason), [
     "nonportable-cross-module-type",
   ]);
 });

@@ -2,12 +2,13 @@ import type {
   Node,
   Signature,
   Type,
-  TypePropertyInfo,
 } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api";
+
+import { typeHasDefinitelyNonThenableContract } from "../thenability.js";
 
 export function resolvedCallUsesSynchronousTransport(
   source: TargetSourceProgram,
@@ -111,19 +112,6 @@ export function callableBodyResultIsDefinitelyNonThenable(
   return type !== undefined && !typeMaySuspend(semantics, type);
 }
 
-export function typeHasDefinitelyNonThenableContract(
-  source: TargetSourceProgram,
-  semantics: SourceFileSemantics,
-  type: Type,
-): boolean {
-  return typeHasDefinitelyNonThenableContractWithin(
-    source,
-    semantics,
-    type,
-    new Set(),
-  );
-}
-
 export function typeMaySuspend(
   semantics: SourceFileSemantics,
   type: Type,
@@ -205,12 +193,49 @@ export function sameSelectedType(
   left: Type | undefined,
   right: Type | undefined,
 ): boolean {
+  return sameSelectedTypeWithin(
+    semantics,
+    left,
+    right,
+    new Map(),
+  );
+}
+
+type SelectedTypePairState = "pending" | "same" | "different";
+
+function sameSelectedTypeWithin(
+  semantics: SourceFileSemantics,
+  left: Type | undefined,
+  right: Type | undefined,
+  pairs: Map<Type, Map<Type, SelectedTypePairState>>,
+): boolean {
   if (left === undefined || right === undefined) {
     return false;
   }
   if (left === right) {
     return true;
   }
+  const known = pairs.get(left)?.get(right);
+  if (known !== undefined) {
+    return known !== "different";
+  }
+  setSelectedTypePairState(pairs, left, right, "pending");
+  const same = sameSelectedTypeShape(semantics, left, right, pairs);
+  setSelectedTypePairState(
+    pairs,
+    left,
+    right,
+    same ? "same" : "different",
+  );
+  return same;
+}
+
+function sameSelectedTypeShape(
+  semantics: SourceFileSemantics,
+  left: Type,
+  right: Type,
+  pairs: Map<Type, Map<Type, SelectedTypePairState>>,
+): boolean {
   if (
     (semantics.isNumberLike(left) && semantics.isNumberLike(right)) ||
     (semantics.isStringLike(left) && semantics.isStringLike(right)) ||
@@ -219,6 +244,24 @@ export function sameSelectedType(
     (semantics.isVoidLike(left) && semantics.isVoidLike(right))
   ) {
     return true;
+  }
+  if (semantics.isUnion(left) || semantics.isUnion(right)) {
+    return semantics.isUnion(left) && semantics.isUnion(right) &&
+      sameSelectedTypeMembers(
+        semantics,
+        semantics.getUnionOrIntersectionTypes(left),
+        semantics.getUnionOrIntersectionTypes(right),
+        pairs,
+      );
+  }
+  if (semantics.isIntersection(left) || semantics.isIntersection(right)) {
+    return semantics.isIntersection(left) && semantics.isIntersection(right) &&
+      sameSelectedTypeMembers(
+        semantics,
+        semantics.getUnionOrIntersectionTypes(left),
+        semantics.getUnionOrIntersectionTypes(right),
+        pairs,
+      );
   }
   if (
     !semantics.isTypeReference(left) ||
@@ -232,8 +275,57 @@ export function sameSelectedType(
   const rightArguments = semantics.getTypeArguments(right);
   return leftArguments.length === rightArguments.length &&
     leftArguments.every((argument, index) =>
-      sameSelectedType(semantics, argument, rightArguments[index])
+      sameSelectedTypeWithin(
+        semantics,
+        argument,
+        rightArguments[index],
+        pairs,
+      )
     );
+}
+
+function sameSelectedTypeMembers(
+  semantics: SourceFileSemantics,
+  left: readonly (Type | undefined)[],
+  right: readonly (Type | undefined)[],
+  pairs: Map<Type, Map<Type, SelectedTypePairState>>,
+): boolean {
+  if (left.length !== right.length || left.some((member) => member === undefined)) {
+    return false;
+  }
+  const unmatched = new Set(right.keys());
+  for (const leftMember of left) {
+    if (leftMember === undefined) {
+      return false;
+    }
+    const selected = [...unmatched].find((index) =>
+      sameSelectedTypeWithin(
+        semantics,
+        leftMember,
+        right[index],
+        pairs,
+      )
+    );
+    if (selected === undefined) {
+      return false;
+    }
+    unmatched.delete(selected);
+  }
+  return true;
+}
+
+function setSelectedTypePairState(
+  pairs: Map<Type, Map<Type, SelectedTypePairState>>,
+  left: Type,
+  right: Type,
+  state: SelectedTypePairState,
+): void {
+  const existing = pairs.get(left);
+  if (existing === undefined) {
+    pairs.set(left, new Map([[right, state]]));
+  } else {
+    existing.set(right, state);
+  }
 }
 
 function typeCanBeCalled(
@@ -351,103 +443,4 @@ function resolvedSignatureResultIsDefinitelyNonThenable(
   const result = semantics.getReturnTypeOfSignature(signature);
   return result !== undefined &&
     typeHasDefinitelyNonThenableContract(source, semantics, result);
-}
-
-function typeHasDefinitelyNonThenableContractWithin(
-  source: TargetSourceProgram,
-  semantics: SourceFileSemantics,
-  type: Type,
-  pending: Set<Type>,
-): boolean {
-  if (
-    pending.has(type) ||
-    semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.couldContainTypeVariables(type)
-  ) {
-    return false;
-  }
-  if (
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type)
-  ) {
-    return true;
-  }
-  if (semantics.isUnion(type)) {
-    pending.add(type);
-    const closed = semantics.getUnionOrIntersectionTypes(type).every((member) =>
-      member !== undefined &&
-      typeHasDefinitelyNonThenableContractWithin(
-        source,
-        semantics,
-        member,
-        pending,
-      )
-    );
-    pending.delete(type);
-    return closed;
-  }
-  const then = semantics.getPropertyInfos(type)
-    .find((property) => property.name === "then");
-  if (then === undefined) {
-    return false;
-  }
-
-  return propertyIsNominalThenExclusion(source, semantics, then) &&
-    typeCannotBeCallable(semantics, then.type, new Set());
-}
-
-function propertyIsNominalThenExclusion(
-  source: TargetSourceProgram,
-  semantics: SourceFileSemantics,
-  property: TypePropertyInfo,
-): boolean {
-  if (!property.optional || !property.readonly) {
-    return false;
-  }
-  const declarations = semantics.getSymbolDeclarations(property.symbol);
-  return declarations.length !== 0 && declarations.every((declaration) =>
-    source.ast.hasModifierKind(declaration, "private")
-  );
-}
-
-function typeCannotBeCallable(
-  semantics: SourceFileSemantics,
-  type: Type,
-  pending: Set<Type>,
-): boolean {
-  if (
-    pending.has(type) ||
-    semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.couldContainTypeVariables(type)
-  ) {
-    return false;
-  }
-  if (
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type)
-  ) {
-    return true;
-  }
-  if (!semantics.isUnion(type)) {
-    return false;
-  }
-  pending.add(type);
-  const excluded = semantics.getUnionOrIntersectionTypes(type).every((member) =>
-    member !== undefined &&
-    typeCannotBeCallable(semantics, member, pending)
-  );
-  pending.delete(type);
-  return excluded;
 }

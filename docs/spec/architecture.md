@@ -46,11 +46,11 @@ validated target profile and complete source membership
                          |
                          v
 one immutable target-program index
-  (exact nodes/source files, syntax-kind partitions, shared flow answers)
+  (exact nodes/source files, syntax-kind partitions, references, shared flow answers)
                          |
                          v
 family plans over complete connected flows
-  (currently effects, pointers, and scalar projections)
+  (effects, pointers, scalar wrappers, and exact representation projections)
                          |
                          v
 one composed post-order AST rewrite transaction
@@ -69,8 +69,11 @@ Whole-program families consume one immutable index built once from the
 original checked tree. It contains only target-side coordination needed by
 more than one family. The current shared denominator is exact node/source-file
 membership in source preorder, immutable syntax-kind partitions, canonical
-binding-write joins, and canonical project-member dispatch. Optional facets
-are built only when the selected profile has a consumer.
+declaration-reference joins, canonical binding-write joins, and canonical
+project-member dispatch. The declaration-reference join is materialized once
+from exact checked-node identities and is the only reverse-reference graph used
+by target families. Optional facets are built only when the selected profile
+has a consumer.
 
 The index is coordination state, not a second semantic model. TSTS facts remain
 the semantic authority. Canonical declaration, reference, import, signature,
@@ -82,6 +85,8 @@ expanding the index.
 Index construction and family planning must be proportional to nodes plus
 relevant edges. Repeated whole-program scans, per-candidate hierarchy walks,
 per-candidate import expansion, and output-cardinality proxies are forbidden.
+Temporary candidate arrays used to construct an index facet are released when
+that facet seals; they are not retained alongside the finished index.
 
 The supplied source-file membership is also the current publication
 membership. The target input does not currently carry executable declaration
@@ -129,13 +134,24 @@ adapter, allowlist, spelling rule, or alternate signature store.
 The pointer decision also publishes whether an exact value occurrence is the
 pointer itself or its loaded pointee. Canonical locations, mutable cells, and
 direct scalar snapshots are definitely non-thenable pointer values; a load is
-not. Cooperative-effect return analysis may consume that immutable distinction
-before either family rewrites the tree. It may not infer the distinction from
-the `Pointer` spelling, object shape, or component membership alone.
-The canonical representation map is the sole value-membership owner; no second
-pointer-value index or retained checker-node set may duplicate it.
-Lookup checks that map first and resolves only an exact identifier reference
-when needed; unrelated return syntax may not trigger broad checker navigation.
+not. A direct-object pointer value is definitely non-thenable only when its
+exact pointee type satisfies the target-language nominal non-thenability
+contract. Cooperative-effect return analysis may consume that immutable
+distinction before either family rewrites the tree. It may not infer the
+distinction from the `Pointer` spelling, object shape, or component membership
+alone.
+
+One closed pointer-value evidence map is the sole value-membership owner. It is
+built once from canonical representation decisions and exact pointer-type
+facts, and records the representation plus pointee contract for each exact
+value node. It may also index the checker's exact selected declaration for an
+identifier, property access, or element access when every pointer annotation
+owned by that declaration agrees on both representation and pointee identity.
+Conflicting annotations leave that declaration unclassified. No second
+pointer-value index, type-wide approximation, or retained checker-node set may
+duplicate this map. Lookup checks the exact value node first and then only its
+checker-selected declaration; unrelated return syntax may not trigger broad
+checker navigation.
 
 The decision order is:
 
@@ -148,42 +164,64 @@ The decision order is:
 No package/function allowlist, name heuristic, local override, unchecked cast,
 or generated-text inspection may select a representation.
 
+TS-Go `IsX` predicates are the sole syntax-kind authority. An `AsX` operation
+projects fields only after the node kind is proved by `IsX`, a closed kind
+inventory, or an already validated plan entry; it never classifies an
+uncertain node. A failed kind proof retains the complete flow rather than
+probing another projected layout.
+
 ## Admitted Families
 
-The profile grows by closed semantic family, not by corpus exception. A family
-is admitted only when its complete semantic denominator is available from
-finalized shared facts or from ordinary checked-TypeScript semantics that do
-not depend on source-language meaning. The current executable families are:
+The profile grows by closed semantic family, not corpus exception. Admission
+requires a complete denominator from finalized facts or ordinary checked-TypeScript semantics:
 
-- **cooperative effects:** remove `async`, `Promise<T>`, and `await` from every
-  complete component that cannot suspend; retain transport for a real open,
-  escaping, thenable, provider, or suspending boundary;
-- **typed pointers:** use a scalar snapshot for a closed read-only flow, one
-  shared `{ value: T }` cell for a closed mutable scalar alias flow, and the
-  represented class object for a proved bijective object flow; retain canonical
-  location semantics for open or observable identity/alias/nil/lifetime cases;
+- **cooperative effects:** remove `async`, `Promise<T>`, and `await` from a complete
+  non-suspending component; retain real open, escaping, thenable, provider, or suspending boundaries;
+- **typed pointers:** use a scalar snapshot for a closed read-only flow, one shared
+  `{ value: T }` cell for mutable scalar aliases, and a represented class for a
+  proved bijection; retain canonical locations for observable identity/alias/nil/lifetime;
 - **scalar projections:** erase representation-only scalar wrappers when all
   uses preserve the same selected value behavior;
+- **representation projections:** erase an exact identity call, immediate inverse
+  pair, or immutable local wrapper used only by exact projectors, and specialize
+  identity-only callable parameters when every eliminated observation is proved absent.
+  Callable specialization additionally requires one exact unary endomorphic target
+  contract: its checked input and selected result are the identical type. The selected
+  result may differ from the checked source result only through the cooperative-effect
+  plan's exact return-type projection. Identity implementations at all call sites do not
+  erase a converter contract such as `Storage<T> -> T`, `T -> uint32`, or
+  `Bytes -> RuntimeSlice<byte>`.
 
-Value copying/storage, generic operation selection, source-language containers,
-panic/recovery, reflection, and package initialization remain in
-their canonical source form unless a separately versioned shared fact contract
-is added for that family. In particular, a GoToTS runtime import, generated
-class shape, method name, or support-module path is ordinary TypeScript input;
-it is not semantic evidence. The target must not recognize `RuntimeSlice`,
-`GoMap`, interface adapters, defer machinery, or similar declarations by
-spelling or structure and then infer Go behavior.
+Value copying/storage, generic operations, source-language containers, panic/recovery,
+reflection, and package initialization remain canonical without a versioned fact contract.
+A GoToTS import, generated shape, name, or support path is ordinary TypeScript, not
+semantic evidence; `RuntimeSlice`, `GoMap`, adapters, and defer machinery are never inferred by spelling.
 
-A future admitted family may optimize those forms only after its fact owner
-defines the complete observations needed for the decision (for example slice
-nilness, capacity, backing aliases, reslicing and element addresses), finalizes
-those facts on exact nodes, and exposes the closed configuration choice. Until
-then, doing nothing is canonical retention by ownership, not an unreported
-target decision row.
+An exact TypeScript identity is not source-language inference. The closed profile may
+replace a stable one-argument project callable that returns its parameter. It may also
+replace `project(construct(value))` when exact signatures prove one stable class, a sole
+`new Class(value)`, one constructor parameter-property store, and projection of that field.
+Every identity is joined. Writes, decorators, inheritance, optional/spread/unresolved calls,
+constructor statements, different fields, open targets, and unpaired calls retain; names never select the rule.
 
-Each family has one decision owner and one transformation owner. Cross-family
-coordination exchanges immutable result facts before rewriting; one family may
-not inspect another family's partially rewritten tree.
+The inverse pair may cross one local `const` with no annotation, write, export,
+identity observation, alias, or non-projector use. Its initializer is the exact
+transparent constructor and every reference is a matching projector over the same
+field. Binding references and projector arguments join both ways. Rewriting preserves
+target-before-argument evaluation; one missing or foreign reference retains all.
+
+The owner may remove a callable parameter only when every parameter reference is one
+direct single-argument call, every owner reference is one exact call, and every input is
+a proved synchronous identity. Parameter, invocation, and all caller arguments change
+atomically. Aliases, writes, optional/spread calls, generators, overloads, class escape,
+non-identity inputs, unresolved signatures, or overlapping rewrites retain the candidate.
+
+A future family requires its owner to define every observation (for example slice nilness,
+capacity, backing aliases, reslicing, and element addresses), finalize exact-node facts,
+and expose a closed profile choice. Until then, canonical retention is the only decision.
+
+Each family has one decision and transformation owner. Families exchange immutable
+results before rewriting and never inspect another family's partially rewritten tree.
 
 ### Scalar Projection Closure
 
@@ -214,6 +252,25 @@ that fact together with pointer-result facts before either family rewrites the
 tree. The shared contract answers only properties of the final value, such as
 definite non-thenability; it does not expose another family's representation or
 partially transformed nodes.
+
+The same owner may eliminate a transparent scalar class declaration only when
+every construction and selected-field read belongs to one closed component.
+A component may contain an admitted immediate projection or a non-exported
+immutable local binding initialized by one exact construction when every
+reference to that binding is an exact read of the selected readonly field.
+Every remaining class reference must be an exact import, export, or ordinary
+type reference, the scalar must have one portable primitive target type, and
+neither the class value nor any instance identity may otherwise escape. The
+declaration is replaced at the same statement position by one exported or
+local `const` sentinel, every type reference becomes the primitive type,
+stored constructions become the primitive value, stored field reads become
+direct binding reads, and imports remain value imports. Construction lowering
+still evaluates the sentinel before the argument. This preserves module
+execution, cyclic-import and temporal-dead-zone behavior while removing the
+class and every proved instance allocation. Mutable or exported bindings,
+identity comparisons, open constructions or projections, default exports,
+class-value uses, observable members, and nonportable types retain the complete
+class under a closed reason; partial class rewriting is forbidden.
 
 ### Cooperative-Effect Closure
 
@@ -251,10 +308,31 @@ signature parameter. Rest, spread, unresolved signatures, or a parameter-map
 mismatch are never approximated: every exposed project contract is an open
 boundary. Direct project interface/class surfaces enter the exact structural
 member join. Contracts nested inside a container, tuple, union, intersection,
-or callable contract remain open unless a separately certified direct transport
-reaches them; the owner does not recursively retain an arbitrary checker object
-graph. When one direct checked transport depends on corresponding project
-interface members, those method contracts form one atomic component;
+or callable contract remain open unless a separately certified transport
+reaches them. An exact project-body transport may preserve a shared nested
+contract identity; unmatched nested contracts and nested contracts crossing a
+bodyless, ambient, provider, unresolved, rest, or spread boundary remain open.
+One narrower outbound case is also closed: an array or object literal may erase
+a source-only nested contract when the selected target type carries no matching
+contract. Parentheses and authored type operators around that same literal do
+not change freshness. This is one-way permission, not an alias or storage
+assumption. Every later static re-entry into a project interface is checked
+independently through exact resolved-call argument bindings and exact value
+origin. Assertions, refinements, opaque call results, ambient identifiers,
+ambient properties or elements, aliases initialized from them, and project
+results sourced from them retain the reached component. Project properties and
+elements remain closed only when both their checker-selected declaration and
+their owning value have exact project provenance. A declaration-file interface
+may enter only through the separately proved all-synchronous structural
+transport described below. Shared values passed outward remain open when their
+source contract is still statically visible. Root-pair memoization includes
+both opacity and freshness so one safe observation cannot hide a later open
+transport.
+
+The owner compares only bounded relevant-contract sets and does not
+recursively retain an arbitrary checker object graph. When one direct checked
+transport depends on corresponding project interface members, those method
+contracts form one atomic component;
 same-shaped interfaces with no such transport remain unrelated. Contracts that
 share one exact declared class implementation also form one component. A
 project contract transported against an external or otherwise non-rewritable
@@ -366,6 +444,23 @@ remain open owner boundaries until their callback and projection flows have a
 separate complete proof. An external call with the same signature or name
 therefore cannot inherit this permission.
 
+That same immutable contract is the sole authority for interface-bearing values
+crossing a certified storage-owner invocation. Its exact result-input edges let
+interface ingress follow, for example, the value represented by a validated
+pointer load instead of treating the marker declaration as an opaque external
+call. Missing transport evidence, an empty result-input set, or an unselected
+same-shaped call remains opaque. The interface owner does not duplicate pointer
+operation classification or infer transport from a marker name.
+
+Interface ingress follows the value that can exist after successful evaluation,
+not a discarded nil branch. A missing/undefined-only or `never` source cannot
+inject a dynamic implementation. In `value ?? fail()`, the left value is the
+sole successful origin only when the checked fallback type is exactly `never`;
+the emitted guard itself remains unchanged. A mutable local or property is
+closed only when its initializer and every indexed simple assignment have
+closed origins. Compound, iteration, unresolved, or ambient writes retain the
+family. This is one complete write-set proof, not an initializer heuristic.
+
 Canonical pointer boundaries attach to the exact affected node and propagate
 through its connected component. Generic contracts record the affected
 concrete family but do not taint a disconnected component merely because its
@@ -384,6 +479,9 @@ open. Absence of `then`, or a public structural declaration of it, is not proof
 because width subtyping permits a hidden thenable. `any`, `unknown`, type
 variables, and open structural members remain retained. This is target-language
 Promise-assimilation evidence, not marker or source-language recognition.
+This rule has one target-language owner shared by ordinary effect results and
+pointer-result projections; the pointer family does not carry a second copy of
+the rule.
 
 Settlement reconstructs the complete component atomically: async modifiers,
 Promise or exact awaitable-union return members, awaits, and dependent callable
@@ -391,6 +489,16 @@ contracts are consumed once by original node identity. Retained candidates may
 accumulate several blocking facts, but evidence assigns one canonical reason
 using the pinned reason-catalog order. Direct causes remain separately counted
 and source-located; their sum is not the retained denominator.
+
+Interface evidence counts contract declarations, connected families, and calls
+as separate denominators. Every considered family is exactly one settled or
+retained row. Rejected families are retained rows, not omissions from the
+denominator. Each retained row records its complete authored contract identity
+set, call count, and one closed typed reason selected by the owning decision;
+aggregate admitted/rejected counts are projections of those decisions, never a
+substitute for them. Interface-boundary retention additionally records every
+direct boundary cause with a closed reason and exact authored occurrence; a
+boolean boundary flag is only a projection of that ledger.
 
 ## Human-Shaped Output
 
@@ -474,7 +582,8 @@ CLI resolution, and target defaults must converge on that same typed profile;
 ambient environment state does not select an optimization.
 
 The optimization profile independently selects `pointerFlows`,
-`scalarProjections`, `cooperativeEffects`, and `interfaceDispatch`. Omitting
+`scalarProjections`, `representationProjections`, `cooperativeEffects`, and
+`interfaceDispatch`. Omitting
 `interfaceDispatch` selects `open-structural`; `declared-closed` is never
 implied by cooperative-effect selection.
 
@@ -483,6 +592,11 @@ source membership, selected/retained decisions, typed reasons, index and
 planner work counts, runtime contract, and target output membership. Input
 semantic and output-membership digests are added only at the layer that owns
 those canonical values; they are not fabricated by lowering.
+
+Retained decisions are represented by exact per-reason counts and at most eight
+canonical source occurrences per reason. A family plan must not retain every
+negative candidate or its AST node merely to construct evidence. The bounded
+examples are diagnostics; the exact counts remain the conservation proof.
 
 ## Complexity And Failure
 

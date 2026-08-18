@@ -49,9 +49,7 @@ export {
   scalarProjectionRetentionReasons,
 } from "./lowering/scalar/plan.js";
 export type {
-  ScalarProjectionDecision,
   ScalarProjectionPlan,
-  ScalarProjectionRetention,
   ScalarProjectionRetentionReason,
   ScalarRepresentationPlan,
   ScalarRepresentationProfile,

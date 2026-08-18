@@ -31,9 +31,21 @@ export function callableDeclarationHasResolvableType(
 
 export interface CallableReturnRewrite {
   readonly target: Node;
-  readonly selection:
-    | { readonly kind: "type-argument"; readonly index: number }
-    | { readonly kind: "union-member"; readonly index: number };
+  readonly selection: CallableReturnSelection;
+}
+
+export type CallableReturnSelection =
+  | { readonly kind: "type-argument"; readonly index: number }
+  | { readonly kind: "union-member"; readonly index: number };
+
+export function selectedCallableReturnType(
+  source: TargetSourceProgram,
+  target: Node,
+  selection: CallableReturnSelection,
+): Node | undefined {
+  return selection.kind === "type-argument"
+    ? source.ast.typeArguments(target)[selection.index]
+    : AsUnionTypeNode(target)?.Types?.Nodes[selection.index];
 }
 
 export function callableResultReturnRewrites(
@@ -135,28 +147,30 @@ function returnRewriteAdmitsDirectValue(
   const contract = semantics.getTypeFromTypeNode(rewrite.target);
   const direct = semantics.getTypeFromTypeNode(directNode);
   return contract !== undefined && direct !== undefined &&
-    returnContractContainsDirectValue(semantics, contract, direct, new Set());
+    returnContractContainsDirectValue(semantics, contract, direct);
 }
 
 function returnContractContainsDirectValue(
   semantics: SourceFileSemantics,
   contract: Type,
   direct: Type,
-  pending: Set<Type>,
 ): boolean {
   if (sameSelectedType(semantics, contract, direct)) {
     return true;
   }
-  if (pending.has(contract) || !semantics.isUnion(contract)) {
+  if (!semantics.isUnion(contract)) {
     return false;
   }
-  pending.add(contract);
-  const contains = semantics.getUnionOrIntersectionTypes(contract).some((member) =>
-    member !== undefined &&
-    returnContractContainsDirectValue(semantics, member, direct, pending)
+  const contractMembers = semantics.getUnionOrIntersectionTypes(contract);
+  const directMembers = semantics.isUnion(direct)
+    ? semantics.getUnionOrIntersectionTypes(direct)
+    : [direct];
+  return directMembers.every((directMember) =>
+    directMember !== undefined && contractMembers.some((contractMember) =>
+      contractMember !== undefined &&
+      sameSelectedType(semantics, contractMember, directMember)
+    )
   );
-  pending.delete(contract);
-  return contains;
 }
 
 function callableTypeNodeIsResolvable(
@@ -266,7 +280,7 @@ export function callableReturnRewrite(
         returnType !== undefined &&
         innerType !== undefined &&
         typeMaySuspend(semantics, returnType) &&
-        exactAwaitableContract(semantics, returnType, innerType, new Set())
+        exactAwaitableContract(semantics, returnType, innerType)
       ? Object.freeze({
           target: node,
           selection: Object.freeze({ kind: "type-argument", index: 0 }),
@@ -290,7 +304,7 @@ export function callableReturnRewrite(
       innerType !== undefined &&
       selected.every((type) =>
         type !== undefined &&
-        exactAwaitableContract(semantics, type, innerType, new Set())
+        exactAwaitableContract(semantics, type, innerType)
       )
     ? Object.freeze({
         target: node,
@@ -303,27 +317,61 @@ function exactAwaitableContract(
   semantics: SourceFileSemantics,
   type: Type,
   innerType: Type,
-  pending: Set<Type>,
 ): boolean {
   if (sameSelectedType(semantics, type, innerType)) {
     return true;
   }
-  if (pending.has(type)) {
+  if (semantics.isUnion(type)) {
+    return exactAwaitableUnionContract(semantics, type, innerType);
+  }
+  return exactAwaitableWrapper(semantics, type, innerType);
+}
+
+function exactAwaitableUnionContract(
+  semantics: SourceFileSemantics,
+  contract: Type,
+  direct: Type,
+): boolean {
+  const contractMembers = semantics.getUnionOrIntersectionTypes(contract);
+  const directMembers = semantics.isUnion(direct)
+    ? semantics.getUnionOrIntersectionTypes(direct)
+    : [direct];
+  if (
+    contractMembers.some((member) => member === undefined) ||
+    directMembers.some((member) => member === undefined)
+  ) {
     return false;
   }
-  if (semantics.isUnion(type)) {
-    pending.add(type);
-    const exact = semantics.getUnionOrIntersectionTypes(type).every((member) =>
-      member !== undefined &&
-      exactAwaitableContract(semantics, member, innerType, pending)
+  const unmatchedDirect = new Set(directMembers.keys());
+  let suspending = false;
+  for (const member of contractMembers) {
+    if (member === undefined) {
+      return false;
+    }
+    const directIndex = [...unmatchedDirect].find((index) =>
+      sameSelectedType(semantics, member, directMembers[index])
     );
-    pending.delete(type);
-    return exact;
+    if (directIndex !== undefined) {
+      unmatchedDirect.delete(directIndex);
+      continue;
+    }
+    if (!exactAwaitableWrapper(semantics, member, direct)) {
+      return false;
+    }
+    suspending = true;
   }
+  return suspending && unmatchedDirect.size === 0;
+}
+
+function exactAwaitableWrapper(
+  semantics: SourceFileSemantics,
+  type: Type,
+  direct: Type,
+): boolean {
   if (!typeMaySuspend(semantics, type) || !semantics.isTypeReference(type)) {
     return false;
   }
   const arguments_ = semantics.getTypeArguments(type);
   return arguments_.length === 1 &&
-    sameSelectedType(semantics, arguments_[0], innerType);
+    sameSelectedType(semantics, arguments_[0], direct);
 }

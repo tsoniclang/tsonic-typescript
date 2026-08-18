@@ -8,7 +8,6 @@ import {
   AsFunctionDeclaration,
   AsFunctionExpression,
   AsMethodDeclaration,
-  AsUnionTypeNode,
   NodeFactory_UpdateArrowFunction,
   NodeFactory_UpdateFunctionDeclaration,
   NodeFactory_UpdateFunctionExpression,
@@ -21,7 +20,10 @@ import type {
 } from "@tsonic/tsts/target-ast";
 
 import type { CooperativeEffectPlan } from "./plan.js";
-import type { CallableReturnRewrite } from "./callable-contract.js";
+import {
+  selectedCallableReturnType,
+  type CallableReturnRewrite,
+} from "./callable-contract.js";
 
 export interface CooperativeEffectRewriteResult {
   readonly sourceFile: SourceFile;
@@ -60,7 +62,11 @@ export function createCooperativeEffectRewriteSession(
       }
       const returnType = returnTypes.get(original);
       if (returnType !== undefined) {
-        const replacement = selectedReturnType(plan, updated, returnType);
+        const replacement = selectedCallableReturnType(
+          plan.source,
+          updated,
+          returnType.selection,
+        );
         if (replacement === undefined || consumedReturnTypes.has(original)) {
           throw new Error("planned callable contract lost its exact AST shape");
         }
@@ -112,17 +118,6 @@ export function createCooperativeEffectRewriteSession(
       });
     },
   });
-}
-
-function selectedReturnType(
-  plan: CooperativeEffectPlan,
-  updated: Node,
-  rewrite: CallableReturnRewrite,
-): Node | undefined {
-  if (rewrite.selection.kind === "type-argument") {
-    return plan.source.ast.typeArguments(updated)[rewrite.selection.index];
-  }
-  return AsUnionTypeNode(updated)?.Types?.Nodes[rewrite.selection.index];
 }
 
 export function lowerCooperativeEffects(

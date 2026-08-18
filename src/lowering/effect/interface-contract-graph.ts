@@ -8,12 +8,19 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { StorageOwnerTransportContract } from "../storage-owner-transport.js";
 import {
   callableReturnRewrite,
   type CallableReturnRewrite,
 } from "./callable-contract.js";
 import { declaredInterfaceMemberImplementation } from "./interface-contract-member.js";
+import { isExactInterfaceProjectDeclaration } from "./interface-contract-declarations.js";
 import { collectInterfaceContractTransports } from "./interface-contract-transport.js";
+import {
+  createInterfaceContractBoundaryLedger,
+  type InterfaceContractBoundaryCause,
+  type InterfaceContractBoundaryLedger,
+} from "./interface-contract-boundary.js";
 
 export interface InterfaceContractEntry {
   readonly declaration: Node;
@@ -24,6 +31,7 @@ export interface InterfaceContractEntry {
 export interface InterfaceContractComponent {
   readonly entries: readonly InterfaceContractEntry[];
   readonly boundary: boolean;
+  readonly boundaryCauses: readonly InterfaceContractBoundaryCause[];
 }
 
 export interface InterfaceContractGraph {
@@ -41,16 +49,17 @@ export interface InterfaceContractIndex {
   readonly entries: ReadonlyMap<Node, MutableInterfaceContractEntry>;
   readonly declarationContracts: ReadonlyMap<Node, readonly Node[]>;
   readonly links: Map<Node, Set<Node>>;
-  readonly boundaries: Set<Node>;
+  readonly boundaries: InterfaceContractBoundaryLedger;
 }
 
 export function createInterfaceContractGraph(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  transports?: StorageOwnerTransportContract,
 ): InterfaceContractGraph {
   const contracts = collectContracts(source, program);
   collectCalls(source, program, contracts.entries);
-  collectInterfaceContractTransports(source, program, contracts);
+  collectInterfaceContractTransports(source, program, contracts, transports);
   const seeds = [...contracts.entries.values()].filter((entry) =>
     entry.calls.length !== 0
   );
@@ -76,11 +85,11 @@ export function createInterfaceContractGraph(
         returnRewrite: entry.returnRewrite,
       });
     });
+    const boundaryCauses = contracts.boundaries.causesFor(declarations);
     components.push(Object.freeze({
       entries: Object.freeze(entries),
-      boundary: declarations.some((declaration) =>
-        contracts.boundaries.has(declaration)
-      ),
+      boundary: boundaryCauses.length !== 0,
+      boundaryCauses,
     }));
   }
   return Object.freeze({
@@ -101,8 +110,8 @@ function collectContracts(
     if (
       owner === undefined ||
       !source.ast.is.IsInterfaceDeclaration(owner) ||
-      !isExactProjectDeclaration(source, owner) ||
-      !isExactProjectDeclaration(source, declaration) ||
+      !isExactInterfaceProjectDeclaration(source, owner) ||
+      !isExactInterfaceProjectDeclaration(source, declaration) ||
       typeNode === undefined
     ) {
       continue;
@@ -118,7 +127,7 @@ function collectContracts(
     });
     links.set(declaration, new Set());
   }
-  const boundaries = new Set<Node>();
+  const boundaries = createInterfaceContractBoundaryLedger();
   return {
     entries,
     declarationContracts: collectDeclarationContracts(
@@ -138,7 +147,7 @@ function collectDeclarationContracts(
   program: TargetProgramIndex,
   entries: ReadonlyMap<Node, MutableInterfaceContractEntry>,
   links: Map<Node, Set<Node>>,
-  boundaries: Set<Node>,
+  boundaries: InterfaceContractBoundaryLedger,
 ): ReadonlyMap<Node, readonly Node[]> {
   const ownerContracts = new Map<Node, Node[]>();
   for (const contract of entries.keys()) {
@@ -180,7 +189,11 @@ function collectDeclarationContracts(
         contract,
       );
       if (implementation === undefined) {
-        boundaries.add(contract);
+        boundaries.mark(
+          contract,
+          "missing-member-implementation",
+          declaration,
+        );
         continue;
       }
       const selected = implementations.get(implementation);
@@ -259,16 +272,6 @@ function collectCalls(
       entries.get(declaration)?.calls.push(call);
     }
   }
-}
-
-function isExactProjectDeclaration(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const sourceFile = source.ast.getSourceFile(declaration);
-  return sourceFile !== undefined &&
-    source.semantics.includes(sourceFile) &&
-    source.navigation.isProjectDeclaration(declaration);
 }
 
 function collectComponent(

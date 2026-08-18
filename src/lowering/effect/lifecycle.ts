@@ -1,6 +1,10 @@
-import type { SourceFile } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
+import {
+  selectedCallableReturnType,
+  type CallableReturnRewrite,
+} from "./callable-contract.js";
 import type {
   CooperativeEffectFilePlan,
   CooperativeEffectPlan,
@@ -12,12 +16,27 @@ export function createCooperativeEffectPlanLifecycle(
   files: ReadonlyMap<SourceFile, CooperativeEffectFilePlan>,
   summary: CooperativeEffectPlanSummary,
 ): CooperativeEffectPlan {
+  const returnTypes = new Map<Node, CallableReturnRewrite>();
+  for (const file of files.values()) {
+    for (const rewrite of file.returnTypes) {
+      if (returnTypes.has(rewrite.target)) {
+        throw new Error("cooperative-effect return contract was planned twice");
+      }
+      returnTypes.set(rewrite.target, rewrite);
+    }
+  }
   const begun = new Set<SourceFile>();
   const finished = new Set<SourceFile>();
   let sealed = false;
   return Object.freeze({
     source,
     summary,
+    projectedReturnTypeFor(target: Node): Node | undefined {
+      const rewrite = returnTypes.get(target);
+      return rewrite === undefined
+        ? undefined
+        : selectedCallableReturnType(source, target, rewrite.selection);
+    },
     begin(sourceFile: SourceFile): CooperativeEffectFilePlan {
       if (sealed || begun.has(sourceFile)) {
         throw new Error("cooperative-effect file plan was opened twice");

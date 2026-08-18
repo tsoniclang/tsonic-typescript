@@ -29,11 +29,21 @@ import {
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../program-index.js";
+import type { SourceIdentityResolver } from "../occurrence.js";
+import {
+  createOptimizationRetentionLedger,
+  type BoundedOptimizationReasonEvidence,
+} from "../retention-evidence.js";
 import {
   portableScalarKind,
   scalarPrimitiveKind,
   type ScalarPrimitiveKind,
 } from "./portable-type.js";
+import {
+  createScalarClassFlowPlan,
+  type ScalarClassRetentionReason,
+  type ScalarClassRewrite,
+} from "./class-flow.js";
 
 export type { ScalarPrimitiveKind } from "./portable-type.js";
 
@@ -68,7 +78,7 @@ export interface ScalarProjectionPlan {
   readonly resultType: ScalarProjectionResultType;
 }
 
-export type ScalarProjectionDecision =
+type ScalarProjectionDecision =
   | {
       readonly kind: "optimized";
       readonly access: Node;
@@ -76,7 +86,7 @@ export type ScalarProjectionDecision =
     }
   | ScalarProjectionRetention;
 
-export interface ScalarProjectionRetention {
+interface ScalarProjectionRetention {
   readonly kind: "retained";
   readonly access: Node;
   readonly reason: ScalarProjectionRetentionReason;
@@ -88,12 +98,20 @@ export interface ScalarRepresentationPlan {
   readonly syntacticProjectionCount: number;
   readonly projectionCount: number;
   readonly retainedProjectionCount: number;
-  readonly decisions: readonly ScalarProjectionDecision[];
-  readonly retentions: readonly ScalarProjectionRetention[];
+  readonly fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    ScalarProjectionRetentionReason
+  >[];
+  readonly scalarClassCandidateCount: number;
+  readonly loweredScalarClassCount: number;
+  readonly retainedScalarClassCount: number;
+  readonly scalarClassFallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    ScalarClassRetentionReason
+  >[];
   owns(source: TargetSourceProgram): boolean;
-  decisionFor(access: Node): ScalarProjectionDecision | undefined;
   projectionFor(access: Node): ScalarProjectionPlan | undefined;
   projectionsFor(sourceFile: SourceFile): readonly ScalarProjectionPlan[];
+  scalarClassRewriteFor(node: Node): ScalarClassRewrite | undefined;
+  scalarClassRewritesFor(sourceFile: SourceFile): readonly Node[];
 }
 
 interface TransparentClassProof {
@@ -113,6 +131,7 @@ export function createScalarRepresentationPlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   profile: ScalarRepresentationProfile,
+  sourceIdentityFor: SourceIdentityResolver,
 ): ScalarRepresentationPlan {
   if (profile !== "preserve" && profile !== "closed-direct") {
     throw new Error(`unsupported scalar representation profile '${String(profile)}'`);
@@ -120,29 +139,62 @@ export function createScalarRepresentationPlan(
   let syntacticProjectionCount = 0;
   const classProofs = new Map<Node, TransparentClassResolution>();
   const portableScalarKinds = new Map<Node, ScalarPrimitiveKind | undefined>();
-  const decisions: ScalarProjectionDecision[] = [];
+  const resolveClass = (declaration: Node): TransparentClassResolution => {
+    let resolution = classProofs.get(declaration);
+    if (resolution === undefined) {
+      resolution = proveTransparentClass(
+        source,
+        program,
+        declaration,
+        portableScalarKinds,
+      );
+      classProofs.set(declaration, resolution);
+    }
+    return resolution;
+  };
+  const projections: ScalarProjectionPlan[] = [];
+  const retentions = createOptimizationRetentionLedger(
+    source,
+    sourceIdentityFor,
+    scalarProjectionRetentionReasons,
+  );
   for (const node of program.nodesOfKind(KindPropertyAccessExpression)) {
     if (!isSyntacticProjection(node)) {
       continue;
     }
     syntacticProjectionCount += 1;
-    decisions.push(
-      profile === "closed-direct"
-        ? resolveProjection(
+    const decision = profile === "closed-direct"
+      ? resolveProjection(
         source,
         program,
         node,
         classProofs,
         portableScalarKinds,
       )
-        : retainProjection(node, "profile-preserved"),
-    );
+      : retainProjection(node, "profile-preserved");
+    if (decision.kind === "optimized") {
+      projections.push(decision.projection);
+    } else {
+      retentions.record(decision.reason, decision.access);
+    }
   }
+  const scalarClasses = createScalarClassFlowPlan(
+    source,
+    program,
+    profile,
+    resolveClass,
+    new Set(projections.map((projection) => projection.construction)),
+    new Set(projections.map((projection) => projection.access)),
+    sourceIdentityFor,
+  );
   return sealPlan(
     source,
     profile,
     syntacticProjectionCount,
-    decisions,
+    projections,
+    retentions.count,
+    retentions.seal(),
+    scalarClasses,
   );
 }
 
@@ -150,29 +202,24 @@ function sealPlan(
   source: TargetSourceProgram,
   profile: ScalarRepresentationProfile,
   syntacticProjectionCount: number,
-  decisions: readonly ScalarProjectionDecision[],
+  projections: readonly ScalarProjectionPlan[],
+  retainedProjectionCount: number,
+  fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    ScalarProjectionRetentionReason
+  >[],
+  scalarClasses: ReturnType<typeof createScalarClassFlowPlan>,
 ): ScalarRepresentationPlan {
-  if (decisions.length !== syntacticProjectionCount) {
+  if (projections.length + retainedProjectionCount !== syntacticProjectionCount) {
     throw new Error(
-      `scalar decision mismatch: candidates ${syntacticProjectionCount}, decisions ${decisions.length}`,
+      `scalar decision mismatch: candidates ${syntacticProjectionCount}, decisions ${projections.length + retainedProjectionCount}`,
     );
   }
-  const byDecision = new Map<Node, ScalarProjectionDecision>();
   const byAccess = new Map<Node, ScalarProjectionPlan>();
   const byFile = new Map<SourceFile, ScalarProjectionPlan[]>();
-  const projections: ScalarProjectionPlan[] = [];
-  const retentions: ScalarProjectionRetention[] = [];
-  for (const decision of decisions) {
-    if (byDecision.has(decision.access)) {
+  for (const projection of projections) {
+    if (byAccess.has(projection.access)) {
       throw new Error("one scalar projection cannot be decided twice");
     }
-    byDecision.set(decision.access, decision);
-    if (decision.kind === "retained") {
-      retentions.push(decision);
-      continue;
-    }
-    const projection = decision.projection;
-    projections.push(projection);
     byAccess.set(projection.access, projection);
     const sourceFile = source.ast.getSourceFile(projection.access);
     if (sourceFile === undefined) {
@@ -185,7 +232,11 @@ function sealPlan(
       fileProjections.push(projection);
     }
   }
-  if (projections.length + retentions.length !== syntacticProjectionCount) {
+  if (
+    projections.length + retainedProjectionCount !== syntacticProjectionCount ||
+    fallbackReasons.reduce((sum, row) => sum + row.count, 0) !==
+      retainedProjectionCount
+  ) {
     throw new Error("scalar decisions do not partition the exact denominator");
   }
   const sealedByFile = new Map<SourceFile, readonly ScalarProjectionPlan[]>();
@@ -197,20 +248,26 @@ function sealPlan(
     moduleBoundary: profile === "closed-direct" ? "closed" : "open",
     syntacticProjectionCount,
     projectionCount: projections.length,
-    retainedProjectionCount: retentions.length,
-    decisions: Object.freeze([...decisions]),
-    retentions: Object.freeze(retentions),
+    retainedProjectionCount,
+    fallbackReasons,
+    scalarClassCandidateCount: scalarClasses.candidateCount,
+    loweredScalarClassCount: scalarClasses.loweredCount,
+    retainedScalarClassCount: scalarClasses.retainedCount,
+    scalarClassFallbackReasons: scalarClasses.fallbackReasons,
     owns(candidate: TargetSourceProgram): boolean {
       return candidate === source;
-    },
-    decisionFor(access: Node): ScalarProjectionDecision | undefined {
-      return byDecision.get(access);
     },
     projectionFor(access: Node): ScalarProjectionPlan | undefined {
       return byAccess.get(access);
     },
     projectionsFor(sourceFile: SourceFile): readonly ScalarProjectionPlan[] {
       return sealedByFile.get(sourceFile) ?? noProjections;
+    },
+    scalarClassRewriteFor(node: Node): ScalarClassRewrite | undefined {
+      return scalarClasses.rewriteFor(node);
+    },
+    scalarClassRewritesFor(sourceFile: SourceFile): readonly Node[] {
+      return scalarClasses.rewritesFor(sourceFile);
     },
   });
 }

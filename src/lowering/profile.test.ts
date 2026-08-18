@@ -13,9 +13,10 @@ test("normalizes every optimization selection to one immutable identity", () => 
   assert.equal(createTypeScriptOptimizationProfile(canonical), canonical);
   assert.deepEqual(canonical, {
     identity:
-      "typescript-optimization-v2/pointer=location/scalar=preserve/effects=preserve/interfaces=open-structural",
+      "typescript-optimization-v3/pointer=location/scalar=preserve/representations=preserve/effects=preserve/interfaces=open-structural",
     pointerFlows: "location",
     scalarProjections: "preserve",
+    representationProjections: "preserve",
     cooperativeEffects: "preserve",
     interfaceDispatch: "open-structural",
   });
@@ -24,17 +25,19 @@ test("normalizes every optimization selection to one immutable identity", () => 
   const optimized = createTypeScriptOptimizationProfile({
     pointerFlows: "closed-direct",
     scalarProjections: "closed-direct",
+    representationProjections: "closed-direct",
     cooperativeEffects: "closed-direct",
     interfaceDispatch: "declared-closed",
   });
   assert.equal(
     optimized.identity,
-    "typescript-optimization-v2/pointer=closed-direct/scalar=closed-direct/effects=closed-direct/interfaces=declared-closed",
+    "typescript-optimization-v3/pointer=closed-direct/scalar=closed-direct/representations=closed-direct/effects=closed-direct/interfaces=declared-closed",
   );
   assert.equal(
     createTypeScriptOptimizationProfile({
       pointerFlows: "closed-direct",
       scalarProjections: "closed-direct",
+      representationProjections: "closed-direct",
       cooperativeEffects: "closed-direct",
       interfaceDispatch: "declared-closed",
     }),
@@ -74,5 +77,16 @@ test("rejects a fabricated optimization selection", () => {
   assert.throws(
     () => createTypeScriptOptimizationProfile(fabricatedInterface),
     /'interfaceDispatch' must be 'open-structural' or 'declared-closed'/,
+  );
+
+  const fabricatedRepresentation = {
+    pointerFlows: "location",
+    scalarProjections: "preserve",
+    representationProjections: "shape-inferred",
+    cooperativeEffects: "preserve",
+  } as unknown as TypeScriptOptimizationProfileInput;
+  assert.throws(
+    () => createTypeScriptOptimizationProfile(fabricatedRepresentation),
+    /'representationProjections' must be 'preserve' or 'closed-direct'/,
   );
 });
