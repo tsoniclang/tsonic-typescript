@@ -68,6 +68,12 @@ const forward = providerContract(
   [0],
   [0],
 );
+const invoke = providerContract(
+  "invoke",
+  "<T>(callback: (value: T) => Awaitable<number>) => void",
+  [0],
+  [],
+);
 
 test("settles an exact callback transported directly through a provider", () => {
   const source = checkedProviderFixture(`
@@ -79,6 +85,44 @@ run();
 `, [forward]);
 
   assert.equal(rewrittenAsyncCount(source), 0);
+});
+
+test("composes provider transport before interface ingress", () => {
+  const sourceText = `
+import { Operations } from "${testProviderSpecifier}";
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class Pair implements Reader {
+  async Read(): Promise<number> { return 42; }
+}
+Operations.invoke<Pair>(async (value: Reader) => await value.Read());
+`;
+  const source = checkedProviderFixture(sourceText, [invoke]);
+  const omitted = checkedProviderFixture(sourceText, [{
+    ...invoke,
+    inputParameters: Object.freeze([]),
+  }]);
+  const selectedResult = rewrittenProviderFixture(source, "declared-closed");
+  const omittedResult = rewrittenProviderFixture(omitted, "declared-closed");
+
+  assert.equal(selectedResult.asyncCount, 1);
+  assert.equal(omittedResult.asyncCount, 1);
+  assert.equal(
+    selectedResult.summary.interfaceDispatch.analyzed &&
+      selectedResult.summary.interfaceDispatch.settledFamilyCount,
+    1,
+  );
+  assert.equal(
+    omittedResult.summary.interfaceDispatch.analyzed &&
+      omittedResult.summary.interfaceDispatch.rejectedFamilyCount,
+    1,
+  );
+  assert.ok(
+    omittedResult.summary.interfaceDispatch.analyzed &&
+      omittedResult.summary.interfaceDispatch.boundaryCauses.some((cause) =>
+        cause.reason === "opaque-call-transport"
+      ),
+  );
 });
 
 test("settles a callback through a closed provider state carrier", () => {
@@ -273,12 +317,23 @@ export const callback = Operations.forward(async () => {});
 
 function rewrittenAsyncCount(
   source: ReturnType<typeof checkedProviderFixture>,
+  interfaceDispatch: "open-structural" | "declared-closed" = "open-structural",
 ): number {
+  return rewrittenProviderFixture(source, interfaceDispatch).asyncCount;
+}
+
+function rewrittenProviderFixture(
+  source: ReturnType<typeof checkedProviderFixture>,
+  interfaceDispatch: "open-structural" | "declared-closed",
+) {
   const program = createProgram(source);
   const plan = createClosedCooperativeEffectPlan(
     source,
     program,
     (sourceFile) => source.documents.forFile(sourceFile).identity,
+    undefined,
+    undefined,
+    interfaceDispatch,
   );
   const sourceFile = source.sourceFiles.find((candidate) =>
     source.ast.getFileName(candidate) === "/src/index.ts"
@@ -286,7 +341,10 @@ function rewrittenAsyncCount(
   assert.ok(sourceFile !== undefined);
   const rewritten = lowerCooperativeEffects(sourceFile, plan);
   plan.finish();
-  return countAsyncCallables(source, rewritten.sourceFile);
+  return Object.freeze({
+    asyncCount: countAsyncCallables(source, rewritten.sourceFile),
+    summary: plan.summary,
+  });
 }
 
 function createProgram(

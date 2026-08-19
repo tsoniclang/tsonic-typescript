@@ -588,11 +588,20 @@ when a call's selected declaration is that exact node. Lowering never matches
 provider or member spelling in authored source. A local same-shaped API,
 another declaration file, overload ambiguity, stale callable type, duplicate
 semantic owner, absent declaration, or unresolved call receives no fact.
-Generic project callable flow may consume a referenced declaration only when
-the navigation owner classifies it as project-owned and the checked semantic
-program contains that exact source-file object. A provider or other foreign
-declaration that lacks certified transport remains opaque; generic flow must
-not query its declaration semantics as an alternate cross-boundary route.
+Generic callable flow may query a referenced declaration only when the checked
+semantic program contains that exact source-file object. Resolving a project
+implementation additionally requires navigation-owned project identity; an
+included declaration-file callable contributes only its exact trusted
+non-thenable contract. A provider or other foreign declaration excluded from
+the semantic program and lacking certified transport remains opaque; generic
+flow must not query its declaration semantics as an alternate cross-boundary
+route.
+All fact-owned invocation transports are composed before interface ingress,
+callable flow, storage flow, or return flow begins. No consumer may observe a
+partially assembled transport set. Interface dispatch may subsequently add
+closed abstract-dispatch transport; that derived transport is composed once
+with the already complete fact-owned set for later consumers, without
+re-running interface ingress.
 
 Direct records identify exact argument ingress and result-origin parameters.
 State records additionally identify carrier creation, transparent carrier

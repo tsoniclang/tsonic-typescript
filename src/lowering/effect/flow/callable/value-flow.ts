@@ -31,7 +31,7 @@ import {
   indexDeclarationSymbols,
 } from "./input-reference.js";
 import {
-  projectReferenceHasExactSemantics,
+  referenceHasExactSemantics,
   resolveProjectInvocation,
 } from "../../model/project-invocation.js";
 import {
@@ -270,7 +270,7 @@ function resolveCall(
     ? source.ast.as.AsPropertyAccessExpression(target)?.name
     : source.ast.name(target) ?? target;
   const reference = source.navigation.sourceReferenceFor(referenceNode);
-  const transported = !projectReferenceHasExactSemantics(source, reference) ||
+  const transported = !referenceHasExactSemantics(source, reference) ||
       reference.declaration === declaration ||
       reference.declaration === contract
     ? undefined
@@ -529,7 +529,7 @@ function resolveExpression(
     return resolutionWith(candidate);
   }
   const reference = source.navigation.sourceReferenceFor(referenceNode);
-  return !projectReferenceHasExactSemantics(source, reference)
+  return !referenceHasExactSemantics(source, reference)
     ? unresolved()
     : resolveDeclaration(
       source,

@@ -19,6 +19,7 @@ const providerRoot = "/src/node_modules/@test/provider";
 const providerDeclaration = `${providerRoot}/index.d.ts`;
 const providerSource = `
 export declare class State {}
+export type Awaitable<T> = T | PromiseLike<T>;
 export declare class Operations {
   static zero(): State;
   static alias(state: State): State;
@@ -26,11 +27,19 @@ export declare class Operations {
   static store(state: State, value: () => Promise<void>): void;
   static load(state: State): (() => Promise<void>) | undefined;
   static forward(value: () => Promise<void>): () => Promise<void>;
+  static invoke<T>(callback: (value: T) => Awaitable<number>): void;
 }
 `;
 
 export function providerContract(
-  member: "zero" | "alias" | "store" | "load" | "observe" | "forward",
+  member:
+    | "zero"
+    | "alias"
+    | "store"
+    | "load"
+    | "observe"
+    | "forward"
+    | "invoke",
   targetType: string,
   inputParameters: readonly number[],
   resultOriginParameters: readonly number[],

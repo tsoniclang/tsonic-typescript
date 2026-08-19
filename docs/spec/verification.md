@@ -303,7 +303,16 @@ A provider-boundary mutation removes the selected declaration file from the
 semantic program while preserving the exact checked call and an incomplete
 provider record. The generic callable owner must retain the flow without ever
 querying that excluded declaration, proving certified provider transport is
-the sole cross-boundary route.
+the sole cross-boundary route. The paired included declaration-file fixture
+must continue settling an exact bodyless non-thenable callable widened into
+awaitable local storage; this proves boundary exclusion does not erase the
+separate trusted-contract path.
+A generic provider callback whose checked concrete input implements a project
+interface must settle the callback, interface implementation, and interface
+call only when its exact provider invocation record is present before
+interface ingress. Removing that record must retain all three at
+`opaque-call-transport`. This mutation proves plan assembly cannot defer
+fact-owned transport until after interface-family admission.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as

@@ -11,12 +11,11 @@ export interface ResolvedProjectInvocation {
   readonly implementation: Node;
 }
 
-export function projectReferenceHasExactSemantics(
+export function referenceHasExactSemantics(
   source: TargetSourceProgram,
   reference: SourceDeclarationReference | undefined,
 ): reference is SourceDeclarationReference {
-  return reference?.project === true &&
-    source.semantics.includes(reference.sourceFile);
+  return reference !== undefined && source.semantics.includes(reference.sourceFile);
 }
 
 export function resolveProjectInvocation(

@@ -10,7 +10,10 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import type {
+  InvocationTransport,
+  InvocationTransportContract,
+} from "../../../invocation-transport.js";
 import {
   interfaceContractTypeDeclaration,
   isExactInterfaceProjectDeclaration,
@@ -32,6 +35,7 @@ import {
   retainOpaqueInterfaceInputs,
 } from "./opaque-exposure.js";
 import { callHasExactBindings } from "../invocation/call-binding.js";
+import { isDiscardedCall } from "../../model/syntax.js";
 
 export interface InterfaceCallTransportSink {
   processTypePair(
@@ -58,7 +62,8 @@ interface InterfaceCallTransportAnalysis {
   readonly node: Node;
   readonly semantics: SourceFileSemantics;
   readonly call?: ResolvedSourceCallInfo;
-  readonly crossesOpaqueCall: boolean;
+  readonly transport?: InvocationTransport;
+  readonly opaqueBoundary: boolean;
   readonly exactBindings: boolean;
 }
 
@@ -78,12 +83,13 @@ export function collectInterfaceCallTransports(
       const declaration = call === undefined
         ? undefined
         : semantics.getSignatureDeclaration(call.selectedSignature);
+      const transport = transports?.transportFor(node);
       calls.push({
         node,
         semantics,
         ...(call === undefined ? {} : { call }),
-        crossesOpaqueCall: call !== undefined &&
-          transports?.transportFor(node) === undefined &&
+        ...(transport === undefined ? {} : { transport }),
+        opaqueBoundary: call !== undefined &&
           callCrossesOpaqueInterfaceBoundary(
             source,
             declaration,
@@ -127,7 +133,7 @@ function processCallTransports(
   sink: InterfaceCallTransportSink,
   analysis: InterfaceCallTransportAnalysis,
 ): void {
-  const { node, semantics, call, crossesOpaqueCall, exactBindings } = analysis;
+  const { node, semantics, call, opaqueBoundary, exactBindings } = analysis;
   if (call === undefined) {
     retainUnresolvedCallTransports(source, semantics, node, relevance, sink);
     return;
@@ -180,7 +186,7 @@ function processCallTransports(
     }
   }
   if (
-    crossesOpaqueCall &&
+    opaqueBoundary &&
     !exactBindings &&
     call.sourceArguments.some((argument) =>
       opaqueInterfaceSourceContainsContracts(
@@ -219,7 +225,7 @@ function processCallTransports(
     semantics,
     node,
     call,
-    crossesOpaqueCall,
+    opaqueBoundary,
     relevance,
     ingress,
     sink,
@@ -233,14 +239,17 @@ function retainOpaqueCallInputs(
   sink: InterfaceCallTransportSink,
   analysis: InterfaceCallTransportAnalysis,
 ): void {
-  const { call, crossesOpaqueCall, exactBindings, semantics } = analysis;
-  if (call === undefined || !crossesOpaqueCall || !exactBindings) {
+  const { call, opaqueBoundary, exactBindings, semantics, transport } = analysis;
+  if (call === undefined || !opaqueBoundary || !exactBindings) {
     return;
   }
   for (const binding of call.sourceArgumentBindings) {
     const sourceArgument = call.sourceArguments[binding.sourceArgumentIndex];
     if (sourceArgument === undefined) {
       throw new Error("resolved call lost its exact source argument");
+    }
+    if (transport?.inputExpressions.includes(sourceArgument.expression) === true) {
+      continue;
     }
     retainOpaqueInterfaceInputs(
       source,
@@ -307,11 +316,14 @@ function retainOpaqueCallResult(
   semantics: SourceFileSemantics,
   node: Node,
   call: ResolvedSourceCallInfo,
-  crossesOpaqueCall: boolean,
+  opaqueBoundary: boolean,
   relevance: InterfaceContractRelevance,
   ingress: InterfaceContractIngress,
   sink: InterfaceCallTransportSink,
 ): void {
+  if (isDiscardedCall(source, node)) {
+    return;
+  }
   if (source.ast.is.IsNewExpression(node)) {
     const declaration = interfaceContractTypeDeclaration(
       semantics,
@@ -329,7 +341,7 @@ function retainOpaqueCallResult(
     }
   }
   if (
-    crossesOpaqueCall &&
+    opaqueBoundary &&
     relevance.contains(semantics, call.sourceResultType) &&
     !interfaceValueOriginIsClosedForType(
       semantics,

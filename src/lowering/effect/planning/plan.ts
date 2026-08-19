@@ -65,17 +65,20 @@ export function createClosedCooperativeEffectPlan(
 ): CooperativeEffectPlan {
   const candidates = collectCooperativeEffectCandidates(source, program);
   const calls = collectCooperativeEffectCalls(source, program, candidates);
+  const factOwnedTransports = composeInvocationTransportContracts([
+    transports,
+    createProviderInvocationTransport(source, program),
+  ]);
   const interfaces = createDeclaredInterfaceDispatch(
     source,
     program,
     candidates,
     interfaceDispatch,
-    transports,
+    factOwnedTransports,
     sourceIdentityFor,
   );
   const completeTransports = composeInvocationTransportContracts([
-    transports,
-    createProviderInvocationTransport(source, program),
+    factOwnedTransports,
     interfaces.invocationTransports,
   ]);
   const aggregateProjections = createExactAggregateProjectionIndex(
