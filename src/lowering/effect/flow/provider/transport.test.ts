@@ -16,7 +16,6 @@ import {
   providerSession,
   testProviderSpecifier,
 } from "./provider.test-support.js";
-import { createProviderInvocationTransport } from "./transport.js";
 
 const zero = providerContract(
   "zero",
@@ -255,13 +254,10 @@ function rewrittenAsyncCount(
   source: ReturnType<typeof checkedProviderFixture>,
 ): number {
   const program = createProgram(source);
-  const transports = createProviderInvocationTransport(source, program);
   const plan = createClosedCooperativeEffectPlan(
     source,
     program,
     (sourceFile) => source.documents.forFile(sourceFile).identity,
-    undefined,
-    transports,
   );
   const sourceFile = source.sourceFiles.find((candidate) =>
     source.ast.getFileName(candidate) === "/src/index.ts"

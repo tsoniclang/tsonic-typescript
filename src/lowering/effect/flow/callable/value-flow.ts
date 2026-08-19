@@ -4,6 +4,7 @@ import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 
 import {
   collectCallableValueInputs,
@@ -20,6 +21,7 @@ import {
 } from "../../model/synchronous.js";
 import type { CallableReturnRewrite } from "../../model/callable-contract.js";
 import { createCallableResultInputs } from "./result-inputs.js";
+import { createCallableInputUseContract } from "./input-use.js";
 import {
   forEachInvocationTransportInput,
   invocationTransportResultOrigins,
@@ -30,6 +32,7 @@ import {
 } from "./input-reference.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import {
+  allCallableDependenciesAreOptimized,
   closeResolutionFromSynchronousCalls,
   closeSynchronousDependencies,
   emptyResolution,
@@ -80,11 +83,13 @@ export function createCallableValueFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   candidates: ReadonlySet<Node>,
+  projections: ExactAggregateProjectionIndex,
   transports?: InvocationTransportContract,
 ): CallableValueFlow {
   const candidateSymbols = indexDeclarationSymbols(source, candidates);
-  const inputs = collectCallableValueInputs(source, program, transports);
-  const results = createCallableResultInputs(source, program);
+  const results = createCallableResultInputs(source, program, projections);
+  const inputUses = createCallableInputUseContract(source, results, transports);
+  const inputs = collectCallableValueInputs(source, program, inputUses);
   const allowedCandidateReferences = new Set<Node>();
   const mutableResolutions = new Map<Node, MutableResolution>();
   const callsByOwner = new Map<Node, MutableResolution[]>();
@@ -231,24 +236,12 @@ export function createCallableValueFlow(
         .filter(({ resolutions }) =>
           resolutions.every((resolution) =>
             resolution.closed &&
-            allDependenciesAreOptimized(resolution, optimized)
+            allCallableDependenciesAreOptimized(resolution, optimized)
           )
         )
         .map(({ rewrite }) => rewrite));
     },
   });
-}
-
-function allDependenciesAreOptimized(
-  resolution: CallableValueResolution,
-  optimized: ReadonlySet<Node>,
-): boolean {
-  for (const dependency of resolution.dependencyNodes()) {
-    if (!optimized.has(dependency)) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function resolveCall(
@@ -320,21 +313,20 @@ function resolveCall(
     mergeResolution(result, transported);
     return result;
   }
-  if (reference === undefined || !reference.project) {
-    return undefined;
-  }
-  const result = transported ?? resolveDeclaration(
-    source,
-    reference.declaration,
-    candidates,
-    candidateSymbols,
-    inputs,
-    results,
-    returnedContracts,
-    allowedCandidateReferences,
-    new Set(),
-    transports,
-  );
+  const result = target === undefined
+    ? unresolved()
+    : resolveExpression(
+        source,
+        target,
+        candidates,
+        candidateSymbols,
+        inputs,
+        results,
+        returnedContracts,
+        allowedCandidateReferences,
+        new Set(),
+        transports,
+      );
   return resolutionIsClosed(result) || resolutionHasDependencies(result)
     ? result
     : undefined;
@@ -483,6 +475,12 @@ function resolveExpression(
   }
   const returned = results.resultFor(root);
   if (returned !== undefined) {
+    if (
+      returned.projectionConsumers !== undefined &&
+      !inputs.projectionConsumersAreClosed(returned.projectionConsumers)
+    ) {
+      return unresolved();
+    }
     const existing = returnedContracts.get(returned.declaration);
     if (existing !== undefined) {
       return existing.resolution;

@@ -8,6 +8,18 @@ export interface CallableValueResolution {
   synchronousDeclarationNodes(): Iterable<Node>;
 }
 
+export function allCallableDependenciesAreOptimized(
+  resolution: CallableValueResolution,
+  optimized: ReadonlySet<Node>,
+): boolean {
+  for (const dependency of resolution.dependencyNodes()) {
+    if (!optimized.has(dependency)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 type NodeStorage = Node | Set<Node> | undefined;
 
 export class MutableCallableValueResolution {

@@ -32,6 +32,8 @@ import { createCooperativeEffectPlanLifecycle } from "./lifecycle.js";
 import { createCooperativeResultConsumption } from "../flow/return/result-consumption.js";
 import { createReturnValueFlow } from "../flow/return/value.js";
 import { createCallableValueFlow } from "../flow/callable/value-flow.js";
+import { createExactAggregateProjectionIndex } from "../flow/aggregate/projection.js";
+import { createProviderInvocationTransport } from "../flow/provider/transport.js";
 import {
   type CooperativeEffectPlanSummary,
   summarizeCooperativeEffects,
@@ -73,18 +75,25 @@ export function createClosedCooperativeEffectPlan(
   );
   const completeTransports = composeInvocationTransportContracts([
     transports,
+    createProviderInvocationTransport(source, program),
     interfaces.invocationTransports,
   ]);
+  const aggregateProjections = createExactAggregateProjectionIndex(
+    source,
+    program,
+  );
   const valueFlow = createCallableValueFlow(
     source,
     program,
     new Set(candidates.keys()),
+    aggregateProjections,
     completeTransports,
   );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const returnFlow = createReturnValueFlow(
     source,
     program,
+    aggregateProjections,
     (call) => calls.get(call)?.declaration,
     loweredValues,
     (call) =>

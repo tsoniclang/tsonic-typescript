@@ -10,10 +10,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import {
-  isInvocationTransportInput,
-  type InvocationTransportContract,
-} from "../../../invocation-transport.js";
+import type { CallableInputUseContract } from "../callable/input-use.js";
 import {
   exactSourceCallImplementationInputs,
   type ExactSourceCallImplementationInputs,
@@ -31,6 +28,7 @@ import {
   isCallablePresenceObservation,
   isTransparentParent,
   trackedInputDestination,
+  transportedCallableDestinations,
 } from "../callable/input-reference.js";
 import type { ParameterUses } from "../callable/input-reference.js";
 import {
@@ -69,7 +67,7 @@ export function collectCallableStorageInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   excludedDeclarations: ReadonlySet<Node>,
-  transports?: InvocationTransportContract,
+  inputUses?: CallableInputUseContract,
 ): CallableStorageInputs {
   const callableFields = collectCallableFields(source, program);
   const fields = callableFields.declarations;
@@ -141,7 +139,7 @@ export function collectCallableStorageInputs(
     locals,
     invalidInputs,
     program,
-    transports,
+    inputUses,
   );
   for (const [parameter, assigned] of parameterClosure.uses.assignedValues) {
     for (const value of assigned) {
@@ -173,7 +171,7 @@ export function collectCallableStorageInputs(
       storageDeclarations,
       storageSymbols,
       storageDestinations,
-      transports,
+      inputUses,
     );
     auditCallableLocalUse(
       source,
@@ -183,10 +181,13 @@ export function collectCallableStorageInputs(
       storageDeclarations,
       storageSymbols,
       storageDestinations,
-      transports,
+      inputUses,
     );
   }
-  const validFields = callableFields.close(fieldValues, transports);
+  const validFields = callableFields.close(
+    fieldValues,
+    inputUses?.invocationTransports,
+  );
 
   const candidateFields = new Set<Node>();
   for (const [field, counts] of fieldCounts) {
@@ -322,7 +323,7 @@ function closeParameters(
   locals: ReadonlySet<Node>,
   invalidParameters: ReadonlySet<Node>,
   program: TargetProgramIndex,
-  transports?: InvocationTransportContract,
+  inputUses?: CallableInputUseContract,
 ): ClosedParameters {
   const ownerCounts = new Map<Node, ReferenceCounts>();
   for (const owner of parameters.values()) {
@@ -339,7 +340,7 @@ function closeParameters(
       node,
       ownerCounts,
       ownerSymbols,
-      transports,
+      inputUses,
     );
   }
   const closed = new Set<Node>();
@@ -359,7 +360,7 @@ function closeParameters(
     parameters.keys(),
     new Set([...fields, ...locals]),
     program,
-    transports,
+    inputUses,
   );
   for (const parameter of uses.invalid) {
     closed.delete(parameter);
@@ -379,7 +380,7 @@ function auditCallableOwnerReference(
   node: Node,
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   trackedSymbols: ReadonlyMap<Symbol, Node>,
-  transports?: InvocationTransportContract,
+  inputUses?: CallableInputUseContract,
 ): void {
   let declaration: Node | undefined;
   let reference: Node | undefined;
@@ -415,7 +416,7 @@ function auditCallableOwnerReference(
     : resolveProjectInvocation(source, call)?.implementation;
   if (
     selected === declaration ||
-    isInvocationTransportInput(source, reference, transports)
+    inputUses?.useFor(reference) !== undefined
   ) {
     counts.admitted += 1;
   }
@@ -430,7 +431,7 @@ function auditFieldUse(
   storageDeclarations: ReadonlySet<Node>,
   storageSymbols: ReadonlyMap<Symbol, Node>,
   destinations: Map<Node, Set<Node>>,
-  transports?: InvocationTransportContract,
+  inputUses?: CallableInputUseContract,
 ): void {
   const selected = source.ast.is.IsPropertyAccessExpression(node)
     ? source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
@@ -460,15 +461,25 @@ function auditFieldUse(
     storageDeclarations,
     storageSymbols,
   );
+  const transported = transportedCallableDestinations(
+    source,
+    node,
+    storageDeclarations,
+    storageSymbols,
+    inputUses,
+  );
   if (
     directContainingCall(source, node) !== undefined ||
-    isInvocationTransportInput(source, node, transports) ||
     isCallablePresenceObservation(source, node) ||
-    destination !== undefined
+    destination !== undefined ||
+    transported !== undefined
   ) {
     counts.admitted += 1;
     if (destination !== undefined) {
       appendSet(destinations, field, destination);
+    }
+    for (const transportedDestination of transported ?? []) {
+      appendSet(destinations, field, transportedDestination);
     }
   }
 }

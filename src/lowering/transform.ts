@@ -18,9 +18,6 @@ import {
   type CooperativeEffectPlan,
 } from "./effect/planning/plan.js";
 import {
-  createProviderInvocationTransport,
-} from "./effect/flow/provider/transport.js";
-import {
   createCooperativeEffectRewriteSession,
   type CooperativeEffectRewriteResult,
   type CooperativeEffectRewriteSession,
@@ -34,7 +31,6 @@ import {
   createClosedPointerFlowPlan,
 } from "./pointer/flow-plan.js";
 import { createPointerInvocationTransport } from "./pointer/invocation-transport.js";
-import { composeInvocationTransportContracts } from "./invocation-transport.js";
 import { createPointerResultContract } from "./pointer/result-contract.js";
 import { createScalarResultContract } from "./scalar/result-contract.js";
 import { composeLoweredValueContracts } from "./value-contract.js";
@@ -138,14 +134,9 @@ export function prepareTypeScriptLowering(
     createPointerResultContract(source, pointerFlowPlan),
     createScalarResultContract(source, scalarPlan),
   ]);
-  const ownerTransports = composeInvocationTransportContracts([
-    pointerFlowPlan === undefined
-      ? undefined
-      : createPointerInvocationTransport(source, pointerFlowPlan),
-    profile.cooperativeEffects === "closed-direct"
-      ? createProviderInvocationTransport(source, program)
-      : undefined,
-  ]);
+  const ownerTransports = pointerFlowPlan === undefined
+    ? undefined
+    : createPointerInvocationTransport(source, pointerFlowPlan);
   const effectPlan = profile.cooperativeEffects === "closed-direct"
     ? createClosedCooperativeEffectPlan(
         source,

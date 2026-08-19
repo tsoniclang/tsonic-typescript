@@ -83,6 +83,10 @@ for edits, never `git stash`, never force-push, and never delete remote branches
 or tags. Work on feature branches and use `.temp/` only for ignored scratch
 evidence. Only the coordinator runs heavy suites.
 
+Run checker-backed test files as separate bounded Node processes, serially.
+Combining many compiler fixtures into one process retains checker graphs across
+files and is not an accepted memory-test strategy.
+
 Parallel agents are forbidden unless the user explicitly authorizes them for
 the specific task. When authorized, every worker uses a separate worktree; the
 coordinator reviews and integrates every change and alone runs combined and

@@ -5,6 +5,7 @@ import { KindImportDeclaration } from "@tsonic/tsts/target-ast";
 import type { LoweredValueContract } from "../../../value-contract.js";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import {
   createTypeScriptRuntimeReturnContract,
   type TypeScriptRuntimeReturnContract,
@@ -51,6 +52,7 @@ export interface ReturnValueFlow {
 export function createReturnValueFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  projections: ExactAggregateProjectionIndex,
   directCallDeclaration: (call: Node) => Node | undefined,
   loweredValues?: LoweredValueContract,
   settledCallDeclarations: (call: Node) => Iterable<Node> = () =>
@@ -63,9 +65,9 @@ export function createReturnValueFlow(
     source,
     program.nodesOfKind(KindImportDeclaration),
   );
-  const projections = createReturnProjectionFlow(
+  const returnProjections = createReturnProjectionFlow(
     source,
-    program,
+    projections,
     directCallDeclaration,
   );
   const calls = createReturnCallFlow(
@@ -93,7 +95,7 @@ export function createReturnValueFlow(
     storage,
     runtime,
     loweredValues,
-    projections,
+    returnProjections,
     calls,
     resultsFor(resultsBySettlement, settledDeclarations),
     pendingDeclarations,

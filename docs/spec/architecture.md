@@ -72,6 +72,7 @@ owner under `src/lowering/effect/`:
 architecture/                 structural dependency gates
 closure/                      blocker propagation and retention decisions
 flow/
+  aggregate/                  exact aggregate bindings and fixed projections
   callable/                   callable values, aliases, and inputs
   collection/                 collection-carried callable values
   interface/                  contract ingress, implementations, and dispatch
@@ -489,6 +490,25 @@ retains the flow. A fresh function or arrow expression is non-thenable at its
 creation site under the same standard-built-in integrity envelope used for
 fresh arrays and objects; a later reference to a function is not fresh proof.
 
+Fixed aggregate projection has one shared structural owner for callable and
+return-value flow. It admits a direct array/tuple source, or a `const`
+identifier initialized from one exact array/tuple-producing call, only when
+every reference to that identifier is a non-optional fixed numeric element
+read. An aggregate escape, element write, update, dynamic index, spread slot,
+or unresolved producer invalidates the complete binding. For an admitted
+projection such as `const pair = await choose(); pair[0]`, consumers follow
+that exact slot through every direct array return, conditional branch, and
+closed project forwarder. Callable flow also rewrites the callable contract at
+that same tuple slot for every traversed producer; it never treats another
+slot, a same-shaped aggregate, or a result type alone as value-origin proof.
+The callable transport is bidirectionally closed: every invocation of each
+traversed producer must participate in that same selected slot, and every
+projected consumer must be an immediate call target or enter callable storage
+that the ordinary storage closure has already admitted. One escaped producer
+result or projected callable retains the complete affected flow. Projection
+discovery uses indexed linear joins and is not reimplemented by either
+consumer.
+
 Settlement of a produced callable is atomic with its authored result contract.
 After the producer's outer async contract is selected, every non-nullish result
 branch must be a direct function-type node whose return is already definitely
@@ -638,8 +658,12 @@ nominal. The same proof applies to direct construction and to derived classes
 that inherit that exact nominal member; inheritance without the member remains
 open. Absence of `then`, or a public structural declaration of it, is not proof
 because width subtyping permits a hidden thenable. `any`, `unknown`, type
-variables, and open structural members remain retained. This is target-language
-Promise-assimilation evidence, not marker or source-language recognition.
+variables, and open structural members remain retained when they own or can
+alter the `then` contract. An unrelated generic argument does not invalidate a
+nominal exclusion: `RuntimeSlice<T>` remains non-thenable when the selected
+class itself declares private readonly `then?: never`, regardless of `T`.
+This is target-language Promise-assimilation evidence, not marker or
+source-language recognition.
 This rule has one target-language owner shared by ordinary effect results and
 pointer-result projections; the pointer family does not carry a second copy of
 the rule.

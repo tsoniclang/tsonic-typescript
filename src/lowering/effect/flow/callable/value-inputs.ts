@@ -9,10 +9,6 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import {
-  isInvocationTransportInput,
-  type InvocationTransportContract,
-} from "../../../invocation-transport.js";
 import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
 
 import {
@@ -26,12 +22,18 @@ import {
   isModuleForwardingReference,
 } from "../../model/syntax.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import type { CallableInputUseContract } from "./input-use.js";
+import {
+  trackedInputDestination,
+  transportedCallableDestinations,
+} from "./input-reference.js";
 
 export interface CallableValueInputs {
   readonly contracts: readonly CallableCollectionContract[];
   readonly storageContracts: readonly CallableStorageContract[];
   valuesFor(declaration: Node): readonly Node[] | undefined;
   isClosed(declaration: Node): boolean;
+  projectionConsumersAreClosed(consumers: readonly Node[]): boolean;
 }
 
 interface ReferenceCounts {
@@ -49,7 +51,7 @@ const equalityObservationOperators = new Set([
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  transports?: InvocationTransportContract,
+  inputUses?: CallableInputUseContract,
 ): CallableValueInputs {
   const collections = collectCallableCollectionInputs(source, program);
   const mutableValues = new Map<Node, Node[]>();
@@ -120,7 +122,7 @@ export function collectCallableValueInputs(
     source,
     program,
     collections.closed,
-    transports,
+    inputUses,
   );
   const propertyReferences = new Map<Node, ReferenceCounts>();
   for (const parameter of constructorParameters) {
@@ -129,6 +131,10 @@ export function collectCallableValueInputs(
   const propertySymbols = indexDeclarationSymbols(
     source,
     propertyReferences.keys(),
+  );
+  const closedStorageSymbols = indexDeclarationSymbols(
+    source,
+    storage.closed,
   );
   for (const node of program.nodesOfKinds([
     KindIdentifier,
@@ -141,7 +147,8 @@ export function collectCallableValueInputs(
       propertyReferences,
       propertySymbols,
       storage.closed,
-      transports,
+      closedStorageSymbols,
+      inputUses,
     );
   }
 
@@ -188,6 +195,17 @@ export function collectCallableValueInputs(
         collections.closed.has(declaration) ||
         constructorClosed.has(declaration);
     },
+    projectionConsumersAreClosed(consumers: readonly Node[]): boolean {
+      return consumers.every((consumer) =>
+        directContainingCall(source, consumer) !== undefined ||
+        trackedInputDestination(
+          source,
+          consumer,
+          storage.closed,
+          closedStorageSymbols,
+        ) !== undefined
+      );
+    },
   });
 }
 
@@ -222,7 +240,8 @@ function auditPropertyReference(
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   trackedSymbols: ReadonlyMap<Symbol, Node>,
   closedStorage: ReadonlySet<Node>,
-  transports?: InvocationTransportContract,
+  closedStorageSymbols: ReadonlyMap<Symbol, Node>,
+  inputUses?: CallableInputUseContract,
 ): void {
   if (tracked.size === 0) {
     return;
@@ -235,7 +254,13 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        propertyUseIsAdmitted(source, node, closedStorage, transports) &&
+        propertyUseIsAdmitted(
+          source,
+          node,
+          closedStorage,
+          closedStorageSymbols,
+          inputUses,
+        ) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -249,7 +274,13 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        propertyUseIsAdmitted(source, node, closedStorage, transports) &&
+        propertyUseIsAdmitted(
+          source,
+          node,
+          closedStorage,
+          closedStorageSymbols,
+          inputUses,
+        ) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -281,10 +312,18 @@ function propertyUseIsAdmitted(
   source: TargetSourceProgram,
   node: Node,
   closedStorage: ReadonlySet<Node>,
-  transports?: InvocationTransportContract,
+  closedStorageSymbols: ReadonlyMap<Symbol, Node>,
+  inputUses?: CallableInputUseContract,
 ): boolean {
+  const transported = transportedCallableDestinations(
+    source,
+    node,
+    closedStorage,
+    closedStorageSymbols,
+    inputUses,
+  );
   return directContainingCall(source, node) !== undefined ||
-    isInvocationTransportInput(source, node, transports) ||
+    transported !== undefined ||
     isCallablePresenceObservation(source, node) ||
     isInitializerOfClosedStorage(source, node, closedStorage);
 }

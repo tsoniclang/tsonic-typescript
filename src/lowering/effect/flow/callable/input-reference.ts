@@ -3,10 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import {
-  isInvocationTransportInput,
-  type InvocationTransportContract,
-} from "../../../invocation-transport.js";
+import type { CallableInputUseContract } from "./input-use.js";
 
 import { directContainingCall } from "../../model/syntax.js";
 import { exactSourceCallBindings } from "../invocation/call-binding.js";
@@ -22,7 +19,7 @@ export function indexParameterUses(
   parameters: Iterable<Node>,
   destinations: ReadonlySet<Node>,
   program: TargetProgramIndex,
-  transports?: InvocationTransportContract,
+  inputUses?: CallableInputUseContract,
 ): ParameterUses {
   const tracked = new Set(parameters);
   const allDeclarations = new Set([...tracked, ...destinations]);
@@ -44,9 +41,21 @@ export function indexParameterUses(
       append(assignedValues, parameter, assigned);
       continue;
     }
+    const transported = transportedCallableDestinations(
+      source,
+      node,
+      allDeclarations,
+      symbols,
+      inputUses,
+    );
+    if (transported !== undefined) {
+      for (const destination of transported) {
+        appendSet(dependencies, parameter, destination);
+      }
+      continue;
+    }
     if (
       directContainingCall(source, node) !== undefined ||
-      isInvocationTransportInput(source, node, transports) ||
       isCallablePresenceObservation(source, node)
     ) {
       continue;
@@ -72,6 +81,39 @@ export function indexParameterUses(
     Object.freeze(values);
   }
   return { dependencies, invalid, assignedValues };
+}
+
+export function transportedCallableDestinations(
+  source: TargetSourceProgram,
+  reference: Node,
+  declarations: ReadonlySet<Node>,
+  symbols: ReadonlyMap<Symbol, Node>,
+  inputUses: CallableInputUseContract | undefined,
+): readonly Node[] | undefined {
+  const use = inputUses?.useFor(reference);
+  if (use === undefined) {
+    return undefined;
+  }
+  if (use.kind === "terminal") {
+    return [];
+  }
+  const result = new Set<Node>();
+  for (const output of use.outputs) {
+    if (directContainingCall(source, output) !== undefined) {
+      continue;
+    }
+    const destination = trackedInputDestination(
+      source,
+      output,
+      declarations,
+      symbols,
+    );
+    if (destination === undefined) {
+      return undefined;
+    }
+    result.add(destination);
+  }
+  return Object.freeze([...result]);
 }
 
 function exactAssignedValue(
@@ -214,6 +256,15 @@ function append(target: Map<Node, Node[]>, key: Node, value: Node): void {
     target.set(key, [value]);
   } else {
     values.push(value);
+  }
+}
+
+function appendSet(target: Map<Node, Set<Node>>, key: Node, value: Node): void {
+  const values = target.get(key);
+  if (values === undefined) {
+    target.set(key, new Set([value]));
+  } else {
+    values.add(value);
   }
 }
 

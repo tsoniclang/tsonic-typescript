@@ -341,6 +341,23 @@ contracts to be consumed exactly once, and strict product typechecking proves
 the rewritten producer remains assignable to every rewritten consumer. A
 mutation that omits only the producer's nested return rewrite must fail that
 proof rather than ship a partially settled flow.
+Fixed-slot callable projection fixtures cover a direct tuple literal, an
+awaited tuple-producing call, conditional and checked-call forwarding, and two
+different callable slots where only the selected slot can settle. The paired
+mutations expose the aggregate, write one element, use a dynamic index, replace
+one direct return with a spread slot, or leave one producer contract
+unrewritten; each must retain the complete affected callable component. The
+bidirectional foils add an unprojected invocation of the same producer and an
+exported projected callable beside an otherwise closed invocation; both must
+retain the shared origin rather than let one closed use hide an escape. The
+same shared projection owner must continue to pass the return-value projection
+matrix, proving that callable flow did not introduce a second binding audit.
+Generic nominal-result fixtures return `RuntimeSlice<T>`,
+`RuntimeSlice<T> | undefined`, and a derived generic class whose inherited
+private readonly `then?: never` is independent of `T`; all must settle. Paired
+bare-type-parameter, callable-`then` type-parameter, and public structural
+`then?: never` mutations must retain. This proves generic containment is not a
+blanket boundary and that no generic member can forge nominal exclusion.
 The whole-product memory guard also distinguishes one canonical synchronous
 call closure from a dense contract-to-call reverse graph; retrying with a larger
 heap is not an accepted repair.

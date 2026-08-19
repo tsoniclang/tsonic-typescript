@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import {
   callableResultReturnRewrites,
   type CallableReturnRewrite,
@@ -12,65 +13,119 @@ import {
   transparentExpression,
 } from "../../model/syntax.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { createCallableProjectionInputs } from "./projection-inputs.js";
 
 export interface CallableResultInput {
   readonly declaration: Node;
   readonly expressions: readonly (Node | undefined)[];
   readonly returnTypes: readonly CallableReturnRewrite[];
+  readonly projectionConsumers?: readonly Node[];
 }
 
-export interface CallableResultInputs {
+export interface CallableResultSourceInput {
+  readonly declaration: Node;
+  readonly expressions: readonly (Node | undefined)[];
+}
+
+export interface CallableResultLookup {
+  sourceFor(expression: Node): CallableResultSourceInput | undefined;
   resultFor(expression: Node): CallableResultInput | undefined;
+}
+
+export interface CallableResultInputs extends CallableResultLookup {
+  projectionOutputsFor(reference: Node): readonly Node[] | undefined;
 }
 
 export function createCallableResultInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  projections: ExactAggregateProjectionIndex,
 ): CallableResultInputs {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
   const returnTypes = new Map<
     Node,
     readonly CallableReturnRewrite[] | null
   >();
+  const sources = new Map<Node, CallableResultSourceInput | null>();
   const results = new Map<Node, CallableResultInput | null>();
-  return Object.freeze({
+  const sourceFor = (
+    expression: Node,
+  ): CallableResultSourceInput | undefined => {
+    const existing = sources.get(expression);
+    if (existing !== undefined) {
+      return existing ?? undefined;
+    }
+    const selected = selectedCall(source, expression);
+    if (selected === undefined) {
+      sources.set(expression, null);
+      return undefined;
+    }
+    const declaration = resolveProjectInvocation(source, selected.call)
+      ?.implementation;
+    if (
+      declaration === undefined ||
+      !source.navigation.isProjectDeclaration(declaration) ||
+      !callableDispatchIsClosed(source, program, declaration) ||
+      program.hasBindingWrite(declaration) ||
+      (source.ast.hasModifierKind(declaration, "async") && !selected.awaited)
+    ) {
+      sources.set(expression, null);
+      return undefined;
+    }
+    let expressions = returns.get(declaration);
+    if (expressions === undefined) {
+      expressions = directReturnExpressions(source, declaration) ?? null;
+      returns.set(declaration, expressions);
+    }
+    const result = expressions === null
+      ? undefined
+      : Object.freeze({ declaration, expressions });
+    sources.set(expression, result ?? null);
+    return result;
+  };
+  const directResults: CallableResultLookup = Object.freeze({
+    sourceFor,
     resultFor(expression: Node): CallableResultInput | undefined {
       const existing = results.get(expression);
       if (existing !== undefined) {
         return existing ?? undefined;
       }
-      const selected = selectedCall(source, expression);
-      if (selected === undefined) {
+      const input = sourceFor(expression);
+      if (input === undefined) {
         results.set(expression, null);
         return undefined;
       }
-      const declaration = resolveProjectInvocation(source, selected.call)
-        ?.implementation;
-      if (
-        declaration === undefined ||
-        !source.navigation.isProjectDeclaration(declaration) ||
-        !callableDispatchIsClosed(source, program, declaration) ||
-        program.hasBindingWrite(declaration) ||
-        (source.ast.hasModifierKind(declaration, "async") && !selected.awaited)
-      ) {
-        results.set(expression, null);
-        return undefined;
-      }
-      let expressions = returns.get(declaration);
-      if (expressions === undefined) {
-        expressions = directReturnExpressions(source, declaration) ?? null;
-        returns.set(declaration, expressions);
-      }
-      let rewrites = returnTypes.get(declaration);
+      let rewrites = returnTypes.get(input.declaration);
       if (rewrites === undefined) {
-        rewrites = callableResultReturnRewrites(source, declaration) ?? null;
-        returnTypes.set(declaration, rewrites);
+        rewrites = callableResultReturnRewrites(source, input.declaration) ??
+          null;
+        returnTypes.set(input.declaration, rewrites);
       }
-      const result = expressions === null || rewrites === null
+      const result = rewrites === null
         ? undefined
-        : Object.freeze({ declaration, expressions, returnTypes: rewrites });
+        : Object.freeze({
+            declaration: input.declaration,
+            expressions: input.expressions,
+            returnTypes: rewrites,
+          });
       results.set(expression, result ?? null);
       return result;
+    },
+  });
+  const projectedResults = createCallableProjectionInputs(
+    source,
+    program,
+    projections,
+    directResults,
+  );
+  return Object.freeze({
+    sourceFor,
+    resultFor(expression: Node): CallableResultInput | undefined {
+      return directResults.resultFor(expression) ??
+        projectedResults.resultFor(expression);
+    },
+    projectionOutputsFor(reference: Node): readonly Node[] | undefined {
+      return projectedResults.outputsFor(reference);
     },
   });
 }
