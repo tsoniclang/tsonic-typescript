@@ -2,6 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import { isFunctionLike } from "../../model/syntax.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 export function projectConstructionIsDefinitelyNonThenable(
   source: TargetSourceProgram,
@@ -12,8 +13,7 @@ export function projectConstructionIsDefinitelyNonThenable(
   if (semantics.couldContainTypeVariables(type)) {
     return false;
   }
-  const signature = semantics.getResolvedSignature(expression);
-  const constructor = semantics.getSignatureDeclaration(signature);
+  const constructor = resolveProjectInvocation(source, expression)?.implementation;
   if (
     constructor === undefined ||
     !source.ast.is.IsConstructorDeclaration(constructor) ||

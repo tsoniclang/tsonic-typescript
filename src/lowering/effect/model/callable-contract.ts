@@ -71,6 +71,77 @@ export function callableResultReturnRewrites(
   return callable === true ? Object.freeze(result) : undefined;
 }
 
+export function callableProjectedResultReturnRewrites(
+  source: TargetSourceProgram,
+  declaration: Node,
+  index: number,
+): readonly CallableReturnRewrite[] | undefined {
+  let resultType = source.ast.typeNode(declaration);
+  if (resultType === undefined) {
+    return undefined;
+  }
+  if (source.ast.hasModifierKind(declaration, "async")) {
+    const outer = callableReturnRewrite(source, resultType);
+    if (outer?.selection.kind !== "type-argument") {
+      return undefined;
+    }
+    resultType = source.ast.typeArguments(resultType)[outer.selection.index];
+    if (resultType === undefined) {
+      return undefined;
+    }
+  }
+  const projected = fixedTupleElementType(source, resultType, index);
+  if (projected === undefined) {
+    return undefined;
+  }
+  const result: CallableReturnRewrite[] = [];
+  const callable = collectCallableResultRewrites(source, projected, result);
+  return callable === true ? Object.freeze(result) : undefined;
+}
+
+function fixedTupleElementType(
+  source: TargetSourceProgram,
+  node: Node,
+  index: number,
+): Node | undefined {
+  let current = node;
+  while (source.ast.is.IsParenthesizedTypeNode(current)) {
+    const inner = source.ast.as.AsParenthesizedTypeNode(current)?.Type;
+    if (inner === undefined) {
+      return undefined;
+    }
+    current = inner;
+  }
+  if (
+    source.ast.is.IsTypeOperatorNode(current) &&
+    source.ast.operatorKindName(current) === "KindReadonlyKeyword"
+  ) {
+    const inner = source.ast.as.AsTypeOperatorNode(current)?.Type;
+    if (inner === undefined) {
+      return undefined;
+    }
+    current = inner;
+  }
+  if (!source.ast.is.IsTupleTypeNode(current)) {
+    return undefined;
+  }
+  const selected = source.ast.elements(current)[index];
+  if (selected === undefined) {
+    return undefined;
+  }
+  if (source.ast.is.IsNamedTupleMember(selected)) {
+    const named = source.ast.as.AsNamedTupleMember(selected);
+    return named?.DotDotDotToken === undefined &&
+        named?.QuestionToken === undefined
+      ? named?.Type
+      : undefined;
+  }
+  return source.ast.is.IsOptionalTypeNode(selected) ||
+      source.ast.is.IsRestTypeNode(selected)
+    ? undefined
+    : selected;
+}
+
 function collectCallableResultRewrites(
   source: TargetSourceProgram,
   node: Node,

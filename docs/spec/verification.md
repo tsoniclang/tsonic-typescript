@@ -133,22 +133,50 @@ implementations, inherited interfaces and implementations, distinct
 same-shaped interfaces, generic transports, cross-file edges, synchronous plus
 settling implementations, and calls sharing one line. A same-shaped class with
 no checked value transport into the interface must not join the family.
-It also transports one exact declaration-file synchronous interface into a
-project Awaitable interface and contrasts declaration-file Awaitable/Promise,
-generic-unresolved, and implementation-file ambient counterparts; only the
-fully synchronous external contract may settle.
+It also transports exact declaration-file synchronous concrete and interface
+types into a project Awaitable interface and contrasts declaration-file
+Awaitable/Promise, generic-unresolved, and implementation-file ambient
+counterparts; only a fully synchronous exact external contract may settle.
 Nested-transport fixtures contrast two exact project carriers preserving the
 same contract identity with a carrier changing contract identity and an
 ambient consumer. Only the exact project-body transport may settle; mutating
 either side to the unmatched or ambient form must retain the family.
+The nested matrix recursively covers exact union members, tuples, arrays,
+matching generic arguments, callable parameters/results, optional properties,
+and string/number index signatures. Mutations drop or duplicate one selected
+union member, alter one type argument, make an optional target required,
+remove a property provider, substitute an incompatible index domain, or make a
+callable result thenable; each must retain the reached contract at the nested
+member/callable owner rather than flattening the type to a mention set.
+Callable-result fixtures additionally pair `Promise<T>` with
+`T | PromiseLike<T>` through the one exact direct payload. Mutations introduce
+a second fulfillment payload, an ambiguous thenable signature, `any`,
+`unknown`, or an unresolved type variable; each must retain rather than erase
+effect packaging approximately.
+The nested callable matrix includes a contravariant member whose interface is
+on the source side and exact concrete implementation is on the target side. A
+mutation that records implementations only in the forward orientation must
+retain that family as `untrusted-callable-member` and fail.
 Capability fixtures pass an immediate adapter resolver whose external factory
 result exposes the project type only through call and construct signatures;
 that mention must not become value ingress. A mutation that restores generic-
 argument-as-value classification retains the family. Counter-fixtures place an
-interface in a readable property returned by the same opaque provider and in a
-parameter of an outward project callback; both must retain at the opaque
-transport gate. A mutation that treats either readable data or callable input
-as capability-only must settle incorrectly and fail.
+interface in a readable provider result and in a parameter of an outward
+project callback. The callback case pre-collects exact project parameter roots
+and retains only when that parameter reaches interface dispatch, project
+forwarding, or writable storage; a no-use callback must settle, while direct
+and forwarded dispatch must retain independently of source order. A mutation
+that restores whole-signature poisoning makes the no-use case fail; a mutation
+that drops opaque-root propagation makes the dispatch cases fail. A bodyless,
+overloaded-ambiguous, or inexactly bound callback remains conservative.
+Directional
+fixtures contrast fresh outbound literals and shared readonly aggregates with
+shared writable properties, indexes, and sequences. The first two cannot
+receive a replacement interface value and may settle; every writable or
+provider-invoked path must retain. Mutations reverse one direction, drop
+readonly evidence, reuse fresh memoization for a shared value, or treat
+callable input as capability-only; each must settle or retain incorrectly and
+fail.
 One-way erasure fixtures pass a fresh array literal to an opaque callable, then
 contrast that case with a shared typed array and with a fresh literal assigned
 to erased storage and later recovered directly or through an opaque identity.
@@ -156,10 +184,26 @@ The outbound-only literal may settle; every recovered path must retain. Ingress
 fixtures independently cover an opaque result, a user refinement, ambient
 property and element access, an inferred ambient alias, and a project function
 returning ambient storage. A paired exact project object/property path must
-still settle. Mutations that replace the project root with any ambient source,
-remove the re-entry check, or classify the selected property without its owner
-must fail at the interface-origin gate. These proofs establish that freshness
-is never a general storage or alias exemption.
+still settle. A project class value entering an interface exercises its checked
+static side independently from `new` and its instance side. Mutations that
+replace the project root with any ambient source, trust a user refinement,
+confuse class static and instance types, remove the re-entry check, or classify
+the selected property without its owner must fail at the interface-origin
+gate. These proofs establish that freshness and control-flow narrowing are
+never general storage or alias exemptions.
+Composite-origin fixtures additionally cover conditional, nullish/logical,
+comma and simple-assignment expressions, array elements, object properties,
+shorthand properties, and object spread. Every value-producing branch must
+prove the same reached contract. Replacing one branch with an ambient value,
+dropping one object value, or treating a method/accessor declaration as stored
+data must fail at `unproven-value-origin`.
+
+Resolved-call fixtures exact-join ordinary arguments, fixed tuple spreads,
+variadic tuple spreads, and open sequence spreads into rest parameters. The
+authored argument set, effective argument ordinals, spread-element ordinals,
+parameter indexes, and parameter forms are all consumed. Mutations omit,
+duplicate, reorder, or retarget one binding and must retain the affected
+contract as `inexact-call-bindings`; no syntax-derived fallback may pass.
 The generated-storage fixture initializes an optional interface to undefined,
 then assigns one exact project implementation and reads it through a certified
 pointer load guarded by `pointer ?? neverReturningFailure()`. The family must
@@ -184,10 +228,22 @@ Evidence reports contract, implementation-edge, settled-family, retained-family,
 settled-callable, and settled-await counts separately. The family denominator
 must exact-partition into settled and retained rows, including rejected
 families. Every retained row carries all contract occurrence identities, its
-call count, and one closed typed owner reason; a mutation that drops rejected
-families from the retained denominator or erases one reason fails the evidence
-gate. Every interface-boundary cause is independently source-located; replacing
-the cause ledger with a boolean set or dropping one cause fails the same gate.
+call count, one closed typed owner reason, and its closed boundary-reason set; a
+mutation that drops rejected families from the retained denominator or erases
+one reason fails the evidence gate. The boundary ledger independently counts
+every unique source occurrence per reason while retaining at most eight
+canonical examples. Mutations that replace the ledger with a boolean, spread
+one root boundary to an unrelated contract, duplicate one occurrence across
+families, drop a cause, change an exact count, retain raw occurrence nodes, or
+exceed the example bound fail the same gate.
+Every product checkpoint also reports family and occurrence counts for
+`unproven-value-origin`, `unmatched-nested-contract`,
+`opaque-call-transport`, `untrusted-callable-member`,
+`missing-transport-member`, and `inexact-call-bindings`, plus generated
+`async` and `await` syntax counts, against the frozen parent artifact. A
+reduction is accepted only with the focused positive and adversarial proofs
+above; a retained residual is evidence, not a reason to remove `Promise`
+syntax heuristically.
 The construction matrix repeats that proof through inheritance and contrasts a
 derived nominal result with public-structural and unmarked bases. Callable
 `then`, `any`, `unknown`, generic, union, intersection, and hidden-thenable
@@ -203,12 +259,60 @@ each preserves every affected async callable. A project carrier that later
 escapes must invalidate the enclosed owner, while the same carrier wholly
 inside the checked program remains eligible. Pointer transport permission
 comes from validated operation facts, never marker spelling.
+Resolved-call fixtures exact-join ordinary, overloaded, rest-bearing, tuple-
+spread, and sequence-spread calls to the selected contract. A callback bound
+to one ordinary implementation parameter must remain provable when a separate
+rest slot is unresolved. Mutations change the selected declaration, source or
+effective argument index, parameter index, spread form, spread element index,
+binding order, or call identity; each must fail closed at the shared call-
+binding owner. Broad searches must find no effect consumer reconstructing an
+argument-to-parameter relation by positional array indexing.
 An interface-bearing pointer-load fixture must settle only when the exact
 pointer plan supplies the storage-owner transport and every certified
 result-input origin is closed. Running the identical checked source without
 that transport must retain the interface family and its cooperative effects;
 this mutation proves that declaration shape and marker spelling cannot grant
 permission.
+Pointer bind/project fixtures additionally prove both halves of the contract:
+their exact callbacks are not opaque escapes, while their results acquire no
+fabricated origin. Removing the selected pointer fact must restore opaque
+retention; adding a callback as a result origin must fail the negative result-
+provenance fixture.
+Closed abstract-dispatch fixtures use a nominal generic carrier with one
+abstract write and one abstract read. Exact checked heritage, receiver origin,
+implementation membership, argument ingress, implementation return flow, and
+result-carrier provenance must settle the enclosed callable and its caller.
+Mutations replace the implementation return with ambient input, source the
+receiver externally, remove one project body, add an unresolved subclass, or
+substitute an unrelated same-shaped concrete member; every mutation retains
+the complete component. Artifact inspection also requires transport on exactly
+the selected abstract calls and none on the same-spelled control. No runtime or
+generated declaration name may participate in selection.
+Provider-transport fixtures load a sealed provider manifest through the public
+target option, bind an ordinary installed-package declaration through the
+checker, and inspect facts on exact selected call declarations. Direct callback
+ingress and result origins must settle while a same-spelled local declaration
+and the same member named in another declaration file remain opaque. Stateful
+fixtures store two callable values through one project carrier and read them
+back through multiple calls; both origins must be conserved. Mutations change
+the manifest digest, section schema, declaration path, or target type; duplicate
+an owner; use an unrecognized carrier operation; reassign or escape the carrier;
+or substitute an ambient carrier. Each mutation must retain or fail before
+rewriting, with no partial output.
+A provider-boundary mutation removes the selected declaration file from the
+semantic program while preserving the exact checked call and an incomplete
+provider record. The generic callable owner must retain the flow without ever
+querying that excluded declaration, proving certified provider transport is
+the sole cross-boundary route. The paired included declaration-file fixture
+must continue settling an exact bodyless non-thenable callable widened into
+awaitable local storage; this proves boundary exclusion does not erase the
+separate trusted-contract path.
+A generic provider callback whose checked concrete input implements a project
+interface must settle the callback, interface implementation, and interface
+call only when its exact provider invocation record is present before
+interface ingress. Removing that record must retain all three at
+`opaque-call-transport`. This mutation proves plan assembly cannot defer
+fact-owned transport until after interface-family admission.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as
@@ -251,6 +355,23 @@ contracts to be consumed exactly once, and strict product typechecking proves
 the rewritten producer remains assignable to every rewritten consumer. A
 mutation that omits only the producer's nested return rewrite must fail that
 proof rather than ship a partially settled flow.
+Fixed-slot callable projection fixtures cover a direct tuple literal, an
+awaited tuple-producing call, conditional and checked-call forwarding, and two
+different callable slots where only the selected slot can settle. The paired
+mutations expose the aggregate, write one element, use a dynamic index, replace
+one direct return with a spread slot, or leave one producer contract
+unrewritten; each must retain the complete affected callable component. The
+bidirectional foils add an unprojected invocation of the same producer and an
+exported projected callable beside an otherwise closed invocation; both must
+retain the shared origin rather than let one closed use hide an escape. The
+same shared projection owner must continue to pass the return-value projection
+matrix, proving that callable flow did not introduce a second binding audit.
+Generic nominal-result fixtures return `RuntimeSlice<T>`,
+`RuntimeSlice<T> | undefined`, and a derived generic class whose inherited
+private readonly `then?: never` is independent of `T`; all must settle. Paired
+bare-type-parameter, callable-`then` type-parameter, and public structural
+`then?: never` mutations must retain. This proves generic containment is not a
+blanket boundary and that no generic member can forge nominal exclusion.
 The whole-product memory guard also distinguishes one canonical synchronous
 call closure from a dense contract-to-call reverse graph; retrying with a larger
 heap is not an accepted repair.
@@ -348,6 +469,13 @@ guard. Evidence separates semantic checking, index construction, each family
 planner, rewriting, encoding, printer transfer, strict typecheck, startup, and
 runtime. It reports wall time, peak RSS, source/JavaScript bytes, module count,
 allocations when available, and selected/retained denominators.
+
+Focused semantic fixtures also run one test file per guarded process so a
+single failed shape cannot retain every checker graph in the batch. Assertions
+over semantic evidence report closed identities, reason names, and bounded
+counts; they never ask the test framework to render raw TS-Go nodes or checker
+objects, whose cyclic graphs can turn one ordinary mismatch into an
+out-of-memory failure.
 
 Performance comparisons use pinned tools, immutable fixtures, warmup policy,
 and at least three isolated samples. The target reports absolute values and

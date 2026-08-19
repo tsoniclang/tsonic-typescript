@@ -17,8 +17,9 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import { isTransparentParent } from "../callable/input-reference.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import {
   collectStorageOwnerCarriers,
   emptyStorageOwnerMembership,
@@ -46,7 +47,7 @@ export function auditStorageOwnerBoundaries(
   bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
   validateStoredValues: boolean,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
 ): void {
   if (owners.size === 0) {
     return;
@@ -70,7 +71,7 @@ export function auditStorageOwnerBoundaries(
   if (validateStoredValues) {
     rejectOpenStorageValues(source, bindings, owners);
   }
-  auditStorageOwnerIngress(source, program, ownersFor, invalid);
+  auditStorageOwnerIngress(source, program, ownersFor, invalid, transports);
   auditInvocations(
     source,
     program,
@@ -108,22 +109,15 @@ function auditInvocations(
   typeOwners: Map<Type, StorageOwnerMembership>,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
-  transports: StorageOwnerTransportContract | undefined,
+  transports: InvocationTransportContract | undefined,
 ): void {
   for (const node of program.nodesOfKinds([
     KindCallExpression,
     KindNewExpression,
   ])) {
     const semantics = source.semantics.forNode(node);
-    const declaration = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(node),
-    );
     const resultOwners = ownersFor(node);
-    const projectInvocation = invocationHasProjectImplementation(
-      source,
-      node,
-      declaration,
-    );
+    const projectInvocation = invocationHasProjectImplementation(source, node);
     const transport = transports?.transportFor(node);
     if (!projectInvocation && transport === undefined) {
       for (const owner of resultOwners) {
@@ -131,7 +125,12 @@ function auditInvocations(
       }
     } else if (!projectInvocation && transport !== undefined) {
       for (const owner of resultOwners) {
-        if (!transport.resultInputs.some((input) => ownersFor(input).includes(owner))) {
+        if (
+          transport.resultOriginExpressions === undefined ||
+          !transport.resultOriginExpressions.some((input) =>
+            ownersFor(input).includes(owner)
+          )
+        ) {
           invalid.add(owner);
         }
       }
@@ -146,7 +145,7 @@ function auditInvocations(
         continue;
       }
       for (const owner of carried) {
-        if (transport?.inputs.includes(argument)) {
+        if (transport?.inputExpressions.includes(argument)) {
           continue;
         }
         const contextual = semantics.selectContextualValueType(argument);
@@ -443,9 +442,13 @@ function declarationHasProjectBody(
 function invocationHasProjectImplementation(
   source: TargetSourceProgram,
   invocation: Node,
-  declaration: Node | undefined,
 ): boolean {
-  if (declarationHasProjectBody(source, declaration)) {
+  if (
+    declarationHasProjectBody(
+      source,
+      resolveProjectInvocation(source, invocation)?.implementation,
+    )
+  ) {
     return true;
   }
   if (!source.ast.is.IsNewExpression(invocation)) {

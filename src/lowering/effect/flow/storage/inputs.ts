@@ -10,7 +10,12 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { CallableInputUseContract } from "../callable/input-use.js";
+import {
+  exactSourceCallImplementationInputs,
+  type ExactSourceCallImplementationInputs,
+} from "../invocation/call-binding.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 import {
   callableDeclarationAllowsSynchronousValue,
@@ -23,6 +28,7 @@ import {
   isCallablePresenceObservation,
   isTransparentParent,
   trackedInputDestination,
+  transportedCallableDestinations,
 } from "../callable/input-reference.js";
 import type { ParameterUses } from "../callable/input-reference.js";
 import {
@@ -57,16 +63,11 @@ interface ReferenceCounts {
   admitted: number;
 }
 
-interface Invocation {
-  readonly declaration: Node;
-  readonly arguments: readonly Node[];
-}
-
 export function collectCallableStorageInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   excludedDeclarations: ReadonlySet<Node>,
-  transports?: StorageOwnerTransportContract,
+  inputUses?: CallableInputUseContract,
 ): CallableStorageInputs {
   const callableFields = collectCallableFields(source, program);
   const fields = callableFields.declarations;
@@ -90,25 +91,45 @@ export function collectCallableStorageInputs(
       [...values],
     ]),
   );
-  const invalidOwners = new Set<Node>();
+  const invalidInputs = new Set<Node>();
 
   for (const node of program.nodesOfKinds([
     KindCallExpression,
     KindNewExpression,
   ])) {
-    const invocation = invocationAt(source, node);
+    const invocation = exactSourceCallImplementationInputs(source, node);
     if (invocation === undefined) {
+      const declaration = resolveProjectInvocation(source, node)?.implementation;
+      if (
+        declaration !== undefined &&
+        source.ast.parameters(declaration).some((parameter) =>
+          parameter !== undefined &&
+          (parameters.has(parameter) || fields.has(parameter))
+        )
+      ) {
+        for (const parameter of source.ast.parameters(declaration)) {
+          if (
+            parameter !== undefined &&
+            (parameters.has(parameter) || fields.has(parameter))
+          ) {
+            invalidInputs.add(parameter);
+          }
+        }
+      }
       continue;
     }
     collectInvocationInputs(
-      source,
       invocation,
       parameters,
       fields,
       parameterValues,
       fieldValues,
-      invalidOwners,
     );
+    for (const parameter of invocation.unresolvedParameters) {
+      if (parameters.has(parameter) || fields.has(parameter)) {
+        invalidInputs.add(parameter);
+      }
+    }
   }
 
   const parameterClosure = closeParameters(
@@ -116,8 +137,9 @@ export function collectCallableStorageInputs(
     parameters,
     fields,
     locals,
-    invalidOwners,
+    invalidInputs,
     program,
+    inputUses,
   );
   for (const [parameter, assigned] of parameterClosure.uses.assignedValues) {
     for (const value of assigned) {
@@ -149,6 +171,7 @@ export function collectCallableStorageInputs(
       storageDeclarations,
       storageSymbols,
       storageDestinations,
+      inputUses,
     );
     auditCallableLocalUse(
       source,
@@ -158,16 +181,20 @@ export function collectCallableStorageInputs(
       storageDeclarations,
       storageSymbols,
       storageDestinations,
+      inputUses,
     );
   }
-  const validFields = callableFields.close(fieldValues, transports);
+  const validFields = callableFields.close(
+    fieldValues,
+    inputUses?.invocationTransports,
+  );
 
   const candidateFields = new Set<Node>();
   for (const [field, counts] of fieldCounts) {
     const constructor = source.ast.parent(field);
     if (
       constructor !== undefined &&
-      !invalidOwners.has(constructor) &&
+      !invalidInputs.has(field) &&
       counts.total === counts.admitted &&
       counts.admitted !== 0 &&
       fieldValues.has(field) &&
@@ -273,36 +300,13 @@ function collectCallableParameters(
 }
 
 function collectInvocationInputs(
-  source: TargetSourceProgram,
-  invocation: Invocation,
+  invocation: ExactSourceCallImplementationInputs,
   trackedParameters: ReadonlyMap<Node, Node>,
   trackedFields: ReadonlySet<Node>,
   parameterValues: Map<Node, Node[]>,
   fieldValues: Map<Node, Node[]>,
-  invalidOwners: Set<Node>,
 ): void {
-  const parameters = source.ast.parameters(invocation.declaration);
-  if (
-    invocation.arguments.some((argument) => source.ast.is.IsSpreadElement(argument)) ||
-    parameters.some((parameter) =>
-      source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined
-    )
-  ) {
-    invalidOwners.add(invocation.declaration);
-    return;
-  }
-  for (let index = 0; index < parameters.length; index += 1) {
-    const parameter = parameters[index];
-    const argument = invocation.arguments[index];
-    if (parameter === undefined) {
-      continue;
-    }
-    if (argument === undefined) {
-      if (trackedParameters.has(parameter) || trackedFields.has(parameter)) {
-        invalidOwners.add(invocation.declaration);
-      }
-      continue;
-    }
+  for (const [parameter, argument] of invocation.inputs) {
     if (trackedParameters.has(parameter)) {
       append(parameterValues, parameter, argument);
     }
@@ -317,8 +321,9 @@ function closeParameters(
   parameters: ReadonlyMap<Node, Node>,
   fields: ReadonlySet<Node>,
   locals: ReadonlySet<Node>,
-  invalidOwners: ReadonlySet<Node>,
+  invalidParameters: ReadonlySet<Node>,
   program: TargetProgramIndex,
+  inputUses?: CallableInputUseContract,
 ): ClosedParameters {
   const ownerCounts = new Map<Node, ReferenceCounts>();
   for (const owner of parameters.values()) {
@@ -330,13 +335,19 @@ function closeParameters(
     KindPropertyAccessExpression,
     KindElementAccessExpression,
   ])) {
-    auditCallableOwnerReference(source, node, ownerCounts, ownerSymbols);
+    auditCallableOwnerReference(
+      source,
+      node,
+      ownerCounts,
+      ownerSymbols,
+      inputUses,
+    );
   }
   const closed = new Set<Node>();
   for (const [parameter, owner] of parameters) {
     const counts = ownerCounts.get(owner);
     if (
-      !invalidOwners.has(owner) &&
+      !invalidParameters.has(parameter) &&
       counts !== undefined &&
       counts.total === counts.admitted &&
       counts.admitted !== 0
@@ -349,6 +360,7 @@ function closeParameters(
     parameters.keys(),
     new Set([...fields, ...locals]),
     program,
+    inputUses,
   );
   for (const parameter of uses.invalid) {
     closed.delete(parameter);
@@ -368,6 +380,7 @@ function auditCallableOwnerReference(
   node: Node,
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   trackedSymbols: ReadonlyMap<Symbol, Node>,
+  inputUses?: CallableInputUseContract,
 ): void {
   let declaration: Node | undefined;
   let reference: Node | undefined;
@@ -400,10 +413,11 @@ function auditCallableOwnerReference(
   const call = directContainingCall(source, reference);
   const selected = call === undefined
     ? undefined
-    : source.semantics.forNode(call).getSignatureDeclaration(
-        source.semantics.forNode(call).getResolvedSignature(call),
-      );
-  if (selected === declaration) {
+    : resolveProjectInvocation(source, call)?.implementation;
+  if (
+    selected === declaration ||
+    inputUses?.useFor(reference) !== undefined
+  ) {
     counts.admitted += 1;
   }
 }
@@ -417,6 +431,7 @@ function auditFieldUse(
   storageDeclarations: ReadonlySet<Node>,
   storageSymbols: ReadonlyMap<Symbol, Node>,
   destinations: Map<Node, Set<Node>>,
+  inputUses?: CallableInputUseContract,
 ): void {
   const selected = source.ast.is.IsPropertyAccessExpression(node)
     ? source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
@@ -446,40 +461,27 @@ function auditFieldUse(
     storageDeclarations,
     storageSymbols,
   );
+  const transported = transportedCallableDestinations(
+    source,
+    node,
+    storageDeclarations,
+    storageSymbols,
+    inputUses,
+  );
   if (
     directContainingCall(source, node) !== undefined ||
     isCallablePresenceObservation(source, node) ||
-    destination !== undefined
+    destination !== undefined ||
+    transported !== undefined
   ) {
     counts.admitted += 1;
     if (destination !== undefined) {
       appendSet(destinations, field, destination);
     }
+    for (const transportedDestination of transported ?? []) {
+      appendSet(destinations, field, transportedDestination);
+    }
   }
-}
-
-function invocationAt(
-  source: TargetSourceProgram,
-  node: Node,
-): Invocation | undefined {
-  if (
-    !source.ast.is.IsCallExpression(node) &&
-    !source.ast.is.IsNewExpression(node)
-  ) {
-    return undefined;
-  }
-  const semantics = source.semantics.forNode(node);
-  const declaration = semantics.getSignatureDeclaration(
-    semantics.getResolvedSignature(node),
-  );
-  return declaration === undefined
-    ? undefined
-    : {
-        declaration,
-        arguments: source.ast.arguments(node).filter(
-          (argument): argument is Node => argument !== undefined,
-        ),
-      };
 }
 
 function exactAssignedValue(

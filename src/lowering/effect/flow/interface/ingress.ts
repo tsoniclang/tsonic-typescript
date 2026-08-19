@@ -1,7 +1,6 @@
 import type { Node, Type } from "@tsonic/tsts";
 import type {
   ResolvedSourceCallInfo,
-  SourceBindingWrite,
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api";
@@ -14,13 +13,32 @@ import {
 } from "./declarations.js";
 import { callCrossesOpaqueInterfaceBoundary } from "./transport-context.js";
 import {
-  exactReturnedCall,
-  successfulValueExpression,
-} from "../../model/syntax.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+  resolvedCallResultIsDefinitelyNonThenable,
+} from "../../model/synchronous.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InterfaceContractBoundaryLedger } from "./boundary.js";
 import type { InterfaceContractImplementationLedger } from "./implementations.js";
+import type { OpaqueInterfaceInputLedger } from "./opaque-inputs.js";
+import {
+  type CompositeValueAlternative,
+  compositeValueAlternatives,
+} from "./composite-origin.js";
+import {
+  declarationMayReceiveCheckedValues,
+  originDeclarationInitializer,
+  originDeclarationIsClosed,
+} from "./origin-declaration.js";
+import {
+  classValueOriginIsClosed,
+  exactBindingWriteInput,
+  expressionCannotSupplyImplementation,
+  successfulInterfaceValueExpression,
+  thisContainerOriginIsClosed,
+  thisValueOriginIsClosed,
+  typeHasCertifiedImplementation,
+  typeProvidesContract,
+} from "./ingress/origin-facts.js";
 
 export interface InterfaceContractIngress {
   readonly source: TargetSourceProgram;
@@ -29,7 +47,12 @@ export interface InterfaceContractIngress {
   readonly boundaries: InterfaceContractBoundaryLedger;
   readonly implementations: InterfaceContractImplementationLedger;
   readonly relevance: InterfaceContractRelevance;
-  readonly transports?: StorageOwnerTransportContract;
+  readonly opaqueInputs: OpaqueInterfaceInputLedger;
+  readonly transports?: InvocationTransportContract;
+}
+
+interface InterfaceOriginProbe {
+  opaqueInput: boolean;
 }
 
 export function retainUnprovenInterfaceIngress(
@@ -66,17 +89,30 @@ export function retainUnprovenInterfaceIngress(
     const sourceFile = declaration === undefined
       ? undefined
       : ingress.source.ast.getSourceFile(declaration);
+    const certifiedSource = targetContracts.every((contract) =>
+      ingress.implementations.typeProvidesContract(
+        semantics,
+        selectedSource,
+        contract,
+      )
+    );
     if (
-      declaration === undefined ||
-      sourceFile === undefined ||
-      !ingress.source.ast.is.IsInterfaceDeclaration(declaration) ||
-      !ingress.source.ast.isDeclarationFile(sourceFile)
+      !certifiedSource &&
+      (
+        declaration === undefined ||
+        sourceFile === undefined ||
+        !ingress.source.ast.is.IsInterfaceDeclaration(declaration) ||
+        !ingress.source.ast.isDeclarationFile(sourceFile)
+      )
     ) {
       for (const contract of targetContracts) {
-        if (!interfaceValueOriginIsClosed(expression, contract, ingress)) {
+        const probe: InterfaceOriginProbe = { opaqueInput: false };
+        if (!interfaceValueOriginIsClosed(expression, contract, ingress, probe)) {
           ingress.boundaries.mark(
             contract,
-            "unproven-value-origin",
+            probe.opaqueInput
+              ? "opaque-call-transport"
+              : "unproven-value-origin",
             expression,
           );
         }
@@ -85,10 +121,13 @@ export function retainUnprovenInterfaceIngress(
     return;
   }
   for (const contract of sourceContracts) {
-    if (!interfaceValueOriginIsClosed(expression, contract, ingress)) {
+    const probe: InterfaceOriginProbe = { opaqueInput: false };
+    if (!interfaceValueOriginIsClosed(expression, contract, ingress, probe)) {
       ingress.boundaries.mark(
         contract,
-        "unproven-value-origin",
+        probe.opaqueInput
+          ? "opaque-call-transport"
+          : "unproven-value-origin",
         expression,
       );
     }
@@ -110,22 +149,47 @@ export function retainOpenInterfaceReceiver(
   }
   const receiver = call.sourceReceiver?.expression ??
     call.sourceCalleeAccess?.receiver.expression;
+  const probe: InterfaceOriginProbe = { opaqueInput: false };
   if (
     receiver === undefined ||
-    !interfaceValueOriginIsClosed(receiver, declaration, ingress)
+    !interfaceValueOriginIsClosed(receiver, declaration, ingress, probe)
   ) {
     ingress.boundaries.mark(
       declaration,
       "open-interface-receiver",
       receiver ?? callNode,
     );
+    if (probe.opaqueInput) {
+      ingress.boundaries.mark(
+        declaration,
+        "opaque-call-transport",
+        receiver ?? callNode,
+      );
+    }
   }
+}
+
+export function interfaceValueOriginIsClosedForType(
+  semantics: SourceFileSemantics,
+  expression: Node,
+  type: Type,
+  ingress: InterfaceContractIngress,
+): boolean {
+  return ingress.relevance.valueContracts(semantics, type).every((contract) =>
+    interfaceValueOriginIsClosed(
+      expression,
+      contract,
+      ingress,
+      { opaqueInput: false },
+    )
+  );
 }
 
 function interfaceValueOriginIsClosed(
   value: Node,
   contract: Node,
   ingress: InterfaceContractIngress,
+  probe: InterfaceOriginProbe,
   seen: Set<Node> = new Set(),
 ): boolean {
   const expression = successfulInterfaceValueExpression(ingress.source, value);
@@ -145,51 +209,45 @@ function interfaceValueOriginIsClosed(
     const declaration = semantics.getResolvedPropertyAccessInfo(expression)
       ?.selectedDeclaration;
     const type = semantics.getTypeAtLocation(expression);
-    return declarationIsClosed(declaration, ingress) &&
+    return originDeclarationIsClosed(ingress.source, declaration) &&
       type !== undefined &&
       typeProvidesContract(semantics, type, contract, ingress) &&
       access?.Expression !== undefined &&
-      interfaceContainerOriginIsClosed(access.Expression, ingress, seen);
+      interfaceContainerOriginIsClosed(
+        access.Expression,
+        contract,
+        ingress,
+        probe,
+        seen,
+      );
   }
   if (ingress.source.ast.is.IsElementAccessExpression(expression)) {
+    const semantics = ingress.source.semantics.forNode(expression);
+    const access = semantics.getResolvedElementAccessInfo(expression);
     const owner = ingress.source.ast.as.AsElementAccessExpression(expression)
       ?.Expression;
-    return owner !== undefined &&
-      interfaceValueOriginIsClosed(owner, contract, ingress, seen);
+    const type = access?.sourceReadType ??
+      semantics.getTypeAtLocation(expression);
+    return access !== undefined &&
+      access.accessMode === "read" &&
+      owner !== undefined &&
+      access.receiver.expression === owner &&
+      type !== undefined &&
+      typeProvidesContract(semantics, type, contract, ingress) &&
+      interfaceContainerOriginIsClosed(owner, contract, ingress, probe, seen);
   }
-  if (ingress.source.ast.is.IsArrayLiteralExpression(expression)) {
-    for (const element of ingress.source.ast.elements(expression)) {
-      if (element === undefined) {
-        continue;
-      }
-      const semantics = ingress.source.semantics.forNode(element);
-      const type = semantics.getTypeAtLocation(element);
-      if (
-        type !== undefined &&
-        typeProvidesContract(semantics, type, contract, ingress) &&
-        !interfaceValueOriginIsClosed(element, contract, ingress, seen)
-      ) {
-        return false;
-      }
-    }
-    return true;
-  }
-  if (ingress.source.ast.is.IsConditionalExpression(expression)) {
-    const conditional = ingress.source.ast.as.AsConditionalExpression(expression);
-    return conditional?.WhenTrue !== undefined &&
-      conditional.WhenFalse !== undefined &&
-      interfaceValueOriginIsClosed(
-        conditional.WhenTrue,
+  const alternatives = compositeValueAlternatives(ingress.source, expression);
+  if (alternatives !== undefined) {
+    return alternatives !== null && alternatives.every((alternative) =>
+      compositeOriginBranchIsClosed(
+        alternative,
+        "value",
         contract,
         ingress,
+        probe,
         new Set(seen),
-      ) &&
-      interfaceValueOriginIsClosed(
-        conditional.WhenFalse,
-        contract,
-        ingress,
-        new Set(seen),
-      );
+      )
+    );
   }
   if (ingress.source.ast.is.IsNewExpression(expression)) {
     const semantics = ingress.source.semantics.forNode(expression);
@@ -199,19 +257,21 @@ function interfaceValueOriginIsClosed(
       : semantics.getSignatureDeclaration(call.selectedSignature) ??
         ingress.source.navigation.declarationFor(expression);
     const type = semantics.getTypeAtLocation(expression);
-    return declarationIsClosed(declaration, ingress) &&
+    return originDeclarationIsClosed(ingress.source, declaration) &&
       type !== undefined &&
       typeProvidesContract(semantics, type, contract, ingress);
   }
   if (ingress.source.ast.is.IsCallExpression(expression)) {
     const transport = ingress.transports?.transportFor(expression);
     if (transport !== undefined) {
-      return transport.resultInputs.length !== 0 &&
-        transport.resultInputs.every((input) =>
+      return transport.resultOriginExpressions !== undefined &&
+        transport.resultOriginExpressions.length !== 0 &&
+        transport.resultOriginExpressions.every((input) =>
           interfaceValueOriginIsClosed(
             input,
             contract,
             ingress,
+            probe,
             new Set(seen),
           )
         );
@@ -221,8 +281,26 @@ function interfaceValueOriginIsClosed(
     const declaration = call === undefined
       ? undefined
       : semantics.getSignatureDeclaration(call.selectedSignature);
-    return declaration !== undefined &&
-      !callCrossesOpaqueInterfaceBoundary(ingress.source, declaration);
+    return call !== undefined && declaration !== undefined &&
+      (
+        !callCrossesOpaqueInterfaceBoundary(
+          ingress.source,
+          declaration,
+          ingress.entries,
+        ) ||
+        (
+          resolvedCallResultIsDefinitelyNonThenable(
+            ingress.source,
+            expression,
+          ) &&
+          typeHasCertifiedImplementation(
+            semantics,
+            call.sourceResultType,
+            contract,
+            ingress,
+          )
+        )
+      );
   }
   if (
     ingress.source.ast.is.IsArrowFunction(expression) ||
@@ -238,15 +316,42 @@ function interfaceValueOriginIsClosed(
   const refinement = ingress.source.semantics.selectValueTypeRefinement(
     expression,
   );
+  if (refinement.kind !== "resolved") {
+    return false;
+  }
+  if (ingress.opaqueInputs.has(refinement.reference.declaration)) {
+    probe.opaqueInput = true;
+    return false;
+  }
   if (
-    refinement.kind !== "resolved" ||
-    !typeProvidesContract(
-      ingress.source.semantics.forNode(expression),
+    !originDeclarationIsClosed(
+      ingress.source,
+      refinement.reference.declaration,
+    )
+  ) {
+    return false;
+  }
+  const semantics = ingress.source.semantics.forNode(expression);
+  if (
+    ingress.source.ast.is.IsClassDeclaration(
+      refinement.reference.declaration,
+    ) ||
+    ingress.source.ast.is.IsClassExpression(refinement.reference.declaration)
+  ) {
+    return classValueOriginIsClosed(
+      semantics,
       refinement.declaredType,
       contract,
       ingress,
-    ) ||
-    !declarationIsClosed(refinement.reference.declaration, ingress)
+    );
+  }
+  if (
+    !typeProvidesContract(
+      semantics,
+      refinement.declaredType,
+      contract,
+      ingress,
+    )
   ) {
     return false;
   }
@@ -254,13 +359,16 @@ function interfaceValueOriginIsClosed(
     refinement.reference.declaration,
     contract,
     ingress,
+    probe,
     seen,
   );
 }
 
 function interfaceContainerOriginIsClosed(
   value: Node,
+  contract: Node,
   ingress: InterfaceContractIngress,
+  probe: InterfaceOriginProbe,
   seen: Set<Node>,
 ): boolean {
   const expression = successfulInterfaceValueExpression(ingress.source, value);
@@ -271,19 +379,38 @@ function interfaceContainerOriginIsClosed(
   if (ingress.source.ast.kind(expression) === KindThisKeyword) {
     return thisContainerOriginIsClosed(expression, ingress);
   }
+  const alternatives = compositeValueAlternatives(ingress.source, expression);
+  if (alternatives !== undefined) {
+    return alternatives !== null && alternatives.every((alternative) =>
+      compositeOriginBranchIsClosed(
+        alternative,
+        "container",
+        contract,
+        ingress,
+        probe,
+        new Set(seen),
+      )
+    );
+  }
   if (ingress.source.ast.is.IsPropertyAccessExpression(expression)) {
     const access = ingress.source.ast.as.AsPropertyAccessExpression(expression);
     const declaration = ingress.source.semantics.forNode(expression)
       .getResolvedPropertyAccessInfo(expression)?.selectedDeclaration;
-    return declarationIsClosed(declaration, ingress) &&
+    return originDeclarationIsClosed(ingress.source, declaration) &&
       access?.Expression !== undefined &&
-      interfaceContainerOriginIsClosed(access.Expression, ingress, seen);
+      interfaceContainerOriginIsClosed(
+        access.Expression,
+        contract,
+        ingress,
+        probe,
+        seen,
+      );
   }
   if (ingress.source.ast.is.IsElementAccessExpression(expression)) {
     const owner = ingress.source.ast.as.AsElementAccessExpression(expression)
       ?.Expression;
     return owner !== undefined &&
-      interfaceContainerOriginIsClosed(owner, ingress, seen);
+      interfaceContainerOriginIsClosed(owner, contract, ingress, probe, seen);
   }
   if (
     ingress.source.ast.is.IsArrowFunction(expression) ||
@@ -296,9 +423,16 @@ function interfaceContainerOriginIsClosed(
   if (ingress.source.ast.is.IsCallExpression(expression)) {
     const transport = ingress.transports?.transportFor(expression);
     if (transport !== undefined) {
-      return transport.resultInputs.length !== 0 &&
-        transport.resultInputs.every((input) =>
-          interfaceContainerOriginIsClosed(input, ingress, new Set(seen))
+      return transport.resultOriginExpressions !== undefined &&
+        transport.resultOriginExpressions.length !== 0 &&
+        transport.resultOriginExpressions.every((input) =>
+          interfaceContainerOriginIsClosed(
+            input,
+            contract,
+            ingress,
+            probe,
+            new Set(seen),
+          )
         );
     }
     const semantics = ingress.source.semantics.forNode(expression);
@@ -307,7 +441,11 @@ function interfaceContainerOriginIsClosed(
       ? undefined
       : semantics.getSignatureDeclaration(call.selectedSignature);
     return declaration !== undefined &&
-      !callCrossesOpaqueInterfaceBoundary(ingress.source, declaration);
+      !callCrossesOpaqueInterfaceBoundary(
+        ingress.source,
+        declaration,
+        ingress.entries,
+      );
   }
   if (ingress.source.ast.is.IsNewExpression(expression)) {
     const semantics = ingress.source.semantics.forNode(expression);
@@ -316,75 +454,59 @@ function interfaceContainerOriginIsClosed(
       ? ingress.source.navigation.declarationFor(expression)
       : semantics.getSignatureDeclaration(call.selectedSignature) ??
         ingress.source.navigation.declarationFor(expression);
-    return declarationIsClosed(declaration, ingress);
+    return originDeclarationIsClosed(ingress.source, declaration);
   }
   if (!ingress.source.ast.is.IsIdentifier(expression)) {
     return false;
   }
   const reference = ingress.source.navigation.sourceReferenceFor(expression);
-  if (!declarationIsClosed(reference?.declaration, ingress)) {
+  if (
+    reference !== undefined &&
+    ingress.opaqueInputs.has(reference.declaration)
+  ) {
+    probe.opaqueInput = true;
     return false;
   }
-  const initializer = declarationInitializer(
+  if (!originDeclarationIsClosed(ingress.source, reference?.declaration)) {
+    return false;
+  }
+  const initializer = originDeclarationInitializer(
     ingress.source,
     reference.declaration,
   );
   return initializer !== undefined
-    ? interfaceContainerOriginIsClosed(initializer, ingress, seen)
+    ? interfaceContainerOriginIsClosed(
+      initializer,
+      contract,
+      ingress,
+      probe,
+      seen,
+    )
     : declarationMayReceiveCheckedValues(ingress.source, reference.declaration);
-}
-
-function thisValueOriginIsClosed(
-  expression: Node,
-  contract: Node,
-  ingress: InterfaceContractIngress,
-): boolean {
-  const semantics = ingress.source.semantics.forNode(expression);
-  const type = semantics.getTypeAtLocation(expression);
-  return type !== undefined &&
-    typeProvidesContract(semantics, type, contract, ingress) &&
-    thisContainerOriginIsClosed(expression, ingress);
-}
-
-function successfulInterfaceValueExpression(
-  source: TargetSourceProgram,
-  value: Node,
-): Node | undefined {
-  const expression = successfulValueExpression(source, value);
-  return expression === undefined
-    ? undefined
-    : exactReturnedCall(source, expression) ?? expression;
-}
-
-function thisContainerOriginIsClosed(
-  expression: Node,
-  ingress: InterfaceContractIngress,
-): boolean {
-  const semantics = ingress.source.semantics.forNode(expression);
-  const type = semantics.getTypeAtLocation(expression);
-  const declaration = type === undefined
-    ? undefined
-    : interfaceContractTypeDeclaration(semantics, type);
-  return declarationIsClosed(declaration, ingress) &&
-    (
-      ingress.source.ast.is.IsClassDeclaration(declaration) ||
-      ingress.source.ast.is.IsClassExpression(declaration)
-    );
 }
 
 function declarationValueOriginIsClosed(
   declaration: Node,
   contract: Node,
   ingress: InterfaceContractIngress,
+  probe: InterfaceOriginProbe,
   seen: Set<Node>,
 ): boolean {
-  const initializer = declarationInitializer(ingress.source, declaration);
+  if (ingress.opaqueInputs.has(declaration)) {
+    probe.opaqueInput = true;
+    return false;
+  }
+  const initializer = originDeclarationInitializer(
+    ingress.source,
+    declaration,
+  );
   if (
     initializer !== undefined &&
     !interfaceValueOriginIsClosed(
       initializer,
       contract,
       ingress,
+      probe,
       new Set(seen),
     )
   ) {
@@ -402,6 +524,7 @@ function declarationValueOriginIsClosed(
           input,
           contract,
           ingress,
+          probe,
           new Set(seen),
         )
       ) {
@@ -413,89 +536,46 @@ function declarationValueOriginIsClosed(
   return declarationMayReceiveCheckedValues(ingress.source, declaration);
 }
 
-function exactBindingWriteInput(
-  source: TargetSourceProgram,
-  write: SourceBindingWrite,
-): Node | undefined {
-  if (
-    write.kind !== "assignment" ||
-    !source.ast.is.IsBinaryExpression(write.operation) ||
-    source.ast.operatorKindName(write.operation) !== "KindEqualsToken"
-  ) {
-    return undefined;
-  }
-  const assignment = source.ast.as.AsBinaryExpression(write.operation);
-  return assignment?.Left === write.reference ? assignment.Right : undefined;
-}
-
-function expressionCannotSupplyImplementation(
-  expression: Node,
-  ingress: InterfaceContractIngress,
-): boolean {
-  const semantics = ingress.source.semantics.forNode(expression);
-  const type = semantics.getTypeAtLocation(expression);
-  if (type === undefined) {
-    return false;
-  }
-  const selected = semantics.removeMissingOrUndefined(type);
-  return selected === undefined || semantics.isNever(selected);
-}
-
-function declarationMayReceiveCheckedValues(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  return source.ast.is.IsVariableDeclaration(declaration) ||
-    source.ast.is.IsPropertyDeclaration(declaration) ||
-    source.ast.is.IsParameterDeclaration(declaration) ||
-    source.ast.is.IsFunctionDeclaration(declaration) ||
-    source.ast.is.IsMethodDeclaration(declaration);
-}
-
-function declarationIsClosed(
-  declaration: Node | undefined,
-  ingress: InterfaceContractIngress,
-): declaration is Node {
-  if (
-    declaration === undefined ||
-    !ingress.source.navigation.isProjectDeclaration(declaration)
-  ) {
-    return false;
-  }
-  let current: Node | undefined = declaration;
-  while (current !== undefined) {
-    if (ingress.source.ast.hasModifierKind(current, "ambient")) {
-      return false;
-    }
-    if (ingress.source.ast.is.IsSourceFile(current)) {
-      return true;
-    }
-    current = ingress.source.ast.parent(current);
-  }
-  return false;
-}
-
-function declarationInitializer(
-  source: TargetSourceProgram,
-  declaration: Node,
-): Node | undefined {
-  if (source.ast.is.IsVariableDeclaration(declaration)) {
-    return source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
-  }
-  if (source.ast.is.IsPropertyDeclaration(declaration)) {
-    return source.ast.as.AsPropertyDeclaration(declaration)?.Initializer;
-  }
-  return source.ast.is.IsParameterDeclaration(declaration)
-    ? source.ast.as.AsParameterDeclaration(declaration)?.Initializer
-    : undefined;
-}
-
-function typeProvidesContract(
-  semantics: SourceFileSemantics,
-  type: Type,
+function valueOriginBranchIsClosed(
+  value: Node,
   contract: Node,
   ingress: InterfaceContractIngress,
+  probe: InterfaceOriginProbe,
+  seen: Set<Node>,
 ): boolean {
-  return ingress.relevance.contracts(semantics, type).includes(contract) ||
-    ingress.implementations.typeProvidesContract(semantics, type, contract);
+  const semantics = ingress.source.semantics.forNode(value);
+  const type = semantics.getTypeAtLocation(value);
+  return type !== undefined &&
+    (
+      !ingress.relevance.valueContracts(semantics, type).includes(contract) ||
+      interfaceValueOriginIsClosed(value, contract, ingress, probe, seen)
+    );
+}
+
+function compositeOriginBranchIsClosed(
+  alternative: CompositeValueAlternative,
+  inheritedRole: "value" | "container",
+  contract: Node,
+  ingress: InterfaceContractIngress,
+  probe: InterfaceOriginProbe,
+  seen: Set<Node>,
+): boolean {
+  const role = alternative.role === "same"
+    ? inheritedRole
+    : alternative.role;
+  return role === "container"
+    ? interfaceContainerOriginIsClosed(
+      alternative.expression,
+      contract,
+      ingress,
+      probe,
+      seen,
+    )
+    : valueOriginBranchIsClosed(
+      alternative.expression,
+      contract,
+      ingress,
+      probe,
+      seen,
+    );
 }

@@ -7,7 +7,11 @@ import {
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import {
+  exactSourceCallImplementationInputs,
+} from "../invocation/call-binding.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 import {
   declarationForSymbols,
@@ -47,7 +51,7 @@ interface MutableStorageBinding {
 export function createReturnStorageFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
 ): ReturnStorageFlow {
   const owners = collectClosedStorageOwners(source, program);
   const bindings = collectStorageBindings(source, owners);
@@ -170,33 +174,31 @@ function collectConstructorInputs(
   bindings: ReadonlyMap<Node, MutableStorageBinding>,
 ): void {
   for (const node of program.nodesOfKind(KindNewExpression)) {
-    const semantics = source.semantics.forNode(node);
-    const constructor = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(node),
-    );
+    const constructor = resolveProjectInvocation(source, node)?.implementation;
     if (constructor === undefined) {
       continue;
     }
-    const parameters = source.ast.parameters(constructor);
-    const arguments_ = source.ast.arguments(node);
-    const invalid = arguments_.some((argument) =>
-      source.ast.is.IsSpreadElement(argument)
-    ) || parameters.some((parameter) =>
-      source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined
-    );
-    for (let index = 0; index < parameters.length; index += 1) {
-      const parameter = parameters[index];
-      const binding = parameter === undefined ? undefined : bindings.get(parameter);
+    const invocation = exactSourceCallImplementationInputs(source, node);
+    if (invocation === undefined || invocation.declaration !== constructor) {
+      for (const parameter of source.ast.parameters(constructor)) {
+        const binding = parameter === undefined ? undefined : bindings.get(parameter);
+        if (binding !== undefined) {
+          binding.valid = false;
+        }
+      }
+      continue;
+    }
+    for (const [parameter, argument] of invocation.inputs) {
+      const binding = bindings.get(parameter);
       if (binding === undefined) {
         continue;
       }
-      if (invalid) {
+      binding.inputs.push(argument);
+    }
+    for (const parameter of invocation.unresolvedParameters) {
+      const binding = bindings.get(parameter);
+      if (binding !== undefined) {
         binding.valid = false;
-        continue;
-      }
-      const argument = arguments_[index];
-      if (argument !== undefined) {
-        binding.inputs.push(argument);
       }
     }
   }

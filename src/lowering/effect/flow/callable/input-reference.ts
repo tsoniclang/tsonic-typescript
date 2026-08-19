@@ -3,8 +3,10 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { CallableInputUseContract } from "./input-use.js";
 
 import { directContainingCall } from "../../model/syntax.js";
+import { exactSourceCallBindings } from "../invocation/call-binding.js";
 
 export interface ParameterUses {
   readonly dependencies: ReadonlyMap<Node, ReadonlySet<Node>>;
@@ -17,6 +19,7 @@ export function indexParameterUses(
   parameters: Iterable<Node>,
   destinations: ReadonlySet<Node>,
   program: TargetProgramIndex,
+  inputUses?: CallableInputUseContract,
 ): ParameterUses {
   const tracked = new Set(parameters);
   const allDeclarations = new Set([...tracked, ...destinations]);
@@ -36,6 +39,19 @@ export function indexParameterUses(
     const assigned = exactAssignedValue(source, node);
     if (assigned !== undefined) {
       append(assignedValues, parameter, assigned);
+      continue;
+    }
+    const transported = transportedCallableDestinations(
+      source,
+      node,
+      allDeclarations,
+      symbols,
+      inputUses,
+    );
+    if (transported !== undefined) {
+      for (const destination of transported) {
+        appendSet(dependencies, parameter, destination);
+      }
       continue;
     }
     if (
@@ -65,6 +81,39 @@ export function indexParameterUses(
     Object.freeze(values);
   }
   return { dependencies, invalid, assignedValues };
+}
+
+export function transportedCallableDestinations(
+  source: TargetSourceProgram,
+  reference: Node,
+  declarations: ReadonlySet<Node>,
+  symbols: ReadonlyMap<Symbol, Node>,
+  inputUses: CallableInputUseContract | undefined,
+): readonly Node[] | undefined {
+  const use = inputUses?.useFor(reference);
+  if (use === undefined) {
+    return undefined;
+  }
+  if (use.kind === "terminal") {
+    return [];
+  }
+  const result = new Set<Node>();
+  for (const output of use.outputs) {
+    if (directContainingCall(source, output) !== undefined) {
+      continue;
+    }
+    const destination = trackedInputDestination(
+      source,
+      output,
+      declarations,
+      symbols,
+    );
+    if (destination === undefined) {
+      return undefined;
+    }
+    result.add(destination);
+  }
+  return Object.freeze([...result]);
 }
 
 function exactAssignedValue(
@@ -121,17 +170,13 @@ export function trackedInputDestination(
       source.ast.is.IsCallExpression(parent) ||
       source.ast.is.IsNewExpression(parent)
     ) {
-      const index = source.ast.arguments(parent).indexOf(current);
-      if (index < 0) {
-        return undefined;
-      }
-      const semantics = source.semantics.forNode(parent);
-      const declaration = semantics.getSignatureDeclaration(
-        semantics.getResolvedSignature(parent),
+      const bindings = exactSourceCallBindings(source, parent)?.bindings.filter(
+        ({ argument, evidence }) =>
+          argument === current && evidence.sourceForm === "value",
       );
-      const destination = declaration === undefined
-        ? undefined
-        : source.ast.parameters(declaration)[index];
+      const destination = bindings?.length === 1
+        ? bindings[0]?.parameter
+        : undefined;
       return destination !== undefined && declarations.has(destination)
         ? destination
         : undefined;
@@ -211,6 +256,15 @@ function append(target: Map<Node, Node[]>, key: Node, value: Node): void {
     target.set(key, [value]);
   } else {
     values.push(value);
+  }
+}
+
+function appendSet(target: Map<Node, Set<Node>>, key: Node, value: Node): void {
+  const values = target.get(key);
+  if (values === undefined) {
+    target.set(key, new Set([value]));
+  } else {
+    values.add(value);
   }
 }
 

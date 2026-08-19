@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import { callableDeclarationAllowsSynchronousValue } from "../../model/callable-contract.js";
 import {
   auditStorageOwnerBoundaries,
@@ -17,7 +17,7 @@ export interface CallableFields {
   readonly initialValues: ReadonlyMap<Node, readonly Node[]>;
   close(
     values: ReadonlyMap<Node, readonly Node[]>,
-    transports?: StorageOwnerTransportContract,
+    transports?: InvocationTransportContract,
   ): ReadonlySet<Node>;
 }
 
@@ -57,7 +57,7 @@ export function collectCallableFields(
     initialValues,
     close(
       values: ReadonlyMap<Node, readonly Node[]>,
-      transports?: StorageOwnerTransportContract,
+      transports?: InvocationTransportContract,
     ): ReadonlySet<Node> {
       const bindings = new Map<Node, StorageOwnerBinding>();
       for (const field of declarations) {

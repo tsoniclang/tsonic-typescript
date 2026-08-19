@@ -14,6 +14,7 @@ export interface TypeScriptAstPrinterOptions {
 export interface TypeScriptTargetOptions {
   readonly printer: TypeScriptAstPrinterOptions;
   readonly optimizations: TypeScriptOptimizationProfile;
+  readonly providerInvocationManifests: readonly string[];
 }
 
 export function readTypeScriptTargetOptions(
@@ -25,7 +26,7 @@ export function readTypeScriptTargetOptions(
   }
   rejectUnknownKeys(
     options,
-    new Set(["printer", "optimizations"]),
+    new Set(["printer", "optimizations", "providerInvocationManifests"]),
     "TypeScript target options",
   );
   const printer = options["printer"];
@@ -58,13 +59,39 @@ export function readTypeScriptTargetOptions(
       return argument;
     });
   const optimizations = readOptimizationOptions(options["optimizations"]);
+  const providerInvocationManifests = readStringArray(
+    options["providerInvocationManifests"],
+    "TypeScript target option 'providerInvocationManifests'",
+  );
   return Object.freeze({
     printer: Object.freeze({
       executable,
       arguments: Object.freeze(arguments_),
     }),
     optimizations,
+    providerInvocationManifests,
   });
+}
+
+function readStringArray(value: unknown, subject: string): readonly string[] {
+  if (value === undefined) {
+    return Object.freeze([]);
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${subject} must be an array`);
+  }
+  const seen = new Set<string>();
+  const result = value.map((entry, index) => {
+    if (typeof entry !== "string" || entry.length === 0) {
+      throw new Error(`${subject} entry ${index} must be a non-empty string`);
+    }
+    if (seen.has(entry)) {
+      throw new Error(`${subject} entry '${entry}' is duplicated`);
+    }
+    seen.add(entry);
+    return entry;
+  });
+  return Object.freeze(result);
 }
 
 function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile {

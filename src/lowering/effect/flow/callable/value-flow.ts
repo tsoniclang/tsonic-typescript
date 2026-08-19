@@ -3,7 +3,8 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 
 import {
   collectCallableValueInputs,
@@ -20,7 +21,21 @@ import {
 } from "../../model/synchronous.js";
 import type { CallableReturnRewrite } from "../../model/callable-contract.js";
 import { createCallableResultInputs } from "./result-inputs.js";
+import { createCallableInputUseContract } from "./input-use.js";
 import {
+  forEachInvocationTransportInput,
+  invocationTransportResultOrigins,
+} from "./invocation-transport.js";
+import {
+  declarationForSymbols,
+  indexDeclarationSymbols,
+} from "./input-reference.js";
+import {
+  referenceHasExactSemantics,
+  resolveProjectInvocation,
+} from "../../model/project-invocation.js";
+import {
+  allCallableDependenciesAreOptimized,
   closeResolutionFromSynchronousCalls,
   closeSynchronousDependencies,
   emptyResolution,
@@ -71,11 +86,13 @@ export function createCallableValueFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   candidates: ReadonlySet<Node>,
-  transports?: StorageOwnerTransportContract,
+  projections: ExactAggregateProjectionIndex,
+  transports?: InvocationTransportContract,
 ): CallableValueFlow {
-  const candidateSymbols = indexCandidateSymbols(source, candidates);
-  const inputs = collectCallableValueInputs(source, program, transports);
-  const results = createCallableResultInputs(source, program);
+  const candidateSymbols = indexDeclarationSymbols(source, candidates);
+  const results = createCallableResultInputs(source, program, projections);
+  const inputUses = createCallableInputUseContract(source, results, transports);
+  const inputs = collectCallableValueInputs(source, program, inputUses);
   const allowedCandidateReferences = new Set<Node>();
   const mutableResolutions = new Map<Node, MutableResolution>();
   const callsByOwner = new Map<Node, MutableResolution[]>();
@@ -84,6 +101,20 @@ export function createCallableValueFlow(
     candidates: new Map(),
     synchronous: new Map(),
   };
+  forEachInvocationTransportInput(program, transports, (input) => {
+    resolveExpression(
+      source,
+      input,
+      candidates,
+      candidateSymbols,
+      inputs,
+      results,
+      returnedContracts,
+      allowedCandidateReferences,
+      new Set(),
+      transports,
+    );
+  });
   for (const node of program.nodesOfKind(KindCallExpression)) {
     const resolution = resolveCall(
       source,
@@ -95,6 +126,7 @@ export function createCallableValueFlow(
       returnedContracts,
       allowedCandidateReferences,
       directResolutions,
+      transports,
     );
     if (resolution !== undefined) {
       mutableResolutions.set(node, resolution);
@@ -119,6 +151,7 @@ export function createCallableValueFlow(
           returnedContracts,
           allowedCandidateReferences,
           new Set(),
+          transports,
         ),
       );
     }
@@ -141,6 +174,7 @@ export function createCallableValueFlow(
           returnedContracts,
           allowedCandidateReferences,
           new Set(),
+          transports,
         ));
       }
       return {
@@ -205,24 +239,12 @@ export function createCallableValueFlow(
         .filter(({ resolutions }) =>
           resolutions.every((resolution) =>
             resolution.closed &&
-            allDependenciesAreOptimized(resolution, optimized)
+            allCallableDependenciesAreOptimized(resolution, optimized)
           )
         )
         .map(({ rewrite }) => rewrite));
     },
   });
-}
-
-function allDependenciesAreOptimized(
-  resolution: CallableValueResolution,
-  optimized: ReadonlySet<Node>,
-): boolean {
-  for (const dependency of resolution.dependencyNodes()) {
-    if (!optimized.has(dependency)) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function resolveCall(
@@ -235,10 +257,12 @@ function resolveCall(
   returnedContracts: Map<Node, ReturnedContractResolution>,
   allowedCandidateReferences: Set<Node>,
   directResolutions: DirectResolutionCache,
+  transports: InvocationTransportContract | undefined,
 ): MutableResolution | undefined {
   const signature = source.semantics.forNode(call).getResolvedSignature(call);
-  const declaration = source.semantics.forNode(call)
+  const contract = source.semantics.forNode(call)
     .getSignatureDeclaration(signature);
+  const declaration = resolveProjectInvocation(source, call)?.implementation;
   const expression = source.ast.as.AsCallExpression(call)?.Expression;
   const target = exactCallableTarget(source, expression);
   const referenceNode = target !== undefined &&
@@ -246,8 +270,9 @@ function resolveCall(
     ? source.ast.as.AsPropertyAccessExpression(target)?.name
     : source.ast.name(target) ?? target;
   const reference = source.navigation.sourceReferenceFor(referenceNode);
-  const transported = reference === undefined || !reference.project ||
-      reference.declaration === declaration
+  const transported = !referenceHasExactSemantics(source, reference) ||
+      reference.declaration === declaration ||
+      reference.declaration === contract
     ? undefined
     : resolveDeclaration(
       source,
@@ -259,6 +284,7 @@ function resolveCall(
       returnedContracts,
       allowedCandidateReferences,
       new Set(),
+      transports,
     );
   if (declaration !== undefined) {
     if (candidates.has(declaration)) {
@@ -273,33 +299,37 @@ function resolveCall(
       mergeResolution(result, transported);
       return result;
     }
-    if (resolvedCallUsesSynchronousTransport(source, call)) {
-      if (transported === undefined) {
-        return cachedDirectResolution(
-          directResolutions.synchronous,
-          declaration,
-          synchronousResolutionWith,
-        );
-      }
-      const result = synchronousResolutionWith(declaration);
-      mergeResolution(result, transported);
-      return result;
+  }
+  const synchronousDeclaration = declaration ?? contract;
+  if (
+    synchronousDeclaration !== undefined &&
+    resolvedCallUsesSynchronousTransport(source, call)
+  ) {
+    if (transported === undefined) {
+      return cachedDirectResolution(
+        directResolutions.synchronous,
+        synchronousDeclaration,
+        synchronousResolutionWith,
+      );
     }
+    const result = synchronousResolutionWith(synchronousDeclaration);
+    mergeResolution(result, transported);
+    return result;
   }
-  if (reference === undefined || !reference.project) {
-    return undefined;
-  }
-  const result = transported ?? resolveDeclaration(
-    source,
-    reference.declaration,
-    candidates,
-    candidateSymbols,
-    inputs,
-    results,
-    returnedContracts,
-    allowedCandidateReferences,
-    new Set(),
-  );
+  const result = target === undefined
+    ? unresolved()
+    : resolveExpression(
+        source,
+        target,
+        candidates,
+        candidateSymbols,
+        inputs,
+        results,
+        returnedContracts,
+        allowedCandidateReferences,
+        new Set(),
+        transports,
+      );
   return resolutionIsClosed(result) || resolutionHasDependencies(result)
     ? result
     : undefined;
@@ -329,6 +359,7 @@ function resolveDeclaration(
   returnedContracts: Map<Node, ReturnedContractResolution>,
   allowedCandidateReferences: Set<Node>,
   pending: Set<Node>,
+  transports: InvocationTransportContract | undefined,
 ): MutableResolution {
   if (pending.has(declaration)) {
     return emptyResolution();
@@ -358,6 +389,7 @@ function resolveDeclaration(
         returnedContracts,
         allowedCandidateReferences,
         pending,
+        transports,
       ),
     );
   }
@@ -375,6 +407,7 @@ function resolveExpression(
   returnedContracts: Map<Node, ReturnedContractResolution>,
   allowedCandidateReferences: Set<Node>,
   pending: Set<Node>,
+  transports: InvocationTransportContract | undefined,
 ): MutableResolution {
   const root = transparentExpression(source, expression);
   if (root === undefined) {
@@ -397,6 +430,7 @@ function resolveExpression(
           returnedContracts,
           allowedCandidateReferences,
           pending,
+          transports,
         ));
       }
     }
@@ -421,8 +455,35 @@ function resolveExpression(
       ? synchronousResolutionWith(root)
       : unresolved();
   }
+  if (source.ast.is.IsCallExpression(root)) {
+    const origins = invocationTransportResultOrigins(root, transports);
+    if (origins !== undefined) {
+      const result = emptyResolution();
+      for (const origin of origins) {
+        mergeResolution(result, resolveExpression(
+          source,
+          origin,
+          candidates,
+          candidateSymbols,
+          inputs,
+          results,
+          returnedContracts,
+          allowedCandidateReferences,
+          pending,
+          transports,
+        ));
+      }
+      return result;
+    }
+  }
   const returned = results.resultFor(root);
   if (returned !== undefined) {
+    if (
+      returned.projectionConsumers !== undefined &&
+      !inputs.projectionConsumersAreClosed(returned.projectionConsumers)
+    ) {
+      return unresolved();
+    }
     const existing = returnedContracts.get(returned.declaration);
     if (existing !== undefined) {
       return existing.resolution;
@@ -444,6 +505,7 @@ function resolveExpression(
           returnedContracts,
           allowedCandidateReferences,
           pending,
+          transports,
         ));
       }
     }
@@ -457,11 +519,9 @@ function resolveExpression(
   const referenceNode = source.ast.is.IsPropertyAccessExpression(root)
     ? source.ast.as.AsPropertyAccessExpression(root)?.name
     : source.ast.name(root) ?? root;
-  const candidate = candidateForReference(
-    source,
-    candidateSymbols,
-    referenceNode,
-  );
+  const candidate = referenceNode === undefined
+    ? undefined
+    : declarationForSymbols(source, candidateSymbols, referenceNode);
   if (candidate !== undefined) {
     if (referenceNode !== undefined) {
       allowedCandidateReferences.add(referenceNode);
@@ -469,7 +529,7 @@ function resolveExpression(
     return resolutionWith(candidate);
   }
   const reference = source.navigation.sourceReferenceFor(referenceNode);
-  return reference === undefined
+  return !referenceHasExactSemantics(source, reference)
     ? unresolved()
     : resolveDeclaration(
       source,
@@ -481,54 +541,8 @@ function resolveExpression(
       returnedContracts,
       allowedCandidateReferences,
       pending,
+      transports,
     );
-}
-
-function indexCandidateSymbols(
-  source: TargetSourceProgram,
-  candidates: ReadonlySet<Node>,
-): ReadonlyMap<Symbol, Node> {
-  const result = new Map<Symbol, Node>();
-  for (const candidate of candidates) {
-    for (const symbol of exactSymbolsAt(source, source.ast.name(candidate))) {
-      result.set(symbol, candidate);
-    }
-  }
-  return result;
-}
-
-function candidateForReference(
-  source: TargetSourceProgram,
-  candidates: ReadonlyMap<Symbol, Node>,
-  node: Node | undefined,
-): Node | undefined {
-  for (const symbol of exactSymbolsAt(source, node)) {
-    const candidate = candidates.get(symbol);
-    if (candidate !== undefined) {
-      return candidate;
-    }
-  }
-  return undefined;
-}
-
-function exactSymbolsAt(
-  source: TargetSourceProgram,
-  node: Node | undefined,
-): readonly Symbol[] {
-  if (node === undefined) {
-    return [];
-  }
-  const semantics = source.semantics.forNode(node);
-  const result = new Set<Symbol>();
-  for (const symbol of [
-    semantics.getSymbolAtLocation(node),
-    semantics.getResolvedSymbol(node),
-  ]) {
-    if (symbol !== undefined) {
-      result.add(symbol);
-    }
-  }
-  return [...result];
 }
 
 function appendReturnTypeContract(

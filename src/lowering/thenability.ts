@@ -29,8 +29,7 @@ function typeHasDefinitelyNonThenableContractWithin(
   if (
     pending.has(type) ||
     semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.couldContainTypeVariables(type)
+    semantics.isUnknown(type)
   ) {
     return false;
   }

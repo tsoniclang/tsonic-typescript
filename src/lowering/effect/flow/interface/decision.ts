@@ -24,7 +24,8 @@ export interface InterfaceDispatchRetentionEvidence {
 
 export interface InterfaceDispatchBoundaryCauseEvidence {
   readonly reason: InterfaceContractBoundaryCause["reason"];
-  readonly occurrences: readonly OptimizationOccurrence[];
+  readonly occurrenceCount: number;
+  readonly examples: readonly OptimizationOccurrence[];
 }
 
 export type InterfaceDispatchEvidence =
@@ -52,5 +53,6 @@ export type InterfaceDispatchEvidence =
       readonly retainedFamilyCount: number;
       readonly settledCallCount: number;
       readonly retainedCallCount: number;
+      readonly boundaryCauses: readonly InterfaceDispatchBoundaryCauseEvidence[];
       readonly retainedFamilies: readonly InterfaceDispatchRetentionEvidence[];
     };

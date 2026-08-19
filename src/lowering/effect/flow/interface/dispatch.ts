@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../../../profile.js";
 import {
   compareOptimizationOccurrences,
@@ -18,7 +18,7 @@ import {
   type CooperativeEffectRetentionDecisions,
 } from "../../closure/retention.js";
 import {
-  callableBodyResultIsDefinitelyNonThenable,
+  callableUsesSynchronousTransport,
 } from "../../model/synchronous.js";
 import {
   createInterfaceContractGraph,
@@ -27,6 +27,7 @@ import {
 import type { InterfaceContractBoundaryCause } from "./boundary.js";
 import {
   type InterfaceDispatchEvidence,
+  type InterfaceDispatchBoundaryCauseEvidence,
   type InterfaceDispatchRejectionReason,
   type InterfaceDispatchRetentionEvidence,
   type InterfaceDispatchRetentionReason,
@@ -48,6 +49,7 @@ export interface DeclaredInterfaceDispatch {
   readonly rejectedFamilyCount: number;
   readonly families: readonly DeclaredInterfaceDispatchFamily[];
   readonly calls: ReadonlyMap<Node, DeclaredInterfaceDispatchFamily>;
+  readonly invocationTransports?: InvocationTransportContract;
   addDependencies(
     owner: CooperativeEffectCandidate,
     family: DeclaredInterfaceDispatchFamily,
@@ -90,14 +92,28 @@ export function createDeclaredInterfaceDispatch(
   program: TargetProgramIndex,
   candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
   profile: TypeScriptInterfaceDispatchProfile,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
   sourceIdentityFor: SourceIdentityResolver = (sourceFile) =>
     source.documents.forFile(sourceFile).identity,
 ): DeclaredInterfaceDispatch {
   if (profile === "open-structural") {
-    return createResult(source, sourceIdentityFor, profile, 0, 0, [], []);
+    return createResult(
+      source,
+      sourceIdentityFor,
+      profile,
+      0,
+      0,
+      [],
+      [],
+      [],
+    );
   }
-  const graph = createInterfaceContractGraph(source, program, transports);
+  const graph = createInterfaceContractGraph(
+    source,
+    program,
+    transports,
+    sourceIdentityFor,
+  );
   const families: DeclaredInterfaceDispatchFamily[] = [];
   const rejected: RejectedInterfaceDispatchFamily[] = [];
   for (const component of graph.components) {
@@ -121,6 +137,8 @@ export function createDeclaredInterfaceDispatch(
     graph.components.length,
     families,
     rejected,
+    graph.boundaryCauses,
+    graph.invocationTransports,
   );
 }
 
@@ -142,7 +160,7 @@ function resolveFamily(
         selectedCandidates.add(candidate);
         continue;
       }
-      if (!callableBodyResultIsDefinitelyNonThenable(source, implementation)) {
+      if (!callableUsesSynchronousTransport(source, implementation)) {
         return {
           kind: "rejected",
           reason: "unproven-synchronous-implementation",
@@ -191,6 +209,8 @@ function createResult(
   consideredFamilyCount: number,
   families: readonly DeclaredInterfaceDispatchFamily[],
   rejected: readonly RejectedInterfaceDispatchFamily[],
+  boundaryCauses: readonly InterfaceDispatchBoundaryCauseEvidence[],
+  invocationTransports?: InvocationTransportContract,
 ): DeclaredInterfaceDispatch {
   const calls = new Map<Node, DeclaredInterfaceDispatchFamily>();
   for (const family of families) {
@@ -208,6 +228,7 @@ function createResult(
     rejectedFamilyCount: rejected.length,
     families: Object.freeze([...families]),
     calls,
+    ...(invocationTransports === undefined ? {} : { invocationTransports }),
     addDependencies(
       owner: CooperativeEffectCandidate,
       family: DeclaredInterfaceDispatchFamily,
@@ -322,6 +343,7 @@ function createResult(
         retainedFamilyCount: retainedFamilies.length,
         settledCallCount,
         retainedCallCount: consideredCallCount - settledCallCount,
+        boundaryCauses: Object.freeze([...boundaryCauses]),
         retainedFamilies: Object.freeze(retainedFamilies),
       });
     },
@@ -358,14 +380,7 @@ function retentionEvidence(
     reason,
     contracts: Object.freeze(contracts),
     callCount,
-    boundaryCauses: Object.freeze(boundaryCauses.map((cause) =>
-      Object.freeze({
-        reason: cause.reason,
-        occurrences: Object.freeze(cause.occurrences.map((occurrence) =>
-          optimizationOccurrence(source, occurrence, sourceIdentityFor)
-        ).sort(compareOptimizationOccurrences)),
-      })
-    )),
+    boundaryCauses: Object.freeze([...boundaryCauses]),
   });
 }
 

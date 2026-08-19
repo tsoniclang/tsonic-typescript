@@ -4,7 +4,10 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { SourceIdentityResolver } from "../../occurrence.js";
 import type { TargetProgramIndex } from "../../program-index.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../../profile.js";
-import type { StorageOwnerTransportContract } from "../../storage-owner-transport.js";
+import {
+  composeInvocationTransportContracts,
+  type InvocationTransportContract,
+} from "../../invocation-transport.js";
 import type { LoweredValueContract } from "../../value-contract.js";
 import {
   classifyCooperativeEffectCallUses,
@@ -29,6 +32,8 @@ import { createCooperativeEffectPlanLifecycle } from "./lifecycle.js";
 import { createCooperativeResultConsumption } from "../flow/return/result-consumption.js";
 import { createReturnValueFlow } from "../flow/return/value.js";
 import { createCallableValueFlow } from "../flow/callable/value-flow.js";
+import { createExactAggregateProjectionIndex } from "../flow/aggregate/projection.js";
+import { createProviderInvocationTransport } from "../flow/provider/transport.js";
 import {
   type CooperativeEffectPlanSummary,
   summarizeCooperativeEffects,
@@ -55,34 +60,48 @@ export function createClosedCooperativeEffectPlan(
   program: TargetProgramIndex,
   sourceIdentityFor: SourceIdentityResolver,
   loweredValues?: LoweredValueContract,
-  transports?: StorageOwnerTransportContract,
+  transports?: InvocationTransportContract,
   interfaceDispatch: TypeScriptInterfaceDispatchProfile = "open-structural",
 ): CooperativeEffectPlan {
   const candidates = collectCooperativeEffectCandidates(source, program);
   const calls = collectCooperativeEffectCalls(source, program, candidates);
+  const factOwnedTransports = composeInvocationTransportContracts([
+    transports,
+    createProviderInvocationTransport(source, program),
+  ]);
   const interfaces = createDeclaredInterfaceDispatch(
     source,
     program,
     candidates,
     interfaceDispatch,
-    transports,
+    factOwnedTransports,
     sourceIdentityFor,
+  );
+  const completeTransports = composeInvocationTransportContracts([
+    factOwnedTransports,
+    interfaces.invocationTransports,
+  ]);
+  const aggregateProjections = createExactAggregateProjectionIndex(
+    source,
+    program,
   );
   const valueFlow = createCallableValueFlow(
     source,
     program,
     new Set(candidates.keys()),
-    transports,
+    aggregateProjections,
+    completeTransports,
   );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const returnFlow = createReturnValueFlow(
     source,
     program,
+    aggregateProjections,
     (call) => calls.get(call)?.declaration,
     loweredValues,
     (call) =>
       valueFlow.resolutionFor(call)?.dependencyNodes() ?? noDependencies,
-    transports,
+    completeTransports,
   );
   const resultConsumption = createCooperativeResultConsumption(
     source,

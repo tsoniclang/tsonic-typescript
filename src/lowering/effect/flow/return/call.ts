@@ -10,6 +10,8 @@ import {
   callableContractResultIsDefinitelyNonThenable,
   resolvedCallResultIsDefinitelyNonThenable,
 } from "../../model/synchronous.js";
+import { exactSourceCallInputsForDeclaration } from "../invocation/call-binding.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 export interface ReturnProofScope {
   readonly inputs: ReadonlyMap<Node, ReturnProofValue>;
@@ -66,12 +68,7 @@ export function createReturnCallFlow(
       pendingDeclarations: Set<Node>,
       settledDeclarations?: ReadonlySet<Node>,
     ): boolean {
-      if (
-        !source.ast.is.IsCallExpression(value.expression) ||
-        source.ast.arguments(value.expression).some((argument) =>
-          source.ast.is.IsSpreadElement(argument)
-        )
-      ) {
+      if (!source.ast.is.IsCallExpression(value.expression)) {
         return false;
       }
       if (resolvedCallResultIsDefinitelyNonThenable(
@@ -236,10 +233,8 @@ function exactCallDeclarations(
   settledCallDeclarations: (call: Node) => Iterable<Node>,
 ): readonly Node[] {
   const selected = new Set(declarations);
-  const semantics = source.semantics.forNode(value.expression);
-  const direct = semantics.getSignatureDeclaration(
-    semantics.getResolvedSignature(value.expression),
-  );
+  const direct = resolveProjectInvocation(source, value.expression)
+    ?.implementation;
   if (direct !== undefined && settledDeclarations?.has(direct) === true) {
     selected.add(direct);
   }
@@ -277,23 +272,16 @@ function callScope(
   callValue: ReturnProofValue,
   declaration: Node,
 ): ReturnProofScope | undefined {
-  const parameters = source.ast.parameters(declaration);
-  const arguments_ = source.ast.arguments(callValue.expression);
-  if (
-    parameters.some((parameter) =>
-      source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined
-    ) ||
-    parameters.length > arguments_.length
-  ) {
+  const argumentsByParameter = exactSourceCallInputsForDeclaration(
+    source,
+    callValue.expression,
+    declaration,
+  );
+  if (argumentsByParameter === undefined) {
     return undefined;
   }
   const inputs = new Map<Node, ReturnProofValue>();
-  for (let index = 0; index < parameters.length; index += 1) {
-    const parameter = parameters[index];
-    const argument = arguments_[index];
-    if (parameter === undefined || argument === undefined) {
-      return undefined;
-    }
+  for (const [parameter, argument] of argumentsByParameter) {
     inputs.set(parameter, {
       expression: argument,
       scope: callValue.scope,
@@ -347,10 +335,7 @@ function directProjectCallDeclaration(
   if (!source.ast.is.IsCallExpression(call)) {
     return undefined;
   }
-  const semantics = source.semantics.forNode(call);
-  const declaration = semantics.getSignatureDeclaration(
-    semantics.getResolvedSignature(call),
-  );
+  const declaration = resolveProjectInvocation(source, call)?.implementation;
   return declaration !== undefined &&
       source.navigation.isProjectDeclaration(declaration) &&
       callableDeclarationIsInspectable(source, program, declaration)

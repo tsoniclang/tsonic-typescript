@@ -6,6 +6,11 @@ import {
   KindNewExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
+import {
+  exactSourceCallBindings,
+  exactSourceCallImplementationInputs,
+} from "../invocation/call-binding.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 import {
   declarationForSymbols,
@@ -28,7 +33,7 @@ export interface ReturnParameterFlow {
 
 interface InvocationInputs {
   readonly values: Map<Node, Node[]>;
-  readonly invalidOwners: Set<Node>;
+  readonly invalidParameters: Set<Node>;
 }
 
 export function createReturnParameterFlow(
@@ -48,7 +53,7 @@ export function createReturnParameterFlow(
     source,
     program,
     parameters,
-    invocationInputs.invalidOwners,
+    invocationInputs.invalidParameters,
     storageDeclarations,
     storageDeclarationFor,
   );
@@ -79,43 +84,32 @@ function collectInvocationInputs(
   program: TargetProgramIndex,
 ): InvocationInputs {
   const values = new Map<Node, Node[]>();
-  const invalidOwners = new Set<Node>();
+  const invalidParameters = new Set<Node>();
   for (const node of program.nodesOfKinds([
     KindCallExpression,
     KindNewExpression,
   ])) {
-    const semantics = source.semantics.forNode(node);
-    const owner = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(node),
-    );
+    const owner = resolveProjectInvocation(source, node)?.implementation;
     if (owner === undefined) {
       continue;
     }
-    const parameters = source.ast.parameters(owner);
-    const arguments_ = source.ast.arguments(node);
-    if (
-      arguments_.some((argument) => source.ast.is.IsSpreadElement(argument)) ||
-      parameters.some((parameter) =>
-        source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined
-      )
-    ) {
-      invalidOwners.add(owner);
+    const invocation = exactSourceCallImplementationInputs(source, node);
+    if (invocation === undefined || invocation.declaration !== owner) {
+      for (const parameter of source.ast.parameters(owner)) {
+        if (parameter !== undefined) {
+          invalidParameters.add(parameter);
+        }
+      }
       continue;
     }
-    for (let index = 0; index < parameters.length; index += 1) {
-      const parameter = parameters[index];
-      const argument = arguments_[index];
-      if (parameter === undefined) {
-        continue;
-      }
-      if (argument === undefined) {
-        invalidOwners.add(owner);
-      } else {
-        append(values, parameter, argument);
-      }
+    for (const [parameter, argument] of invocation.inputs) {
+      append(values, parameter, argument);
+    }
+    for (const parameter of invocation.unresolvedParameters) {
+      invalidParameters.add(parameter);
     }
   }
-  return { values, invalidOwners };
+  return { values, invalidParameters };
 }
 
 function collectReachableParameters(
@@ -178,7 +172,7 @@ function auditParameterFlows(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   parameters: ReadonlySet<Node>,
-  invalidOwners: ReadonlySet<Node>,
+  invalidParameters: ReadonlySet<Node>,
   storageDeclarations: ReadonlySet<Node>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
 ): ReadonlySet<Node> {
@@ -188,7 +182,7 @@ function auditParameterFlows(
     const owner = source.ast.parent(parameter);
     if (
       owner === undefined ||
-      invalidOwners.has(owner) ||
+      invalidParameters.has(parameter) ||
       !callableDispatchIsClosed(source, program, owner)
     ) {
       valid.delete(parameter);
@@ -308,10 +302,7 @@ function isDirectInvocationTarget(
     if (callable !== current) {
       return false;
     }
-    const semantics = source.semantics.forNode(parent);
-    return semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(parent),
-    ) === declaration;
+    return resolveProjectInvocation(source, parent)?.implementation === declaration;
   }
 }
 
@@ -343,18 +334,13 @@ function transportDestination(
     if (!source.ast.is.IsCallExpression(parent) && !source.ast.is.IsNewExpression(parent)) {
       return undefined;
     }
-    const arguments_ = source.ast.arguments(parent);
-    const index = arguments_.indexOf(current);
-    if (index < 0) {
-      return undefined;
-    }
-    const semantics = source.semantics.forNode(parent);
-    const owner = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(parent),
+    const bindings = exactSourceCallBindings(source, parent)?.bindings.filter(
+      ({ argument, evidence }) =>
+        argument === current && evidence.sourceForm === "value",
     );
-    const destination = owner === undefined
-      ? undefined
-      : source.ast.parameters(owner)[index];
+    const destination = bindings?.length === 1
+      ? bindings[0]?.parameter
+      : undefined;
     return destination !== undefined &&
         (parameters.has(destination) || storageDeclarations.has(destination))
       ? destination

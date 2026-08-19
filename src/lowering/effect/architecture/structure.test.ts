@@ -23,9 +23,12 @@ const expectedEffectDirectories = Object.freeze([
 ]);
 
 const expectedFlowDirectories = Object.freeze([
+  "aggregate",
   "callable",
   "collection",
   "interface",
+  "invocation",
+  "provider",
   "return",
   "storage",
 ]);
@@ -42,6 +45,7 @@ const allowedProductionDependencies = new Map<string, ReadonlySet<string>>([
 const externalProductionSurface = new Set([
   "closure/retention.ts",
   "flow/interface/decision.ts",
+  "flow/provider/source-extension.ts",
   "planning/plan.ts",
   "planning/summary.ts",
   "rewrite/transform.ts",

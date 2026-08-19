@@ -9,7 +9,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { StorageOwnerTransportContract } from "../../../storage-owner-transport.js";
+import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
 
 import {
   collectCallableCollectionInputs,
@@ -21,12 +21,19 @@ import {
   directContainingCall,
   isModuleForwardingReference,
 } from "../../model/syntax.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import type { CallableInputUseContract } from "./input-use.js";
+import {
+  trackedInputDestination,
+  transportedCallableDestinations,
+} from "./input-reference.js";
 
 export interface CallableValueInputs {
   readonly contracts: readonly CallableCollectionContract[];
   readonly storageContracts: readonly CallableStorageContract[];
   valuesFor(declaration: Node): readonly Node[] | undefined;
   isClosed(declaration: Node): boolean;
+  projectionConsumersAreClosed(consumers: readonly Node[]): boolean;
 }
 
 interface ReferenceCounts {
@@ -44,13 +51,13 @@ const equalityObservationOperators = new Set([
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  transports?: StorageOwnerTransportContract,
+  inputUses?: CallableInputUseContract,
 ): CallableValueInputs {
   const collections = collectCallableCollectionInputs(source, program);
   const mutableValues = new Map<Node, Node[]>();
   const constructorParameters = new Set<Node>();
   const constructorClasses = new Map<Node, Node>();
-  const invalidConstructors = new Set<Node>();
+  const invalidConstructorParameters = new Set<Node>();
   for (const node of program.nodesOfKinds([
     KindConstructor,
     KindNewExpression,
@@ -68,36 +75,34 @@ export function collectCallableValueInputs(
     if (!source.ast.is.IsNewExpression(node)) {
       continue;
     }
-    const semantics = source.semantics.forNode(node);
-    const signature = semantics.getResolvedSignature(node);
-    const declaration = semantics.getSignatureDeclaration(signature);
+    const declaration = resolveProjectInvocation(source, node)?.implementation;
     if (
       declaration === undefined ||
       !source.ast.is.IsConstructorDeclaration(declaration)
     ) {
       continue;
     }
-    const parameters = source.ast.parameters(declaration);
-    const arguments_ = source.ast.arguments(node);
-    if (
-      arguments_.some((argument) => source.ast.is.IsSpreadElement(argument)) ||
-      parameters.some((parameter) =>
-        source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined
-      )
-    ) {
-      invalidConstructors.add(declaration);
+    const invocation = exactSourceCallImplementationInputs(source, node);
+    if (invocation === undefined || invocation.declaration !== declaration) {
+      for (const parameter of source.ast.parameters(declaration)) {
+        if (
+          parameter !== undefined &&
+          isReadonlyParameterProperty(source, parameter)
+        ) {
+          invalidConstructorParameters.add(parameter);
+        }
+      }
       continue;
     }
-    for (let index = 0; index < parameters.length; index += 1) {
-      const parameter = parameters[index];
-      const argument = arguments_[index];
-      if (
-        parameter !== undefined &&
-        argument !== undefined &&
-        isReadonlyParameterProperty(source, parameter)
-      ) {
+    for (const [parameter, argument] of invocation.inputs) {
+      if (isReadonlyParameterProperty(source, parameter)) {
         append(mutableValues, parameter, argument);
         constructorParameters.add(parameter);
+      }
+    }
+    for (const parameter of invocation.unresolvedParameters) {
+      if (isReadonlyParameterProperty(source, parameter)) {
+        invalidConstructorParameters.add(parameter);
       }
     }
   }
@@ -117,7 +122,7 @@ export function collectCallableValueInputs(
     source,
     program,
     collections.closed,
-    transports,
+    inputUses,
   );
   const propertyReferences = new Map<Node, ReferenceCounts>();
   for (const parameter of constructorParameters) {
@@ -126,6 +131,10 @@ export function collectCallableValueInputs(
   const propertySymbols = indexDeclarationSymbols(
     source,
     propertyReferences.keys(),
+  );
+  const closedStorageSymbols = indexDeclarationSymbols(
+    source,
+    storage.closed,
   );
   for (const node of program.nodesOfKinds([
     KindIdentifier,
@@ -138,6 +147,8 @@ export function collectCallableValueInputs(
       propertyReferences,
       propertySymbols,
       storage.closed,
+      closedStorageSymbols,
+      inputUses,
     );
   }
 
@@ -145,7 +156,6 @@ export function collectCallableValueInputs(
   for (const [constructor, classDeclaration] of constructorClasses) {
     const classCounts = classReferences.get(classDeclaration);
     if (
-      invalidConstructors.has(constructor) ||
       classCounts === undefined ||
       classCounts.total !== classCounts.admitted ||
       classCounts.admitted === 0
@@ -159,6 +169,7 @@ export function collectCallableValueInputs(
       if (
         parameter !== undefined &&
         isReadonlyParameterProperty(source, parameter) &&
+        !invalidConstructorParameters.has(parameter) &&
         mutableValues.has(parameter) &&
         propertyCounts !== undefined &&
         propertyCounts.total === propertyCounts.admitted &&
@@ -183,6 +194,17 @@ export function collectCallableValueInputs(
       return storage.closed.has(declaration) ||
         collections.closed.has(declaration) ||
         constructorClosed.has(declaration);
+    },
+    projectionConsumersAreClosed(consumers: readonly Node[]): boolean {
+      return consumers.every((consumer) =>
+        directContainingCall(source, consumer) !== undefined ||
+        trackedInputDestination(
+          source,
+          consumer,
+          storage.closed,
+          closedStorageSymbols,
+        ) !== undefined
+      );
     },
   });
 }
@@ -218,6 +240,8 @@ function auditPropertyReference(
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   trackedSymbols: ReadonlyMap<Symbol, Node>,
   closedStorage: ReadonlySet<Node>,
+  closedStorageSymbols: ReadonlyMap<Symbol, Node>,
+  inputUses?: CallableInputUseContract,
 ): void {
   if (tracked.size === 0) {
     return;
@@ -230,7 +254,13 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        propertyUseIsAdmitted(source, node, closedStorage) &&
+        propertyUseIsAdmitted(
+          source,
+          node,
+          closedStorage,
+          closedStorageSymbols,
+          inputUses,
+        ) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -244,7 +274,13 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        propertyUseIsAdmitted(source, node, closedStorage) &&
+        propertyUseIsAdmitted(
+          source,
+          node,
+          closedStorage,
+          closedStorageSymbols,
+          inputUses,
+        ) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -276,8 +312,18 @@ function propertyUseIsAdmitted(
   source: TargetSourceProgram,
   node: Node,
   closedStorage: ReadonlySet<Node>,
+  closedStorageSymbols: ReadonlyMap<Symbol, Node>,
+  inputUses?: CallableInputUseContract,
 ): boolean {
+  const transported = transportedCallableDestinations(
+    source,
+    node,
+    closedStorage,
+    closedStorageSymbols,
+    inputUses,
+  );
   return directContainingCall(source, node) !== undefined ||
+    transported !== undefined ||
     isCallablePresenceObservation(source, node) ||
     isInitializerOfClosedStorage(source, node, closedStorage);
 }

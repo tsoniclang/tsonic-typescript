@@ -13,6 +13,12 @@ import type {
 
 import { createTypeScriptBackend } from "../backend/typescript-backend.js";
 import { readTypeScriptTargetOptions } from "../config/options.js";
+import {
+  readProviderInvocationManifests,
+} from "../config/provider-invocation-manifest.js";
+import {
+  createProviderInvocationExtension,
+} from "../lowering/effect/flow/provider/source-extension.js";
 import { createExternalAstPrinter } from "../print/ast-printer.js";
 import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
 
@@ -34,9 +40,20 @@ export function createTypeScriptTargetPack(): TargetPack {
         };
       },
       sourceCompilerContributions(
-        _context: TargetProviderContext,
+        context: TargetProviderContext,
       ): TargetSourceCompilerContributions {
-        return {};
+        const paths = readTypeScriptTargetOptions(context.target)
+          .providerInvocationManifests;
+        if (paths.length === 0) {
+          return {};
+        }
+        const manifests = readProviderInvocationManifests(
+          context.projectDirectory,
+          paths,
+        );
+        return {
+          extensions: [createProviderInvocationExtension(manifests)],
+        };
       },
       runtimeContributions(
         _context: TargetRuntimeContributionContext,

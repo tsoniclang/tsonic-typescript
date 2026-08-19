@@ -12,6 +12,7 @@ import {
   isFunctionLike,
   transparentExpression,
 } from "../../model/syntax.js";
+import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
 
 export interface CallableCollectionContract {
   readonly returnType: CallableReturnRewrite;
@@ -44,7 +45,7 @@ export function collectCallableCollectionInputs(
   program: TargetProgramIndex,
 ): CallableCollectionInputs {
   const collections = collectCollections(source, program);
-  const extractorParameters = new Map<Node, number | false>();
+  const extractorParameters = new Map<Node, Node | false>();
   auditCollections(source, collections, extractorParameters);
   collectExtractions(source, program, collections, extractorParameters);
   const values = new Map<Node, readonly Node[]>();
@@ -112,7 +113,7 @@ function collectCollections(
 function auditCollections(
   source: TargetSourceProgram,
   collections: ReadonlyMap<Node, MutableCollection>,
-  extractorParameters: Map<Node, number | false>,
+  extractorParameters: Map<Node, Node | false>,
 ): void {
   const byOwner = new Map<Node, Map<Node, MutableCollection>>();
   for (const collection of collections.values()) {
@@ -152,11 +153,11 @@ function auditCollections(
       const argument = containingCallArgument(source, node);
       if (
         argument !== undefined &&
-        exactExtractorParameter(
-            source,
-            argument.call,
-            extractorParameters,
-          ) === argument.index
+        exactExtractorInput(
+          source,
+          argument.call,
+          extractorParameters,
+        ) === argument.expression
       ) {
         return;
       }
@@ -169,7 +170,7 @@ function collectExtractions(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   collections: ReadonlyMap<Node, MutableCollection>,
-  extractorParameters: Map<Node, number | false>,
+  extractorParameters: Map<Node, Node | false>,
 ): void {
   for (const node of program.nodesOfKind(KindVariableDeclaration)) {
     if (
@@ -194,7 +195,7 @@ function extractedCollection(
   source: TargetSourceProgram,
   expression: Node | undefined,
   collections: ReadonlyMap<Node, MutableCollection>,
-  extractorParameters: Map<Node, number | false>,
+  extractorParameters: Map<Node, Node | false>,
 ): MutableCollection | undefined {
   const root = transparentExpression(source, expression);
   if (root === undefined || !source.ast.is.IsCallExpression(root)) {
@@ -216,14 +217,11 @@ function extractedCollection(
       : selectedArrayOperation(source, reference);
     return operation?.kind === "pop" ? collection : undefined;
   }
-  const parameterIndex = exactExtractorParameter(
+  const argument = exactExtractorInput(
     source,
     root,
     extractorParameters,
   );
-  const argument = parameterIndex === undefined
-    ? undefined
-    : source.ast.arguments(root)[parameterIndex];
   const reference = transparentExpression(source, argument);
   const declaration = reference === undefined
     ? undefined
@@ -231,30 +229,34 @@ function extractedCollection(
   return declaration === undefined ? undefined : collections.get(declaration);
 }
 
-function exactExtractorParameter(
+function exactExtractorInput(
   source: TargetSourceProgram,
   call: Node,
-  cache: Map<Node, number | false>,
-): number | undefined {
-  const semantics = source.semantics.forNode(call);
-  const signature = semantics.getResolvedSignature(call);
-  const declaration = semantics.getSignatureDeclaration(signature);
-  if (declaration === undefined) {
+  cache: Map<Node, Node | false>,
+): Node | undefined {
+  const invocation = exactSourceCallImplementationInputs(source, call);
+  if (invocation === undefined) {
     return undefined;
   }
+  const declaration = invocation.declaration;
   const existing = cache.get(declaration);
+  let parameter: Node | undefined;
   if (existing !== undefined) {
-    return existing === false ? undefined : existing;
+    parameter = existing === false ? undefined : existing;
+  } else {
+    parameter = inspectExtractor(source, declaration);
+    cache.set(declaration, parameter ?? false);
   }
-  const parameterIndex = inspectExtractor(source, declaration);
-  cache.set(declaration, parameterIndex ?? false);
-  return parameterIndex;
+  if (parameter === undefined) {
+    return undefined;
+  }
+  return invocation.inputs.get(parameter);
 }
 
 function inspectExtractor(
   source: TargetSourceProgram,
   declaration: Node,
-): number | undefined {
+): Node | undefined {
   if (
     !source.ast.is.IsFunctionDeclaration(declaration) ||
     source.ast.body(declaration) === undefined
@@ -304,13 +306,8 @@ function inspectExtractor(
   const parameterDeclaration = receiver === undefined
     ? undefined
     : source.navigation.sourceReferenceFor(receiver)?.declaration;
-  const parameters = source.ast.parameters(declaration);
-  const parameterIndex = parameterDeclaration === undefined
-    ? -1
-    : parameters.indexOf(parameterDeclaration);
   if (
     parameterDeclaration === undefined ||
-    parameterIndex < 0 ||
     receiver === undefined ||
     selectedArrayOperation(source, receiver)?.kind !== "pop" ||
     !extractorReferencesAreClosed(
@@ -324,7 +321,7 @@ function inspectExtractor(
   ) {
     return undefined;
   }
-  return parameterIndex;
+  return parameterDeclaration;
 }
 
 function extractorReferencesAreClosed(
@@ -450,7 +447,7 @@ function unwrapParenthesizedType(
 function containingCallArgument(
   source: TargetSourceProgram,
   reference: Node,
-): { readonly call: Node; readonly index: number } | undefined {
+): { readonly call: Node; readonly expression: Node } | undefined {
   let current = reference;
   for (;;) {
     const parent = source.ast.parent(current);
@@ -458,8 +455,9 @@ function containingCallArgument(
       return undefined;
     }
     if (source.ast.is.IsCallExpression(parent)) {
-      const index = source.ast.arguments(parent).indexOf(current);
-      return index < 0 ? undefined : { call: parent, index };
+      return source.ast.arguments(parent).includes(current)
+        ? { call: parent, expression: current }
+        : undefined;
     }
     const transparent = transparentExpression(source, parent);
     if (transparent !== current) {

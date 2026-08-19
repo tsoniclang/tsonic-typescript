@@ -186,7 +186,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     undefined,
   );
 
-  assert.equal(evidence.schemaVersion, 17);
+  assert.equal(evidence.schemaVersion, 18);
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",
     identityCandidateCount: 1,

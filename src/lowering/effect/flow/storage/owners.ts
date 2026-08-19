@@ -12,6 +12,7 @@ import {
   isTransparentParent,
 } from "../callable/input-reference.js";
 import { isModuleForwardingReference } from "../../model/syntax.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 export function collectClosedStorageOwners(
   source: TargetSourceProgram,
@@ -87,10 +88,7 @@ function isExactConstruction(
     ) {
       return false;
     }
-    const semantics = source.semantics.forNode(parent);
-    const constructor = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(parent),
-    );
+    const constructor = resolveProjectInvocation(source, parent)?.implementation;
     if (constructor === undefined) {
       return source.ast.members(owner).every((member) =>
         member === undefined ||

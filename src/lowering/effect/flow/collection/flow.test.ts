@@ -61,6 +61,33 @@ export const result = await owner();
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
 });
 
+test("settles a closed callable array through an overloaded extractor", () => {
+  const fixture = checkedEffectFixture(`
+function removeLast<T>(values: T[]): T;
+function removeLast<T>(values: T[]): T {
+  const value = values.pop();
+  if (value === undefined) throw new Error("empty");
+  return value;
+}
+async function leaf(): Promise<void> {}
+async function owner(): Promise<void> {
+  const callbacks: (() => Promise<void>)[] = [];
+  callbacks.push(async (): Promise<void> => { await leaf(); });
+  const callback = removeLast(callbacks);
+  await callback();
+}
+export const result = await owner();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 3);
+  assert.equal(result.awaitCount, 3);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+});
+
 test("preserves a callable array exposed to an unknown consumer", () => {
   const fixture = checkedEffectFixture(`
 declare function expose(values: (() => Promise<void>)[]): void;

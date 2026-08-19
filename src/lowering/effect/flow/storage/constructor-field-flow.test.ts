@@ -11,7 +11,7 @@ import {
   checkedPointerFixture,
   createFixturePointerFlowPlan,
 } from "../../../pointer/pointer.test-support.js";
-import { createPointerStorageOwnerTransport } from "../../../pointer/owner-transport.js";
+import { createPointerInvocationTransport } from "../../../pointer/invocation-transport.js";
 import { createClosedCooperativeEffectPlan } from "../../planning/plan.js";
 import { lowerCooperativeEffects } from "../../rewrite/transform.js";
 
@@ -86,7 +86,7 @@ export const result = await invoke();
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     undefined,
-    createPointerStorageOwnerTransport(fixture.source, pointerPlan),
+    createPointerInvocationTransport(fixture.source, pointerPlan),
   );
   const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
     lowerCooperativeEffects(sourceFile, plan)
