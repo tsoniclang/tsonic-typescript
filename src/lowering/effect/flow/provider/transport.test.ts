@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { SourceFile } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import { createTargetProgramIndex } from "../../../program-index.js";
@@ -126,6 +128,25 @@ run();
 `, [{ ...forward, resultOriginParameters: Object.freeze([]) }]);
 
   assert.equal(rewrittenAsyncCount(source), 1);
+});
+
+test("generic callable flow does not cross the exact provider boundary", () => {
+  const source = checkedProviderFixture(`
+import { Operations } from "${testProviderSpecifier}";
+const callback = async (): Promise<void> => {};
+const forwarded = Operations.forward(callback);
+async function run(): Promise<void> { await forwarded(); }
+run();
+`, [{ ...forward, resultOriginParameters: Object.freeze([]) }]);
+  const providerFile = source.sourceFiles.find((sourceFile) =>
+    source.ast.getFileName(sourceFile).endsWith("/@test/provider/index.d.ts")
+  );
+  assert.ok(providerFile !== undefined);
+
+  assert.equal(
+    rewrittenAsyncCount(withExcludedSemantics(source, providerFile)),
+    1,
+  );
 });
 
 test("retains when direct provider ingress is omitted", () => {
@@ -275,5 +296,32 @@ function createProgram(
     bindingWrites: true,
     memberDispatch: true,
     declarationReferences: true,
+  });
+}
+
+function withExcludedSemantics(
+  source: TargetSourceProgram,
+  excluded: SourceFile,
+): TargetSourceProgram {
+  return Object.freeze({
+    ...source,
+    semantics: Object.freeze({
+      ...source.semantics,
+      includes(sourceFile: SourceFile): boolean {
+        return sourceFile !== excluded && source.semantics.includes(sourceFile);
+      },
+      forFile(sourceFile: SourceFile) {
+        if (sourceFile === excluded) {
+          throw new Error("generic callable flow queried excluded provider semantics");
+        }
+        return source.semantics.forFile(sourceFile);
+      },
+      forNode(node: Parameters<TargetSourceProgram["semantics"]["forNode"]>[0]) {
+        if (source.ast.getSourceFile(node) === excluded) {
+          throw new Error("generic callable flow queried excluded provider semantics");
+        }
+        return source.semantics.forNode(node);
+      },
+    }),
   });
 }

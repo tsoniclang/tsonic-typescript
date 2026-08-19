@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type {
   ResolvedSourceCallInfo,
+  SourceDeclarationReference,
   TargetSourceProgram,
 } from "@tsonic/target-api";
 
@@ -8,6 +9,14 @@ export interface ResolvedProjectInvocation {
   readonly call: ResolvedSourceCallInfo;
   readonly contract: Node;
   readonly implementation: Node;
+}
+
+export function projectReferenceHasExactSemantics(
+  source: TargetSourceProgram,
+  reference: SourceDeclarationReference | undefined,
+): reference is SourceDeclarationReference {
+  return reference?.project === true &&
+    source.semantics.includes(reference.sourceFile);
 }
 
 export function resolveProjectInvocation(

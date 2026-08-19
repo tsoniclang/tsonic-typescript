@@ -299,6 +299,11 @@ the manifest digest, section schema, declaration path, or target type; duplicate
 an owner; use an unrecognized carrier operation; reassign or escape the carrier;
 or substitute an ambient carrier. Each mutation must retain or fail before
 rewriting, with no partial output.
+A provider-boundary mutation removes the selected declaration file from the
+semantic program while preserving the exact checked call and an incomplete
+provider record. The generic callable owner must retain the flow without ever
+querying that excluded declaration, proving certified provider transport is
+the sole cross-boundary route.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as

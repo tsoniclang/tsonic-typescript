@@ -30,7 +30,10 @@ import {
   declarationForSymbols,
   indexDeclarationSymbols,
 } from "./input-reference.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import {
+  projectReferenceHasExactSemantics,
+  resolveProjectInvocation,
+} from "../../model/project-invocation.js";
 import {
   allCallableDependenciesAreOptimized,
   closeResolutionFromSynchronousCalls,
@@ -267,7 +270,7 @@ function resolveCall(
     ? source.ast.as.AsPropertyAccessExpression(target)?.name
     : source.ast.name(target) ?? target;
   const reference = source.navigation.sourceReferenceFor(referenceNode);
-  const transported = reference === undefined || !reference.project ||
+  const transported = !projectReferenceHasExactSemantics(source, reference) ||
       reference.declaration === declaration ||
       reference.declaration === contract
     ? undefined
@@ -526,7 +529,7 @@ function resolveExpression(
     return resolutionWith(candidate);
   }
   const reference = source.navigation.sourceReferenceFor(referenceNode);
-  return reference === undefined
+  return !projectReferenceHasExactSemantics(source, reference)
     ? unresolved()
     : resolveDeclaration(
       source,
