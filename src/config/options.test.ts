@@ -31,10 +31,38 @@ test("validates and freezes the external printer configuration", () => {
     cooperativeEffects: "preserve",
     interfaceDispatch: "open-structural",
   });
+  assert.deepEqual(result.providerInvocationManifests, []);
   assert.ok(Object.isFrozen(result));
   assert.ok(Object.isFrozen(result.printer));
   assert.ok(Object.isFrozen(result.printer.arguments));
   assert.ok(Object.isFrozen(result.optimizations));
+  assert.ok(Object.isFrozen(result.providerInvocationManifests));
+});
+
+test("validates immutable provider invocation manifest paths", () => {
+  const paths = ["contracts/provider.json"];
+  const result = readTypeScriptTargetOptions({
+    id: "typescript",
+    options: {
+      printer: { executable: "tsgo-ast-printer" },
+      providerInvocationManifests: paths,
+    },
+  });
+  paths.push("contracts/mutated.json");
+
+  assert.deepEqual(result.providerInvocationManifests, [
+    "contracts/provider.json",
+  ]);
+  assert.throws(
+    () => readTypeScriptTargetOptions({
+      id: "typescript",
+      options: {
+        printer: { executable: "tsgo-ast-printer" },
+        providerInvocationManifests: ["same.json", "same.json"],
+      },
+    }),
+    /duplicated/u,
+  );
 });
 
 test("validates and freezes explicit closed-flow optimizations", () => {

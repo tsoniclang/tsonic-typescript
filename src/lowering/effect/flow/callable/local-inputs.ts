@@ -6,6 +6,10 @@ import type {
 import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import {
+  isInvocationTransportInput,
+  type InvocationTransportContract,
+} from "../../../invocation-transport.js";
 
 import { callableDeclarationAllowsSynchronousValue } from "../../model/callable-contract.js";
 import {
@@ -99,6 +103,7 @@ export function auditCallableLocalUse(
   storageDeclarations: ReadonlySet<Node>,
   storageSymbols: ReadonlyMap<Symbol, Node>,
   destinations: Map<Node, Set<Node>>,
+  transports?: InvocationTransportContract,
 ): void {
   if (!source.ast.is.IsIdentifier(node)) {
     return;
@@ -129,6 +134,7 @@ export function auditCallableLocalUse(
   );
   if (
     directContainingCall(source, node) !== undefined ||
+    isInvocationTransportInput(source, node, transports) ||
     isCallablePresenceObservation(source, node) ||
     destination !== undefined
   ) {

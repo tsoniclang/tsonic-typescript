@@ -71,7 +71,7 @@ export function auditStorageOwnerBoundaries(
   if (validateStoredValues) {
     rejectOpenStorageValues(source, bindings, owners);
   }
-  auditStorageOwnerIngress(source, program, ownersFor, invalid);
+  auditStorageOwnerIngress(source, program, ownersFor, invalid, transports);
   auditInvocations(
     source,
     program,

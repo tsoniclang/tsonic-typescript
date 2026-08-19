@@ -9,6 +9,10 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import {
+  isInvocationTransportInput,
+  type InvocationTransportContract,
+} from "../../../invocation-transport.js";
 import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
 import {
   declarationForSymbols,
@@ -37,13 +41,14 @@ export function auditStorageOwnerIngress(
   program: TargetProgramIndex,
   ownersFor: (node: Node) => StorageOwnerMembership,
   invalid: Set<Node>,
+  transports?: InvocationTransportContract,
 ): void {
   const ingress = collectOwnerIngress(source, program, ownersFor);
   if (ingress.size === 0) {
     return;
   }
   auditExactInvocations(source, program, ingress);
-  auditCallableReferences(source, program, ingress);
+  auditCallableReferences(source, program, ingress, transports);
   for (const entry of ingress.values()) {
     if (entry.open) {
       for (const owner of entry.owners) {
@@ -123,6 +128,7 @@ function auditCallableReferences(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   ingress: ReadonlyMap<Node, OwnerIngress>,
+  transports?: InvocationTransportContract,
 ): void {
   const symbols = indexDeclarationSymbols(source, ingress.keys());
   for (const node of program.nodesOfKinds([
@@ -144,7 +150,10 @@ function auditCallableReferences(
     const selected = call === undefined
       ? undefined
       : resolveProjectInvocation(source, call)?.implementation;
-    if (selected !== declaration) {
+    if (
+      selected !== declaration &&
+      !isInvocationTransportInput(source, node, transports)
+    ) {
       entry.open = true;
     }
   }

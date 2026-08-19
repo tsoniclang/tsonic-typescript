@@ -3,6 +3,10 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import {
+  isInvocationTransportInput,
+  type InvocationTransportContract,
+} from "../../../invocation-transport.js";
 
 import { directContainingCall } from "../../model/syntax.js";
 import { exactSourceCallBindings } from "../invocation/call-binding.js";
@@ -18,6 +22,7 @@ export function indexParameterUses(
   parameters: Iterable<Node>,
   destinations: ReadonlySet<Node>,
   program: TargetProgramIndex,
+  transports?: InvocationTransportContract,
 ): ParameterUses {
   const tracked = new Set(parameters);
   const allDeclarations = new Set([...tracked, ...destinations]);
@@ -41,6 +46,7 @@ export function indexParameterUses(
     }
     if (
       directContainingCall(source, node) !== undefined ||
+      isInvocationTransportInput(source, node, transports) ||
       isCallablePresenceObservation(source, node)
     ) {
       continue;

@@ -9,7 +9,10 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import {
+  isInvocationTransportInput,
+  type InvocationTransportContract,
+} from "../../../invocation-transport.js";
 import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
 
 import {
@@ -138,6 +141,7 @@ export function collectCallableValueInputs(
       propertyReferences,
       propertySymbols,
       storage.closed,
+      transports,
     );
   }
 
@@ -218,6 +222,7 @@ function auditPropertyReference(
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   trackedSymbols: ReadonlyMap<Symbol, Node>,
   closedStorage: ReadonlySet<Node>,
+  transports?: InvocationTransportContract,
 ): void {
   if (tracked.size === 0) {
     return;
@@ -230,7 +235,7 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        propertyUseIsAdmitted(source, node, closedStorage) &&
+        propertyUseIsAdmitted(source, node, closedStorage, transports) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -244,7 +249,7 @@ function auditPropertyReference(
         ? undefined
         : tracked.get(selected.selectedDeclaration),
       selected !== undefined &&
-        propertyUseIsAdmitted(source, node, closedStorage) &&
+        propertyUseIsAdmitted(source, node, closedStorage, transports) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
     );
@@ -276,8 +281,10 @@ function propertyUseIsAdmitted(
   source: TargetSourceProgram,
   node: Node,
   closedStorage: ReadonlySet<Node>,
+  transports?: InvocationTransportContract,
 ): boolean {
   return directContainingCall(source, node) !== undefined ||
+    isInvocationTransportInput(source, node, transports) ||
     isCallablePresenceObservation(source, node) ||
     isInitializerOfClosedStorage(source, node, closedStorage);
 }

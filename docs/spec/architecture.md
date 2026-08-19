@@ -556,6 +556,31 @@ open receiver. The derived transport is composed with fact-owned transports
 through one conflict-rejecting owner before callable, storage, and return flow
 consume it.
 
+Certified provider invocation transport enters through one target option that
+selects sealed provider manifests relative to the project root. A source
+extension validates each manifest digest and its independently versioned
+invocation-transport section. That section names one declaration root and the
+exact normalized `.d.ts` path certified from the provider package's
+`exports.types` target. The extension selects exactly one exported class and
+one static method in that file, verifies its checked callable type, indexes its
+declaration-node identity, and attaches the immutable transport record only
+when a call's selected declaration is that exact node. Lowering never matches
+provider or member spelling in authored source. A local same-shaped API,
+another declaration file, overload ambiguity, stale callable type, duplicate
+semantic owner, absent declaration, or unresolved call receives no fact.
+
+Direct records identify exact argument ingress and result-origin parameters.
+State records additionally identify carrier creation, transparent carrier
+aliasing, and reads or writes on one carrier parameter. The effect owner grants
+state transport only when every checked reference to a project carrier is an
+accounted creation, alias, access, or transparent project storage edge. Every
+read then receives every write value in that exact carrier component as a
+possible origin. Any ambient carrier, unknown assignment, unsupported provider
+operation, or escape retains the complete component. Thus a certified
+`Map.Store(cache, key, callback)` followed by `Map.Load(cache, key)` can preserve
+the callback's exact origin without turning provider storage into a global
+semantic exception.
+
 Nominal carrier closure is one finite graph over project class storage
 declarations and nested nominal type arguments. It is built once and propagated
 from candidate owners through reverse carrier edges. Per-occurrence analysis

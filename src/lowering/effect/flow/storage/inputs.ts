@@ -10,7 +10,10 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import {
+  isInvocationTransportInput,
+  type InvocationTransportContract,
+} from "../../../invocation-transport.js";
 import {
   exactSourceCallImplementationInputs,
   type ExactSourceCallImplementationInputs,
@@ -138,6 +141,7 @@ export function collectCallableStorageInputs(
     locals,
     invalidInputs,
     program,
+    transports,
   );
   for (const [parameter, assigned] of parameterClosure.uses.assignedValues) {
     for (const value of assigned) {
@@ -169,6 +173,7 @@ export function collectCallableStorageInputs(
       storageDeclarations,
       storageSymbols,
       storageDestinations,
+      transports,
     );
     auditCallableLocalUse(
       source,
@@ -178,6 +183,7 @@ export function collectCallableStorageInputs(
       storageDeclarations,
       storageSymbols,
       storageDestinations,
+      transports,
     );
   }
   const validFields = callableFields.close(fieldValues, transports);
@@ -316,6 +322,7 @@ function closeParameters(
   locals: ReadonlySet<Node>,
   invalidParameters: ReadonlySet<Node>,
   program: TargetProgramIndex,
+  transports?: InvocationTransportContract,
 ): ClosedParameters {
   const ownerCounts = new Map<Node, ReferenceCounts>();
   for (const owner of parameters.values()) {
@@ -327,7 +334,13 @@ function closeParameters(
     KindPropertyAccessExpression,
     KindElementAccessExpression,
   ])) {
-    auditCallableOwnerReference(source, node, ownerCounts, ownerSymbols);
+    auditCallableOwnerReference(
+      source,
+      node,
+      ownerCounts,
+      ownerSymbols,
+      transports,
+    );
   }
   const closed = new Set<Node>();
   for (const [parameter, owner] of parameters) {
@@ -346,6 +359,7 @@ function closeParameters(
     parameters.keys(),
     new Set([...fields, ...locals]),
     program,
+    transports,
   );
   for (const parameter of uses.invalid) {
     closed.delete(parameter);
@@ -365,6 +379,7 @@ function auditCallableOwnerReference(
   node: Node,
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   trackedSymbols: ReadonlyMap<Symbol, Node>,
+  transports?: InvocationTransportContract,
 ): void {
   let declaration: Node | undefined;
   let reference: Node | undefined;
@@ -398,7 +413,10 @@ function auditCallableOwnerReference(
   const selected = call === undefined
     ? undefined
     : resolveProjectInvocation(source, call)?.implementation;
-  if (selected === declaration) {
+  if (
+    selected === declaration ||
+    isInvocationTransportInput(source, reference, transports)
+  ) {
     counts.admitted += 1;
   }
 }
@@ -412,6 +430,7 @@ function auditFieldUse(
   storageDeclarations: ReadonlySet<Node>,
   storageSymbols: ReadonlyMap<Symbol, Node>,
   destinations: Map<Node, Set<Node>>,
+  transports?: InvocationTransportContract,
 ): void {
   const selected = source.ast.is.IsPropertyAccessExpression(node)
     ? source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
@@ -443,6 +462,7 @@ function auditFieldUse(
   );
   if (
     directContainingCall(source, node) !== undefined ||
+    isInvocationTransportInput(source, node, transports) ||
     isCallablePresenceObservation(source, node) ||
     destination !== undefined
   ) {

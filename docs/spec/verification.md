@@ -288,6 +288,17 @@ substitute an unrelated same-shaped concrete member; every mutation retains
 the complete component. Artifact inspection also requires transport on exactly
 the selected abstract calls and none on the same-spelled control. No runtime or
 generated declaration name may participate in selection.
+Provider-transport fixtures load a sealed provider manifest through the public
+target option, bind an ordinary installed-package declaration through the
+checker, and inspect facts on exact selected call declarations. Direct callback
+ingress and result origins must settle while a same-spelled local declaration
+and the same member named in another declaration file remain opaque. Stateful
+fixtures store two callable values through one project carrier and read them
+back through multiple calls; both origins must be conserved. Mutations change
+the manifest digest, section schema, declaration path, or target type; duplicate
+an owner; use an unrecognized carrier operation; reassign or escape the carrier;
+or substitute an ambient carrier. Each mutation must retain or fail before
+rewriting, with no partial output.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as
