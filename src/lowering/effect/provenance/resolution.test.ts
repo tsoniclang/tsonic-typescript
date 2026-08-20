@@ -96,6 +96,33 @@ test("an originless provenance cycle remains unproved", () => {
   assert.equal(resolutions.resolutionFor(second).originless, true);
 });
 
+test("provenance evidence is shared through a long dependency chain", () => {
+  const builder = createEffectProvenanceGraphBuilder<never>();
+  const vertices = Array.from(
+    { length: 4_096 },
+    () => builder.vertex("expression", node()),
+  );
+  const origin = node();
+  const first = vertices[0];
+  assert.ok(first !== undefined);
+  builder.addOrigin(first, origin);
+  for (let index = 1; index < vertices.length; index += 1) {
+    const source = vertices[index - 1];
+    const destination = vertices[index];
+    assert.ok(source !== undefined);
+    assert.ok(destination !== undefined);
+    builder.addDependency(destination, source, "alias", node());
+  }
+
+  const resolutions = resolveEffectProvenance(builder.seal());
+  const expected = resolutions.resolutionFor(first).origins;
+
+  assert.equal(expected[0], origin);
+  for (const vertex of vertices) {
+    assert.equal(resolutions.resolutionFor(vertex).origins, expected);
+  }
+});
+
 function node(): Node {
   return Object.freeze({}) as Node;
 }
