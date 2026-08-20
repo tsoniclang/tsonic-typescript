@@ -102,6 +102,7 @@ ${Array.from(
   assert.deepEqual(plan.summary.propagation, {
     vertices: count,
     edges: 0,
+    components: count,
     work: count,
   });
 });

@@ -1,15 +1,10 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
-  KindCallExpression,
   KindIdentifier,
-  KindNewExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
-import {
-  exactSourceCallBindings,
-  exactSourceCallImplementationInputs,
-} from "../invocation/call-binding.js";
+import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 import {
@@ -31,21 +26,17 @@ export interface ReturnParameterFlow {
   bindingFor(identifier: Node): ReturnParameterBinding | undefined;
 }
 
-interface InvocationInputs {
-  readonly values: Map<Node, Node[]>;
-  readonly invalidParameters: Set<Node>;
-}
-
 export function createReturnParameterFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   seedExpressions: readonly Node[],
   storageDeclarations: ReadonlySet<Node>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
+  invocationInputs: ExactInvocationInputIndex,
 ): ReturnParameterFlow {
-  const invocationInputs = collectInvocationInputs(source, program);
   const parameters = collectReachableParameters(
     source,
+    program,
     seedExpressions,
     invocationInputs,
   );
@@ -53,13 +44,13 @@ export function createReturnParameterFlow(
     source,
     program,
     parameters,
-    invocationInputs.invalidParameters,
+    invocationInputs,
     storageDeclarations,
     storageDeclarationFor,
   );
   const bindings = new Map<Node, ReturnParameterBinding>();
   for (const parameter of valid) {
-    const inputs = invocationInputs.values.get(parameter);
+    const inputs = invocationInputs.inputsFor(parameter);
     if (inputs !== undefined && inputs.length !== 0) {
       bindings.set(parameter, Object.freeze({
         declaration: parameter,
@@ -72,50 +63,18 @@ export function createReturnParameterFlow(
       if (!source.ast.is.IsIdentifier(identifier)) {
         return undefined;
       }
-      const declaration = source.navigation.sourceReferenceFor(identifier)
+      const declaration = program.declarationReferenceFor(identifier)
         ?.declaration;
       return declaration === undefined ? undefined : bindings.get(declaration);
     },
   });
 }
 
-function collectInvocationInputs(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-): InvocationInputs {
-  const values = new Map<Node, Node[]>();
-  const invalidParameters = new Set<Node>();
-  for (const node of program.nodesOfKinds([
-    KindCallExpression,
-    KindNewExpression,
-  ])) {
-    const owner = resolveProjectInvocation(source, node)?.implementation;
-    if (owner === undefined) {
-      continue;
-    }
-    const invocation = exactSourceCallImplementationInputs(source, node);
-    if (invocation === undefined || invocation.declaration !== owner) {
-      for (const parameter of source.ast.parameters(owner)) {
-        if (parameter !== undefined) {
-          invalidParameters.add(parameter);
-        }
-      }
-      continue;
-    }
-    for (const [parameter, argument] of invocation.inputs) {
-      append(values, parameter, argument);
-    }
-    for (const parameter of invocation.unresolvedParameters) {
-      invalidParameters.add(parameter);
-    }
-  }
-  return { values, invalidParameters };
-}
-
 function collectReachableParameters(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   seeds: readonly Node[],
-  invocationInputs: InvocationInputs,
+  invocationInputs: ExactInvocationInputIndex,
 ): ReadonlySet<Node> {
   const result = new Set<Node>();
   const pending = [...seeds];
@@ -126,12 +85,12 @@ function collectReachableParameters(
       continue;
     }
     visitedExpressions.add(expression);
-    for (const parameter of referencedParameters(source, expression)) {
+    for (const parameter of referencedParameters(source, program, expression)) {
       if (result.has(parameter)) {
         continue;
       }
       result.add(parameter);
-      for (const input of invocationInputs.values.get(parameter) ?? []) {
+      for (const input of invocationInputs.inputsFor(parameter) ?? []) {
         pending.push(input);
       }
     }
@@ -141,6 +100,7 @@ function collectReachableParameters(
 
 function referencedParameters(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   expression: Node,
 ): readonly Node[] {
   const result = new Set<Node>();
@@ -151,7 +111,7 @@ function referencedParameters(
       continue;
     }
     if (source.ast.is.IsIdentifier(node)) {
-      const declaration = source.navigation.sourceReferenceFor(node)?.declaration;
+      const declaration = program.declarationReferenceFor(node)?.declaration;
       if (
         declaration !== undefined &&
         source.ast.is.IsParameterDeclaration(declaration)
@@ -172,7 +132,7 @@ function auditParameterFlows(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   parameters: ReadonlySet<Node>,
-  invalidParameters: ReadonlySet<Node>,
+  invocationInputs: ExactInvocationInputIndex,
   storageDeclarations: ReadonlySet<Node>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
 ): ReadonlySet<Node> {
@@ -182,7 +142,7 @@ function auditParameterFlows(
     const owner = source.ast.parent(parameter);
     if (
       owner === undefined ||
-      invalidParameters.has(parameter) ||
+      invocationInputs.isInvalid(parameter) ||
       !callableDispatchIsClosed(source, program, owner)
     ) {
       valid.delete(parameter);
@@ -203,18 +163,27 @@ function auditParameterFlows(
     ) {
       continue;
     }
-    const destination = transportDestination(
+    const selectedDestinations = transportDestinations(
       source,
       node,
       parameters,
       storageDeclarations,
       storageDeclarationFor,
+      invocationInputs,
     );
-    if (destination === undefined || !valid.has(destination) &&
-      !storageDeclarations.has(destination)) {
+    if (
+      selectedDestinations === undefined ||
+      selectedDestinations.some((destination) =>
+        !valid.has(destination) && !storageDeclarations.has(destination)
+      )
+    ) {
       valid.delete(declaration);
-    } else if (parameters.has(destination)) {
-      appendSet(destinations, declaration, destination);
+    } else {
+      for (const destination of selectedDestinations) {
+        if (parameters.has(destination)) {
+          appendSet(destinations, declaration, destination);
+        }
+      }
     }
   }
   closeInvalidParameters(parameters, valid, destinations);
@@ -306,13 +275,14 @@ function isDirectInvocationTarget(
   }
 }
 
-function transportDestination(
+function transportDestinations(
   source: TargetSourceProgram,
   reference: Node,
   parameters: ReadonlySet<Node>,
   storageDeclarations: ReadonlySet<Node>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
-): Node | undefined {
+  invocationInputs: ExactInvocationInputIndex,
+): readonly Node[] | undefined {
   let current = reference;
   for (;;) {
     const parent = source.ast.parent(current);
@@ -325,35 +295,23 @@ function transportDestination(
     }
     if (source.ast.is.IsBinaryExpression(parent)) {
       const binary = source.ast.as.AsBinaryExpression(parent);
-      return binary?.Right === current &&
+      const destination = binary?.Right === current &&
           source.ast.operatorKindName(parent) === "KindEqualsToken" &&
           binary.Left !== undefined
         ? storageDeclarationFor(binary.Left)
         : undefined;
+      return destination === undefined ? undefined : [destination];
     }
     if (!source.ast.is.IsCallExpression(parent) && !source.ast.is.IsNewExpression(parent)) {
       return undefined;
     }
-    const bindings = exactSourceCallBindings(source, parent)?.bindings.filter(
-      ({ argument, evidence }) =>
-        argument === current && evidence.sourceForm === "value",
-    );
-    const destination = bindings?.length === 1
-      ? bindings[0]?.parameter
+    const destinations = invocationInputs.parametersFor(current);
+    return destinations !== undefined && destinations.length !== 0 &&
+        destinations.every((destination) =>
+          parameters.has(destination) || storageDeclarations.has(destination)
+        )
+      ? destinations
       : undefined;
-    return destination !== undefined &&
-        (parameters.has(destination) || storageDeclarations.has(destination))
-      ? destination
-      : undefined;
-  }
-}
-
-function append(target: Map<Node, Node[]>, key: Node, value: Node): void {
-  const values = target.get(key);
-  if (values === undefined) {
-    target.set(key, [value]);
-  } else {
-    values.push(value);
   }
 }
 

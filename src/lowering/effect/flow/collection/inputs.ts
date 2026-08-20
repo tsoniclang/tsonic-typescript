@@ -250,7 +250,8 @@ function exactExtractorInput(
   if (parameter === undefined) {
     return undefined;
   }
-  return invocation.inputs.get(parameter);
+  const inputs = invocation.inputs.get(parameter);
+  return inputs?.length === 1 ? inputs[0] : undefined;
 }
 
 function inspectExtractor(

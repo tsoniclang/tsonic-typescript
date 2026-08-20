@@ -67,8 +67,8 @@ legacy, helper, utility, and version-suffixed directories and enforces the
 maintained-file line limit.
 
 The same gate resolves every relative production import and checks the closed
-dependency graph: model and closure foundations, inventory, flow, planning,
-then rewrite. It also rejects production consumers outside the family that
+dependency graph: model and provenance foundations, closure, inventory, flow,
+planning, then rewrite. It also rejects production consumers outside the family that
 reach past the documented narrow surface. Test-support modules must retain the
 `.test-support.ts` suffix so they cannot enter the published package. Build and
 broad-search proofs must find no old flat path or compatibility re-export.
@@ -385,12 +385,23 @@ negative membership per queried checker type must exceed that bound or fail a
 structural representation assertion; increasing the memory guard is not an
 accepted repair.
 
-Callable-resolution sealing proves ownership transfer directly: finalized
-resolution interfaces expose neither backing collection, the former mutable
-owner rejects all later mutation and a second seal, and its finalized iterators
-remain exact. A mutation that restores per-resolution result objects, set
-facades, array copies, or object-freezing passes must also fail the guarded
-whole-product memory gate at the committed Node heap limit.
+Provenance-algebra tests exact-partition graph vertices, typed edges, origins,
+boundaries, SCCs, and resolved components. They prove duplicate evidence is
+deduplicated, a cycle without an origin remains unproved, a boundary reaches
+every dependent, and a closed cyclic component receives all and only its exact
+origins. Foreign vertices, mutation or a second seal after graph sealing,
+missing dependency evidence, empty edge-kind evidence, and a dependency outside
+the candidate set each fail at their owning gate.
+
+Blocker-propagation tests independently construct a long dependency chain and a
+cycle. They require deterministic nearest roots, exact edge kinds and authored
+occurrences in every reported step, exact SCC/edge/vertex denominators, and
+bounded construction work. A mutation that changes an edge kind, occurrence,
+root reason, candidate identity, or dependency/evidence multiplicity must fail
+or produce the exact one-sided discrepancy. Callable-resolution tests separately
+prove immutable deduplicated snapshots: mutating input collections after
+construction changes neither counts nor iterators, and settlement requires
+every exact dependency origin.
 
 ## Composition And Transaction Proof
 
@@ -476,6 +487,14 @@ over semantic evidence report closed identities, reason names, and bounded
 counts; they never ask the test framework to render raw TS-Go nodes or checker
 objects, whose cyclic graphs can turn one ordinary mismatch into an
 out-of-memory failure.
+
+The guard is enforced by the operating-system process group: it sets finite
+memory, zero swap, and wall-time limits around the whole test process. A V8
+old-space limit is supporting evidence only because native allocations and
+recursive assertion machinery can increase RSS outside that heap budget. Raw
+AST nodes, checker objects, and collections containing them are never passed to
+structural deep-equality assertions; ordered identities or element-wise object
+identity prove the intended join without traversing the compiler graph.
 
 Performance comparisons use pinned tools, immutable fixtures, warmup policy,
 and at least three isolated samples. The target reports absolute values and

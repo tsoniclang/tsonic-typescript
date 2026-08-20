@@ -16,6 +16,7 @@ import {
   markAllRelevantSourceContracts,
   sourceContainsRelevantContracts,
 } from "./opaque-exposure/relevance.js";
+import { exactUniqueSignaturePairs } from "./type-pair/signatures.js";
 
 export type { OpaqueInterfaceExposureSink } from "./opaque-exposure/model.js";
 
@@ -233,7 +234,13 @@ function retainSignatureInputs(
   if (targets.length === 0) {
     return;
   }
-  if (sources.length !== 1 || targets.length !== 1) {
+  const pairs = exactUniqueSignaturePairs(
+    semantics,
+    sources,
+    targets,
+    state.relevance,
+  );
+  if (pairs === undefined) {
     if (sources.length === 0) {
       markAllRelevantSourceContracts(
         semantics,
@@ -249,27 +256,20 @@ function retainSignatureInputs(
     }
     return;
   }
-  const sourceParameters = semantics.getSignatureParameterInfos(sources[0]);
-  const targetParameters = semantics.getSignatureParameterInfos(targets[0]);
-  if (
-    sourceParameters.length !== targetParameters.length ||
-    sourceParameters.some((parameter, index) =>
-      parameter.parameterKind !== targetParameters[index]?.parameterKind
-    )
-  ) {
-    for (const parameter of sourceParameters) {
-      markAllRelevantSourceContracts(
-        semantics,
-        parameter.type,
-        state.relevance,
-        state.sink,
-      );
-    }
-    return;
+  for (const [source] of pairs) {
+    retainSignaturePairInputs(semantics, source, state);
   }
+}
+
+function retainSignaturePairInputs(
+  semantics: SourceFileSemantics,
+  source: Signature,
+  state: OpaqueInterfaceExposureState,
+): void {
+  const sourceParameters = semantics.getSignatureParameterInfos(source);
   const implementation = projectCallableImplementation(
     state.source,
-    semantics.getSignatureDeclaration(sources[0]),
+    semantics.getSignatureDeclaration(source),
   );
   if (implementation !== undefined) {
     const declarations = sourceParameters.map((parameter) =>

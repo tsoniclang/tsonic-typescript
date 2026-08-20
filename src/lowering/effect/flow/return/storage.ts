@@ -3,15 +3,11 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
   KindElementAccessExpression,
   KindIdentifier,
-  KindNewExpression,
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
-import {
-  exactSourceCallImplementationInputs,
-} from "../invocation/call-binding.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 
 import {
   declarationForSymbols,
@@ -51,11 +47,12 @@ interface MutableStorageBinding {
 export function createReturnStorageFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  invocationInputs: ExactInvocationInputIndex,
   transports?: InvocationTransportContract,
 ): ReturnStorageFlow {
   const owners = collectClosedStorageOwners(source, program);
   const bindings = collectStorageBindings(source, owners);
-  collectConstructorInputs(source, program, bindings);
+  collectConstructorInputs(invocationInputs, bindings);
   auditStorageReferences(source, program, bindings);
   auditStorageOwnerBoundaries(
     source,
@@ -66,7 +63,12 @@ export function createReturnStorageFlow(
     true,
     transports,
   );
-  const flow = closeReturnStorageFlow(source, program, bindings);
+  const flow = closeReturnStorageFlow(
+    source,
+    program,
+    bindings,
+    invocationInputs,
+  );
   return Object.freeze({
     bindingFor(expression: Node): ReturnStorageBinding | undefined {
       const declaration = selectedStorageDeclaration(source, expression);
@@ -81,6 +83,7 @@ function closeReturnStorageFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   bindings: ReadonlyMap<Node, MutableStorageBinding>,
+  invocationInputs: ExactInvocationInputIndex,
 ): ClosedReturnStorageFlow {
   const storage = new Map<Node, ReturnStorageBinding>();
   for (const binding of bindings.values()) {
@@ -100,6 +103,7 @@ function closeReturnStorageFlow(
       [...storage.values()].flatMap((binding) => binding.inputs),
       storageDeclarations,
       (expression) => selectedStorageDeclaration(source, expression),
+      invocationInputs,
     ),
   });
 }
@@ -169,38 +173,17 @@ function storageInitializer(
 }
 
 function collectConstructorInputs(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
+  invocationInputs: ExactInvocationInputIndex,
   bindings: ReadonlyMap<Node, MutableStorageBinding>,
 ): void {
-  for (const node of program.nodesOfKind(KindNewExpression)) {
-    const constructor = resolveProjectInvocation(source, node)?.implementation;
-    if (constructor === undefined) {
-      continue;
-    }
-    const invocation = exactSourceCallImplementationInputs(source, node);
-    if (invocation === undefined || invocation.declaration !== constructor) {
-      for (const parameter of source.ast.parameters(constructor)) {
-        const binding = parameter === undefined ? undefined : bindings.get(parameter);
-        if (binding !== undefined) {
-          binding.valid = false;
-        }
-      }
-      continue;
-    }
-    for (const [parameter, argument] of invocation.inputs) {
-      const binding = bindings.get(parameter);
-      if (binding === undefined) {
-        continue;
-      }
-      binding.inputs.push(argument);
-    }
-    for (const parameter of invocation.unresolvedParameters) {
-      const binding = bindings.get(parameter);
-      if (binding !== undefined) {
+  for (const binding of bindings.values()) {
+    if (!invocationInputs.isClosed(binding.declaration)) {
+      if (invocationInputs.isInvalid(binding.declaration)) {
         binding.valid = false;
       }
+      continue;
     }
+    binding.inputs.push(...invocationInputs.inputsFor(binding.declaration) ?? []);
   }
 }
 

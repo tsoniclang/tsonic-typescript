@@ -34,6 +34,7 @@ export const result = await read(holder);
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: true,
+    declarationReferences: true,
   });
   const plan = createClosedCooperativeEffectPlan(
     fixture.source,
@@ -90,6 +91,7 @@ export const result = await read(holder);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
@@ -141,6 +143,7 @@ export const result = await read(new DirectReader());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
@@ -193,6 +196,7 @@ export const result = await read();
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
@@ -237,6 +241,7 @@ export const result = await read(new DirectReader());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
@@ -300,6 +305,7 @@ export const result = await create();
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
@@ -355,6 +361,7 @@ export const result = await read(local);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),

@@ -32,6 +32,17 @@ import {
 } from "./relevance.js";
 import { isFreshInterfaceTransportAggregate } from "./transport-context.js";
 import { createOpaqueInterfaceInputLedger } from "./opaque-inputs.js";
+import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
+import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
+import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
+import { createExactValueSlotFlow } from "../value/slot/flow.js";
+import type { ExactValueSlotCallSource } from "../value/slot/model.js";
+import { callableDispatchIsClosed } from "../../model/syntax.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { exactCallableReturnExpressions } from "../invocation/results.js";
+import { createInterfaceOriginRequirements } from "./ingress/requirements.js";
+import { createInterfaceImplementationInputIndex } from "./ingress/implementation-inputs.js";
+import { collectClosedStorageOwners } from "../storage/owners.js";
 import {
   drainInterfaceContractTypePairs,
   enqueueInterfaceContractTypePair,
@@ -40,6 +51,9 @@ import {
   markInterfaceValueContractsExposed,
   type InterfaceContractTypePairState,
 } from "./type-pair.js";
+import {
+  createCheckedInterfaceParameterInputs,
+} from "./ingress/checked-parameters.js";
 
 interface TypePairState extends InterfaceContractTypePairState {
   rootFile: Node | undefined;
@@ -51,8 +65,11 @@ export function collectInterfaceContractTransports(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   contracts: InterfaceContractIndex,
+  invocationInputs: ExactInvocationInputIndex,
+  aggregateProjections: ExactAggregateProjectionIndex,
+  objectProjections: ExactObjectPropertyProjectionIndex,
   transports?: InvocationTransportContract,
-): void {
+): ExactInvocationInputIndex {
   const state: TypePairState = {
     source,
     contracts,
@@ -65,6 +82,8 @@ export function collectInterfaceContractTransports(
     rootSourceIsFresh: false,
   };
   const opaqueInputs = createOpaqueInterfaceInputLedger();
+  const checkedParameterInputs = createCheckedInterfaceParameterInputs();
+  const originRequirements = createInterfaceOriginRequirements();
   const ingress: InterfaceContractIngress = {
     source,
     program,
@@ -73,6 +92,12 @@ export function collectInterfaceContractTransports(
     implementations: contracts.implementations,
     relevance: state.relevance,
     opaqueInputs,
+    invocationInputs,
+    checkedParameterInputs,
+    aggregateProjections,
+    objectProjections,
+    closedStorageOwners: collectClosedStorageOwners(source, program),
+    originRequirements,
     ...(transports === undefined ? {} : { transports }),
   };
   collectInterfaceCallTransports(
@@ -182,6 +207,84 @@ export function collectInterfaceContractTransports(
       );
     }
   }
+  const completeInvocationInputs = createInterfaceImplementationInputIndex(
+    source,
+    program,
+    [...contracts.entries.values()].map((entry) => Object.freeze({
+      calls: Object.freeze([...entry.calls]),
+      implementations: contracts.implementations.implementationsFor(
+        entry.declaration,
+      ),
+    })),
+    invocationInputs,
+    aggregateProjections,
+  );
+  const slots = createExactValueSlotFlow(
+    source,
+    program,
+    aggregateProjections,
+    (call) => interfaceSlotSource(
+      source,
+      program,
+      contracts,
+      call,
+      transports,
+    ),
+    completeInvocationInputs,
+  );
+  checkedParameterInputs.seal();
+  originRequirements.finish({
+    ...ingress,
+    slots,
+    invocationInputs: completeInvocationInputs,
+  });
+  return completeInvocationInputs;
+}
+
+function interfaceSlotSource(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  contracts: InterfaceContractIndex,
+  call: Node,
+  transports: InvocationTransportContract | undefined,
+): ExactValueSlotCallSource | undefined {
+  const semantics = source.semantics.forNode(call);
+  const contract = semantics.getSignatureDeclaration(
+    semantics.getResolvedSignature(call),
+  );
+  const transported = transports?.transportFor(call)?.resultOriginExpressions;
+  if (transported !== undefined) {
+    return Object.freeze({
+      declaration: call,
+      contracts: Object.freeze([]),
+      expressions: Object.freeze([...transported]),
+    });
+  }
+  const direct = resolveProjectInvocation(source, call)?.implementation;
+  const implementations = direct === undefined && contract !== undefined &&
+      contracts.entries.has(contract)
+    ? contracts.implementations.implementationsFor(contract)
+    : direct === undefined
+    ? []
+    : [direct];
+  if (implementations.length === 0) {
+    return undefined;
+  }
+  const expressions: (Node | undefined)[] = [];
+  for (const implementation of implementations) {
+    if (!callableDispatchIsClosed(source, program, implementation)) {
+      return undefined;
+    }
+    const returned = exactCallableReturnExpressions(source, implementation);
+    if (returned === undefined || returned.length === 0) {
+      return undefined;
+    }
+    expressions.push(...returned);
+  }
+  return Object.freeze({
+    declaration: direct ?? contract ?? implementations[0]!,
+    expressions: Object.freeze(expressions),
+  });
 }
 
 function processTypePair(

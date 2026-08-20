@@ -8,6 +8,7 @@ import {
 import { pairObjectMembers } from "./type-pair/members.js";
 import {
   pairSequenceTypes,
+  pairTargetIntersection,
   pairTypeArguments,
   pairUnionTypes,
 } from "./type-pair/shape.js";
@@ -88,6 +89,17 @@ function analyzeTypePair(
 ): void {
   if (
     pairUnionTypes(
+      semantics,
+      source,
+      target,
+      state,
+      enqueueInterfaceContractTypePair,
+    )
+  ) {
+    return;
+  }
+  if (
+    pairTargetIntersection(
       semantics,
       source,
       target,

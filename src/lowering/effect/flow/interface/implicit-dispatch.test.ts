@@ -120,6 +120,7 @@ export const result = await read(new DerivedReader());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components[0]?.entries[0]?.implementations.length, 1);

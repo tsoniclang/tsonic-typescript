@@ -149,6 +149,7 @@ export class Slot {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     new Set(),
   );
@@ -291,6 +292,7 @@ export { state };
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     new Set(),
   );
@@ -569,6 +571,7 @@ const result${index} = slot${index}.value!();
     createTargetProgramIndex(source, {
       bindingWrites: false,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     new Set(),
   );

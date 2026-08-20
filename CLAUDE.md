@@ -86,6 +86,10 @@ evidence. Only the coordinator runs heavy suites.
 Run checker-backed test files as separate bounded Node processes, serially.
 Combining many compiler fixtures into one process retains checker graphs across
 files and is not an accepted memory-test strategy.
+"Bounded" means a kernel-enforced process-group memory and swap limit plus a
+timeout; a V8 old-space option alone is not an RSS limit. Never structurally
+deep-compare raw AST nodes, checker objects, or collections containing them;
+compare canonical identities, scalar facts, and bounded counts instead.
 
 Parallel agents are forbidden unless the user explicitly authorizes them for
 the specific task. When authorized, every worker uses a separate worktree; the

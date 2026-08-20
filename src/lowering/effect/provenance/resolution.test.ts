@@ -1,0 +1,101 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { Node } from "@tsonic/tsts";
+
+import { createEffectProvenanceGraphBuilder } from "./graph.js";
+import { resolveEffectProvenance } from "./resolution.js";
+
+test("provenance resolution closes cycles only from exact origins", () => {
+  const firstNode = node();
+  const secondNode = node();
+  const dependentNode = node();
+  const origin = node();
+  const firstEdge = node();
+  const secondEdge = node();
+  const dependentEdge = node();
+  const boundary = node();
+  const builder = createEffectProvenanceGraphBuilder<"open-result">();
+  const first = builder.vertex("expression", firstNode);
+  const second = builder.vertex("binding", secondNode);
+  const dependent = builder.vertex("result", dependentNode);
+
+  builder.addDependency(first, second, "alias", firstEdge);
+  builder.addDependency(second, first, "assignment", secondEdge);
+  builder.addDependency(dependent, first, "return", dependentEdge);
+  builder.addOrigin(first, origin);
+  builder.addBoundary(dependent, "open-result", boundary);
+  const graph = builder.seal();
+  const resolutions = resolveEffectProvenance(graph);
+
+  assert.equal(resolutions.componentCount, 2);
+  assert.equal(resolutions.edgeCount, 3);
+  const firstOrigins = resolutions.resolutionFor(first).origins;
+  const secondOrigins = resolutions.resolutionFor(second).origins;
+  assert.equal(firstOrigins.length, 1);
+  assert.equal(firstOrigins[0], origin);
+  assert.equal(secondOrigins.length, 1);
+  assert.equal(secondOrigins[0], origin);
+  assert.equal(resolutions.resolutionFor(first).closed, true);
+  assert.equal(resolutions.resolutionFor(second).closed, true);
+  assert.equal(resolutions.resolutionFor(dependent).closed, false);
+  const boundaries = resolutions.resolutionFor(dependent).boundaries;
+  assert.equal(boundaries.length, 1);
+  assert.equal(boundaries[0]?.reason, "open-result");
+  assert.equal(boundaries[0]?.occurrence, boundary);
+});
+
+test("provenance graph sealing is immutable, exact, and graph-owned", () => {
+  const occurrence = node();
+  const builder = createEffectProvenanceGraphBuilder<"open">();
+  const source = builder.vertex("expression", node());
+  const destination = builder.vertex("result", node());
+
+  builder.addDependency(destination, source, "return", occurrence);
+  builder.addDependency(destination, source, "return", occurrence);
+  builder.addOrigin(source, occurrence);
+  builder.addOrigin(source, occurrence);
+  builder.addBoundary(destination, "open", occurrence);
+  builder.addBoundary(destination, "open", occurrence);
+  const graph = builder.seal();
+
+  assert.equal(graph.vertices.length, 2);
+  assert.equal(graph.edges.length, 1);
+  assert.equal(graph.origins.length, 1);
+  assert.equal(graph.boundaries.length, 1);
+  assert.throws(() => builder.seal(), /already sealed/u);
+  assert.throws(
+    () => builder.addOrigin(source, node()),
+    /already sealed/u,
+  );
+
+  const foreignBuilder = createEffectProvenanceGraphBuilder<never>();
+  const foreign = foreignBuilder.vertex("expression", node());
+  assert.throws(
+    () => foreignBuilder.addDependency(foreign, source, "alias", node()),
+    /another graph/u,
+  );
+  assert.throws(
+    () => resolveEffectProvenance(graph).resolutionFor(foreign),
+    /foreign vertex/u,
+  );
+});
+
+test("an originless provenance cycle remains unproved", () => {
+  const builder = createEffectProvenanceGraphBuilder<never>();
+  const first = builder.vertex("expression", node());
+  const second = builder.vertex("binding", node());
+  builder.addDependency(first, second, "alias", node());
+  builder.addDependency(second, first, "assignment", node());
+
+  const resolutions = resolveEffectProvenance(builder.seal());
+
+  assert.equal(resolutions.componentCount, 1);
+  assert.equal(resolutions.resolutionFor(first).closed, false);
+  assert.equal(resolutions.resolutionFor(first).originless, true);
+  assert.equal(resolutions.resolutionFor(second).closed, false);
+  assert.equal(resolutions.resolutionFor(second).originless, true);
+});
+
+function node(): Node {
+  return Object.freeze({}) as Node;
+}

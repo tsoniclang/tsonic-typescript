@@ -11,6 +11,22 @@ export type CompositeValueAlternatives =
   | null
   | undefined;
 
+export function sameValueAlternatives(
+  source: TargetSourceProgram,
+  expression: Node,
+): readonly Node[] | null | undefined {
+  const alternatives = compositeValueAlternatives(source, expression);
+  if (alternatives === undefined || alternatives === null) {
+    return alternatives;
+  }
+  if (alternatives.some((alternative) => alternative.role !== "same")) {
+    return null;
+  }
+  return Object.freeze(alternatives.map((alternative) =>
+    alternative.expression
+  ));
+}
+
 export function compositeValueAlternatives(
   source: TargetSourceProgram,
   expression: Node,

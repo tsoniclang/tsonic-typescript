@@ -9,6 +9,7 @@ import {
 } from "../closure/retention.js";
 import type { InterfaceDispatchEvidence } from "../flow/interface/decision.js";
 import type { CooperativeResultConsumptionEvidence } from "../flow/return/result-consumption.js";
+import type { CooperativeAwaitAttribution } from "../inventory/awaits.js";
 import {
   compareOptimizationOccurrences,
   optimizationOccurrence,
@@ -30,6 +31,7 @@ export interface CooperativeEffectPlanSummary {
   readonly settledCallableCount: number;
   readonly retainedCallableCount: number;
   readonly settledAwaitCount: number;
+  readonly awaitAttribution: CooperativeAwaitAttribution;
   readonly fallbackReasons: readonly CooperativeEffectFallbackEvidence[];
   readonly propagation: EffectPropagationEvidence;
   readonly resultConsumption: CooperativeResultConsumptionEvidence;
@@ -44,6 +46,7 @@ export function summarizeCooperativeEffects(
   settledCallableCount: number,
   settledAwaitCount: number,
   propagation: EffectPropagationEvidence,
+  awaitAttribution: CooperativeAwaitAttribution,
   resultConsumption: CooperativeResultConsumptionEvidence,
   interfaceDispatch: InterfaceDispatchEvidence,
 ): CooperativeEffectPlanSummary {
@@ -94,7 +97,8 @@ export function summarizeCooperativeEffects(
   );
   if (
     settledCallableCount + retentions.size !== all.length ||
-    retainedTotal !== retentions.size
+    retainedTotal !== retentions.size ||
+    settledAwaitCount !== awaitAttribution.settledAwaitCount
   ) {
     throw new Error("cooperative-effect decisions do not partition candidates");
   }
@@ -103,6 +107,7 @@ export function summarizeCooperativeEffects(
     settledCallableCount,
     retainedCallableCount: retentions.size,
     settledAwaitCount,
+    awaitAttribution,
     fallbackReasons: Object.freeze(fallbackReasons),
     propagation,
     resultConsumption,

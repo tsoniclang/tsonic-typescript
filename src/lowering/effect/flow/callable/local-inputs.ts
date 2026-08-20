@@ -7,6 +7,7 @@ import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { CallableInputUseContract } from "./input-use.js";
+import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 
 import { callableDeclarationAllowsSynchronousValue } from "../../model/callable-contract.js";
 import {
@@ -102,6 +103,7 @@ export function auditCallableLocalUse(
   storageSymbols: ReadonlyMap<Symbol, Node>,
   destinations: Map<Node, Set<Node>>,
   inputUses?: CallableInputUseContract,
+  invocationInputs?: ExactInvocationInputIndex,
 ): void {
   if (!source.ast.is.IsIdentifier(node)) {
     return;
@@ -137,11 +139,14 @@ export function auditCallableLocalUse(
     storageSymbols,
     inputUses,
   );
+  const invocationDestinations = invocationInputs?.parametersFor(node)
+    ?.filter((parameter) => storageDeclarations.has(parameter)) ?? [];
   if (
     directContainingCall(source, node) !== undefined ||
     isCallablePresenceObservation(source, node) ||
     destination !== undefined ||
-    transported !== undefined
+    transported !== undefined ||
+    invocationDestinations.length !== 0
   ) {
     counts.admitted += 1;
     if (destination !== undefined) {
@@ -149,6 +154,9 @@ export function auditCallableLocalUse(
     }
     for (const transportedDestination of transported ?? []) {
       appendSet(destinations, local, transportedDestination);
+    }
+    for (const invocationDestination of invocationDestinations) {
+      appendSet(destinations, local, invocationDestination);
     }
   }
 }

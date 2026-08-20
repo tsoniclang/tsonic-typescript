@@ -123,6 +123,7 @@ const value = new GenericThen<() => void>(42);
   const declaration = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: false,
+    declarationReferences: true,
   }).nodesOfKind(KindVariableDeclaration).find((node) =>
     fixture.source.ast.text(fixture.source.ast.name(node)) === "value"
   );

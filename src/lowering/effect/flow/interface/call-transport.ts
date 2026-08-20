@@ -20,7 +20,7 @@ import {
 } from "./declarations.js";
 import {
   type InterfaceContractIngress,
-  interfaceValueOriginIsClosedForType,
+  retainOpaqueInterfaceResultOrigin,
   retainOpenInterfaceReceiver,
   retainUnprovenInterfaceIngress,
 } from "./ingress.js";
@@ -34,8 +34,14 @@ import {
   opaqueInterfaceSourceContainsContracts,
   retainOpaqueInterfaceInputs,
 } from "./opaque-exposure.js";
-import { callHasExactBindings } from "../invocation/call-binding.js";
-import { isDiscardedCall } from "../../model/syntax.js";
+import {
+  callHasExactBindings,
+  exactSourceCallBindingInputs,
+} from "../invocation/call-binding.js";
+import {
+  isDiscardedCall,
+  successfulValueExpression,
+} from "../../model/syntax.js";
 
 export interface InterfaceCallTransportSink {
   processTypePair(
@@ -105,6 +111,7 @@ export function collectInterfaceCallTransports(
     }
   }
   for (const analysis of calls) {
+    collectCheckedProviderParameters(source, ingress, analysis);
     retainOpaqueCallInputs(
       source,
       relevance,
@@ -123,6 +130,66 @@ export function collectInterfaceCallTransports(
       sink,
       analysis,
     );
+  }
+}
+
+function collectCheckedProviderParameters(
+  source: TargetSourceProgram,
+  ingress: InterfaceContractIngress,
+  analysis: InterfaceCallTransportAnalysis,
+): void {
+  const { call, exactBindings, semantics, transport } = analysis;
+  if (call === undefined || !exactBindings || transport === undefined) {
+    return;
+  }
+  for (const binding of call.sourceArgumentBindings) {
+    const argument = call.sourceArguments[binding.sourceArgumentIndex];
+    if (
+      argument === undefined ||
+      !transport.inputExpressions.includes(argument.expression)
+    ) {
+      continue;
+    }
+    const expression = successfulValueExpression(source, argument.expression);
+    if (
+      expression === undefined ||
+      (
+        !source.ast.is.IsArrowFunction(expression) &&
+        !source.ast.is.IsFunctionExpression(expression)
+      )
+    ) {
+      continue;
+    }
+    const parameters = source.ast.parameters(expression).filter(
+      (parameter): parameter is Node => parameter !== undefined,
+    );
+    const sourceCallable = semantics.selectCallableType(
+      binding.selectedArgumentType,
+    );
+    const targetCallable = semantics.selectCallableType(
+      binding.selectedParameterType,
+    );
+    if (
+      sourceCallable === undefined ||
+      targetCallable === undefined ||
+      sourceCallable.parameters.length !== parameters.length ||
+      targetCallable.parameters.length !== parameters.length ||
+      !sourceCallable.parameters.every((parameter, index) =>
+        parameter.declaration === parameters[index] &&
+        parameter.parameterKind === targetCallable.parameters[index]
+          ?.parameterKind
+      )
+    ) {
+      continue;
+    }
+    targetCallable.parameters.forEach((parameter, index) => {
+      ingress.checkedParameterInputs.record(
+        parameters[index]!,
+        semantics,
+        parameter.type,
+        argument.expression,
+      );
+    });
   }
 }
 
@@ -161,27 +228,50 @@ function processCallTransports(
         if (sourceArgument === undefined) {
           throw new Error("resolved call lost its exact source argument");
         }
+        const inputs = exactSourceCallBindingInputs(
+          source,
+          sourceArgument.expression,
+          binding,
+          ingress.aggregateProjections,
+        );
+        if (inputs === undefined) {
+          sink.markExposedContracts(
+            semantics,
+            binding.selectedParameterType,
+            sourceArgument.expression,
+            "inexact-call-bindings",
+          );
+          sink.markExposedValueContracts(
+            semantics,
+            binding.selectedParameterType,
+            sourceArgument.expression,
+            "inexact-call-bindings",
+          );
+          continue;
+        }
         if (binding.sourceForm === "value") {
           sink.processTypePair(
             semantics,
             sourceArgument.type,
             binding.selectedArgumentType,
-            sourceArgument.expression,
+            inputs[0]!,
           );
         }
-        sink.processTypePair(
-          semantics,
-          binding.selectedArgumentType,
-          binding.selectedParameterType,
-          sourceArgument.expression,
-        );
-        retainUnprovenInterfaceIngress(
-          semantics,
-          sourceArgument.expression,
-          binding.selectedArgumentType,
-          binding.selectedParameterType,
-          ingress,
-        );
+        for (const input of inputs) {
+          sink.processTypePair(
+            semantics,
+            binding.selectedArgumentType,
+            binding.selectedParameterType,
+            input,
+          );
+          retainUnprovenInterfaceIngress(
+            semantics,
+            input,
+            binding.selectedArgumentType,
+            binding.selectedParameterType,
+            ingress,
+          );
+        }
       }
     }
   }
@@ -228,7 +318,6 @@ function processCallTransports(
     opaqueBoundary,
     relevance,
     ingress,
-    sink,
   );
 }
 
@@ -319,7 +408,6 @@ function retainOpaqueCallResult(
   opaqueBoundary: boolean,
   relevance: InterfaceContractRelevance,
   ingress: InterfaceContractIngress,
-  sink: InterfaceCallTransportSink,
 ): void {
   if (isDiscardedCall(source, node)) {
     return;
@@ -342,19 +430,13 @@ function retainOpaqueCallResult(
   }
   if (
     opaqueBoundary &&
-    relevance.contains(semantics, call.sourceResultType) &&
-    !interfaceValueOriginIsClosedForType(
+    relevance.contains(semantics, call.sourceResultType)
+  ) {
+    retainOpaqueInterfaceResultOrigin(
       semantics,
       node,
       call.sourceResultType,
       ingress,
-    )
-  ) {
-    sink.markExposedValueContracts(
-      semantics,
-      call.sourceResultType,
-      node,
-      "opaque-call-transport",
     );
   }
 }

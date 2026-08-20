@@ -1,6 +1,7 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type {
   SourceBindingWrite,
+  SourceDeclarationReference,
   SourceProjectMemberDispatch,
   TargetSourceProgram,
 } from "@tsonic/target-api";
@@ -18,40 +19,15 @@ import {
   createProjectDeclarationReferenceIndex,
   disabledProjectDeclarationReferenceIndex,
 } from "./reference-index.js";
-export interface TargetProgramIndexSelection {
-  readonly bindingWrites: boolean;
-  readonly memberDispatch: boolean;
-  readonly declarationReferences?: boolean;
-}
-
-export interface TargetProgramIndexOperations {
-  readonly nodeVisits: number;
-  readonly childEdges: number;
-  readonly kindEntries: number;
-  readonly identifierEntries: number;
-  readonly referenceCandidates: number;
-  readonly projectReferences: number;
-  readonly bindingCandidates: number;
-  readonly bindingWrites: number;
-  readonly heritageEdges: number;
-  readonly dispatchMembers: number;
-}
-
-export interface TargetProgramIndex {
-  readonly sourceFiles: readonly SourceFile[];
-  readonly nodes: readonly Node[];
-  readonly operations: TargetProgramIndexOperations;
-  nodesFor(sourceFile: SourceFile): readonly Node[];
-  hasAuthoredIdentifierName(sourceFile: SourceFile, name: string): boolean;
-  authoredIdentifierNameCount(sourceFile: SourceFile): number;
-  nodesOfKind(kind: Kind): readonly Node[];
-  nodesOfKinds(kinds: readonly Kind[]): readonly Node[];
-  hasBindingWrite(declaration: Node | undefined): boolean;
-  bindingWritesAt(node: Node | undefined): readonly SourceBindingWrite[];
-  bindingWritesFor(declaration: Node | undefined): readonly SourceBindingWrite[];
-  referencesToDeclaration(declaration: Node | undefined): readonly Node[];
-  memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined;
-}
+import type {
+  TargetProgramIndex,
+  TargetProgramIndexSelection,
+} from "./program-index/model.js";
+export type {
+  TargetProgramIndex,
+  TargetProgramIndexOperations,
+  TargetProgramIndexSelection,
+} from "./program-index/model.js";
 
 interface NodeCensus {
   readonly sourceFiles: readonly SourceFile[];
@@ -155,6 +131,11 @@ export function createTargetProgramIndex(
       return declaration === undefined
         ? noWrites
         : writes.byDeclaration.get(declaration) ?? noWrites;
+    },
+    declarationReferenceFor(
+      node: Node | undefined,
+    ): SourceDeclarationReference | undefined {
+      return references.declarationReferenceFor(node);
     },
     referencesToDeclaration(declaration: Node | undefined): readonly Node[] {
       return references.referencesToDeclaration(declaration);

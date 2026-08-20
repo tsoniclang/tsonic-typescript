@@ -81,6 +81,7 @@ export const result = await read(holder.reader);`,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
+        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);
@@ -104,6 +105,29 @@ export const result = await read(selected);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
+    }),
+  );
+  assert.equal(graph.components.length, 1);
+  assert.ok(graph.components[0]?.boundaryCauses.some((cause) =>
+    cause.reason === "unproven-value-origin"
+  ));
+});
+
+test("retains an object-spread origin with an opaque sibling use", () => {
+  const fixture = checkedEffectFixture(`${prelude}
+declare function escape(value: { readonly reader: Reader }): void;
+const base = { reader: new Pair() };
+escape(base);
+const holder: { readonly reader: Reader } = { ...base };
+export const result = await read(holder.reader);
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -139,6 +163,7 @@ export const result = await read(holder.reader);`,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
+        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);

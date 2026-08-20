@@ -76,18 +76,24 @@ flow/
   callable/                   callable values, aliases, and inputs
   collection/                 collection-carried callable values
   interface/                  contract ingress, implementations, and dispatch
+  invocation/                 exact project-call argument and result bindings
+  object/                     exact named-property projections
+  provider/                   certified provider-call transport
   return/                     return values, callables, and result consumers
   storage/                    fields, owners, and storage transports
+  value/                      shared binding and selected-value projections
 inventory/                    authored candidate and call census
 model/                        shared immutable contracts and AST navigation
 planning/                     composition, summaries, file plans, and lifecycle
+provenance/                   finite graph, SCC, and closed-origin resolution
 rewrite/                      exact consumption of immutable AST plans
 test-support/                 test-only checked-source fixture construction
 ```
 
 Production dependencies point toward semantic prerequisites: `model` and
-`closure` are foundational; `inventory` may consume them; `flow` may consume
-inventory and those foundations; `planning` composes every domain; and
+`provenance` are foundational; `closure` may consume the finite provenance
+algebra; `inventory` may consume `model`, `provenance`, and `closure`; `flow`
+may consume inventory and those foundations; `planning` composes every domain; and
 `rewrite` consumes only finalized planning and model contracts. Reverse edges
 are forbidden. Tests are colocated with their owner. The effect root and the
 `flow` root contain no loose modules, and catch-all, compatibility, legacy,
@@ -520,22 +526,37 @@ that identity, and rewrites it only when the combined dependency closure
 settles. It may not settle a returned implementation while leaving its
 producer or consumer signature awaitable.
 
-Synchronous-call dependency closure is computed once over the canonical call
-resolutions. Collection, storage, and returned-callable contracts project from
-those already-closed resolutions and retain references to their own immutable
-evidence; they do not create a second reverse dependency graph or copy merged
-dependency sets per contract. This keeps contract evidence proportional to
-authored contracts plus canonical calls even when many contracts share one
-forwarder.
+Every cyclic effect-flow problem uses one finite provenance algebra. A semantic
+owner creates exact node-identity vertices, typed dependency edges carrying the
+authored occurrence that established each edge, explicit origins, and explicit
+closed boundary reasons. The graph builder is mutable only during that owner's
+single construction transaction. Sealing copies and freezes its compact
+ledgers and permanently rejects another seal or mutation. Consumers cannot
+reach builder storage.
 
-Resolution finalization seals its existing dependency storage in place and
-permanently invalidates every construction operation. The finalized interface
-exposes only counts and iterators, never its backing sets, and finalization
-creates neither a second resolution object nor copied dependency collections.
-This is one lifecycle boundary, not a mutable owner plus a defensive view or
-array copy. Per-resolution object freezing is also forbidden: the sealed state
-and capability boundary provide immutability without forcing a whole-graph
-hidden-class transition after the checker graph is already resident.
+Resolution condenses strongly connected components once, then propagates
+origins and boundaries over the acyclic component graph. A value is closed only
+when its complete dependency closure contains at least one exact origin and no
+boundary. Cycles therefore neither recurse nor become proof by themselves.
+Callable, return, result-consumer, selected-value-slot, and blocker flows share
+this algebra but remain separate semantic graphs with separate owners and
+reason catalogs; there is no universal effect IR and no flow may read another
+flow's mutable construction state.
+
+Synchronous-call dependency closure is computed from those graph resolutions.
+Collection, storage, interface, and returned-callable contracts project from
+canonical resolutions and exact invocation/value projections; they do not
+reimplement recursive resolution or maintain a sibling compatibility graph.
+Finalized callable-value resolutions are immutable snapshots exposing only
+closed state, counts, and iterators over deduplicated exact origins. Changing an
+input collection after construction cannot change a resolution.
+
+Blocker propagation uses the same typed-edge vocabulary. Every candidate
+dependency must exact-join a non-empty edge-kind/occurrence ledger before SCC
+condensation. Every propagated retained reason has one deterministic nearest
+direct root and a typed occurrence path to that root. A dependency without
+evidence, a foreign candidate, an originless cycle, or an unaccounted boundary
+fails closed rather than falling back to an untyped recursive walk.
 
 Callable storage may be a public mutable constructor field when the nominal
 class remains a closed project-owned value family. The owner proof inventories

@@ -1,6 +1,5 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node, Symbol, Type } from "@tsonic/tsts";
 import {
-  AsTypeReferenceNode,
   AsUnionTypeNode,
 } from "@tsonic/tsts/target-ast";
 import type {
@@ -16,17 +15,6 @@ export function callableDeclarationAllowsSynchronousValue(
 ): boolean {
   return callableDeclarationSynchronousReturnTypes(source, declaration) !==
     undefined;
-}
-
-export function callableDeclarationHasResolvableType(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const typeNode = source.ast.typeNode(declaration);
-  return typeNode !== undefined && callableTypeNodeIsResolvable(
-    source,
-    typeNode,
-  ) === true;
 }
 
 export interface CallableReturnRewrite {
@@ -71,11 +59,25 @@ export function callableResultReturnRewrites(
   return callable === true ? Object.freeze(result) : undefined;
 }
 
-export function callableProjectedResultReturnRewrites(
+export type CallableProjectedResultSlot =
+  | {
+      readonly kind: "element";
+      readonly index: number;
+    }
+  | {
+      readonly kind: "property";
+      readonly symbols: ReadonlySet<Symbol>;
+      readonly declarations: ReadonlySet<Node>;
+    };
+
+export function callableProjectedResultSlotReturnRewrites(
   source: TargetSourceProgram,
   declaration: Node,
-  index: number,
+  path: readonly CallableProjectedResultSlot[],
 ): readonly CallableReturnRewrite[] | undefined {
+  if (path.length === 0) {
+    return undefined;
+  }
   let resultType = source.ast.typeNode(declaration);
   if (resultType === undefined) {
     return undefined;
@@ -90,13 +92,129 @@ export function callableProjectedResultReturnRewrites(
       return undefined;
     }
   }
-  const projected = fixedTupleElementType(source, resultType, index);
-  if (projected === undefined) {
+  const projected = projectCallableResultSlot(source, resultType, path);
+  if (projected === undefined || projected.length === 0) {
     return undefined;
   }
-  const result: CallableReturnRewrite[] = [];
-  const callable = collectCallableResultRewrites(source, projected, result);
-  return callable === true ? Object.freeze(result) : undefined;
+  const rewrites: CallableReturnRewrite[] = [];
+  for (const node of projected) {
+    if (collectCallableResultRewrites(source, node, rewrites) !== true) {
+      return undefined;
+    }
+  }
+  return Object.freeze(rewrites);
+}
+
+function projectCallableResultSlot(
+  source: TargetSourceProgram,
+  node: Node,
+  path: readonly CallableProjectedResultSlot[],
+): readonly Node[] | undefined {
+  const [step, ...remaining] = path;
+  if (step === undefined) {
+    return Object.freeze([node]);
+  }
+  const selected = unwrapProjectedResultContainer(source, node);
+  if (selected === undefined) {
+    return undefined;
+  }
+  if (source.ast.is.IsUnionTypeNode(selected)) {
+    const result: Node[] = [];
+    for (const member of AsUnionTypeNode(selected)?.Types?.Nodes ?? []) {
+      if (member === undefined) {
+        return undefined;
+      }
+      const semantics = source.semantics.forNode(member);
+      const type = semantics.getTypeFromTypeNode(member);
+      if (type !== undefined && semantics.isNullish(type)) {
+        continue;
+      }
+      const projected = projectCallableResultSlot(source, member, path);
+      if (projected === undefined) {
+        return undefined;
+      }
+      result.push(...projected);
+    }
+    return result.length === 0 ? undefined : Object.freeze(result);
+  }
+  const child = step.kind === "element"
+    ? fixedTupleElementType(source, selected, step.index)
+    : exactInlinePropertyType(source, selected, step);
+  return child === undefined
+    ? undefined
+    : projectCallableResultSlot(source, child, remaining);
+}
+
+function unwrapProjectedResultContainer(
+  source: TargetSourceProgram,
+  node: Node,
+): Node | undefined {
+  let current = node;
+  for (;;) {
+    if (source.ast.is.IsParenthesizedTypeNode(current)) {
+      const inner = source.ast.as.AsParenthesizedTypeNode(current)?.Type;
+      if (inner === undefined) {
+        return undefined;
+      }
+      current = inner;
+      continue;
+    }
+    if (
+      source.ast.is.IsTypeOperatorNode(current) &&
+      source.ast.operatorKindName(current) === "KindReadonlyKeyword"
+    ) {
+      const inner = source.ast.as.AsTypeOperatorNode(current)?.Type;
+      if (inner === undefined) {
+        return undefined;
+      }
+      current = inner;
+      continue;
+    }
+    return current;
+  }
+}
+
+function exactInlinePropertyType(
+  source: TargetSourceProgram,
+  node: Node,
+  selector: Extract<
+    CallableProjectedResultSlot,
+    { readonly kind: "property" }
+  >,
+): Node | undefined {
+  if (!source.ast.is.IsTypeLiteralNode(node)) {
+    return undefined;
+  }
+  const matches = source.ast.elements(node).filter((member) => {
+    if (member === undefined) {
+      return false;
+    }
+    const name = source.ast.name(member);
+    if (name === undefined) {
+      return false;
+    }
+    const semantics = source.semantics.forNode(name);
+    const symbols = [
+      semantics.getSymbolAtLocation(name),
+      semantics.getResolvedSymbol(name),
+    ].filter((symbol): symbol is Symbol => symbol !== undefined);
+    const declarations = symbols.flatMap((symbol) =>
+      semantics.getSymbolDeclarations(symbol).filter(
+        (declaration): declaration is Node => declaration !== undefined,
+      )
+    );
+    return symbols.some((symbol) => selector.symbols.has(symbol)) ||
+      declarations.some((declaration) =>
+        selector.declarations.has(declaration)
+      ) || selector.declarations.has(member);
+  });
+  if (matches.length !== 1) {
+    return undefined;
+  }
+  const member = matches[0]!;
+  return source.ast.is.IsPropertySignatureDeclaration(member)
+    ? source.ast.typeNode(member)
+    : undefined;
 }
 
 function fixedTupleElementType(
@@ -191,7 +309,7 @@ function collectCallableResultRewrites(
   const rewrite = callableReturnRewrite(source, returnType);
   if (
     rewrite !== undefined &&
-    returnRewriteAdmitsDirectValue(source, rewrite)
+    callableReturnRewriteAdmitsDirectValue(source, rewrite)
   ) {
     result.push(rewrite);
     return true;
@@ -201,7 +319,7 @@ function collectCallableResultRewrites(
     : undefined;
 }
 
-function returnRewriteAdmitsDirectValue(
+export function callableReturnRewriteAdmitsDirectValue(
   source: TargetSourceProgram,
   rewrite: CallableReturnRewrite,
 ): boolean {
@@ -241,79 +359,6 @@ function returnContractContainsDirectValue(
       contractMember !== undefined &&
       sameSelectedType(semantics, contractMember, directMember)
     )
-  );
-}
-
-function callableTypeNodeIsResolvable(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean | undefined {
-  if (source.ast.is.IsParenthesizedTypeNode(node)) {
-    const inner = source.ast.as.AsParenthesizedTypeNode(node)?.Type;
-    return inner === undefined
-      ? undefined
-      : callableTypeNodeIsResolvable(source, inner);
-  }
-  if (source.ast.is.IsUnionTypeNode(node)) {
-    let callable = false;
-    for (const member of AsUnionTypeNode(node)?.Types?.Nodes ?? []) {
-      if (member === undefined) {
-        return undefined;
-      }
-      const semantics = source.semantics.forNode(member);
-      const selected = semantics.getTypeFromTypeNode(member);
-      if (selected !== undefined && semantics.isNullish(selected)) {
-        continue;
-      }
-      const exact = callableTypeNodeIsResolvable(source, member);
-      if (exact !== true) {
-        return undefined;
-      }
-      callable = true;
-    }
-    return callable;
-  }
-  if (!source.ast.is.IsFunctionTypeNode(node)) {
-    return undefined;
-  }
-  const returnType = source.ast.typeNode(node);
-  return returnType !== undefined && callableResultTypeIsResolvable(
-      source,
-      returnType,
-    )
-    ? true
-    : undefined;
-}
-
-function callableResultTypeIsResolvable(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  const rewrite = callableReturnRewrite(source, node);
-  if (rewrite !== undefined) {
-    return returnRewriteAdmitsDirectValue(source, rewrite);
-  }
-  const semantics = source.semantics.forNode(node);
-  const selected = semantics.getTypeFromTypeNode(node);
-  return selected !== undefined &&
-    (!typeMaySuspend(semantics, selected) ||
-      isExactTypeParameterReference(source, node));
-}
-
-function isExactTypeParameterReference(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  const name = AsTypeReferenceNode(node)?.TypeName;
-  if (name === undefined) {
-    return false;
-  }
-  const semantics = source.semantics.forNode(name);
-  const symbol = semantics.getResolvedSymbol(name) ??
-    semantics.getSymbolAtLocation(name);
-  const declarations = semantics.getSymbolDeclarations(symbol);
-  return declarations.length !== 0 && declarations.every((declaration) =>
-    source.ast.is.IsTypeParameterDeclaration(declaration)
   );
 }
 

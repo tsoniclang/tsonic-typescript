@@ -18,6 +18,7 @@ const expectedEffectDirectories = Object.freeze([
   "inventory",
   "model",
   "planning",
+  "provenance",
   "rewrite",
   "test-support",
 ]);
@@ -28,17 +29,26 @@ const expectedFlowDirectories = Object.freeze([
   "collection",
   "interface",
   "invocation",
+  "object",
   "provider",
   "return",
   "storage",
+  "value",
 ]);
 
 const allowedProductionDependencies = new Map<string, ReadonlySet<string>>([
-  ["closure", new Set(["closure"])],
-  ["flow", new Set(["closure", "flow", "inventory", "model"])],
-  ["inventory", new Set(["closure", "inventory", "model"])],
+  ["closure", new Set(["closure", "provenance"])],
+  ["flow", new Set([
+    "closure",
+    "flow",
+    "inventory",
+    "model",
+    "provenance",
+  ])],
+  ["inventory", new Set(["closure", "inventory", "model", "provenance"])],
   ["model", new Set(["model"])],
   ["planning", new Set(["closure", "flow", "inventory", "model", "planning"])],
+  ["provenance", new Set(["provenance"])],
   ["rewrite", new Set(["model", "planning", "rewrite"])],
 ]);
 

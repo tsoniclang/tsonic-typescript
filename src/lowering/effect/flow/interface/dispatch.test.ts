@@ -405,6 +405,7 @@ export const result = await read(new Pair());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -446,6 +447,7 @@ export const result = await read([new Pair()]);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -492,6 +494,7 @@ export interface ExternalReader { Read(): Awaitable<number>; }
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -541,6 +544,7 @@ interface Reader { Read(): Awaitable<number>; }
   const indexed = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: false,
+    declarationReferences: true,
   });
   const call = indexed.nodesOfKind(KindCallExpression)[0];
   assert.ok(call !== undefined);
@@ -568,6 +572,7 @@ interface Reader { Read(): Awaitable<number>; }
     createTargetProgramIndex(source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     new Map(),
     "declared-closed",

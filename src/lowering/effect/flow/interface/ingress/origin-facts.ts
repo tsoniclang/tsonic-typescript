@@ -1,6 +1,5 @@
 import type { Node, Type } from "@tsonic/tsts";
 import type {
-  SourceBindingWrite,
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api";
@@ -64,21 +63,6 @@ export function successfulInterfaceValueExpression(
   return expression === undefined
     ? undefined
     : exactReturnedCall(source, expression) ?? expression;
-}
-
-export function exactBindingWriteInput(
-  source: TargetSourceProgram,
-  write: SourceBindingWrite,
-): Node | undefined {
-  if (
-    write.kind !== "assignment" ||
-    !source.ast.is.IsBinaryExpression(write.operation) ||
-    source.ast.operatorKindName(write.operation) !== "KindEqualsToken"
-  ) {
-    return undefined;
-  }
-  const assignment = source.ast.as.AsBinaryExpression(write.operation);
-  return assignment?.Left === write.reference ? assignment.Right : undefined;
 }
 
 export function expressionCannotSupplyImplementation(

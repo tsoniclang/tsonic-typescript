@@ -9,14 +9,14 @@ import {
 } from "../../model/callable-contract.js";
 import {
   callableDispatchIsClosed,
-  isFunctionLike,
   transparentExpression,
 } from "../../model/syntax.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import { createCallableProjectionInputs } from "./projection-inputs.js";
+import { exactCallableReturnExpressions } from "../invocation/results.js";
+import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 
 export interface CallableResultInput {
-  readonly declaration: Node;
   readonly expressions: readonly (Node | undefined)[];
   readonly returnTypes: readonly CallableReturnRewrite[];
   readonly projectionConsumers?: readonly Node[];
@@ -24,6 +24,7 @@ export interface CallableResultInput {
 
 export interface CallableResultSourceInput {
   readonly declaration: Node;
+  readonly contracts: readonly Node[];
   readonly expressions: readonly (Node | undefined)[];
 }
 
@@ -36,10 +37,23 @@ export interface CallableResultInputs extends CallableResultLookup {
   projectionOutputsFor(reference: Node): readonly Node[] | undefined;
 }
 
+export type ExactCallImplementations = (
+  call: Node,
+) => readonly Node[] | undefined;
+
+interface SelectedCallSource {
+  readonly declaration: Node;
+  readonly contracts: readonly Node[];
+  readonly implementations: readonly Node[];
+}
+
 export function createCallableResultInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   projections: ExactAggregateProjectionIndex,
+  candidates: ReadonlySet<Node>,
+  exactCallImplementations?: ExactCallImplementations,
+  invocationInputs?: ExactInvocationInputIndex,
 ): CallableResultInputs {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
   const returnTypes = new Map<
@@ -60,26 +74,36 @@ export function createCallableResultInputs(
       sources.set(expression, null);
       return undefined;
     }
-    const declaration = resolveProjectInvocation(source, selected.call)
-      ?.implementation;
-    if (
-      declaration === undefined ||
-      !source.navigation.isProjectDeclaration(declaration) ||
-      !callableDispatchIsClosed(source, program, declaration) ||
-      program.hasBindingWrite(declaration) ||
-      (source.ast.hasModifierKind(declaration, "async") && !selected.awaited)
-    ) {
+    const selectedSource = selectedCallSource(
+      source,
+      selected.call,
+      exactCallImplementations,
+    );
+    if (selectedSource === undefined) {
       sources.set(expression, null);
       return undefined;
     }
-    let expressions = returns.get(declaration);
-    if (expressions === undefined) {
-      expressions = directReturnExpressions(source, declaration) ?? null;
-      returns.set(declaration, expressions);
+    const expressions: (Node | undefined)[] = [];
+    for (const implementation of selectedSource.implementations) {
+      const returned = inspectedReturns(
+        source,
+        program,
+        candidates,
+        selected.awaited,
+        implementation,
+        returns,
+      );
+      if (returned === undefined) {
+        sources.set(expression, null);
+        return undefined;
+      }
+      expressions.push(...returned);
     }
-    const result = expressions === null
-      ? undefined
-      : Object.freeze({ declaration, expressions });
+    const result = Object.freeze({
+      declaration: selectedSource.declaration,
+      contracts: selectedSource.contracts,
+      expressions: Object.freeze(expressions),
+    });
     sources.set(expression, result ?? null);
     return result;
   };
@@ -90,24 +114,53 @@ export function createCallableResultInputs(
       if (existing !== undefined) {
         return existing ?? undefined;
       }
-      const input = sourceFor(expression);
-      if (input === undefined) {
+      const selected = selectedCall(source, expression);
+      if (selected === undefined) {
         results.set(expression, null);
         return undefined;
       }
-      let rewrites = returnTypes.get(input.declaration);
-      if (rewrites === undefined) {
-        rewrites = callableResultReturnRewrites(source, input.declaration) ??
-          null;
-        returnTypes.set(input.declaration, rewrites);
+      const selectedSource = selectedCallSource(
+        source,
+        selected.call,
+        exactCallImplementations,
+      );
+      if (selectedSource === undefined) {
+        results.set(expression, null);
+        return undefined;
       }
-      const result = rewrites === null
-        ? undefined
-        : Object.freeze({
-            declaration: input.declaration,
-            expressions: input.expressions,
-            returnTypes: rewrites,
-          });
+      const expressions: (Node | undefined)[] = [];
+      const rewrites: CallableReturnRewrite[] = [];
+      for (const declaration of selectedSource.implementations) {
+        const selectedReturns = inspectedReturns(
+          source,
+          program,
+          candidates,
+          selected.awaited,
+          declaration,
+          returns,
+        );
+        if (selectedReturns === undefined) {
+          results.set(expression, null);
+          return undefined;
+        }
+        expressions.push(...selectedReturns);
+      }
+      for (const declaration of selectedSource.contracts) {
+        const selectedRewrites = cachedReturnRewrites(
+          source,
+          declaration,
+          returnTypes,
+        );
+        if (selectedRewrites === undefined) {
+          results.set(expression, null);
+          return undefined;
+        }
+        rewrites.push(...selectedRewrites);
+      }
+      const result = Object.freeze({
+        expressions: Object.freeze(expressions),
+        returnTypes: Object.freeze(rewrites),
+      });
       results.set(expression, result ?? null);
       return result;
     },
@@ -117,6 +170,12 @@ export function createCallableResultInputs(
     program,
     projections,
     directResults,
+    (call) => selectedCallSource(
+      source,
+      call,
+      exactCallImplementations,
+    )?.contracts,
+    invocationInputs,
   );
   return Object.freeze({
     sourceFor,
@@ -128,6 +187,77 @@ export function createCallableResultInputs(
       return projectedResults.outputsFor(reference);
     },
   });
+}
+
+function selectedCallSource(
+  source: TargetSourceProgram,
+  call: Node,
+  exactCallImplementations: ExactCallImplementations | undefined,
+): SelectedCallSource | undefined {
+  const direct = resolveProjectInvocation(source, call)?.implementation;
+  if (direct !== undefined) {
+    return Object.freeze({
+      declaration: direct,
+      contracts: Object.freeze([direct]),
+      implementations: Object.freeze([direct]),
+    });
+  }
+  const implementations = Object.freeze([
+    ...new Set(exactCallImplementations?.(call) ?? []),
+  ]);
+  const semantics = source.semantics.forNode(call);
+  const contract = semantics.getSignatureDeclaration(
+    semantics.getResolvedSignature(call),
+  );
+  return contract === undefined || implementations.length === 0
+    ? undefined
+    : Object.freeze({
+        declaration: contract,
+        contracts: Object.freeze([
+          contract,
+          ...implementations.filter((value) => value !== contract),
+        ]),
+        implementations,
+      });
+}
+
+function inspectedReturns(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  candidates: ReadonlySet<Node>,
+  awaited: boolean,
+  declaration: Node,
+  cache: Map<Node, readonly (Node | undefined)[] | null>,
+): readonly (Node | undefined)[] | undefined {
+  if (
+    !source.navigation.isProjectDeclaration(declaration) ||
+    !callableDispatchIsClosed(source, program, declaration) ||
+    program.hasBindingWrite(declaration) ||
+    (source.ast.hasModifierKind(declaration, "async") &&
+      !awaited &&
+      !candidates.has(declaration))
+  ) {
+    return undefined;
+  }
+  let expressions = cache.get(declaration);
+  if (expressions === undefined) {
+    expressions = exactCallableReturnExpressions(source, declaration) ?? null;
+    cache.set(declaration, expressions);
+  }
+  return expressions ?? undefined;
+}
+
+function cachedReturnRewrites(
+  source: TargetSourceProgram,
+  declaration: Node,
+  cache: Map<Node, readonly CallableReturnRewrite[] | null>,
+): readonly CallableReturnRewrite[] | undefined {
+  let rewrites = cache.get(declaration);
+  if (rewrites === undefined) {
+    rewrites = callableResultReturnRewrites(source, declaration) ?? null;
+    cache.set(declaration, rewrites);
+  }
+  return rewrites ?? undefined;
 }
 
 function selectedCall(
@@ -150,37 +280,4 @@ function selectedCall(
   return source.ast.is.IsCallExpression(root)
     ? { call: root, awaited: false }
     : undefined;
-}
-
-function directReturnExpressions(
-  source: TargetSourceProgram,
-  declaration: Node,
-): readonly (Node | undefined)[] | undefined {
-  const body = source.ast.body(declaration);
-  if (body === undefined) {
-    return undefined;
-  }
-  if (!source.ast.is.IsBlock(body)) {
-    return Object.freeze([body]);
-  }
-  const result: (Node | undefined)[] = [];
-  const pending = [...source.ast.children(body)].reverse();
-  while (pending.length !== 0) {
-    const node = pending.pop();
-    if (node === undefined || isFunctionLike(source, node)) {
-      continue;
-    }
-    if (source.ast.is.IsReturnStatement(node)) {
-      result.push(source.ast.as.AsReturnStatement(node)?.Expression);
-      continue;
-    }
-    const children = source.ast.children(node);
-    for (let index = children.length - 1; index >= 0; index -= 1) {
-      const child = children[index];
-      if (child !== undefined) {
-        pending.push(child);
-      }
-    }
-  }
-  return Object.freeze(result);
 }

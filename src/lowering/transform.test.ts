@@ -218,7 +218,13 @@ export const result = await kernel<number>(identity, new Values<number>(41));
   assert.ok(kernel !== undefined);
   assert.equal(fixture.source.ast.parameters(kernel).length, 2);
   assert.equal(result.representation.callableParameterCount, 0);
-  assert.equal(result.effect?.callableCount, 1);
+  assert.equal(result.effect?.callableCount, 0);
+  assert.equal(
+    countNodes(result.sourceFile, fixture.source, (node) =>
+      fixture.source.ast.hasModifierKind(node, "async")
+    ),
+    1,
+  );
   const callableEvidence = transaction.evidence.representationProjections
     .identityCallables;
   assert.equal(callableEvidence.optimizedCount, 0);

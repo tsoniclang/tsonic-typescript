@@ -4,12 +4,14 @@ import {
   KindConstructor,
   KindElementAccessExpression,
   KindIdentifier,
-  KindNewExpression,
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
+import {
+  createExactInvocationInputIndex,
+  type ExactInvocationInputIndex,
+} from "../invocation/inputs.js";
 
 import {
   collectCallableCollectionInputs,
@@ -21,7 +23,6 @@ import {
   directContainingCall,
   isModuleForwardingReference,
 } from "../../model/syntax.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import type { CallableInputUseContract } from "./input-use.js";
 import {
   trackedInputDestination,
@@ -52,57 +53,38 @@ export function collectCallableValueInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   inputUses?: CallableInputUseContract,
+  exactInvocationInputs?: ExactInvocationInputIndex,
 ): CallableValueInputs {
+  const invocationInputs = exactInvocationInputs ??
+    createExactInvocationInputIndex(source, program);
   const collections = collectCallableCollectionInputs(source, program);
   const mutableValues = new Map<Node, Node[]>();
   const constructorParameters = new Set<Node>();
   const constructorClasses = new Map<Node, Node>();
   const invalidConstructorParameters = new Set<Node>();
-  for (const node of program.nodesOfKinds([
-    KindConstructor,
-    KindNewExpression,
-  ])) {
-    if (source.ast.is.IsConstructorDeclaration(node)) {
-      const classDeclaration = source.ast.parent(node);
-      if (
-        classDeclaration !== undefined &&
-        source.ast.is.IsClassDeclaration(classDeclaration)
-      ) {
-        constructorClasses.set(node, classDeclaration);
-      }
-      continue;
-    }
-    if (!source.ast.is.IsNewExpression(node)) {
-      continue;
-    }
-    const declaration = resolveProjectInvocation(source, node)?.implementation;
+  for (const constructor of program.nodesOfKind(KindConstructor)) {
+    const classDeclaration = source.ast.parent(constructor);
     if (
-      declaration === undefined ||
-      !source.ast.is.IsConstructorDeclaration(declaration)
+      classDeclaration === undefined ||
+      !source.ast.is.IsClassDeclaration(classDeclaration)
     ) {
       continue;
     }
-    const invocation = exactSourceCallImplementationInputs(source, node);
-    if (invocation === undefined || invocation.declaration !== declaration) {
-      for (const parameter of source.ast.parameters(declaration)) {
-        if (
-          parameter !== undefined &&
-          isReadonlyParameterProperty(source, parameter)
-        ) {
-          invalidConstructorParameters.add(parameter);
-        }
+    constructorClasses.set(constructor, classDeclaration);
+    for (const parameter of source.ast.parameters(constructor)) {
+      if (parameter === undefined || !isReadonlyParameterProperty(source, parameter)) {
+        continue;
       }
-      continue;
-    }
-    for (const [parameter, argument] of invocation.inputs) {
-      if (isReadonlyParameterProperty(source, parameter)) {
-        append(mutableValues, parameter, argument);
-        constructorParameters.add(parameter);
-      }
-    }
-    for (const parameter of invocation.unresolvedParameters) {
-      if (isReadonlyParameterProperty(source, parameter)) {
+      if (invocationInputs.isInvalid(parameter)) {
         invalidConstructorParameters.add(parameter);
+      }
+      const inputs = invocationInputs.inputsFor(parameter);
+      if (inputs === undefined) {
+        continue;
+      }
+      constructorParameters.add(parameter);
+      for (const input of inputs) {
+        append(mutableValues, parameter, input);
       }
     }
   }
@@ -123,6 +105,7 @@ export function collectCallableValueInputs(
     program,
     collections.closed,
     inputUses,
+    invocationInputs,
   );
   const propertyReferences = new Map<Node, ReferenceCounts>();
   for (const parameter of constructorParameters) {

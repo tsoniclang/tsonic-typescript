@@ -4,8 +4,8 @@ import { test } from "node:test";
 import {
   createCompilerSessionFromFiles,
   createSourceSemanticsExtension,
+  type SourceSemanticsModule,
 } from "@tsonic/tsts";
-import type { SourceSemanticsModule } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
   type TargetArtifact,
@@ -13,10 +13,7 @@ import {
 
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
-import {
-  checkedSource,
-  compileInput,
-} from "./typescript-backend.test-support.js";
+import { checkedSource, compileInput } from "./typescript-backend.test-support.js";
 import { createTypeScriptBackend } from "./typescript-backend.js";
 
 const runtimeReference = typeScriptRuntimeReference();
@@ -103,7 +100,7 @@ test("emits deterministic immutable optimization evidence", () => {
   assert.ok(artifact !== undefined);
   assert.equal(artifact.kind, "asset");
   assert.deepEqual(JSON.parse(artifact.text), {
-    schemaVersion: 18,
+    schemaVersion: 20,
     profileIdentity:
       "typescript-optimization-v3/pointer=closed-direct/scalar=closed-direct/representations=preserve/effects=closed-direct/interfaces=open-structural",
     sourceMembership: ["index.ts", "markers.ts"],
@@ -168,13 +165,28 @@ test("emits deterministic immutable optimization evidence", () => {
       settledCallableCount: 0,
       retainedCallableCount: 0,
       settledAwaitCount: 0,
+      awaitAttribution: {
+        totalAwaitCount: 0,
+        settledAwaitCount: 0,
+        retainedAwaitCount: 0,
+        outsideCandidateAwaitCount: 0,
+        retainedReasons: [],
+        retentionEdges: [],
+        retainedOwners: [],
+        outsideCandidateExamples: [],
+      },
       fallbackReasons: [],
-      propagation: { vertexCount: 0, edgeCount: 0, workCount: 0 },
+      propagation: {
+        vertexCount: 0,
+        edgeCount: 0,
+        componentCount: 0,
+        workCount: 0,
+      },
       resultConsumption: {
-        callEntries: 0,
-        referenceEntries: 0,
+        callEntries: 2,
+        referenceEntries: 29,
         ownerEvaluations: 0,
-        consumerEdges: 0,
+        consumerEdges: 1,
       },
       interfaceDispatch: {
         profile: "open-structural",

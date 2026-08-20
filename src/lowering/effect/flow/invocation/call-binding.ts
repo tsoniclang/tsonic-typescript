@@ -5,6 +5,8 @@ import type {
 } from "@tsonic/target-api";
 
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
+import { sameValueAlternatives } from "../value/alternatives.js";
 
 type SourceArgumentBinding =
   ResolvedSourceCallInfo["sourceArgumentBindings"][number];
@@ -26,13 +28,19 @@ export interface ExactSourceCallImplementationInputs {
   readonly call: ResolvedSourceCallInfo;
   readonly contract: Node;
   readonly declaration: Node;
-  readonly inputs: ReadonlyMap<Node, Node>;
+  readonly inputs: ReadonlyMap<Node, readonly Node[]>;
+  readonly unresolvedParameters: readonly Node[];
+}
+
+export interface ExactSourceCallResolvedInputs {
+  readonly inputs: ReadonlyMap<Node, readonly Node[]>;
   readonly unresolvedParameters: readonly Node[];
 }
 
 export function exactSourceCallImplementationInputs(
   source: TargetSourceProgram,
   node: Node,
+  projections?: ExactAggregateProjectionIndex,
 ): ExactSourceCallImplementationInputs | undefined {
   const invocation = exactSourceCallBindings(source, node);
   if (invocation === undefined) {
@@ -46,25 +54,21 @@ export function exactSourceCallImplementationInputs(
   ) {
     return undefined;
   }
-  const inputs = exactSourceCallInputsForDeclaration(
+  const resolvedInputs = exactSourceCallInputsForDeclaration(
     source,
     node,
     target.implementation,
+    projections,
   );
-  if (inputs === undefined) {
+  if (resolvedInputs === undefined) {
     return undefined;
   }
-  const parameters = source.ast.parameters(target.implementation).filter(
-    (parameter): parameter is Node => parameter !== undefined,
-  );
   return Object.freeze({
     call: invocation.call,
     contract: invocation.declaration,
     declaration: target.implementation,
-    inputs,
-    unresolvedParameters: Object.freeze(
-      parameters.filter((parameter) => !inputs.has(parameter)),
-    ),
+    inputs: resolvedInputs.inputs,
+    unresolvedParameters: resolvedInputs.unresolvedParameters,
   });
 }
 
@@ -72,7 +76,8 @@ export function exactSourceCallInputsForDeclaration(
   source: TargetSourceProgram,
   node: Node,
   declaration: Node,
-): ReadonlyMap<Node, Node> | undefined {
+  projections?: ExactAggregateProjectionIndex,
+): ExactSourceCallResolvedInputs | undefined {
   const invocation = exactSourceCallBindings(source, node);
   if (invocation === undefined) {
     return undefined;
@@ -84,22 +89,232 @@ export function exactSourceCallInputsForDeclaration(
   const parameters = parameterSlots.filter(
     (parameter): parameter is Node => parameter !== undefined,
   );
-  const effectiveArguments = new Map<number, Node>();
-  for (const { argument, evidence } of invocation.bindings) {
+  if (
+    parameters.length !== invocation.call.sourceSelectedSignatureParameters.length ||
+    parameters.some((parameter, index) => {
+      const selected = invocation.call.sourceSelectedSignatureParameters[index];
+      const rest = source.ast.as.AsParameterDeclaration(parameter)
+        ?.DotDotDotToken !== undefined;
+      return selected === undefined || selected.parameterIndex !== index ||
+        selected.rest !== rest;
+    })
+  ) {
+    return undefined;
+  }
+  const effectiveArguments = new Map<
+    number,
+    ExactSourceCallParameterBinding
+  >();
+  for (const binding of invocation.bindings) {
+    const { evidence } = binding;
     if (
-      evidence.sourceForm !== "value" ||
       effectiveArguments.has(evidence.effectiveArgumentIndex)
     ) {
       return undefined;
     }
-    effectiveArguments.set(evidence.effectiveArgumentIndex, argument);
+    effectiveArguments.set(evidence.effectiveArgumentIndex, binding);
   }
-  return new Map(parameters.flatMap((parameter, index) => {
-    const rest = source.ast.as.AsParameterDeclaration(parameter)
-      ?.DotDotDotToken !== undefined;
-    const argument = rest ? undefined : effectiveArguments.get(index);
-    return argument === undefined ? [] : [[parameter, argument] as const];
-  }));
+  const inputs = new Map<Node, readonly Node[]>();
+  const unresolved: Node[] = [];
+  for (const [index, parameter] of parameters.entries()) {
+    const parsed = source.ast.as.AsParameterDeclaration(parameter);
+    const rest = parsed?.DotDotDotToken !== undefined;
+    const selected = rest
+      ? [...effectiveArguments]
+        .filter(([argumentIndex]) => argumentIndex >= index)
+        .map(([, binding]) => binding)
+      : [effectiveArguments.get(index)].filter(
+        (binding): binding is ExactSourceCallParameterBinding =>
+          binding !== undefined,
+      );
+    if (selected.length === 0) {
+      if (parsed?.Initializer !== undefined) {
+        inputs.set(parameter, Object.freeze([parsed.Initializer]));
+      } else if (rest || parsed?.QuestionToken !== undefined) {
+        inputs.set(parameter, Object.freeze([]));
+      } else {
+        unresolved.push(parameter);
+      }
+      continue;
+    }
+    const values = selected.map((binding) =>
+      exactSourceCallBindingInputs(
+        source,
+        binding.argument,
+        binding.evidence,
+        projections,
+      )
+    );
+    if (values.some((value) => value === undefined)) {
+      unresolved.push(parameter);
+      continue;
+    }
+    inputs.set(parameter, Object.freeze([
+      ...new Set(values.flatMap((value) => value ?? [])),
+      ...(parsed?.Initializer === undefined ? [] : [parsed.Initializer]),
+    ]));
+  }
+  return Object.freeze({
+    inputs,
+    unresolvedParameters: Object.freeze(unresolved),
+  });
+}
+
+export function exactSourceCallBindingInput(
+  source: TargetSourceProgram,
+  argument: Node,
+  evidence: SourceArgumentBinding,
+  projections?: ExactAggregateProjectionIndex,
+): Node | undefined {
+  const inputs = exactSourceCallBindingInputs(
+    source,
+    argument,
+    evidence,
+    projections,
+  );
+  return inputs?.length === 1 ? inputs[0] : undefined;
+}
+
+export function exactSourceCallBindingInputs(
+  source: TargetSourceProgram,
+  argument: Node,
+  evidence: SourceArgumentBinding,
+  projections?: ExactAggregateProjectionIndex,
+): readonly Node[] | undefined {
+  if (evidence.sourceForm === "value") {
+    return Object.freeze([argument]);
+  }
+  if (
+    evidence.sourceForm !== "spread-element" &&
+    evidence.sourceForm !== "spread-sequence"
+  ) {
+    return undefined;
+  }
+  const spread = source.ast.as.AsSpreadElement(argument)?.Expression;
+  const root = transparentSourceExpression(source, spread);
+  const projected = root === undefined
+    ? undefined
+    : projections?.sourceForReference(root)?.aggregate;
+  const aggregate = projected ?? root;
+  const alternatives = aggregate === undefined
+    ? undefined
+    : exactAggregateElements(source, aggregate, projections);
+  if (alternatives === undefined || alternatives.length === 0) {
+    return undefined;
+  }
+  const start = evidence.spreadElementIndex ?? 0;
+  const selected = alternatives.flatMap((elements) =>
+    evidence.sourceForm === "spread-element"
+      ? [elements[start]]
+      : elements.slice(start)
+  );
+  if (selected.length === 0) {
+    return evidence.sourceForm === "spread-sequence"
+      ? Object.freeze([])
+      : undefined;
+  }
+  return selected.some((element) =>
+      element === undefined || source.ast.is.IsSpreadElement(element)
+    )
+    ? undefined
+    : Object.freeze(selected.filter((element): element is Node =>
+      element !== undefined
+    ));
+}
+
+function exactAggregateElements(
+  source: TargetSourceProgram,
+  expression: Node,
+  projections: ExactAggregateProjectionIndex | undefined,
+  seen: ReadonlySet<Node> = new Set(),
+): readonly (readonly (Node | undefined)[])[] | undefined {
+  const root = transparentSourceExpression(source, expression);
+  if (root === undefined || seen.has(root)) {
+    return undefined;
+  }
+  if (source.ast.is.IsArrayLiteralExpression(root)) {
+    const elements = source.ast.elements(root);
+    return elements.some((element) =>
+        element === undefined || source.ast.is.IsSpreadElement(element)
+      )
+      ? undefined
+      : Object.freeze([Object.freeze([...elements])]);
+  }
+  if (source.ast.is.IsAwaitExpression(root)) {
+    const awaited = source.ast.as.AsAwaitExpression(root)?.Expression;
+    return awaited === undefined
+      ? undefined
+      : exactAggregateElements(
+          source,
+          awaited,
+          projections,
+          new Set([...seen, root]),
+        );
+  }
+  if (source.ast.is.IsIdentifier(root)) {
+    const projected = projections?.sourceForReference(root)?.aggregate;
+    if (projected !== undefined && projected !== root) {
+      return exactAggregateElements(
+        source,
+        projected,
+        projections,
+        new Set([...seen, root]),
+      );
+    }
+  }
+  const branches = sameValueAlternatives(source, root);
+  if (branches === undefined || branches === null || branches.length === 0) {
+    return undefined;
+  }
+  const result: (readonly (Node | undefined)[])[] = [];
+  const nextSeen = new Set([...seen, root]);
+  for (const branch of branches) {
+    const selected = exactAggregateElements(
+      source,
+      branch,
+      projections,
+      nextSeen,
+    );
+    if (selected === undefined) {
+      return undefined;
+    }
+    result.push(...selected);
+  }
+  const length = result[0]?.length;
+  return length === undefined || result.some((elements) =>
+      elements.length !== length
+    )
+    ? undefined
+    : Object.freeze(result);
+}
+
+function transparentSourceExpression(
+  source: TargetSourceProgram,
+  expression: Node | undefined,
+): Node | undefined {
+  let current = expression;
+  for (;;) {
+    if (current === undefined) {
+      return undefined;
+    }
+    if (source.ast.is.IsParenthesizedExpression(current)) {
+      current = source.ast.as.AsParenthesizedExpression(current)?.Expression;
+      continue;
+    }
+    if (source.ast.is.IsAsExpression(current)) {
+      current = source.ast.as.AsAsExpression(current)?.Expression;
+      continue;
+    }
+    if (source.ast.is.IsTypeAssertion(current)) {
+      current = source.ast.as.AsTypeAssertion(current)?.Expression;
+      continue;
+    }
+    if (source.ast.is.IsSatisfiesExpression(current)) {
+      current = source.ast.as.AsSatisfiesExpression(current)?.Expression;
+      continue;
+    }
+    return current;
+  }
 }
 
 export function exactSourceCallBindings(

@@ -39,6 +39,7 @@ test("retains a flow whose awaitable wrapper changes a direct member", () => {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     new Set(),
   );

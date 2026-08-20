@@ -75,6 +75,30 @@ export const result = await read();
   );
 });
 
+test("retains an uncalled exported interface input", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+export async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+`);
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.settledFamilyCount, 0);
+  assert.equal(evidence.retainedFamilyCount, 1);
+  assert.ok(evidence.boundaryCauses.some((cause) =>
+    cause.reason === "open-interface-receiver"
+  ));
+});
+
 for (const [name, sourceText] of [
   [
     "an opaque result",
@@ -170,6 +194,7 @@ ${sourceText}
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
+        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);
@@ -208,6 +233,7 @@ export const result = await read(holder.reader);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -243,6 +269,7 @@ export const result = await read(create());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -272,6 +299,7 @@ export const result = await read(await create());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -301,6 +329,7 @@ export const result = await read(await create());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -330,6 +359,7 @@ export const result = await new Holder(new Pair()).Read();
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -358,6 +388,7 @@ export const result = await create(PairFactory);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
