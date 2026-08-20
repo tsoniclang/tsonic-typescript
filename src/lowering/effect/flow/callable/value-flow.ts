@@ -21,7 +21,7 @@ export interface CallableValueFlow {
     visitor: (call: Node, resolution: CallableValueResolution) => void,
   ): void;
   resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
-  allowsCandidateReference(node: Node): boolean;
+  allowsCallableReference(node: Node): boolean;
   settledReturnTypes(
     optimized: ReadonlySet<Node>,
   ): readonly CallableReturnRewrite[];
@@ -37,6 +37,7 @@ export function createCallableValueFlow(
   invocationInputs?: ExactInvocationInputIndex,
   exactContractImplementations?: ExactCallImplementations,
   objectProjections?: ExactObjectPropertyProjectionIndex,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): CallableValueFlow {
   return createGraphCallableValueFlow(
     source,
@@ -48,5 +49,6 @@ export function createCallableValueFlow(
     invocationInputs,
     exactContractImplementations,
     objectProjections,
+    callableReferenceIsClosed,
   );
 }

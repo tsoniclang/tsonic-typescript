@@ -12,7 +12,7 @@ import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { callableDeclarationAllowsSynchronousValue } from "../../model/callable-contract.js";
 import {
   declarationForSymbols,
-  isCallablePresenceObservation,
+  isCallableNonEscapingObservation,
   trackedInputDestination,
   transportedCallableDestinations,
 } from "./input-reference.js";
@@ -104,6 +104,7 @@ export function auditCallableLocalUse(
   destinations: Map<Node, Set<Node>>,
   inputUses?: CallableInputUseContract,
   invocationInputs?: ExactInvocationInputIndex,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
   if (!source.ast.is.IsIdentifier(node)) {
     return;
@@ -143,7 +144,8 @@ export function auditCallableLocalUse(
     ?.filter((parameter) => storageDeclarations.has(parameter)) ?? [];
   if (
     directContainingCall(source, node) !== undefined ||
-    isCallablePresenceObservation(source, node) ||
+    callableReferenceIsClosed?.(node) === true ||
+    isCallableNonEscapingObservation(source, node) ||
     destination !== undefined ||
     transported !== undefined ||
     invocationDestinations.length !== 0

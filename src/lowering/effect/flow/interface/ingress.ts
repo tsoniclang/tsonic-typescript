@@ -23,6 +23,7 @@ import type { ExactValueSlotFlow } from "../value/slot/model.js";
 import type {
   CheckedInterfaceParameterInputs,
 } from "./ingress/checked-parameters.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
 
 export interface InterfaceContractIngress {
   readonly source: TargetSourceProgram;
@@ -40,6 +41,7 @@ export interface InterfaceContractIngress {
   readonly closedStorageOwners: ReadonlySet<Node>;
   readonly originRequirements: InterfaceOriginRequirements;
   readonly transports?: InvocationTransportContract;
+  readonly exactCallImplementations?: ExactCallImplementations;
 }
 
 export function retainUnprovenInterfaceIngress(

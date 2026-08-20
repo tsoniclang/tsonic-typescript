@@ -69,6 +69,13 @@ export function callableDeclarationState(
     return state;
   }
   state.expanded = true;
+  if (
+    isFunctionLike(context.source, declaration) &&
+    context.program.hasBindingWrite(declaration)
+  ) {
+    boundary(state, "open-binding", declaration, context);
+    return state;
+  }
   if (context.candidates.has(declaration)) {
     candidateOrigin(state, declaration, context);
     return state;
@@ -133,9 +140,7 @@ function expandExpression(
     source.ast.is.IsArrowFunction(root) ||
     source.ast.is.IsFunctionExpression(root)
   ) {
-    if (context.candidates.has(root)) {
-      context.candidateReferences.set(root, state);
-    }
+    context.callableReferences.set(root, state);
     selectCallableOrigin(state, root, root, context);
     return;
   }
@@ -246,7 +251,9 @@ function callableCallState(
     source.ast.as.AsCallExpression(call)?.Expression,
   );
   const reference = context.program.declarationReferenceFor(target);
+  const exactImplementations = context.exactCallImplementations?.(call);
   if (
+    exactImplementations === undefined &&
     referenceHasExactSemantics(source, reference) &&
     reference.declaration !== implementation &&
     reference.declaration !== contract
@@ -260,19 +267,32 @@ function callableCallState(
     );
   }
   if (implementation !== undefined && context.candidates.has(implementation)) {
-    candidateOrigin(state, implementation, context);
+    dependency(
+      state,
+      callableDeclarationState(implementation, context),
+      "callable-invocation",
+      call,
+      context,
+    );
     return state;
   }
-  const implementations = contract === undefined
-    ? undefined
-    : context.exactContractImplementations?.(contract);
+  const implementations = exactImplementations ??
+    (contract === undefined
+      ? undefined
+      : context.exactContractImplementations?.(contract));
   if (implementation === undefined && implementations !== undefined) {
     if (implementations.length === 0) {
       boundary(state, "open-callable", call, context);
       return state;
     }
     for (const selected of implementations) {
-      selectCallableOrigin(state, selected, call, context);
+      dependency(
+        state,
+        callableDeclarationState(selected, context),
+        "callable-invocation",
+        call,
+        context,
+      );
     }
     return state;
   }
@@ -321,14 +341,23 @@ function expandReference(
     ? undefined
     : declarationForSymbols(source, context.candidateSymbols, symbolNode);
   if (candidate !== undefined) {
-    context.candidateReferences.set(symbolNode ?? root, state);
-    candidateOrigin(state, candidate, context);
+    recordCallableReference(root, symbolNode, state, context);
+    dependency(
+      state,
+      callableDeclarationState(candidate, context),
+      "alias",
+      root,
+      context,
+    );
     return;
   }
   const reference = context.program.declarationReferenceFor(root);
   if (!referenceHasExactSemantics(source, reference)) {
     boundary(state, "inexact-reference", root, context);
     return;
+  }
+  if (isFunctionLike(source, reference.declaration)) {
+    recordCallableReference(root, symbolNode, state, context);
   }
   const implementations = context.exactContractImplementations?.(
     reference.declaration,
@@ -357,6 +386,18 @@ function expandReference(
   );
 }
 
+function recordCallableReference(
+  root: Node,
+  symbolNode: Node | undefined,
+  state: CallableState,
+  context: CallableContext,
+): void {
+  context.callableReferences.set(root, state);
+  if (symbolNode !== undefined) {
+    context.callableReferences.set(symbolNode, state);
+  }
+}
+
 function selectCallableOrigin(
   state: CallableState,
   declaration: Node,
@@ -364,9 +405,17 @@ function selectCallableOrigin(
   context: CallableContext,
 ): void {
   if (context.candidates.has(declaration)) {
-    candidateOrigin(state, declaration, context);
+    if (context.program.hasBindingWrite(declaration)) {
+      boundary(state, "open-binding", occurrence, context);
+    } else {
+      candidateOrigin(state, declaration, context);
+    }
   } else if (callableUsesSynchronousTransport(context.source, declaration)) {
-    synchronousOrigin(state, declaration, context);
+    if (context.program.hasBindingWrite(declaration)) {
+      boundary(state, "open-binding", occurrence, context);
+    } else {
+      synchronousOrigin(state, declaration, context);
+    }
   } else {
     boundary(state, "open-callable", occurrence, context);
   }

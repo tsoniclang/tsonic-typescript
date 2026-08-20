@@ -333,9 +333,12 @@ recursive dependencies, method values, immutable aliases, closed callback
 parameters and storage, their callable return contracts, and every call-result
 consumer. A private synchronous forwarder may carry a settled callback result
 only when every reference is an exact indexed call and every result is awaited,
-discarded, returned by a settling callable, or passed through another such
-private forwarder. Export, alias escape, ordinary Promise observation, open
-dispatch, provider behavior, or unresolved transport retains the component.
+returned by a settling callable, or passed through another such private
+forwarder. A discarded invocation retains its async producer because changing
+a rejected Promise into a synchronous throw is observable without a separate
+exact non-throwing fact. Export, alias escape, ordinary Promise observation,
+open dispatch, provider behavior, or unresolved transport retains the
+component.
 
 Calls selected through an interface member remain canonical under the default
 `interfaceDispatch: "open-structural"` profile. The independent
@@ -579,6 +582,79 @@ implementation parameter may retain its exact value input even when a separate
 rest, spread, omitted, or defaulted slot cannot be represented. The unresolved
 slot alone remains open. Missing, ambiguous, inapplicable, or corrupt evidence
 grants no transport permission.
+
+Indirect project invocation is a separate exact extension of that owner. The
+callable target is resolved from one node-identity provenance graph over local
+bindings, closed project storage, object and aggregate projections, exact
+project returns, and certified invocation transports. A call is admitted only
+when its complete implementation closure is non-empty and every callable
+origin is one dispatch-closed project body. Exact `undefined` or nullish reset
+origins close optional callable storage but are never implementation origins;
+every other non-callable origin remains open. Admitted implementation calls
+extend the same invocation-input index through the canonical selected-call
+binding owner. The extension is recomputed to a stable exact call-to-
+implementation relation so a callback forwarded through an already resolved
+indirect call can resolve a later indirect call. Each round also supplies the
+prior exact implementation relation to project-return and storage projection,
+allowing a callable returned by one indirect call to become a later target. A
+repeated non-stable relation, an originless cycle, or an open origin discards
+the indirect extension rather than retaining a partial guess.
+
+The stable state also contains the exact reference paths contributing to every
+closed indirect target. Those paths come from the same closed provenance
+component, not from a second reference walk. The next round may use them to
+close callable parameters, locals, fields, readonly constructor properties,
+collection extraction, and storage-owner aliases while continuing to audit
+every sibling reference. A reference admitted by one closed call does not
+excuse a separate export, mutation, construction, property observation, or
+otherwise open use. The relation and its reference paths stabilize together;
+neither may be published from a partially stable round.
+
+Fact-owned transport is available to the first indirect closure. Declared
+interface ingress consumes that closure and contributes its exact invocation
+inputs, call implementations, closed reference paths, and derived transports.
+Its call-result and value-slot owners therefore inspect a preliminary indirect
+implementation exactly as they inspect a direct implementation. One final
+indirect closure is seeded by admitted interface call and declaration
+implementations and consumes the complete input and transport set. This closes
+callbacks returned by an interface call without a spelling join. Extracted
+interface method values remain open unless a separate exact receiver-binding
+fact owns their method-value semantics. Every later callable, return, storage,
+and result-consumer flow consumes that final immutable invocation-input index,
+implementation relation, and reference closure. No consumer may reconstruct an
+indirect binding, use a preliminary index after the final closure exists, or
+treat an open callable resolution as an exact implementation list.
+
+Callable-reference closure is likewise one finalized fact of callable
+provenance. Removing `async` preserves function-object identity, nullishness,
+truthiness, `typeof`, discarded `void`/expression uses, and strict identity
+comparisons; those observations do not constitute an escape. Calls, exact
+aliases, and certified transports remain governed by their existing owners.
+Properties, construction, coercion, reflection, export, or any other
+observation remain open. Storage ingress and reverse-caller analysis may
+consume the finalized callable-reference fact; they may not re-walk aliases or
+admit a reference merely because it occurs near a call.
+
+Return-value provenance follows exact direct, interface, and closed indirect
+implementations, final invocation inputs, local writes, closed nominal
+storage, projections, and certified result origins through the finite
+provenance algebra. A closed uninitialized local or field contributes the
+exact JavaScript `undefined` origin. A generic return is not rejected merely
+because its declaration contains a type parameter: its complete closed call
+inputs and return flow decide whether the selected instantiations can contain
+a thenable. An ambient or externally callable declaration contributes open
+input even when the selected project has internal calls. Any open use or
+thenable origin retains the complete affected component.
+
+Promise-result consumer closure is directional. An exact await, private
+reverse-call chain, exact binding, closed storage transfer, or right-hand
+conditional/logical value flow may consume a result without observing Promise
+packaging. A discarded invocation remains a boundary because rejection versus
+synchronous throw is observable. A Promise-valued left logical operand,
+callable or constructor target, public/open forwarder, exported storage,
+property or identity observation, or opaque argument also remains a boundary.
+Reverse-call closure consumes only final closed callable-reference and
+implementation facts, including exact indirect calls.
 
 An abstract project member is the one intentional multi-implementation form of
 that contract. The declared-closed profile may expose it as invocation

@@ -13,7 +13,12 @@ import {
   isInvocationTransportInput,
   type InvocationTransportContract,
 } from "../../../invocation-transport.js";
-import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
+import {
+  exactSourceCallImplementationInputs,
+  exactSourceCallInputsForDeclaration,
+} from "../invocation/call-binding.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
+import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import {
   declarationForSymbols,
   indexDeclarationSymbols,
@@ -42,13 +47,33 @@ export function auditStorageOwnerIngress(
   ownersFor: (node: Node) => StorageOwnerMembership,
   invalid: Set<Node>,
   transports?: InvocationTransportContract,
+  invocationInputs?: ExactInvocationInputIndex,
+  exactCallImplementations?: ExactCallImplementations,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
-  const ingress = collectOwnerIngress(source, program, ownersFor);
+  const ingress = collectOwnerIngress(
+    source,
+    program,
+    ownersFor,
+    invocationInputs,
+  );
   if (ingress.size === 0) {
     return;
   }
-  auditExactInvocations(source, program, ingress);
-  auditCallableReferences(source, program, ingress, transports);
+  auditExactInvocations(
+    source,
+    program,
+    ingress,
+    exactCallImplementations,
+  );
+  auditCallableReferences(
+    source,
+    program,
+    ingress,
+    transports,
+    exactCallImplementations,
+    callableReferenceIsClosed,
+  );
   for (const entry of ingress.values()) {
     if (entry.open) {
       for (const owner of entry.owners) {
@@ -62,6 +87,7 @@ function collectOwnerIngress(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   ownersFor: (node: Node) => StorageOwnerMembership,
+  invocationInputs: ExactInvocationInputIndex | undefined,
 ): Map<Node, OwnerIngress> {
   const result = new Map<Node, OwnerIngress>();
   for (const parameter of program.nodesOfKind(KindParameter)) {
@@ -84,6 +110,8 @@ function collectOwnerIngress(
         ...existing,
         owners: merged,
         parameters: new Set([...existing.parameters, parameter]),
+        open: existing.open || invocationInputs !== undefined &&
+          !invocationInputs.isClosed(parameter),
       });
       continue;
     }
@@ -94,7 +122,9 @@ function collectOwnerIngress(
       open: !source.navigation.isProjectDeclaration(declaration) ||
         source.ast.body(declaration) === undefined ||
         program.hasBindingWrite(declaration) ||
-        !callableDispatchIsClosed(source, program, declaration),
+        !callableDispatchIsClosed(source, program, declaration) ||
+        invocationInputs !== undefined &&
+          !invocationInputs.isClosed(parameter),
     });
   }
   return result;
@@ -104,22 +134,31 @@ function auditExactInvocations(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   ingress: ReadonlyMap<Node, OwnerIngress>,
+  exactCallImplementations: ExactCallImplementations | undefined,
 ): void {
   for (const call of program.nodesOfKind(KindCallExpression)) {
-    const declaration = resolveProjectInvocation(source, call)?.implementation;
-    const entry = declaration === undefined ? undefined : ingress.get(declaration);
-    if (entry === undefined) {
-      continue;
-    }
-    const invocation = exactSourceCallImplementationInputs(source, call);
-    if (
-      invocation === undefined ||
-      invocation.declaration !== declaration ||
-      invocation.unresolvedParameters.some((parameter) =>
-        entry.parameters.has(parameter)
-      )
-    ) {
-      entry.open = true;
+    const direct = resolveProjectInvocation(source, call)?.implementation;
+    const declarations = direct === undefined
+      ? exactCallImplementations?.(call) ?? []
+      : [direct];
+    for (const declaration of declarations) {
+      const entry = ingress.get(declaration);
+      if (entry === undefined) {
+        continue;
+      }
+      const invocation = direct === declaration
+        ? exactSourceCallImplementationInputs(source, call)
+        : exactSourceCallInputsForDeclaration(source, call, declaration);
+      if (
+        invocation === undefined ||
+        ("declaration" in invocation &&
+          invocation.declaration !== declaration) ||
+        invocation.unresolvedParameters.some((parameter) =>
+          entry.parameters.has(parameter)
+        )
+      ) {
+        entry.open = true;
+      }
     }
   }
 }
@@ -129,6 +168,8 @@ function auditCallableReferences(
   program: TargetProgramIndex,
   ingress: ReadonlyMap<Node, OwnerIngress>,
   transports?: InvocationTransportContract,
+  exactCallImplementations?: ExactCallImplementations,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
   const symbols = indexDeclarationSymbols(source, ingress.keys());
   for (const node of program.nodesOfKinds([
@@ -139,6 +180,7 @@ function auditCallableReferences(
     const declaration = selectedCallableDeclaration(source, symbols, node);
     const entry = declaration === undefined ? undefined : ingress.get(declaration);
     if (
+      declaration === undefined ||
       entry === undefined ||
       node === source.ast.name(declaration) ||
       isModuleForwardingReference(source, node) ||
@@ -150,8 +192,13 @@ function auditCallableReferences(
     const selected = call === undefined
       ? undefined
       : resolveProjectInvocation(source, call)?.implementation;
+    const indirect = call === undefined
+      ? undefined
+      : exactCallImplementations?.(call);
     if (
       selected !== declaration &&
+      indirect?.includes(declaration) !== true &&
+      callableReferenceIsClosed?.(node) !== true &&
       !isInvocationTransportInput(source, node, transports)
     ) {
       entry.open = true;

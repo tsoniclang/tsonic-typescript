@@ -6,6 +6,7 @@ import type {
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import { isModuleForwardingReference } from "../../model/syntax.js";
+import { declarationIsExported } from "../../model/declaration-surface.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 
 export type ExactValueBindingProjectionStep =
@@ -361,17 +362,4 @@ function bindingOwnerSources(
   }
   const inputs = invocationInputs.inputsFor(owner);
   return inputs === undefined ? undefined : Object.freeze([...inputs]);
-}
-
-function declarationIsExported(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const declarationList = source.ast.parent(declaration);
-  const statement = source.ast.parent(declarationList);
-  return source.ast.hasModifierKind(declaration, "export") ||
-    source.ast.hasModifierKind(declaration, "default") ||
-    statement !== undefined && source.ast.is.IsVariableStatement(statement) &&
-      (source.ast.hasModifierKind(statement, "export") ||
-        source.ast.hasModifierKind(statement, "default"));
 }

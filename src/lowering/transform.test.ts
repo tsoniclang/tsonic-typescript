@@ -171,7 +171,7 @@ export const result = await kernel((value: number): number => value, 41);
   assert.equal(countNodes(result.sourceFile, fixture.source, IsAwaitExpression), 0);
 });
 
-test("effect settlement does not erase a nonidentity converter contract", () => {
+test("effect settlement preserves a nonidentity converter contract", () => {
   const fixture = checkedPointerFixture(`declare const storage: unique symbol;
 interface Stored<Value> { readonly [storage]: Value; }
 type ContainerStorage<Value> = Value extends Stored<infer Storage> ? Storage : Value;
@@ -218,12 +218,16 @@ export const result = await kernel<number>(identity, new Values<number>(41));
   assert.ok(kernel !== undefined);
   assert.equal(fixture.source.ast.parameters(kernel).length, 2);
   assert.equal(result.representation.callableParameterCount, 0);
-  assert.equal(result.effect?.callableCount, 0);
+  assert.equal(result.effect?.callableCount, 1);
   assert.equal(
     countNodes(result.sourceFile, fixture.source, (node) =>
       fixture.source.ast.hasModifierKind(node, "async")
     ),
-    1,
+    0,
+  );
+  assert.equal(
+    countNodes(result.sourceFile, fixture.source, IsAwaitExpression),
+    0,
   );
   const callableEvidence = transaction.evidence.representationProjections
     .identityCallables;

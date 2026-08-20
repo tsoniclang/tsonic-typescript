@@ -12,7 +12,11 @@ import {
   isFunctionLike,
   transparentExpression,
 } from "../../model/syntax.js";
-import { exactSourceCallImplementationInputs } from "../invocation/call-binding.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
+import {
+  exactSourceCallInputsForDeclaration,
+} from "../invocation/call-binding.js";
 
 export interface CallableCollectionContract {
   readonly returnType: CallableReturnRewrite;
@@ -43,11 +47,23 @@ interface ArrayOperation {
 export function collectCallableCollectionInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  exactCallImplementations?: ExactCallImplementations,
 ): CallableCollectionInputs {
   const collections = collectCollections(source, program);
   const extractorParameters = new Map<Node, Node | false>();
-  auditCollections(source, collections, extractorParameters);
-  collectExtractions(source, program, collections, extractorParameters);
+  auditCollections(
+    source,
+    collections,
+    extractorParameters,
+    exactCallImplementations,
+  );
+  collectExtractions(
+    source,
+    program,
+    collections,
+    extractorParameters,
+    exactCallImplementations,
+  );
   const values = new Map<Node, readonly Node[]>();
   const closed = new Set<Node>();
   const contracts: CallableCollectionContract[] = [];
@@ -114,6 +130,7 @@ function auditCollections(
   source: TargetSourceProgram,
   collections: ReadonlyMap<Node, MutableCollection>,
   extractorParameters: Map<Node, Node | false>,
+  exactCallImplementations?: ExactCallImplementations,
 ): void {
   const byOwner = new Map<Node, Map<Node, MutableCollection>>();
   for (const collection of collections.values()) {
@@ -157,6 +174,7 @@ function auditCollections(
           source,
           argument.call,
           extractorParameters,
+          exactCallImplementations,
         ) === argument.expression
       ) {
         return;
@@ -171,6 +189,7 @@ function collectExtractions(
   program: TargetProgramIndex,
   collections: ReadonlyMap<Node, MutableCollection>,
   extractorParameters: Map<Node, Node | false>,
+  exactCallImplementations?: ExactCallImplementations,
 ): void {
   for (const node of program.nodesOfKind(KindVariableDeclaration)) {
     if (
@@ -184,6 +203,7 @@ function collectExtractions(
       initializer,
       collections,
       extractorParameters,
+      exactCallImplementations,
     );
     if (collection !== undefined) {
       collection.extractedDeclarations.add(node);
@@ -196,6 +216,7 @@ function extractedCollection(
   expression: Node | undefined,
   collections: ReadonlyMap<Node, MutableCollection>,
   extractorParameters: Map<Node, Node | false>,
+  exactCallImplementations?: ExactCallImplementations,
 ): MutableCollection | undefined {
   const root = transparentExpression(source, expression);
   if (root === undefined || !source.ast.is.IsCallExpression(root)) {
@@ -221,6 +242,7 @@ function extractedCollection(
     source,
     root,
     extractorParameters,
+    exactCallImplementations,
   );
   const reference = transparentExpression(source, argument);
   const declaration = reference === undefined
@@ -233,25 +255,40 @@ function exactExtractorInput(
   source: TargetSourceProgram,
   call: Node,
   cache: Map<Node, Node | false>,
+  exactCallImplementations?: ExactCallImplementations,
 ): Node | undefined {
-  const invocation = exactSourceCallImplementationInputs(source, call);
-  if (invocation === undefined) {
+  const direct = resolveProjectInvocation(source, call)?.implementation;
+  const implementations = direct === undefined
+    ? exactCallImplementations?.(call) ?? []
+    : [direct];
+  if (implementations.length === 0) {
     return undefined;
   }
-  const declaration = invocation.declaration;
-  const existing = cache.get(declaration);
-  let parameter: Node | undefined;
-  if (existing !== undefined) {
-    parameter = existing === false ? undefined : existing;
-  } else {
-    parameter = inspectExtractor(source, declaration);
-    cache.set(declaration, parameter ?? false);
+  let input: Node | undefined;
+  for (const declaration of implementations) {
+    const existing = cache.get(declaration);
+    let parameter: Node | undefined;
+    if (existing !== undefined) {
+      parameter = existing === false ? undefined : existing;
+    } else {
+      parameter = inspectExtractor(source, declaration);
+      cache.set(declaration, parameter ?? false);
+    }
+    const invocation = exactSourceCallInputsForDeclaration(
+      source,
+      call,
+      declaration,
+    );
+    const inputs = parameter === undefined
+      ? undefined
+      : invocation?.inputs.get(parameter);
+    const selected = inputs?.length === 1 ? inputs[0] : undefined;
+    if (selected === undefined || input !== undefined && input !== selected) {
+      return undefined;
+    }
+    input = selected;
   }
-  if (parameter === undefined) {
-    return undefined;
-  }
-  const inputs = invocation.inputs.get(parameter);
-  return inputs?.length === 1 ? inputs[0] : undefined;
+  return input;
 }
 
 function inspectExtractor(

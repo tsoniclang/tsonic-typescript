@@ -442,6 +442,20 @@ export function discard(): void { callback.value!(); }
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
 });
 
+test("keeps a direct producer used by a discarded call", () => {
+  const fixture = checkedEffectFixture(`
+async function fail(): Promise<void> { throw new Error("boom"); }
+export function discard(): void { fail(); }
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, 0);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
 test("settles an indirect call with a proven synchronous producer", () => {
   const fixture = checkedEffectFixture(`
 class Callback {

@@ -40,6 +40,7 @@ import type { ExactValueSlotCallSource } from "../value/slot/model.js";
 import { callableDispatchIsClosed } from "../../model/syntax.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import { exactCallableReturnExpressions } from "../invocation/results.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import { createInterfaceOriginRequirements } from "./ingress/requirements.js";
 import { createInterfaceImplementationInputIndex } from "./ingress/implementation-inputs.js";
 import { collectClosedStorageOwners } from "../storage/owners.js";
@@ -69,6 +70,8 @@ export function collectInterfaceContractTransports(
   aggregateProjections: ExactAggregateProjectionIndex,
   objectProjections: ExactObjectPropertyProjectionIndex,
   transports?: InvocationTransportContract,
+  exactCallImplementations?: ExactCallImplementations,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): ExactInvocationInputIndex {
   const state: TypePairState = {
     source,
@@ -99,6 +102,9 @@ export function collectInterfaceContractTransports(
     closedStorageOwners: collectClosedStorageOwners(source, program),
     originRequirements,
     ...(transports === undefined ? {} : { transports }),
+    ...(exactCallImplementations === undefined
+      ? {}
+      : { exactCallImplementations }),
   };
   collectInterfaceCallTransports(
     source,
@@ -218,6 +224,8 @@ export function collectInterfaceContractTransports(
     })),
     invocationInputs,
     aggregateProjections,
+    exactCallImplementations,
+    callableReferenceIsClosed,
   );
   const slots = createExactValueSlotFlow(
     source,
@@ -229,6 +237,7 @@ export function collectInterfaceContractTransports(
       contracts,
       call,
       transports,
+      exactCallImplementations,
     ),
     completeInvocationInputs,
   );
@@ -247,6 +256,7 @@ function interfaceSlotSource(
   contracts: InterfaceContractIndex,
   call: Node,
   transports: InvocationTransportContract | undefined,
+  exactCallImplementations: ExactCallImplementations | undefined,
 ): ExactValueSlotCallSource | undefined {
   const semantics = source.semantics.forNode(call);
   const contract = semantics.getSignatureDeclaration(
@@ -261,7 +271,12 @@ function interfaceSlotSource(
     });
   }
   const direct = resolveProjectInvocation(source, call)?.implementation;
-  const implementations = direct === undefined && contract !== undefined &&
+  const indirect = direct === undefined
+    ? exactCallImplementations?.(call)
+    : undefined;
+  const implementations = direct === undefined && indirect !== undefined
+    ? indirect
+    : direct === undefined && contract !== undefined &&
       contracts.entries.has(contract)
     ? contracts.implementations.implementationsFor(contract)
     : direct === undefined

@@ -22,6 +22,7 @@ import {
   isModuleForwardingReference,
 } from "../model/syntax.js";
 import type { CallableValueFlow } from "../flow/callable/value-flow.js";
+import { isCallableNonEscapingObservation } from "../flow/callable/input-reference.js";
 import { connectCooperativeEffectDependency } from "../closure/dependency.js";
 
 const noDependencies: readonly Node[] = Object.freeze([]);
@@ -62,13 +63,32 @@ export function classifyCooperativeEffectProgram(
       node,
     );
   }
+  for (const candidate of candidates.values()) {
+    const body = source.ast.is.IsArrowFunction(candidate.declaration)
+      ? source.ast.body(candidate.declaration)
+      : undefined;
+    if (body !== undefined && !source.ast.is.IsBlock(body)) {
+      classifyReturnedExpression(
+        source,
+        candidates,
+        calls,
+        interfaces,
+        valueFlow,
+        returnFlow,
+        conditionalSettlements,
+        candidate,
+        body,
+      );
+    }
+  }
   for (const node of program.nodesOfKind(KindIdentifier)) {
     const candidate = candidateForReference(source, tracked, node);
     if (
       candidate === undefined ||
       node === source.ast.name(candidate.declaration) ||
       isModuleForwardingReference(source, node) ||
-      valueFlow.allowsCandidateReference(node)
+      isCallableNonEscapingObservation(source, node) ||
+      valueFlow.allowsCallableReference(node)
     ) {
       continue;
     }
@@ -81,7 +101,7 @@ export function classifyCooperativeEffectProgram(
     if (
       (source.ast.is.IsArrowFunction(candidate.declaration) ||
         source.ast.is.IsFunctionExpression(candidate.declaration)) &&
-      !valueFlow.allowsCandidateReference(candidate.declaration) &&
+      !valueFlow.allowsCallableReference(candidate.declaration) &&
       directContainingCall(source, candidate.declaration) === undefined
     ) {
       blockCooperativeEffect(
@@ -102,10 +122,11 @@ export function classifyCooperativeEffectCallUses(
   returnedCallHasClosedConsumers: (call: Node) => boolean,
 ): void {
   for (const [call, candidate] of calls) {
-    if (
-      containingAwait(source, call) !== undefined ||
-      isDiscardedCall(source, call)
-    ) {
+    if (containingAwait(source, call) !== undefined) {
+      continue;
+    }
+    if (isDiscardedCall(source, call)) {
+      blockCooperativeEffect(candidate, "promise-observed", call);
       continue;
     }
     const owner = enclosingCandidate(source, candidates, call);
@@ -119,10 +140,11 @@ export function classifyCooperativeEffectCallUses(
     blockCooperativeEffect(candidate, "promise-observed", call);
   }
   for (const [call, family] of interfaces.calls) {
-    if (
-      containingAwait(source, call) !== undefined ||
-      isDiscardedCall(source, call)
-    ) {
+    if (containingAwait(source, call) !== undefined) {
+      continue;
+    }
+    if (isDiscardedCall(source, call)) {
+      interfaces.block(family, "promise-observed", call);
       continue;
     }
     const owner = enclosingCandidate(source, candidates, call);
@@ -365,6 +387,31 @@ function classifyReturnDependencies(
     }
     return;
   }
+  classifyReturnedExpression(
+    source,
+    candidates,
+    calls,
+    interfaces,
+    valueFlow,
+    returnFlow,
+    conditionalSettlements,
+    owner,
+    expression,
+  );
+}
+
+function classifyReturnedExpression(
+  source: TargetSourceProgram,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  interfaces: DeclaredInterfaceDispatch,
+  valueFlow: CallableValueFlow,
+  returnFlow: ReturnValueFlow,
+  conditionalSettlements: (dependencies: Iterable<Node>) =>
+    ReadonlySet<Node> | undefined,
+  owner: CooperativeEffectCandidate,
+  expression: Node,
+): void {
   const returnedCall = exactReturnedCall(source, expression);
   const dependency = returnedCall === undefined
     ? undefined

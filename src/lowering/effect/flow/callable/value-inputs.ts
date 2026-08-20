@@ -1,4 +1,4 @@
-import type { Node, Symbol } from "@tsonic/tsts";
+import type { Node, Symbol, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
   KindConstructor,
@@ -24,7 +24,12 @@ import {
   isModuleForwardingReference,
 } from "../../model/syntax.js";
 import type { CallableInputUseContract } from "./input-use.js";
+import type { ExactCallImplementations } from "./result-inputs.js";
 import {
+  declarationForSymbols,
+  indexDeclarationSymbols,
+  isCallableNonEscapingObservation,
+  isTransparentParent,
   trackedInputDestination,
   transportedCallableDestinations,
 } from "./input-reference.js";
@@ -42,22 +47,21 @@ interface ReferenceCounts {
   admitted: number;
 }
 
-const equalityObservationOperators = new Set([
-  "KindEqualsEqualsToken",
-  "KindExclamationEqualsToken",
-  "KindEqualsEqualsEqualsToken",
-  "KindExclamationEqualsEqualsToken",
-]);
-
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   inputUses?: CallableInputUseContract,
   exactInvocationInputs?: ExactInvocationInputIndex,
+  exactCallImplementations?: ExactCallImplementations,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): CallableValueInputs {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
-  const collections = collectCallableCollectionInputs(source, program);
+  const collections = collectCallableCollectionInputs(
+    source,
+    program,
+    exactCallImplementations,
+  );
   const mutableValues = new Map<Node, Node[]>();
   const constructorParameters = new Set<Node>();
   const constructorClasses = new Map<Node, Node>();
@@ -106,6 +110,8 @@ export function collectCallableValueInputs(
     collections.closed,
     inputUses,
     invocationInputs,
+    exactCallImplementations,
+    callableReferenceIsClosed,
   );
   const propertyReferences = new Map<Node, ReferenceCounts>();
   for (const parameter of constructorParameters) {
@@ -132,6 +138,8 @@ export function collectCallableValueInputs(
       storage.closed,
       closedStorageSymbols,
       inputUses,
+      invocationInputs,
+      callableReferenceIsClosed,
     );
   }
 
@@ -181,6 +189,18 @@ export function collectCallableValueInputs(
     projectionConsumersAreClosed(consumers: readonly Node[]): boolean {
       return consumers.every((consumer) =>
         directContainingCall(source, consumer) !== undefined ||
+        callableReferenceIsClosed?.(consumer) === true ||
+        isCallableNonEscapingObservation(source, consumer) ||
+        invocationInputs.parametersFor(consumer)?.some((parameter) =>
+          storage.closed.has(parameter)
+        ) === true ||
+        transportedCallableDestinations(
+          source,
+          consumer,
+          storage.closed,
+          closedStorageSymbols,
+          inputUses,
+        ) !== undefined ||
         trackedInputDestination(
           source,
           consumer,
@@ -225,6 +245,8 @@ function auditPropertyReference(
   closedStorage: ReadonlySet<Node>,
   closedStorageSymbols: ReadonlyMap<Symbol, Node>,
   inputUses?: CallableInputUseContract,
+  invocationInputs?: ExactInvocationInputIndex,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
   if (tracked.size === 0) {
     return;
@@ -243,6 +265,8 @@ function auditPropertyReference(
           closedStorage,
           closedStorageSymbols,
           inputUses,
+          invocationInputs,
+          callableReferenceIsClosed,
         ) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
@@ -263,6 +287,8 @@ function auditPropertyReference(
           closedStorage,
           closedStorageSymbols,
           inputUses,
+          invocationInputs,
+          callableReferenceIsClosed,
         ) &&
         selected.accessMode === "read" &&
         !selected.optionalChain,
@@ -297,6 +323,8 @@ function propertyUseIsAdmitted(
   closedStorage: ReadonlySet<Node>,
   closedStorageSymbols: ReadonlyMap<Symbol, Node>,
   inputUses?: CallableInputUseContract,
+  invocationInputs?: ExactInvocationInputIndex,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): boolean {
   const transported = transportedCallableDestinations(
     source,
@@ -306,46 +334,13 @@ function propertyUseIsAdmitted(
     inputUses,
   );
   return directContainingCall(source, node) !== undefined ||
+    callableReferenceIsClosed?.(node) === true ||
     transported !== undefined ||
-    isCallablePresenceObservation(source, node) ||
+    invocationInputs?.parametersFor(node)?.some((parameter) =>
+      closedStorage.has(parameter)
+    ) === true ||
+    isCallableNonEscapingObservation(source, node) ||
     isInitializerOfClosedStorage(source, node, closedStorage);
-}
-
-function isCallablePresenceObservation(
-  source: TargetSourceProgram,
-  expression: Node,
-): boolean {
-  let current = expression;
-  for (;;) {
-    const parent = source.ast.parent(current);
-    if (parent === undefined) {
-      return false;
-    }
-    if (isTransparentParent(source, parent, current)) {
-      current = parent;
-      continue;
-    }
-    if (
-      !source.ast.is.IsBinaryExpression(parent) ||
-      !equalityObservationOperators.has(
-        source.ast.operatorKindName(parent) ?? "",
-      )
-    ) {
-      return false;
-    }
-    const binary = source.ast.as.AsBinaryExpression(parent);
-    const other = binary?.Left === current
-      ? binary.Right
-      : binary?.Right === current
-      ? binary.Left
-      : undefined;
-    const otherType = other === undefined
-      ? undefined
-      : source.semantics.forNode(other).getTypeAtLocation(other);
-    return other !== undefined &&
-      otherType !== undefined &&
-      source.semantics.forNode(other).isNullish(otherType);
-  }
 }
 
 function isInitializerOfClosedStorage(
@@ -367,53 +362,6 @@ function isInitializerOfClosedStorage(
       source.ast.as.AsVariableDeclaration(parent)?.Initializer === current &&
       closedStorage.has(parent);
   }
-}
-
-function indexDeclarationSymbols(
-  source: TargetSourceProgram,
-  declarations: Iterable<Node>,
-): ReadonlyMap<Symbol, Node> {
-  const result = new Map<Symbol, Node>();
-  for (const declaration of declarations) {
-    for (const symbol of exactSymbolsAt(source, source.ast.name(declaration))) {
-      result.set(symbol, declaration);
-    }
-  }
-  return result;
-}
-
-function declarationForSymbols(
-  source: TargetSourceProgram,
-  declarations: ReadonlyMap<Symbol, Node>,
-  node: Node,
-): Node | undefined {
-  for (const symbol of exactSymbolsAt(source, node)) {
-    const declaration = declarations.get(symbol);
-    if (declaration !== undefined) {
-      return declaration;
-    }
-  }
-  return undefined;
-}
-
-function exactSymbolsAt(
-  source: TargetSourceProgram,
-  node: Node | undefined,
-): readonly Symbol[] {
-  if (node === undefined) {
-    return [];
-  }
-  const semantics = source.semantics.forNode(node);
-  const result = new Set<Symbol>();
-  for (const symbol of [
-    semantics.getSymbolAtLocation(node),
-    semantics.getResolvedSymbol(node),
-  ]) {
-    if (symbol !== undefined) {
-      result.add(symbol);
-    }
-  }
-  return [...result];
 }
 
 function countPropertyUse(
@@ -494,27 +442,6 @@ function isPropertyAccessName(
   return parent !== undefined &&
     source.ast.is.IsPropertyAccessExpression(parent) &&
     source.ast.as.AsPropertyAccessExpression(parent)?.name === node;
-}
-
-function isTransparentParent(
-  source: TargetSourceProgram,
-  parent: Node,
-  child: Node,
-): boolean {
-  if (source.ast.is.IsParenthesizedExpression(parent)) {
-    return source.ast.as.AsParenthesizedExpression(parent)?.Expression === child;
-  }
-  if (source.ast.is.IsAsExpression(parent)) {
-    return source.ast.as.AsAsExpression(parent)?.Expression === child;
-  }
-  if (source.ast.is.IsTypeAssertion(parent)) {
-    return source.ast.as.AsTypeAssertion(parent)?.Expression === child;
-  }
-  if (source.ast.is.IsSatisfiesExpression(parent)) {
-    return source.ast.as.AsSatisfiesExpression(parent)?.Expression === child;
-  }
-  return source.ast.is.IsNonNullExpression(parent) &&
-    source.ast.as.AsNonNullExpression(parent)?.Expression === child;
 }
 
 function append(target: Map<Node, Node[]>, key: Node, value: Node): void {

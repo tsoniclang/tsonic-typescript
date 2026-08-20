@@ -3,6 +3,10 @@ import type { TargetSourceProgram } from "@tsonic/target-api";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import { isModuleForwardingReference } from "../../model/syntax.js";
+import {
+  declarationIsAmbient,
+  declarationIsExported,
+} from "../../model/declaration-surface.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { exactBindingWriteInput } from "../storage/assignment.js";
 import type { ExactValueSlotPath } from "./slot/model.js";
@@ -85,7 +89,12 @@ function exactInputsForDeclaration(
   const writes = new Map(program.bindingWritesFor(declaration).map(
     (write) => [write.reference, write] as const,
   ));
-  if (variable && initializer === undefined && writes.size === 0) {
+  if (
+    variable &&
+    initializer === undefined &&
+    writes.size === 0 &&
+    declarationIsAmbient(source, declaration)
+  ) {
     return undefined;
   }
   const closed = program.referencesToDeclaration(declaration).every(
@@ -106,17 +115,4 @@ function exactInputsForDeclaration(
     },
   );
   return closed ? Object.freeze([...new Set(inputs)]) : undefined;
-}
-
-function declarationIsExported(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const declarationList = source.ast.parent(declaration);
-  const statement = source.ast.parent(declarationList);
-  return source.ast.hasModifierKind(declaration, "export") ||
-    source.ast.hasModifierKind(declaration, "default") ||
-    statement !== undefined && source.ast.is.IsVariableStatement(statement) &&
-      (source.ast.hasModifierKind(statement, "export") ||
-        source.ast.hasModifierKind(statement, "default"));
 }

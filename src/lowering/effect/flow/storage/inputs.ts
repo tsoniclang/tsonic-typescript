@@ -9,11 +9,11 @@ import {
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { CallableInputUseContract } from "../callable/input-use.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import {
   createExactInvocationInputIndex,
   type ExactInvocationInputIndex,
 } from "../invocation/inputs.js";
-
 import {
   callableDeclarationAllowsSynchronousValue,
 } from "../../model/callable-contract.js";
@@ -24,7 +24,7 @@ import {
   declarationForSymbols,
   indexDeclarationSymbols,
   indexParameterUses,
-  isCallablePresenceObservation,
+  isCallableNonEscapingObservation,
   isTransparentParent,
   trackedInputDestination,
   transportedCallableDestinations,
@@ -57,6 +57,7 @@ export interface CallableStorageInputs {
 
 interface ClosedParameters {
   readonly declarations: ReadonlySet<Node>;
+  readonly ownerDestinations: ReadonlyMap<Node, ReadonlySet<Node>>;
   readonly uses: ParameterUses;
 }
 
@@ -71,6 +72,8 @@ export function collectCallableStorageInputs(
   excludedDeclarations: ReadonlySet<Node>,
   inputUses?: CallableInputUseContract,
   exactInvocationInputs?: ExactInvocationInputIndex,
+  exactCallImplementations?: ExactCallImplementations,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): CallableStorageInputs {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
@@ -121,6 +124,7 @@ export function collectCallableStorageInputs(
     invocationInputs,
     program,
     inputUses,
+    callableReferenceIsClosed,
   );
   for (const [parameter, assigned] of parameterClosure.uses.assignedValues) {
     for (const value of assigned) {
@@ -153,6 +157,8 @@ export function collectCallableStorageInputs(
       storageSymbols,
       storageDestinations,
       inputUses,
+      invocationInputs,
+      callableReferenceIsClosed,
     );
     auditCallableLocalUse(
       source,
@@ -164,11 +170,14 @@ export function collectCallableStorageInputs(
       storageDestinations,
       inputUses,
       invocationInputs,
+      callableReferenceIsClosed,
     );
   }
   const validFields = callableFields.close(
     fieldValues,
     inputUses?.invocationTransports,
+    exactCallImplementations,
+    callableReferenceIsClosed,
   );
 
   const candidateFields = new Set<Node>();
@@ -201,8 +210,11 @@ export function collectCallableStorageInputs(
       ...candidateFields,
       ...candidateLocals,
     ]),
-    parameterClosure.uses.dependencies,
-    storageDestinations,
+    [
+      parameterClosure.uses.dependencies,
+      parameterClosure.ownerDestinations,
+      storageDestinations,
+    ],
   );
   const closedParameters = new Set([...preliminaryParameters].filter(
     (parameter) => closedDeclarations.has(parameter),
@@ -236,7 +248,11 @@ export function collectCallableStorageInputs(
   const contracts = createCallableStorageContracts(
     source,
     closedDeclarations,
-    [parameterClosure.uses.dependencies, storageDestinations],
+    [
+      parameterClosure.uses.dependencies,
+      parameterClosure.ownerDestinations,
+      storageDestinations,
+    ],
   );
   return Object.freeze({
     values,
@@ -247,13 +263,9 @@ export function collectCallableStorageInputs(
 
 function closeStorageDeclarations(
   candidates: Set<Node>,
-  parameterDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
-  storageDestinations: ReadonlyMap<Node, ReadonlySet<Node>>,
+  destinationMaps: readonly ReadonlyMap<Node, ReadonlySet<Node>>[],
 ): Set<Node> {
-  return new Set(closeDependencyCandidates(
-    candidates,
-    [parameterDestinations, storageDestinations],
-  ));
+  return new Set(closeDependencyCandidates(candidates, destinationMaps));
 }
 
 function collectCallableParameters(
@@ -289,12 +301,24 @@ function closeParameters(
   invocationInputs: ExactInvocationInputIndex,
   program: TargetProgramIndex,
   inputUses?: CallableInputUseContract,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): ClosedParameters {
   const ownerCounts = new Map<Node, ReferenceCounts>();
+  const ownerParameters = new Map<Node, Set<Node>>();
   for (const owner of parameters.values()) {
     ownerCounts.set(owner, { total: 0, admitted: 0 });
   }
+  for (const [parameter, owner] of parameters) {
+    appendSet(ownerParameters, owner, parameter);
+  }
   const ownerSymbols = indexDeclarationSymbols(source, ownerCounts.keys());
+  const storageDeclarations = new Set([
+    ...parameters.keys(),
+    ...fields,
+    ...locals,
+  ]);
+  const storageSymbols = indexDeclarationSymbols(source, storageDeclarations);
+  const ownerDestinations = new Map<Node, Set<Node>>();
   for (const node of program.nodesOfKinds([
     KindIdentifier,
     KindPropertyAccessExpression,
@@ -305,7 +329,13 @@ function closeParameters(
       node,
       ownerCounts,
       ownerSymbols,
+      ownerParameters,
+      storageDeclarations,
+      storageSymbols,
+      ownerDestinations,
+      invocationInputs,
       inputUses,
+      callableReferenceIsClosed,
     );
   }
   const closed = new Set<Node>();
@@ -326,6 +356,8 @@ function closeParameters(
     new Set([...fields, ...locals]),
     program,
     inputUses,
+    invocationInputs,
+    callableReferenceIsClosed,
   );
   for (const parameter of uses.invalid) {
     closed.delete(parameter);
@@ -336,6 +368,7 @@ function closeParameters(
       [uses.dependencies],
       (dependency) => parameters.has(dependency),
     ),
+    ownerDestinations,
     uses,
   };
 }
@@ -345,7 +378,13 @@ function auditCallableOwnerReference(
   node: Node,
   tracked: ReadonlyMap<Node, ReferenceCounts>,
   trackedSymbols: ReadonlyMap<Symbol, Node>,
+  ownerParameters: ReadonlyMap<Node, ReadonlySet<Node>>,
+  storageDeclarations: ReadonlySet<Node>,
+  storageSymbols: ReadonlyMap<Symbol, Node>,
+  ownerDestinations: Map<Node, Set<Node>>,
+  invocationInputs: ExactInvocationInputIndex,
   inputUses?: CallableInputUseContract,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
   let declaration: Node | undefined;
   let reference: Node | undefined;
@@ -366,6 +405,7 @@ function auditCallableOwnerReference(
   }
   const counts = declaration === undefined ? undefined : tracked.get(declaration);
   if (
+    declaration === undefined ||
     counts === undefined ||
     reference === undefined ||
     reference === source.ast.name(declaration) ||
@@ -382,9 +422,30 @@ function auditCallableOwnerReference(
     : resolveProjectInvocation(source, call)?.implementation;
   if (
     selected === declaration ||
-    inputUses?.useFor(reference) !== undefined
+    inputUses?.useFor(reference) !== undefined ||
+    callableReferenceIsClosed?.(reference) === true
   ) {
     counts.admitted += 1;
+    return;
+  }
+  const destinations = new Set(invocationInputs.parametersFor(reference)
+    ?.filter((parameter) => storageDeclarations.has(parameter)) ?? []);
+  const storageDestination = trackedInputDestination(
+    source,
+    reference,
+    storageDeclarations,
+    storageSymbols,
+  );
+  if (storageDestination !== undefined) {
+    destinations.add(storageDestination);
+  }
+  if (destinations.size !== 0) {
+    counts.admitted += 1;
+    for (const parameter of ownerParameters.get(declaration) ?? []) {
+      for (const destination of destinations) {
+        appendSet(ownerDestinations, parameter, destination);
+      }
+    }
   }
 }
 
@@ -398,6 +459,8 @@ function auditFieldUse(
   storageSymbols: ReadonlyMap<Symbol, Node>,
   destinations: Map<Node, Set<Node>>,
   inputUses?: CallableInputUseContract,
+  invocationInputs?: ExactInvocationInputIndex,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
   const selected = source.ast.is.IsPropertyAccessExpression(node)
     ? source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
@@ -434,11 +497,15 @@ function auditFieldUse(
     storageSymbols,
     inputUses,
   );
+  const invocationDestinations = invocationInputs?.parametersFor(node)
+    ?.filter((parameter) => storageDeclarations.has(parameter)) ?? [];
   if (
     directContainingCall(source, node) !== undefined ||
-    isCallablePresenceObservation(source, node) ||
+    callableReferenceIsClosed?.(node) === true ||
+    isCallableNonEscapingObservation(source, node) ||
     destination !== undefined ||
-    transported !== undefined
+    transported !== undefined ||
+    invocationDestinations.length !== 0
   ) {
     counts.admitted += 1;
     if (destination !== undefined) {
@@ -446,6 +513,9 @@ function auditFieldUse(
     }
     for (const transportedDestination of transported ?? []) {
       appendSet(destinations, field, transportedDestination);
+    }
+    for (const invocationDestination of invocationDestinations) {
+      appendSet(destinations, field, invocationDestination);
     }
   }
 }

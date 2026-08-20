@@ -313,6 +313,60 @@ call only when its exact provider invocation record is present before
 interface ingress. Removing that record must retain all three at
 `opaque-call-transport`. This mutation proves plan assembly cannot defer
 fact-owned transport until after interface-family admission.
+Indirect-call closure fixtures form a three-level chain in which an exact
+outer indirect invocation supplies a callback parameter that is invoked by an
+inner indirect call. They repeat the chain through interface-derived inputs,
+an object property, an aggregate slot, and a project-returned callable. Every
+call-to-implementation multiset and effective argument binding must exact-join
+the final invocation-input index. Mutations add one ambient origin, change one
+selected implementation, create an originless cycle, or force a non-stable
+relation; each must retain the affected component without exposing a partial
+indirect implementation list. A gate also proves all downstream flow owners
+receive the final index rather than the preliminary pre-interface index.
+The object and aggregate forms additionally route the implementation through a
+callable owner whose parameter carries another callback. The closed provenance
+path must admit that exact owner reference and settle the nested callback;
+adding a second exported or property-observing reference must retain it. An
+interface method returning a callable must feed the final indirect round,
+while removing the preliminary implementation relation must retain it; an
+extracted interface method remains open without exact receiver-binding
+evidence. Round-state mutations
+change only a reference path while leaving implementation sets equal and must
+still prevent publication until both dimensions stabilize.
+An optional callable fixture includes an exact `undefined` reset behind its
+nullish guard; the absence closes storage but never appears in the resolved
+implementation multiset. Replacing it with any non-nullish non-callable value
+must retain the call.
+
+Callable-reference fixtures compare the same settling function through
+truthiness, `typeof`, `void`, expression discard, strict identity, nullish
+equality, comma, and logical forwarding and require settlement without a
+runtime helper. Paired mutations read `.constructor` or another property,
+coerce the function, construct through it, export it, or introduce an open
+alias; each must retain. Storage ingress and reverse-caller fixtures route one
+exact function alias to a closed indirect call and mutate that alias to an
+unaccounted use, proving those owners consume the finalized callable-reference
+fact instead of a local syntax rule.
+
+Return-provenance fixtures include uninitialized locals and class fields,
+plain writes, cyclic aliases with and without a terminal origin, closed
+indirect storage ingress, and one generic identity instantiated at multiple
+non-thenable call sites. The zero-input bindings must resolve to `undefined`,
+an originless cycle must remain open, and adding one Promise-like generic input
+or one outward call must retain the complete component. Broad search must find
+no declaration-level blanket generic-result rejection and no separate return-
+parameter recursion.
+
+Promise-result consumer fixtures distinguish both sides of `&&`, `||`, and
+`??`, both sides of comma, an invocation argument from an invocation target,
+and a private direct/indirect reverse-call chain from an exported or otherwise
+open forwarder. Only the exact non-observing cases settle. A mutation that
+supplies implementations from an open callable-value resolution must fail the
+consumer or return-flow gate; exact implementation consumers may never ignore
+the resolution's closed bit.
+Direct and indirect discarded invocations retain their async producer so a
+rejected Promise cannot become a synchronous throw. Removing either retention
+edge must fail its owning fixture.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as
@@ -369,9 +423,11 @@ matrix, proving that callable flow did not introduce a second binding audit.
 Generic nominal-result fixtures return `RuntimeSlice<T>`,
 `RuntimeSlice<T> | undefined`, and a derived generic class whose inherited
 private readonly `then?: never` is independent of `T`; all must settle. Paired
-bare-type-parameter, callable-`then` type-parameter, and public structural
-`then?: never` mutations must retain. This proves generic containment is not a
-blanket boundary and that no generic member can forge nominal exclusion.
+callable-`then` type-parameter and public structural `then?: never` mutations
+must retain. A bare type parameter settles only when its complete invocation
+and return provenance is closed over non-thenable inputs; an exported call
+surface or one Promise-like input retains. This proves generic containment is
+not a blanket boundary and that no generic member can forge nominal exclusion.
 The whole-product memory guard also distinguishes one canonical synchronous
 call closure from a dense contract-to-call reverse graph; retrying with a larger
 heap is not an accepted repair.

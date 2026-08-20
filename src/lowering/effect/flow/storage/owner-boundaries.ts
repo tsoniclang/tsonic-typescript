@@ -18,6 +18,8 @@ import {
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
+import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { isTransparentParent } from "../callable/input-reference.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import {
@@ -48,6 +50,9 @@ export function auditStorageOwnerBoundaries(
   storageDeclarationFor: (expression: Node) => Node | undefined,
   validateStoredValues: boolean,
   transports?: InvocationTransportContract,
+  invocationInputs?: ExactInvocationInputIndex,
+  exactCallImplementations?: ExactCallImplementations,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
   if (owners.size === 0) {
     return;
@@ -71,7 +76,16 @@ export function auditStorageOwnerBoundaries(
   if (validateStoredValues) {
     rejectOpenStorageValues(source, bindings, owners);
   }
-  auditStorageOwnerIngress(source, program, ownersFor, invalid, transports);
+  auditStorageOwnerIngress(
+    source,
+    program,
+    ownersFor,
+    invalid,
+    transports,
+    invocationInputs,
+    exactCallImplementations,
+    callableReferenceIsClosed,
+  );
   auditInvocations(
     source,
     program,
@@ -81,6 +95,7 @@ export function auditStorageOwnerBoundaries(
     invalid,
     dependencies,
     transports,
+    exactCallImplementations,
   );
   auditValueFlows(
     source,
@@ -110,6 +125,7 @@ function auditInvocations(
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
   transports: InvocationTransportContract | undefined,
+  exactCallImplementations: ExactCallImplementations | undefined,
 ): void {
   for (const node of program.nodesOfKinds([
     KindCallExpression,
@@ -117,7 +133,11 @@ function auditInvocations(
   ])) {
     const semantics = source.semantics.forNode(node);
     const resultOwners = ownersFor(node);
-    const projectInvocation = invocationHasProjectImplementation(source, node);
+    const projectInvocation = invocationHasProjectImplementation(
+      source,
+      node,
+      exactCallImplementations,
+    );
     const transport = transports?.transportFor(node);
     if (!projectInvocation && transport === undefined) {
       for (const owner of resultOwners) {
@@ -442,11 +462,22 @@ function declarationHasProjectBody(
 function invocationHasProjectImplementation(
   source: TargetSourceProgram,
   invocation: Node,
+  exactCallImplementations: ExactCallImplementations | undefined,
 ): boolean {
   if (
     declarationHasProjectBody(
       source,
       resolveProjectInvocation(source, invocation)?.implementation,
+    )
+  ) {
+    return true;
+  }
+  const implementations = exactCallImplementations?.(invocation);
+  if (
+    implementations !== undefined &&
+    implementations.length !== 0 &&
+    implementations.every((implementation) =>
+      declarationHasProjectBody(source, implementation)
     )
   ) {
     return true;

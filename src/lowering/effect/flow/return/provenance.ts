@@ -40,10 +40,10 @@ import { createReturnStorageFlow } from "./storage.js";
 import { createReturnProjectionFlow } from "./projection.js";
 import { sameValueAlternatives } from "../value/alternatives.js";
 import {
-  callableOwnsUnboundedGenericResult,
   callableResultIsInspectable,
   staticallyNonThenable,
 } from "./provenance/semantics.js";
+import { parameterHasOpenInvocationSurface } from "../../model/declaration-surface.js";
 
 type ReturnBoundaryReason =
   | "inexact-call"
@@ -88,7 +88,6 @@ interface ReturnContext {
   readonly expressions: Map<Node, ReturnState>;
   readonly declarations: Map<Node, ReturnState>;
   readonly candidateOrigins: Set<Node>;
-  readonly unboundedGenericResults: ReadonlySet<Node>;
   terminalOrigin: Node | undefined;
 }
 
@@ -103,6 +102,7 @@ export function createReturnProvenanceFlow(
   loweredValues?: LoweredValueContract,
   settledCallDeclarations: (call: Node) => Iterable<Node> = () => [],
   transports?: InvocationTransportContract,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): ReturnProvenanceFlow {
   let context: ReturnContext;
   const projectionFlow = createReturnProjectionFlow(
@@ -138,6 +138,11 @@ export function createReturnProvenanceFlow(
       program,
       invocationInputs,
       transports,
+      (call) => {
+        const selected = [...settledCallDeclarations(call)];
+        return selected.length === 0 ? undefined : Object.freeze(selected);
+      },
+      callableReferenceIsClosed,
     ),
     projections: projectionFlow,
     objectProjections,
@@ -146,7 +151,6 @@ export function createReturnProvenanceFlow(
     expressions: new Map(),
     declarations: new Map(),
     candidateOrigins: new Set(),
-    unboundedGenericResults: collectUnboundedGenericResults(source, candidates),
     terminalOrigin: undefined,
   };
   for (const node of program.nodesOfKinds([
@@ -161,6 +165,14 @@ export function createReturnProvenanceFlow(
       : node;
     if (expression !== undefined) {
       stateForExpression(expression, context);
+    }
+  }
+  for (const declaration of candidates) {
+    const body = source.ast.is.IsArrowFunction(declaration)
+      ? source.ast.body(declaration)
+      : undefined;
+    if (body !== undefined && !source.ast.is.IsBlock(body)) {
+      stateForExpression(body, context);
     }
   }
   const resolution = resolveEffectProvenance(context.builder.seal());
@@ -221,10 +233,6 @@ function expandExpression(
   context: ReturnContext,
 ): void {
   const { source } = context;
-  if (context.unboundedGenericResults.has(root)) {
-    boundary(state, "thenable-contract", root, context);
-    return;
-  }
   if (staticallyNonThenable(source, root)) {
     origin(state, root, context);
     return;
@@ -331,27 +339,6 @@ function expandExpression(
   boundary(state, "thenable-contract", root, context);
 }
 
-function collectUnboundedGenericResults(
-  source: TargetSourceProgram,
-  candidates: ReadonlySet<Node>,
-): ReadonlySet<Node> {
-  const result = new Set<Node>();
-  for (const declaration of candidates) {
-    if (!callableOwnsUnboundedGenericResult(source, declaration)) {
-      continue;
-    }
-    for (const expression of exactCallableReturnExpressions(source, declaration) ?? []) {
-      const root = expression === undefined
-        ? undefined
-        : transparentExpression(source, expression);
-      if (root !== undefined) {
-        result.add(root);
-      }
-    }
-  }
-  return result;
-}
-
 function expandCall(
   state: ReturnState,
   call: Node,
@@ -432,10 +419,6 @@ function stateForResult(
     return state;
   }
   state.expanded = true;
-  if (callableOwnsUnboundedGenericResult(context.source, declaration)) {
-    boundary(state, "thenable-contract", declaration, context);
-    return state;
-  }
   if (!callableResultIsInspectable(
     context.source,
     context.program,
@@ -484,7 +467,7 @@ function stateForBinding(
   }
   state.expanded = true;
   if (inputs.length === 0) {
-    boundary(state, "open-binding", declaration, context);
+    origin(state, declaration, context);
   }
   for (const input of inputs) {
     dependency(
@@ -512,7 +495,11 @@ function stateForParameter(
   }
   state.expanded = true;
   const inputs = context.invocationInputs.inputsFor(parameter);
-  if (inputs === undefined || !context.invocationInputs.isClosed(parameter)) {
+  if (
+    parameterHasOpenInvocationSurface(context.source, parameter) ||
+    inputs === undefined ||
+    !context.invocationInputs.isClosed(parameter)
+  ) {
     boundary(state, "inexact-parameter", parameter, context);
     return state;
   }

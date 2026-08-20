@@ -37,7 +37,7 @@ import { createExactAggregateProjectionIndex } from "../flow/aggregate/projectio
 import { createProviderInvocationTransport } from "../flow/provider/transport.js";
 import { createExactInvocationInputIndex } from "../flow/invocation/inputs.js";
 import {
-  createExactIndirectInvocationInputIndex,
+  createExactIndirectInvocationAnalysis,
 } from "../flow/invocation/indirect.js";
 import { createExactObjectPropertyProjectionIndex } from "../flow/object/projection.js";
 import {
@@ -89,11 +89,13 @@ export function createClosedCooperativeEffectPlan(
     program,
     aggregateProjections,
   );
-  const invocationInputs = createExactIndirectInvocationInputIndex(
+  const preliminaryIndirectInvocations = createExactIndirectInvocationAnalysis(
     source,
     program,
     directInvocationInputs,
     aggregateProjections,
+    objectProjections,
+    factOwnedTransports,
   );
   const interfaces = createDeclaredInterfaceDispatch(
     source,
@@ -103,7 +105,11 @@ export function createClosedCooperativeEffectPlan(
     factOwnedTransports,
     sourceIdentityFor,
     Object.freeze({
-      invocationInputs,
+      invocationInputs: preliminaryIndirectInvocations.invocationInputs,
+      exactCallImplementations:
+        preliminaryIndirectInvocations.implementationsFor,
+      callableReferenceIsClosed:
+        preliminaryIndirectInvocations.allowsCallableReference,
       aggregateProjections,
       objectProjections,
     }),
@@ -112,63 +118,75 @@ export function createClosedCooperativeEffectPlan(
     factOwnedTransports,
     interfaces.invocationTransports,
   ]);
+  const indirectInvocations = createExactIndirectInvocationAnalysis(
+    source,
+    program,
+    interfaces.invocationInputs,
+    aggregateProjections,
+    objectProjections,
+    completeTransports,
+    (call) => interfaces.calls.get(call)?.implementations,
+  );
+  const invocationInputs = indirectInvocations.invocationInputs;
+  const bootstrapCallImplementations = (
+    call: Node,
+  ): readonly Node[] | undefined => {
+    const selected = new Set([
+      ...(indirectInvocations.implementationsFor(call) ?? noDependencies),
+      ...(interfaces.calls.get(call)?.implementations ?? noDependencies),
+    ]);
+    return selected.size === 0 ? undefined : Object.freeze([...selected]);
+  };
   const valueFlow = createCallableValueFlow(
     source,
     program,
     new Set(candidates.keys()),
     aggregateProjections,
     completeTransports,
-    (call) => interfaces.calls.get(call)?.implementations,
-    interfaces.invocationInputs,
+    bootstrapCallImplementations,
+    invocationInputs,
     (declaration) =>
       interfaces.declarations.get(declaration)?.implementations,
     objectProjections,
+    indirectInvocations.allowsCallableReference,
   );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
+  const exactCallImplementations = (call: Node): readonly Node[] | undefined => {
+    const resolution = valueFlow.resolutionFor(call);
+    const selected = new Set([
+      ...(resolution?.closed === true
+        ? resolution.dependencyNodes()
+        : noDependencies),
+      ...(resolution?.closed === true
+        ? resolution.synchronousDeclarationNodes()
+        : noDependencies),
+      ...(interfaces.calls.get(call)?.implementations ?? noDependencies),
+    ]);
+    return selected.size === 0 ? undefined : Object.freeze([...selected]);
+  };
   const returnFlow = createReturnValueFlow(
     source,
     program,
     aggregateProjections,
     new Set(candidates.keys()),
     (call) => calls.get(call)?.declaration,
-    interfaces.invocationInputs,
+    invocationInputs,
     objectProjections,
     loweredValues,
-    (call) => {
-      const resolution = valueFlow.resolutionFor(call);
-      const interfaceFamily = interfaces.calls.get(call);
-      return Object.freeze([
-        ...(resolution?.dependencyNodes() ?? noDependencies),
-        ...(resolution?.synchronousDeclarationNodes() ?? noDependencies),
-        ...(interfaceFamily?.implementations ?? noDependencies),
-      ]);
-    },
+    (call) => exactCallImplementations(call) ?? noDependencies,
     completeTransports,
+    valueFlow.allowsCallableReference,
   );
   const resultConsumption = createCooperativeResultConsumption(
     source,
     program,
     new Set(candidates.keys()),
-    interfaces.invocationInputs,
+    invocationInputs,
     aggregateProjections,
     objectProjections,
-    (call) => {
-      const callable = valueFlow.resolutionFor(call);
-      const interfaceFamily = interfaces.calls.get(call);
-      const implementations = new Set<Node>([
-        ...(callable?.closed === true
-          ? callable.dependencyNodes()
-          : noDependencies),
-        ...(callable?.closed === true
-          ? callable.synchronousDeclarationNodes()
-          : noDependencies),
-        ...(interfaceFamily?.implementations ?? noDependencies),
-      ]);
-      return implementations.size === 0
-        ? undefined
-        : Object.freeze([...implementations]);
-    },
+    exactCallImplementations,
     completeTransports,
+    valueFlow.allowsCallableReference,
   );
   const conditionalSettlements = createConditionalSettlementOwner(
     candidates.keys(),

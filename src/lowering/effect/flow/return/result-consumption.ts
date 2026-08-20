@@ -30,6 +30,7 @@ export function createCooperativeResultConsumption(
   objectProjections: ExactObjectPropertyProjectionIndex,
   exactCallImplementations?: (call: Node) => readonly Node[] | undefined,
   transports?: InvocationTransportContract,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): CooperativeResultConsumption {
   const graph = createResultConsumerGraph(
     source,
@@ -40,6 +41,7 @@ export function createCooperativeResultConsumption(
     objectProjections,
     exactCallImplementations,
     transports,
+    callableReferenceIsClosed,
   );
   return Object.freeze({
     returnedCallHasClosedConsumers(call: Node): boolean {

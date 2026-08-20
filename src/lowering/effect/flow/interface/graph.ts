@@ -33,8 +33,10 @@ import {
   type ExactInvocationInputIndex,
 } from "../invocation/inputs.js";
 import {
-  createExactIndirectInvocationInputIndex,
+  createExactIndirectInvocationAnalysis,
+  type ExactIndirectInvocationAnalysis,
 } from "../invocation/indirect.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import {
   createExactAggregateProjectionIndex,
   type ExactAggregateProjectionIndex,
@@ -46,6 +48,8 @@ import {
 
 export interface InterfaceContractFlowIndexes {
   readonly invocationInputs: ExactInvocationInputIndex;
+  readonly exactCallImplementations?: ExactCallImplementations;
+  readonly callableReferenceIsClosed?: (reference: Node) => boolean;
   readonly aggregateProjections: ExactAggregateProjectionIndex;
   readonly objectProjections?: ExactObjectPropertyProjectionIndex;
 }
@@ -98,13 +102,24 @@ export function createInterfaceContractGraph(
     createExactAggregateProjectionIndex(source, program);
   const objectProjections = indexes?.objectProjections ??
     createExactObjectPropertyProjectionIndex(source, program);
-  const invocationInputs = indexes?.invocationInputs ??
-    createExactIndirectInvocationInputIndex(
+  const indirectInvocations: ExactIndirectInvocationAnalysis | undefined =
+    indexes === undefined
+      ? createExactIndirectInvocationAnalysis(
       source,
       program,
       createExactInvocationInputIndex(source, program, aggregateProjections),
       aggregateProjections,
-    );
+      objectProjections,
+      transports,
+      )
+      : undefined;
+  const invocationInputs = indexes?.invocationInputs ??
+    indirectInvocations?.invocationInputs;
+  if (invocationInputs === undefined) {
+    throw new Error("interface flow did not create an invocation-input index");
+  }
+  const exactCallImplementations = indexes?.exactCallImplementations ??
+    indirectInvocations?.implementationsFor;
   const contracts = collectContracts(source, program, sourceIdentityFor);
   collectCalls(source, program, contracts.entries);
   const completeInvocationInputs = collectInterfaceContractTransports(
@@ -115,6 +130,9 @@ export function createInterfaceContractGraph(
     aggregateProjections,
     objectProjections,
     transports,
+    exactCallImplementations,
+    indexes?.callableReferenceIsClosed ??
+      indirectInvocations?.allowsCallableReference,
   );
   const seeds = [...contracts.entries.values()].filter((entry) =>
     entry.returnRewrite !== undefined && entry.calls.length !== 0

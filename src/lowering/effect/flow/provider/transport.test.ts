@@ -81,7 +81,7 @@ import { Operations } from "${testProviderSpecifier}";
 const callback = async (): Promise<void> => {};
 const forwarded = Operations.forward(callback);
 async function run(): Promise<void> { await forwarded(); }
-run();
+await run();
 `, [forward]);
 
   assert.equal(rewrittenAsyncCount(source), 0);
@@ -135,7 +135,7 @@ async function run(): Promise<void> {
   const selected = Operations.load(state);
   if (selected !== undefined) await selected();
 }
-run();
+await run();
 `, [zero, store, load]);
 
   assert.equal(rewrittenAsyncCount(source), 0);
@@ -156,7 +156,7 @@ async function run(): Promise<void> {
   if (left !== undefined) await left();
   if (right !== undefined) await right();
 }
-run();
+await run();
 `, [zero, alias, store, load]);
 
   assert.equal(rewrittenAsyncCount(source), 0);
@@ -168,7 +168,7 @@ import { Operations } from "${testProviderSpecifier}";
 const callback = async (): Promise<void> => {};
 const forwarded = Operations.forward(callback);
 async function run(): Promise<void> { await forwarded(); }
-run();
+await run();
 `, [{ ...forward, resultOriginParameters: Object.freeze([]) }]);
 
   assert.equal(rewrittenAsyncCount(source), 1);
@@ -180,7 +180,7 @@ import { Operations } from "${testProviderSpecifier}";
 const callback = async (): Promise<void> => {};
 const forwarded = Operations.forward(callback);
 async function run(): Promise<void> { await forwarded(); }
-run();
+await run();
 `, [{ ...forward, resultOriginParameters: Object.freeze([]) }]);
   const providerFile = source.sourceFiles.find((sourceFile) =>
     source.ast.getFileName(sourceFile).endsWith("/@test/provider/index.d.ts")
@@ -199,7 +199,7 @@ import { Operations } from "${testProviderSpecifier}";
 const callback = async (): Promise<void> => {};
 const forwarded = Operations.forward(callback);
 async function run(): Promise<void> { await forwarded(); }
-run();
+await run();
 `, [{ ...forward, inputParameters: Object.freeze([]) }]);
 
   assert.equal(rewrittenAsyncCount(source), 2);
@@ -213,7 +213,7 @@ const forwarded = Operations.forward(
   callback as () => Promise<void>,
 );
 async function run(): Promise<void> { await forwarded(); }
-run();
+await run();
 `, [forward]);
 
   assert.equal(rewrittenAsyncCount(source), 0);
@@ -231,7 +231,7 @@ async function run(): Promise<void> {
   const selected = Operations.load(state);
   if (selected !== undefined) await selected();
 }
-export const result = run();
+export const result = await run();
 `, [zero, store, load]);
 
   assert.ok(rewrittenAsyncCount(source) > 0);
@@ -249,7 +249,7 @@ async function run(): Promise<void> {
   const selected = Operations.load(state);
   if (selected !== undefined) await selected();
 }
-export const result = run();
+export const result = await run();
 `, [zero, store, load]);
 
   assert.ok(rewrittenAsyncCount(source) > 0);
@@ -266,7 +266,7 @@ async function run(): Promise<void> {
   const selected = Operations.load(state);
   if (selected !== undefined) await selected();
 }
-run();
+await run();
 `, [zero, store, load]);
 
   assert.ok(rewrittenAsyncCount(source) > 0);

@@ -8,15 +8,12 @@ import {
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
 
 import {
   declarationForSymbols,
   indexDeclarationSymbols,
 } from "../callable/input-reference.js";
-import {
-  createReturnParameterFlow,
-  type ReturnParameterFlow,
-} from "./parameters.js";
 import { auditStorageOwnerBoundaries } from "../storage/owner-boundaries.js";
 import {
   collectClosedStorageOwners,
@@ -32,11 +29,6 @@ export interface ReturnStorageFlow {
   bindingFor(expression: Node): ReturnStorageBinding | undefined;
 }
 
-interface ClosedReturnStorageFlow {
-  readonly storage: ReadonlyMap<Node, ReturnStorageBinding>;
-  readonly parameters: ReturnParameterFlow;
-}
-
 interface MutableStorageBinding {
   readonly declaration: Node;
   readonly owner: Node;
@@ -49,6 +41,8 @@ export function createReturnStorageFlow(
   program: TargetProgramIndex,
   invocationInputs: ExactInvocationInputIndex,
   transports?: InvocationTransportContract,
+  exactCallImplementations?: ExactCallImplementations,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): ReturnStorageFlow {
   const owners = collectClosedStorageOwners(source, program);
   const bindings = collectStorageBindings(source, owners);
@@ -62,29 +56,22 @@ export function createReturnStorageFlow(
     (expression) => selectedStorageDeclaration(source, expression),
     true,
     transports,
-  );
-  const flow = closeReturnStorageFlow(
-    source,
-    program,
-    bindings,
     invocationInputs,
+    exactCallImplementations,
+    callableReferenceIsClosed,
   );
+  const storage = closeReturnStorageFlow(bindings);
   return Object.freeze({
     bindingFor(expression: Node): ReturnStorageBinding | undefined {
       const declaration = selectedStorageDeclaration(source, expression);
-      return declaration === undefined
-        ? flow.parameters.bindingFor(expression)
-        : flow.storage.get(declaration);
+      return declaration === undefined ? undefined : storage.get(declaration);
     },
   });
 }
 
 function closeReturnStorageFlow(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
   bindings: ReadonlyMap<Node, MutableStorageBinding>,
-  invocationInputs: ExactInvocationInputIndex,
-): ClosedReturnStorageFlow {
+): ReadonlyMap<Node, ReturnStorageBinding> {
   const storage = new Map<Node, ReturnStorageBinding>();
   for (const binding of bindings.values()) {
     if (binding.valid) {
@@ -94,18 +81,7 @@ function closeReturnStorageFlow(
       }));
     }
   }
-  const storageDeclarations = new Set(storage.keys());
-  return Object.freeze({
-    storage,
-    parameters: createReturnParameterFlow(
-      source,
-      program,
-      [...storage.values()].flatMap((binding) => binding.inputs),
-      storageDeclarations,
-      (expression) => selectedStorageDeclaration(source, expression),
-      invocationInputs,
-    ),
-  });
+  return storage;
 }
 
 function collectStorageBindings(

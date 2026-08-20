@@ -33,6 +33,7 @@ export function createReturnValueFlow(
   loweredValues?: LoweredValueContract,
   callDeclarations: (call: Node) => Iterable<Node> = () => [],
   transports?: InvocationTransportContract,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): ReturnValueFlow {
   const provenance = createReturnProvenanceFlow(
     source,
@@ -45,6 +46,7 @@ export function createReturnValueFlow(
     loweredValues,
     callDeclarations,
     transports,
+    callableReferenceIsClosed,
   );
   return Object.freeze({
     resolutionFor(expression: Node): ReturnProvenanceResolution {

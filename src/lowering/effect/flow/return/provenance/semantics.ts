@@ -41,29 +41,6 @@ export function staticallyNonThenable(
   return typeHasDefinitelyNonThenableContract(source, semantics, type);
 }
 
-export function callableOwnsUnboundedGenericResult(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  if (
-    !source.ast.hasModifierKind(declaration, "async") ||
-    source.ast.typeParameters(declaration).length === 0
-  ) {
-    return false;
-  }
-  const returnType = source.ast.typeNode(declaration);
-  const innerTypeNode = returnType === undefined
-    ? undefined
-    : source.ast.typeArguments(returnType)[0];
-  if (innerTypeNode === undefined) {
-    return true;
-  }
-  const semantics = source.semantics.forNode(innerTypeNode);
-  const innerType = semantics.getTypeFromTypeNode(innerTypeNode);
-  return innerType === undefined ||
-    !typeHasDefinitelyNonThenableContract(source, semantics, innerType);
-}
-
 export function callableResultIsInspectable(
   source: TargetSourceProgram,
   program: TargetProgramIndex,

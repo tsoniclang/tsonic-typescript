@@ -19,6 +19,7 @@ import {
   isFunctionLike,
 } from "../../../model/syntax.js";
 import { resolveProjectInvocation } from "../../../model/project-invocation.js";
+import { declarationIsExported } from "../../../model/declaration-surface.js";
 import {
   collectClosedStorageOwners,
   storageDeclarationCanBeTracked,
@@ -204,6 +205,17 @@ export function resultConsumerDeclarationInitializer(
     ? source.ast.as.AsPropertyDeclaration(declaration)?.Initializer
     : source.ast.is.IsParameterDeclaration(declaration)
     ? source.ast.as.AsParameterDeclaration(declaration)?.Initializer
+    : undefined;
+}
+
+export function resultConsumerProjectionReceiver(
+  source: TargetSourceProgram,
+  expression: Node,
+): Node | undefined {
+  return source.ast.is.IsPropertyAccessExpression(expression)
+    ? source.ast.as.AsPropertyAccessExpression(expression)?.Expression
+    : source.ast.is.IsElementAccessExpression(expression)
+    ? source.ast.as.AsElementAccessExpression(expression)?.Expression
     : undefined;
 }
 
@@ -413,35 +425,6 @@ function exactAggregateResultSource(
         ]),
         expressions: Object.freeze(expressions),
       });
-}
-
-function declarationIsExported(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  if (
-    source.ast.hasModifierKind(declaration, "export") ||
-    source.ast.hasModifierKind(declaration, "default")
-  ) {
-    return true;
-  }
-  let variable = declaration;
-  while (source.ast.is.IsBindingElement(variable)) {
-    const pattern = source.ast.parent(variable);
-    const owner = source.ast.parent(pattern);
-    if (owner === undefined) {
-      return true;
-    }
-    variable = owner;
-  }
-  if (!source.ast.is.IsVariableDeclaration(variable)) {
-    return false;
-  }
-  const declarationList = source.ast.parent(variable);
-  const statement = source.ast.parent(declarationList);
-  return statement !== undefined && source.ast.is.IsVariableStatement(statement) &&
-    (source.ast.hasModifierKind(statement, "export") ||
-      source.ast.hasModifierKind(statement, "default"));
 }
 
 function storageOwner(

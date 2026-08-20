@@ -1,0 +1,206 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { IsAwaitExpression } from "@tsonic/tsts/target-ast";
+
+import {
+  checkedEffectFixture,
+  countAsyncCallables,
+  countNodes,
+  createFixtureEffectPlan,
+} from "../../test-support/fixture.test-support.js";
+import { lowerCooperativeEffects } from "../../rewrite/transform.js";
+
+test("settles callbacks through nested exact indirect invocations", () => {
+  const fixture = checkedEffectFixture(`
+type Callback = () => number | PromiseLike<number>;
+type Invoke = (callback: Callback) => number | PromiseLike<number>;
+function inner(callback: Callback): number | PromiseLike<number> {
+  return callback();
+}
+function outer(callback: Callback): number | PromiseLike<number> {
+  const invoke: Invoke = inner;
+  return invoke(callback);
+}
+const selected: Invoke = outer;
+async function leaf(): Promise<number> { return 42; }
+async function top(): Promise<number> { return await selected(leaf); }
+export const result = await top();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
+test("settles a callable returned by an exact indirect invocation", () => {
+  const fixture = checkedEffectFixture(`
+type Callback = () => number | PromiseLike<number>;
+type Factory = () => Callback;
+function produce(): Callback {
+  return async (): Promise<number> => 42;
+}
+const factory: Factory = produce;
+const selected = factory();
+async function top(): Promise<number> { return await selected(); }
+export const result = await top();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
+test("settles a callable reached through a closed object owner", () => {
+  const fixture = checkedEffectFixture(`
+type Callback = () => number | PromiseLike<number>;
+type Invoke = (callback: Callback) => number | PromiseLike<number>;
+function invoke(callback: Callback): number | PromiseLike<number> {
+  return callback();
+}
+const holder: { readonly invoke: Invoke } = { invoke };
+const selected = holder.invoke;
+async function leaf(): Promise<number> { return 42; }
+async function top(): Promise<number> { return await selected(leaf); }
+export const result = await top();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
+test("settles a callable returned by admitted interface dispatch", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+type Callback = () => Awaitable<number>;
+interface Factory { Create(): Awaitable<Callback>; }
+class ProjectFactory implements Factory {
+  async Create(): Promise<Callback> {
+    return async (): Promise<number> => 42;
+  }
+}
+async function select(factory: Factory): Promise<Callback> {
+  return await factory.Create();
+}
+const selected = await select(new ProjectFactory());
+async function top(): Promise<number> { return await selected(); }
+export const result = await top();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
+test("retains a nested indirect chain with one open callable origin", () => {
+  const fixture = checkedEffectFixture(`
+type Callback = () => number | PromiseLike<number>;
+type Invoke = (callback: Callback) => number | PromiseLike<number>;
+declare const externalInvoke: Invoke;
+function inner(callback: Callback): number | PromiseLike<number> {
+  return callback();
+}
+const selected: Invoke = Math.random() > 0.5 ? inner : externalInvoke;
+async function leaf(): Promise<number> { return 42; }
+async function top(): Promise<number> { return await selected(leaf); }
+export const result = await top();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    2,
+  );
+});
+
+test("retains a reassigned indirect implementation binding", () => {
+  const fixture = checkedEffectFixture(`
+type Callback = () => number | PromiseLike<number>;
+function invoke(callback: Callback): number | PromiseLike<number> {
+  return callback();
+}
+declare const externalInvoke: typeof invoke;
+let selected = invoke;
+selected = externalInvoke;
+async function leaf(): Promise<number> { return 42; }
+async function top(): Promise<number> { return await selected(leaf); }
+export const result = await top();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 2);
+});
+
+test("retains a closed alias family with one exported sibling reference", () => {
+  const fixture = checkedEffectFixture(`
+type Callback = () => number | PromiseLike<number>;
+type Invoke = (callback: Callback) => number | PromiseLike<number>;
+function invoke(callback: Callback): number | PromiseLike<number> {
+  return callback();
+}
+const holder: { readonly invoke: Invoke } = { invoke };
+const selected = holder.invoke;
+export const escaped = invoke;
+async function leaf(): Promise<number> { return 42; }
+async function top(): Promise<number> { return await selected(leaf); }
+export const result = await top();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.ok(countAsyncCallables(fixture.source, result.sourceFile) > 0);
+});
+
+test("retains an extracted interface method without receiver evidence", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+class Pair implements Reader {
+  async Read(): Promise<number> { return 42; }
+}
+const reader: Reader = new Pair();
+const selected = reader.Read;
+async function top(): Promise<number> { return await selected(); }
+export const result = await top();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.ok(countAsyncCallables(fixture.source, result.sourceFile) > 0);
+});

@@ -91,24 +91,63 @@ export const result = await select(42);
   );
 });
 
-test("retains a bare generic result without nominal exclusion", () => {
+test("settles a bare generic result from complete non-thenable call inputs", () => {
   const fixture = checkedEffectFixture(`
 async function select<T>(value: T): Promise<T> { return value; }
 export const result = await select(42);
 `);
 
-  const originalAsync = countAsyncCallables(
-    fixture.source,
-    fixture.sourceFile,
-  );
   const plan = createFixtureEffectPlan(fixture.source);
   const result = lowerCooperativeEffects(fixture.sourceFile, plan);
   plan.finish();
 
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
   assert.equal(
-    countAsyncCallables(fixture.source, result.sourceFile),
-    originalAsync,
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
   );
+});
+
+test("retains a generic result with one open exported call surface", () => {
+  const fixture = checkedEffectFixture(`
+export async function select<T>(value: T): Promise<T> { return value; }
+export const result = await select(42);
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
+test("retains an exported generic arrow call surface", () => {
+  const fixture = checkedEffectFixture(`
+export const select = async <T>(value: T): Promise<T> => value;
+export const result = await select(42);
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
+test("retains an exported generic method call surface", () => {
+  const fixture = checkedEffectFixture(`
+export class Selector {
+  async select<T>(value: T): Promise<T> { return value; }
+}
+const selector = new Selector();
+export const result = await selector.select(42);
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
 });
 
 test("rejects a nominal then exclusion whose contract depends on T", () => {

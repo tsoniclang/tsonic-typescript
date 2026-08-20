@@ -77,6 +77,7 @@ export interface CallableContext {
   readonly candidates: ReadonlySet<Node>;
   readonly objectProjections: ExactObjectPropertyProjectionIndex | undefined;
   readonly slots: ExactValueSlotFlow;
+  readonly exactCallImplementations: ExactCallImplementations | undefined;
   readonly exactContractImplementations: ExactCallImplementations | undefined;
   readonly candidateSymbols: ReadonlyMap<Symbol, Node>;
   readonly inputs: CallableValueInputs;
@@ -91,7 +92,7 @@ export interface CallableContext {
   readonly candidateOrigins: Set<Node>;
   readonly synchronousOrigins: Set<Node>;
   terminalOrigin: Node | undefined;
-  readonly candidateReferences: Map<Node, CallableState>;
+  readonly callableReferences: Map<Node, CallableState>;
   readonly returnedContracts: Map<Node, ReturnContractState>;
   readonly dependents: Map<CallableState, Set<CallableState>>;
   readonly dependencies: Map<CallableState, Set<CallableState>>;
@@ -104,7 +105,7 @@ export interface GraphCallableValueFlow {
     visitor: (call: Node, resolution: CallableValueResolution) => void,
   ): void;
   resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
-  allowsCandidateReference(node: Node): boolean;
+  allowsCallableReference(node: Node): boolean;
   settledReturnTypes(
     optimized: ReadonlySet<Node>,
   ): readonly CallableReturnRewrite[];
@@ -120,6 +121,7 @@ export function createGraphCallableValueFlow(
   invocationInputs?: ExactInvocationInputIndex,
   exactContractImplementations?: ExactCallImplementations,
   objectProjections?: ExactObjectPropertyProjectionIndex,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): GraphCallableValueFlow {
   const results = createCallableResultInputs(
     source,
@@ -135,6 +137,8 @@ export function createGraphCallableValueFlow(
     program,
     inputUses,
     invocationInputs,
+    exactCallImplementations,
+    callableReferenceIsClosed,
   );
   const slots = createExactValueSlotFlow(
     source,
@@ -159,6 +163,7 @@ export function createGraphCallableValueFlow(
     candidates,
     objectProjections,
     slots,
+    exactCallImplementations,
     exactContractImplementations,
     candidateSymbols: indexDeclarationSymbols(source, candidates),
     inputs,
@@ -171,7 +176,7 @@ export function createGraphCallableValueFlow(
     candidateOrigins: new Set(),
     synchronousOrigins: new Set(),
     terminalOrigin: undefined,
-    candidateReferences: new Map(),
+    callableReferences: new Map(),
     returnedContracts: new Map(),
     dependents: new Map(),
     dependencies: new Map(),
@@ -282,9 +287,10 @@ export function createGraphCallableValueFlow(
     resolutionFor(call: Node | undefined): CallableValueResolution | undefined {
       return call === undefined ? undefined : callResolutions.get(call);
     },
-    allowsCandidateReference(node: Node): boolean {
-      const state = context.candidateReferences.get(node);
-      return state !== undefined && !unsafeCallableUses.has(state);
+    allowsCallableReference(node: Node): boolean {
+      const state = context.callableReferences.get(node);
+      return callableReferenceIsClosed?.(node) === true ||
+        state !== undefined && !unsafeCallableUses.has(state);
     },
     settledReturnTypes(
       optimized: ReadonlySet<Node>,

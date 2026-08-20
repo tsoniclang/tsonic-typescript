@@ -7,6 +7,7 @@ import {
   isModuleForwardingReference,
   transparentExpression,
 } from "../../model/syntax.js";
+import { declarationIsExported } from "../../model/declaration-surface.js";
 import { sameValueAlternatives } from "../value/alternatives.js";
 
 export interface ExactObjectPropertyProjection {
@@ -123,20 +124,6 @@ function collectBindings(
     }
   }
   return Object.freeze(result);
-}
-
-function declarationIsExported(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  const declarationList = source.ast.parent(declaration);
-  const statement = source.ast.parent(declarationList);
-  return source.ast.hasModifierKind(declaration, "export") ||
-    source.ast.hasModifierKind(declaration, "default") ||
-    statement !== undefined &&
-      source.ast.is.IsVariableStatement(statement) &&
-      (source.ast.hasModifierKind(statement, "export") ||
-        source.ast.hasModifierKind(statement, "default"));
 }
 
 function collectProperties(

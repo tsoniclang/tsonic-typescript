@@ -31,6 +31,7 @@ import {
   resultConsumerBindingIsClosed,
   resultConsumerBindingKind,
   resultConsumerDeclarationInitializer,
+  resultConsumerProjectionReceiver,
   resultConsumerStorageOwners,
   selectedResultConsumerBinding,
 } from "./facts.js";
@@ -53,6 +54,7 @@ interface ConsumerContext {
   readonly source: TargetSourceProgram;
   readonly program: TargetProgramIndex;
   readonly candidates: ReadonlySet<Node>;
+  readonly callableReferenceIsClosed: ((reference: Node) => boolean) | undefined;
   readonly invocationInputs: ExactInvocationInputIndex;
   readonly projections: ExactAggregateProjectionIndex;
   readonly objectProjections: ExactObjectPropertyProjectionIndex;
@@ -86,6 +88,7 @@ export function createResultConsumerGraph(
   objectProjections: ExactObjectPropertyProjectionIndex,
   exactCallImplementations?: (call: Node) => readonly Node[] | undefined,
   transports?: InvocationTransportContract,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): ResultConsumerGraph {
   const projectionReads = indexResultProjectionReads(
     source,
@@ -99,6 +102,7 @@ export function createResultConsumerGraph(
     source,
     program,
     candidates,
+    callableReferenceIsClosed,
     invocationInputs,
     projections,
     objectProjections,
@@ -299,7 +303,7 @@ function expandValue(state: ConsumerState, context: ConsumerContext): void {
         operator === "KindBarBarToken" ||
         operator === "KindAmpersandAmpersandToken"
       ) {
-        if (binary?.Left === current || binary?.Right === current) {
+        if (binary?.Right === current) {
           current = parent;
           continue;
         }
@@ -344,7 +348,7 @@ function expandValue(state: ConsumerState, context: ConsumerContext): void {
         ? source.ast.as.AsCallExpression(parent)?.Expression
         : source.ast.as.AsNewExpression(parent)?.Expression;
       if (target === current) {
-        origin(state, parent, context);
+        boundary(state, "open-consumer", parent, context);
         return;
       }
       consumeArgument(state, current, parent, context);
@@ -358,7 +362,7 @@ function expandValue(state: ConsumerState, context: ConsumerContext): void {
       (source.ast.is.IsPropertyAccessExpression(parent) ||
         source.ast.is.IsElementAccessExpression(parent)) &&
       context.projectionReads.has(parent) &&
-      projectionReceiver(source, parent) === current
+      resultConsumerProjectionReceiver(source, parent) === current
     ) {
       dependency(state, valueState(parent, context), "projection", parent, context);
       return;
@@ -468,13 +472,14 @@ function expandResult(state: ConsumerState, context: ConsumerContext): void {
       return true;
     }
     const call = directContainingCall(context.source, reference);
-    return call === undefined || !selectedCalls.has(call);
+    return (call === undefined || !selectedCalls.has(call)) &&
+      context.callableReferenceIsClosed?.(reference) !== true;
   })) {
     boundary(state, "open-reference", declaration, context);
     return;
   }
   if (calls.length === 0) {
-    boundary(state, "open-consumer", declaration, context);
+    origin(state, declaration, context);
     return;
   }
   for (const call of calls) {
@@ -554,17 +559,6 @@ function consumeAggregateElement(
   for (const read of reads) {
     dependency(state, valueState(read, context), "element", read, context);
   }
-}
-
-function projectionReceiver(
-  source: TargetSourceProgram,
-  expression: Node,
-): Node | undefined {
-  return source.ast.is.IsPropertyAccessExpression(expression)
-    ? source.ast.as.AsPropertyAccessExpression(expression)?.Expression
-    : source.ast.is.IsElementAccessExpression(expression)
-    ? source.ast.as.AsElementAccessExpression(expression)?.Expression
-    : undefined;
 }
 
 function dependency(

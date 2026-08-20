@@ -4,6 +4,7 @@ import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { CallableInputUseContract } from "./input-use.js";
+import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 
 import { directContainingCall } from "../../model/syntax.js";
 import { exactSourceCallBindings } from "../invocation/call-binding.js";
@@ -20,6 +21,8 @@ export function indexParameterUses(
   destinations: ReadonlySet<Node>,
   program: TargetProgramIndex,
   inputUses?: CallableInputUseContract,
+  invocationInputs?: ExactInvocationInputIndex,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
 ): ParameterUses {
   const tracked = new Set(parameters);
   const allDeclarations = new Set([...tracked, ...destinations]);
@@ -54,9 +57,18 @@ export function indexParameterUses(
       }
       continue;
     }
+    const invocationDestinations = invocationInputs?.parametersFor(node)
+      ?.filter((destination) => allDeclarations.has(destination));
+    if (invocationDestinations !== undefined && invocationDestinations.length !== 0) {
+      for (const destination of invocationDestinations) {
+        appendSet(dependencies, parameter, destination);
+      }
+      continue;
+    }
     if (
       directContainingCall(source, node) !== undefined ||
-      isCallablePresenceObservation(source, node)
+      callableReferenceIsClosed?.(node) === true ||
+      isCallableNonEscapingObservation(source, node)
     ) {
       continue;
     }
@@ -211,7 +223,7 @@ function trackedStorageDeclaration(
     : undefined;
 }
 
-export function isCallablePresenceObservation(
+export function isCallableNonEscapingObservation(
   source: TargetSourceProgram,
   expression: Node,
 ): boolean {
@@ -226,17 +238,80 @@ export function isCallablePresenceObservation(
       continue;
     }
     if (
-      !source.ast.is.IsBinaryExpression(parent) ||
-      !new Set([
-        "KindEqualsEqualsToken",
-        "KindExclamationEqualsToken",
-        "KindEqualsEqualsEqualsToken",
-        "KindExclamationEqualsEqualsToken",
-      ]).has(source.ast.operatorKindName(parent) ?? "")
+      source.ast.is.IsPrefixUnaryExpression(parent) &&
+      source.ast.as.AsPrefixUnaryExpression(parent)?.Operand === current
+    ) {
+      return source.ast.operatorKindName(parent) === "KindExclamationToken";
+    }
+    if (
+      source.ast.is.IsTypeOfExpression(parent) &&
+      source.ast.as.AsTypeOfExpression(parent)?.Expression === current
+    ) {
+      return true;
+    }
+    if (
+      source.ast.is.IsVoidExpression(parent) &&
+      source.ast.as.AsVoidExpression(parent)?.Expression === current
+    ) {
+      return true;
+    }
+    if (source.ast.is.IsExpressionStatement(parent)) {
+      return true;
+    }
+    if (source.ast.is.IsConditionalExpression(parent)) {
+      return source.ast.as.AsConditionalExpression(parent)?.Condition === current;
+    }
+    if (source.ast.is.IsIfStatement(parent)) {
+      return source.ast.as.AsIfStatement(parent)?.Expression === current;
+    }
+    if (source.ast.is.IsWhileStatement(parent)) {
+      return source.ast.as.AsWhileStatement(parent)?.Expression === current;
+    }
+    if (source.ast.is.IsDoStatement(parent)) {
+      return source.ast.as.AsDoStatement(parent)?.Expression === current;
+    }
+    if (source.ast.is.IsForStatement(parent)) {
+      return source.ast.as.AsForStatement(parent)?.Condition === current;
+    }
+    if (source.ast.is.IsSwitchStatement(parent)) {
+      return source.ast.as.AsSwitchStatement(parent)?.Expression === current;
+    }
+    if (!source.ast.is.IsBinaryExpression(parent)) {
+      return false;
+    }
+    const operator = source.ast.operatorKindName(parent);
+    const binary = source.ast.as.AsBinaryExpression(parent);
+    if (
+      (operator === "KindQuestionQuestionToken" ||
+        operator === "KindBarBarToken" ||
+        operator === "KindAmpersandAmpersandToken") &&
+      (binary?.Left === current || binary?.Right === current)
+    ) {
+      current = parent;
+      continue;
+    }
+    if (operator === "KindCommaToken") {
+      if (binary?.Left === current) {
+        return true;
+      }
+      if (binary?.Right === current) {
+        current = parent;
+        continue;
+      }
+      return false;
+    }
+    if (
+      operator === "KindEqualsEqualsEqualsToken" ||
+      operator === "KindExclamationEqualsEqualsToken"
+    ) {
+      return binary?.Left === current || binary?.Right === current;
+    }
+    if (
+      operator !== "KindEqualsEqualsToken" &&
+      operator !== "KindExclamationEqualsToken"
     ) {
       return false;
     }
-    const binary = source.ast.as.AsBinaryExpression(parent);
     const other = binary?.Left === current
       ? binary.Right
       : binary?.Right === current

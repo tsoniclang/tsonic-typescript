@@ -15,7 +15,12 @@ export function exactInterfaceCallResultOrigins(
   const semantics = ingress.source.semantics.forNode(call);
   const signature = semantics.getResolvedSignature(call);
   const contract = semantics.getSignatureDeclaration(signature);
-  const implementations = direct === undefined && contract !== undefined &&
+  const indirect = direct === undefined
+    ? ingress.exactCallImplementations?.(call)
+    : undefined;
+  const implementations = direct === undefined && indirect !== undefined
+    ? indirect
+    : direct === undefined && contract !== undefined &&
       ingress.entries.has(contract)
     ? ingress.implementations.implementationsFor(contract)
     : direct === undefined
