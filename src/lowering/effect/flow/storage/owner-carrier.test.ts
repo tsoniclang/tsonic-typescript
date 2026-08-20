@@ -46,6 +46,7 @@ let unrelatedValue!: Unrelated;
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     new Set([owner]),
   ).carriers;
@@ -77,7 +78,8 @@ let unrelatedValue!: Unrelated;
     carriers,
     cache,
   );
-  assert.deepEqual(carried, [owner]);
+  assert.equal(carried.length, 1);
+  assert.equal(carried[0], owner);
   assert.equal(Object.isFrozen(carried), true);
   assert.equal(cache.size, 1);
 });
@@ -95,10 +97,14 @@ function measureCarrierGraph(carrierCount: number): {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
     new Set([owner]),
   );
-  assert.deepEqual(index.carriers.get(outer), [owner]);
+  const outerCarriers = index.carriers.get(outer);
+  assert.ok(outerCarriers !== undefined);
+  assert.equal(outerCarriers.length, 1);
+  assert.equal(outerCarriers[0], owner);
   return { operationCount: index.operationCount };
 }
 

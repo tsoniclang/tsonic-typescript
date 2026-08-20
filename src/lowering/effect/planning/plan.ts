@@ -20,6 +20,7 @@ import {
   collectCooperativeEffectCandidates,
   type CooperativeEffectCandidate,
 } from "../inventory/candidates.js";
+import { attributeCooperativeAwaits } from "../inventory/awaits.js";
 import {
   decideCooperativeEffectRetentions,
 } from "../closure/retention.js";
@@ -34,10 +35,16 @@ import { createReturnValueFlow } from "../flow/return/value.js";
 import { createCallableValueFlow } from "../flow/callable/value-flow.js";
 import { createExactAggregateProjectionIndex } from "../flow/aggregate/projection.js";
 import { createProviderInvocationTransport } from "../flow/provider/transport.js";
+import { createExactInvocationInputIndex } from "../flow/invocation/inputs.js";
+import {
+  createExactIndirectInvocationInputIndex,
+} from "../flow/invocation/indirect.js";
+import { createExactObjectPropertyProjectionIndex } from "../flow/object/projection.js";
 import {
   type CooperativeEffectPlanSummary,
   summarizeCooperativeEffects,
 } from "./summary.js";
+import { connectCooperativeEffectDependency } from "../closure/dependency.js";
 
 export type { CooperativeEffectFilePlan } from "./file-plan.js";
 
@@ -69,6 +76,25 @@ export function createClosedCooperativeEffectPlan(
     transports,
     createProviderInvocationTransport(source, program),
   ]);
+  const aggregateProjections = createExactAggregateProjectionIndex(
+    source,
+    program,
+  );
+  const objectProjections = createExactObjectPropertyProjectionIndex(
+    source,
+    program,
+  );
+  const directInvocationInputs = createExactInvocationInputIndex(
+    source,
+    program,
+    aggregateProjections,
+  );
+  const invocationInputs = createExactIndirectInvocationInputIndex(
+    source,
+    program,
+    directInvocationInputs,
+    aggregateProjections,
+  );
   const interfaces = createDeclaredInterfaceDispatch(
     source,
     program,
@@ -76,37 +102,73 @@ export function createClosedCooperativeEffectPlan(
     interfaceDispatch,
     factOwnedTransports,
     sourceIdentityFor,
+    Object.freeze({
+      invocationInputs,
+      aggregateProjections,
+      objectProjections,
+    }),
   );
   const completeTransports = composeInvocationTransportContracts([
     factOwnedTransports,
     interfaces.invocationTransports,
   ]);
-  const aggregateProjections = createExactAggregateProjectionIndex(
-    source,
-    program,
-  );
   const valueFlow = createCallableValueFlow(
     source,
     program,
     new Set(candidates.keys()),
     aggregateProjections,
     completeTransports,
+    (call) => interfaces.calls.get(call)?.implementations,
+    interfaces.invocationInputs,
+    (declaration) =>
+      interfaces.declarations.get(declaration)?.implementations,
+    objectProjections,
   );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const returnFlow = createReturnValueFlow(
     source,
     program,
     aggregateProjections,
+    new Set(candidates.keys()),
     (call) => calls.get(call)?.declaration,
+    interfaces.invocationInputs,
+    objectProjections,
     loweredValues,
-    (call) =>
-      valueFlow.resolutionFor(call)?.dependencyNodes() ?? noDependencies,
+    (call) => {
+      const resolution = valueFlow.resolutionFor(call);
+      const interfaceFamily = interfaces.calls.get(call);
+      return Object.freeze([
+        ...(resolution?.dependencyNodes() ?? noDependencies),
+        ...(resolution?.synchronousDeclarationNodes() ?? noDependencies),
+        ...(interfaceFamily?.implementations ?? noDependencies),
+      ]);
+    },
     completeTransports,
   );
   const resultConsumption = createCooperativeResultConsumption(
     source,
     program,
     new Set(candidates.keys()),
+    interfaces.invocationInputs,
+    aggregateProjections,
+    objectProjections,
+    (call) => {
+      const callable = valueFlow.resolutionFor(call);
+      const interfaceFamily = interfaces.calls.get(call);
+      const implementations = new Set<Node>([
+        ...(callable?.closed === true
+          ? callable.dependencyNodes()
+          : noDependencies),
+        ...(callable?.closed === true
+          ? callable.synchronousDeclarationNodes()
+          : noDependencies),
+        ...(interfaceFamily?.implementations ?? noDependencies),
+      ]);
+      return implementations.size === 0
+        ? undefined
+        : Object.freeze([...implementations]);
+    },
+    completeTransports,
   );
   const conditionalSettlements = createConditionalSettlementOwner(
     candidates.keys(),
@@ -147,6 +209,15 @@ export function createClosedCooperativeEffectPlan(
     returnFlow,
     optimized,
   );
+  const awaitAttribution = attributeCooperativeAwaits(
+    source,
+    program,
+    candidates,
+    retentions,
+    awaits,
+    propagation,
+    sourceIdentityFor,
+  );
   const files = createCooperativeEffectFilePlans(
     source,
     candidates.values(),
@@ -164,7 +235,8 @@ export function createClosedCooperativeEffectPlan(
     retentions,
     optimized.size,
     awaits.size,
-    propagation,
+    propagation.evidence,
+    awaitAttribution,
     resultConsumption.evidence(),
     interfaces.evidence(optimized, retentions),
   );
@@ -184,7 +256,12 @@ function connectSignatureFamilies(
       for (const related of family) {
         const dependency = candidates.get(related);
         if (dependency !== undefined && dependency !== candidate) {
-          candidate.dependencies.add(dependency);
+          connectCooperativeEffectDependency(
+            candidate,
+            dependency,
+            "implementation",
+            related,
+          );
         }
       }
     }

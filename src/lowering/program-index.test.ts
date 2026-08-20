@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type {
+  SourceBindingWrite,
+  TargetSourceProgram,
+} from "@tsonic/target-api";
 import {
   KindClassDeclaration,
   KindIdentifier,
@@ -30,10 +33,11 @@ test("indexes every exact node once and preserves kind order", () => {
     declarationReferences: true,
   });
 
-  assert.deepEqual(index.nodes, expected);
-  assert.deepEqual(
+  assertSameNodes(index.nodes, expected, "node census");
+  assertSameNodes(
     index.nodesOfKind(KindIdentifier),
     expected.filter((node) => fixture.source.ast.is.IsIdentifier(node)),
+    "identifier partition",
   );
   const mixedKinds = [
     KindMethodDeclaration,
@@ -41,11 +45,12 @@ test("indexes every exact node once and preserves kind order", () => {
     KindClassDeclaration,
     KindIdentifier,
   ];
-  assert.deepEqual(
+  assertSameNodes(
     index.nodesOfKinds(mixedKinds),
     expected.filter((node) =>
       new Set<Kind>(mixedKinds).has(requireKind(fixture.source, node))
     ),
+    "mixed-kind partition",
   );
   assert.equal(index.nodesOfKinds(mixedKinds), index.nodesOfKinds(mixedKinds));
   assert.equal(index.operations.nodeVisits, expected.length);
@@ -86,12 +91,13 @@ test("joins shared binding writes and member dispatch to canonical navigation", 
     .map((node) => fixture.source.navigation.sourceReferenceFor(node))
     .find((candidate) => candidate?.project === true);
   assert.ok(reference !== undefined);
-  assert.deepEqual(
+  assertSameWrites(
     index.bindingWritesFor(reference.declaration),
     fixture.source.navigation.bindingWritesWithin(
       reference.symbol,
       reference.sourceFile,
     ),
+    "counter writes",
   );
 });
 
@@ -218,8 +224,32 @@ function assertProjectReferencesReconcile(
   for (const declaration of declarations) {
     const expected = source.navigation.referencesToDeclaration(declaration);
     const actual = index.referencesToDeclaration(declaration);
-    assert.deepEqual(actual, expected);
+    assertSameNodes(actual, expected, "declaration references");
     referenceCount += actual.length;
   }
   assert.equal(index.operations.projectReferences, referenceCount);
+}
+
+function assertSameNodes(
+  actual: readonly Node[],
+  expected: readonly Node[],
+  subject: string,
+): void {
+  assert.equal(actual.length, expected.length, `${subject} length`);
+  for (let index = 0; index < expected.length; index += 1) {
+    assert.equal(actual[index], expected[index], `${subject} index ${index}`);
+  }
+}
+
+function assertSameWrites(
+  actual: readonly SourceBindingWrite[],
+  expected: readonly SourceBindingWrite[],
+  subject: string,
+): void {
+  assert.equal(actual.length, expected.length, `${subject} length`);
+  for (let index = 0; index < expected.length; index += 1) {
+    assert.equal(actual[index]?.reference, expected[index]?.reference, `${subject} reference ${index}`);
+    assert.equal(actual[index]?.operation, expected[index]?.operation, `${subject} operation ${index}`);
+    assert.equal(actual[index]?.kind, expected[index]?.kind, `${subject} kind ${index}`);
+  }
 }

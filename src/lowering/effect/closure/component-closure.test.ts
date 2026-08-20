@@ -203,7 +203,7 @@ test("indexes synchronous result forwarding with proportional work", () => {
     callEntries: 32,
     referenceEntries: 144,
     ownerEvaluations: 16,
-    consumerEdges: 16,
+    consumerEdges: 32,
   });
   assert.deepEqual(large, {
     callEntries: small.callEntries * 2,

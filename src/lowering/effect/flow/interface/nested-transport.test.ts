@@ -33,6 +33,7 @@ export const result = await read(consume(carrier));
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -74,6 +75,7 @@ export const result = await read(await create(factory));
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -108,6 +110,7 @@ export const result = await read(await create(factory));
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -135,6 +138,7 @@ export const result = await read(consume(carrier));
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -167,6 +171,7 @@ export const result = await read(consume(carrier));
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
 
@@ -230,6 +235,7 @@ export const result = await read(readers[0]!);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -267,6 +273,7 @@ export const result = await read(recovered[0]!);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -302,6 +309,7 @@ export const result = await read(recovered[0]!);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -352,6 +360,7 @@ export declare function register<T>(resolver: AdapterResolver<T>): void;
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
 
@@ -390,6 +399,7 @@ export declare function observe<T>(
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
 
@@ -418,6 +428,7 @@ export declare function createBox<T>(): {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }),
   );
 

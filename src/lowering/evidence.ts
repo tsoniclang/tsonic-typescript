@@ -111,10 +111,12 @@ export type CooperativeEffectOptimizationEvidence =
       readonly settledCallableCount: number;
       readonly retainedCallableCount: number;
       readonly settledAwaitCount: number;
+      readonly awaitAttribution: CooperativeEffectPlanSummary["awaitAttribution"];
       readonly fallbackReasons: readonly OptimizationPropagatedReasonCount<CooperativeEffectFallbackReason>[];
       readonly propagation: {
         readonly vertexCount: number;
         readonly edgeCount: number;
+        readonly componentCount: number;
         readonly workCount: number;
       };
       readonly resultConsumption: {
@@ -127,7 +129,7 @@ export type CooperativeEffectOptimizationEvidence =
     };
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 18;
+  readonly schemaVersion: 20;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
@@ -147,7 +149,7 @@ export function createTypeScriptOptimizationEvidence(
   effectSummary: CooperativeEffectPlanSummary | undefined,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 18 as const,
+    schemaVersion: 20 as const,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
@@ -309,6 +311,7 @@ function effectEvidence(
     settledCallableCount: summary.settledCallableCount,
     retainedCallableCount: summary.retainedCallableCount,
     settledAwaitCount: summary.settledAwaitCount,
+    awaitAttribution: summary.awaitAttribution,
     fallbackReasons: Object.freeze(summary.fallbackReasons.map((entry) =>
       Object.freeze({
         reason: entry.reason,
@@ -320,6 +323,7 @@ function effectEvidence(
     propagation: Object.freeze({
       vertexCount: summary.propagation.vertices,
       edgeCount: summary.propagation.edges,
+      componentCount: summary.propagation.components,
       workCount: summary.propagation.work,
     }),
     resultConsumption: summary.resultConsumption,

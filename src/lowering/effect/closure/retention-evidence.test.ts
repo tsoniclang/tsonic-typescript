@@ -20,8 +20,9 @@ export const result = await settled();
   const fixture = checkedEffectFixture(sourceText);
 
   const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const { awaitAttribution, ...summary } = plan.summary;
 
-  assert.deepEqual(plan.summary, {
+  assert.deepEqual(summary, {
     candidateCount: 5,
     settledCallableCount: 1,
     retainedCallableCount: 4,
@@ -60,12 +61,13 @@ export const result = await settled();
     ],
     propagation: {
       vertices: 5,
-      edges: 1,
-      work: 7,
+      edges: 2,
+      components: 5,
+      work: 12,
     },
     resultConsumption: {
-      callEntries: 0,
-      referenceEntries: 0,
+      callEntries: 4,
+      referenceEntries: 21,
       ownerEvaluations: 0,
       consumerEdges: 0,
     },
@@ -73,6 +75,99 @@ export const result = await settled();
       profile: "open-structural",
       analyzed: false,
     },
+  });
+  const boundaryDeclaration = authored(
+    "async function boundary(): Promise<number> { return await remote(); }",
+    0,
+    "KindFunctionDeclaration",
+  );
+  const callerDeclaration = authored(
+    "async function caller(): Promise<number> { return await boundary(); }",
+    0,
+    "KindFunctionDeclaration",
+  );
+  const boundaryAwait = authored(
+    "await remote()",
+    0,
+    "KindAwaitExpression",
+  );
+  const callerAwait = authored(
+    "await boundary()",
+    0,
+    "KindAwaitExpression",
+  );
+  const remoteCall = authored(
+    "remote()",
+    sourceText.indexOf("boundary"),
+    "KindCallExpression",
+  );
+  const boundaryCall = authored(
+    "boundary()",
+    sourceText.indexOf("caller"),
+    "KindCallExpression",
+  );
+  assert.deepEqual({
+    total: awaitAttribution.totalAwaitCount,
+    settled: awaitAttribution.settledAwaitCount,
+    retained: awaitAttribution.retainedAwaitCount,
+    outside: awaitAttribution.outsideCandidateAwaitCount,
+    reasons: awaitAttribution.retainedReasons,
+    edges: awaitAttribution.retentionEdges,
+    owners: awaitAttribution.retainedOwners.map((owner) => ({
+      owner: owner.owner,
+      reason: owner.reason,
+      edge: owner.retentionEdge,
+      count: owner.awaitCount,
+      awaits: owner.awaitExamples,
+      root: owner.canonicalRoot.occurrence,
+      path: owner.canonicalRoot.path,
+      steps: owner.canonicalRoot.steps,
+    })),
+    outsideExamples: awaitAttribution.outsideCandidateExamples,
+  }, {
+    total: 3,
+    settled: 1,
+    retained: 2,
+    outside: 0,
+    reasons: [{
+      reason: "unresolved-call",
+      awaitCount: 2,
+      rootCount: 1,
+      awaitExamples: [boundaryAwait, callerAwait],
+      rootExamples: [remoteCall],
+    }],
+    edges: [
+      { edge: "direct", awaitCount: 1, awaitExamples: [boundaryAwait] },
+      { edge: "return", awaitCount: 1, awaitExamples: [callerAwait] },
+    ],
+    owners: [
+      {
+        owner: boundaryDeclaration,
+        reason: "unresolved-call",
+        edge: "direct",
+        count: 1,
+        awaits: [boundaryAwait],
+        root: remoteCall,
+        path: [boundaryDeclaration],
+        steps: [],
+      },
+      {
+        owner: callerDeclaration,
+        reason: "unresolved-call",
+        edge: "return",
+        count: 1,
+        awaits: [callerAwait],
+        root: remoteCall,
+        path: [callerDeclaration, boundaryDeclaration],
+        steps: [{
+          from: callerDeclaration,
+          to: boundaryDeclaration,
+          edge: "return",
+          occurrence: boundaryCall,
+        }],
+      },
+    ],
+    outsideExamples: [],
   });
 
   function authored(

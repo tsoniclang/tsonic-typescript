@@ -16,12 +16,17 @@ import {
 import { callableDispatchIsClosed } from "../model/syntax.js";
 import { resolveProjectInvocation } from "../model/project-invocation.js";
 import { sameSelectedType } from "../model/synchronous.js";
+import type { EffectProvenanceEdgeKind } from "../provenance/model.js";
 
 export interface CooperativeEffectCandidate {
   readonly declaration: Node;
   readonly sourceFile: SourceFile;
   readonly innerType?: Type;
   readonly dependencies: Set<CooperativeEffectCandidate>;
+  readonly dependencyEvidence: Map<
+    CooperativeEffectCandidate,
+    Map<EffectProvenanceEdgeKind, Set<Node>>
+  >;
   readonly directBlockerNodes: Map<
     CooperativeEffectFallbackReason,
     Set<Node>
@@ -53,6 +58,7 @@ export function collectCooperativeEffectCandidates(
       sourceFile,
       ...(innerType === undefined ? {} : { innerType }),
       dependencies: new Set(),
+      dependencyEvidence: new Map(),
       directBlockerNodes: new Map(),
       blockers: new Set(),
     };

@@ -37,7 +37,8 @@ export class Type {
 async function create(data: TypeData): Promise<number | undefined> {
   observe(data);
   const value = new Type(data);
-  return await Type.AsStructuredType(value);
+  const copy = Type.copy(value);
+  return await Type.AsStructuredType(copy);
 }
 
 export const result = await create(new Adapter());

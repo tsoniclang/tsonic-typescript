@@ -62,6 +62,7 @@ export function createFixtureEffectPlan(
     createTargetProgramIndex(source, {
       bindingWrites: true,
       memberDispatch: true,
+      declarationReferences: true,
     }),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
     undefined,

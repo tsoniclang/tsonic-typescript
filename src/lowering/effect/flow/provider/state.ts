@@ -10,6 +10,7 @@ import type {
   ProviderInvocationRecord,
   ProviderInvocationRecords,
 } from "./records.js";
+import { exactBindingWriteInput } from "../storage/assignment.js";
 
 export interface ProviderStateTransportPlan {
   isClosed(call: Node): boolean;
@@ -304,21 +305,13 @@ function bindingWriteInputs(
 ): readonly Node[] {
   const result: Node[] = [];
   for (const write of program.bindingWritesFor(declaration)) {
-    if (
-      write.kind !== "assignment" ||
-      !source.ast.is.IsBinaryExpression(write.operation) ||
-      source.ast.operatorKindName(write.operation) !== "KindEqualsToken"
-    ) {
-      result.push(write.operation);
-      continue;
-    }
-    const binary = source.ast.as.AsBinaryExpression(write.operation);
-    if (binary?.Left !== write.reference || binary.Right === undefined) {
+    const input = exactBindingWriteInput(source, write);
+    if (input === undefined) {
       result.push(write.operation);
       continue;
     }
     recognizedReferences.add(write.reference);
-    result.push(binary.Right);
+    result.push(input);
   }
   return result;
 }

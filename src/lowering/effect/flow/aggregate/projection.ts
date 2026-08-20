@@ -1,12 +1,14 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
+  KindBindingElement,
   KindIdentifier,
   KindVariableDeclaration,
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import { transparentExpression } from "../../model/syntax.js";
+import { sameValueAlternatives } from "../value/alternatives.js";
 
 export interface ExactAggregateSource {
   readonly declaration: Node | undefined;
@@ -16,6 +18,11 @@ export interface ExactAggregateSource {
 
 export interface ExactAggregateProjection {
   readonly source: ExactAggregateSource;
+  readonly index: number;
+}
+
+export interface ExactAggregateRead {
+  readonly receiver: Node;
   readonly index: number;
 }
 
@@ -60,22 +67,28 @@ export function createExactAggregateProjectionIndex(
   const bindings = collectAggregateBindings(source, program);
   const symbols = indexBindingSymbols(source, bindings);
   auditAggregateBindings(source, program, bindings, symbols);
+  const destructured = collectDestructuredProjections(source, program);
   return Object.freeze({
     projectionFor(expression: Node): ExactAggregateProjection | undefined {
       const root = transparentExpression(source, expression);
-      if (
-        root === undefined ||
-        !source.ast.is.IsElementAccessExpression(root) ||
-        !elementAccessIsExactRead(source, root)
-      ) {
+      if (root === undefined) {
         return undefined;
       }
-      const element = source.ast.as.AsElementAccessExpression(root);
-      const receiver = transparentExpression(source, element?.Expression);
-      const index = exactElementIndex(source, element?.ArgumentExpression);
-      if (receiver === undefined || index === undefined) {
+      if (source.ast.is.IsIdentifier(root)) {
+        const reference = program.declarationReferenceFor(root);
+        const projection = reference?.project === true
+          ? destructured.get(reference.declaration)
+          : undefined;
+        return projection !== undefined &&
+            root !== source.ast.name(reference?.declaration)
+          ? projection
+          : undefined;
+      }
+      const read = exactAggregateRead(source, root);
+      if (read === undefined) {
         return undefined;
       }
+      const { receiver, index } = read;
       const binding = source.ast.is.IsIdentifier(receiver)
         ? bindingForReference(source, symbols, receiver)
         : undefined;
@@ -97,16 +110,69 @@ export function createExactAggregateProjectionIndex(
   });
 }
 
+export function exactAggregateRead(
+  source: TargetSourceProgram,
+  expression: Node,
+): ExactAggregateRead | undefined {
+  const root = transparentExpression(source, expression);
+  if (
+    root === undefined ||
+    !source.ast.is.IsElementAccessExpression(root) ||
+    !elementAccessIsExactRead(source, root)
+  ) {
+    return undefined;
+  }
+  const element = source.ast.as.AsElementAccessExpression(root);
+  const receiver = transparentExpression(source, element?.Expression);
+  const index = exactElementIndex(source, element?.ArgumentExpression);
+  const receiverType = receiver === undefined
+    ? undefined
+    : source.semantics.forNode(receiver).getTypeAtLocation(receiver);
+  return receiver === undefined ||
+      index === undefined ||
+      receiverType === undefined ||
+      !source.semantics.forNode(receiver).isArrayLike(receiverType)
+    ? undefined
+    : Object.freeze({ receiver, index });
+}
+
+function collectDestructuredProjections(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+): ReadonlyMap<Node, ExactAggregateProjection> {
+  const result = new Map<Node, ExactAggregateProjection>();
+  for (const declaration of program.nodesOfKind(KindBindingElement)) {
+    const binding = source.ast.as.AsBindingElement(declaration);
+    const pattern = source.ast.parent(declaration);
+    const owner = source.ast.parent(pattern);
+    if (
+      binding?.DotDotDotToken !== undefined ||
+      binding?.Initializer !== undefined ||
+      pattern === undefined ||
+      !source.ast.is.IsArrayBindingPattern(pattern) ||
+      owner === undefined ||
+      !source.ast.is.IsVariableDeclaration(owner) ||
+      program.hasBindingWrite(declaration)
+    ) {
+      continue;
+    }
+    const index = source.ast.elements(pattern).indexOf(declaration);
+    const initializer = source.ast.as.AsVariableDeclaration(owner)?.Initializer;
+    const aggregate = exactAggregateSource(source, owner, initializer);
+    if (index >= 0 && aggregate !== undefined) {
+      result.set(declaration, Object.freeze({ source: aggregate, index }));
+    }
+  }
+  return result;
+}
+
 function collectAggregateBindings(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
 ): ReadonlyMap<Node, AggregateBinding> {
   const bindings = new Map<Node, AggregateBinding>();
   for (const declaration of program.nodesOfKind(KindVariableDeclaration)) {
-    if (
-      source.ast.variableDeclarationKind(declaration) !== "const" ||
-      !source.ast.is.IsIdentifier(source.ast.name(declaration))
-    ) {
+    if (!source.ast.is.IsIdentifier(source.ast.name(declaration))) {
       continue;
     }
     const initializer = source.ast.as.AsVariableDeclaration(declaration)
@@ -136,7 +202,7 @@ function auditAggregateBindings(
     ) {
       continue;
     }
-    if (exactProjectionAtReference(source, reference) === undefined) {
+    if (!exactAggregateUseAtReference(source, reference)) {
       binding.closed = false;
     }
   }
@@ -157,22 +223,54 @@ function exactAggregateSource(
         source.ast.as.AsAwaitExpression(initializer)?.Expression,
       )
     : initializer;
-  return aggregate !== undefined &&
-      (source.ast.is.IsCallExpression(aggregate) ||
-        source.ast.is.IsArrayLiteralExpression(aggregate))
+  return aggregate !== undefined && exactAggregateExpression(source, aggregate)
     ? Object.freeze({ declaration, initializer, aggregate })
     : undefined;
 }
 
-function exactProjectionAtReference(
+function exactAggregateExpression(
+  source: TargetSourceProgram,
+  expression: Node,
+  pending: ReadonlySet<Node> = new Set(),
+): boolean {
+  const root = transparentExpression(source, expression);
+  if (root === undefined || pending.has(root)) {
+    return false;
+  }
+  if (
+    source.ast.is.IsCallExpression(root) ||
+    source.ast.is.IsArrayLiteralExpression(root)
+  ) {
+    return true;
+  }
+  if (source.ast.is.IsAwaitExpression(root)) {
+    const awaited = source.ast.as.AsAwaitExpression(root)?.Expression;
+    return awaited !== undefined && exactAggregateExpression(
+      source,
+      awaited,
+      new Set([...pending, root]),
+    );
+  }
+  const alternatives = sameValueAlternatives(source, root);
+  return alternatives !== undefined && alternatives !== null &&
+    alternatives.length !== 0 && alternatives.every((alternative) =>
+      exactAggregateExpression(
+        source,
+        alternative,
+        new Set([...pending, root]),
+      )
+    );
+}
+
+function exactAggregateUseAtReference(
   source: TargetSourceProgram,
   reference: Node,
-): number | undefined {
+): boolean {
   let current = reference;
   for (;;) {
     const parent = source.ast.parent(current);
     if (parent === undefined) {
-      return undefined;
+      return false;
     }
     if (source.ast.is.IsElementAccessExpression(parent)) {
       const element = source.ast.as.AsElementAccessExpression(parent);
@@ -180,11 +278,20 @@ function exactProjectionAtReference(
           source,
           parent,
         )
-        ? exactElementIndex(source, element.ArgumentExpression)
-        : undefined;
+        ? exactElementIndex(source, element.ArgumentExpression) !== undefined
+        : false;
+    }
+    if (source.ast.is.IsSpreadElement(parent)) {
+      const invocation = source.ast.parent(parent);
+      return source.ast.as.AsSpreadElement(parent)?.Expression === current &&
+        invocation !== undefined &&
+        (
+          source.ast.is.IsCallExpression(invocation) ||
+          source.ast.is.IsNewExpression(invocation)
+        ) && source.ast.arguments(invocation).includes(parent);
     }
     if (transparentExpression(source, parent) !== current) {
-      return undefined;
+      return false;
     }
     current = parent;
   }

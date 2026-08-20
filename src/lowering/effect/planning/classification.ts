@@ -17,11 +17,12 @@ import {
   directContainingCall,
   exactCallExpression,
   exactReturnedCall,
-  isDiscardedCall,
   isFunctionLike,
+  isDiscardedCall,
   isModuleForwardingReference,
 } from "../model/syntax.js";
 import type { CallableValueFlow } from "../flow/callable/value-flow.js";
+import { connectCooperativeEffectDependency } from "../closure/dependency.js";
 
 const noDependencies: readonly Node[] = Object.freeze([]);
 
@@ -109,7 +110,7 @@ export function classifyCooperativeEffectCallUses(
     }
     const owner = enclosingCandidate(source, candidates, call);
     if (owner !== undefined && containingReturn(source, call) !== undefined) {
-      owner.dependencies.add(candidate);
+      connectCooperativeEffectDependency(owner, candidate, "return", call);
       continue;
     }
     if (returnedCallHasClosedConsumers(call)) {
@@ -126,7 +127,7 @@ export function classifyCooperativeEffectCallUses(
     }
     const owner = enclosingCandidate(source, candidates, call);
     if (owner !== undefined && containingReturn(source, call) !== undefined) {
-      interfaces.addDependencies(owner, family);
+      interfaces.addDependencies(owner, family, "return", call);
       continue;
     }
     if (returnedCallHasClosedConsumers(call)) {
@@ -143,6 +144,15 @@ export function classifyCooperativeEffectCallUses(
       return;
     }
     if (resolution.closed && containingAwait(source, call) !== undefined) {
+      return;
+    }
+    if (isDiscardedCall(source, call)) {
+      for (const declaration of resolution.dependencyNodes()) {
+        const candidate = candidates.get(declaration);
+        if (candidate !== undefined) {
+          blockCooperativeEffect(candidate, "promise-observed", call);
+        }
+      }
       return;
     }
     const owner = enclosingCandidate(source, candidates, call);
@@ -177,11 +187,22 @@ export function collectSettledCooperativeAwaits(
 ): ReadonlySet<Node> {
   const awaits = new Set<Node>();
   for (const node of program.nodesOfKind(KindAwaitExpression)) {
+    const expression = source.ast.as.AsAwaitExpression(node)?.Expression;
+    if (expression === undefined) {
+      continue;
+    }
     const call = exactCallExpression(
       source,
-      source.ast.as.AsAwaitExpression(node)?.Expression,
+      expression,
     );
     if (call === undefined) {
+      const returned = returnFlow.resolutionFor(expression);
+      if (
+        returned.closed &&
+        !hasRetainedDependency(returned.dependencies, candidates, optimized)
+      ) {
+        awaits.add(node);
+      }
       continue;
     }
     const direct = calls.get(call);
@@ -236,17 +257,54 @@ function classifyAwaitDependencies(
   const expression = source.ast.as.AsAwaitExpression(node)?.Expression;
   const call = exactCallExpression(source, expression);
   const dependency = call === undefined ? undefined : calls.get(call);
-  if (dependency !== undefined) {
-    owner.dependencies.add(dependency);
+  if (call !== undefined && dependency !== undefined) {
+    connectCooperativeEffectDependency(
+      owner,
+      dependency,
+      "callable-invocation",
+      call,
+    );
     return;
   }
   const family = call === undefined ? undefined : interfaces.calls.get(call);
-  if (family !== undefined) {
-    interfaces.addDependencies(owner, family);
+  if (call !== undefined && family !== undefined) {
+    interfaces.addDependencies(
+      owner,
+      family,
+      "callable-invocation",
+      call,
+    );
+    return;
+  }
+  if (call === undefined) {
+    const resolution = expression === undefined
+      ? undefined
+      : returnFlow.resolutionFor(expression);
+    if (resolution === undefined || !resolution.closed) {
+      blockCooperativeEffect(
+        owner,
+        "unresolved-call",
+        expression ?? node,
+      );
+      return;
+    }
+    for (const declaration of resolution.dependencies) {
+      const candidate = candidates.get(declaration);
+      if (candidate === undefined) {
+        blockCooperativeEffect(owner, "unresolved-call", expression ?? node);
+        return;
+      }
+      connectCooperativeEffectDependency(
+        owner,
+        candidate,
+        "result-consumption",
+        expression ?? node,
+      );
+    }
     return;
   }
   const resolution = valueFlow.resolutionFor(call);
-  if (call === undefined || resolution === undefined || !resolution.closed) {
+  if (resolution === undefined || !resolution.closed) {
     blockCooperativeEffect(
       owner,
       "unresolved-call",
@@ -260,7 +318,12 @@ function classifyAwaitDependencies(
       blockCooperativeEffect(owner, "unresolved-call", call);
       return;
     }
-    owner.dependencies.add(candidate);
+    connectCooperativeEffectDependency(
+      owner,
+      candidate,
+      "callable-invocation",
+      call,
+    );
   }
   if (
     resolution.synchronousDeclarationCount !== 0 &&
@@ -306,15 +369,20 @@ function classifyReturnDependencies(
   const dependency = returnedCall === undefined
     ? undefined
     : calls.get(returnedCall);
-  if (dependency !== undefined) {
-    owner.dependencies.add(dependency);
+  if (returnedCall !== undefined && dependency !== undefined) {
+    connectCooperativeEffectDependency(
+      owner,
+      dependency,
+      "return",
+      returnedCall,
+    );
     return;
   }
   const family = returnedCall === undefined
     ? undefined
     : interfaces.calls.get(returnedCall);
-  if (family !== undefined) {
-    interfaces.addDependencies(owner, family);
+  if (returnedCall !== undefined && family !== undefined) {
+    interfaces.addDependencies(owner, family, "return", returnedCall);
     return;
   }
   if (returnedCall !== undefined) {
@@ -326,7 +394,12 @@ function classifyReturnDependencies(
           blockCooperativeEffect(owner, "unresolved-call", returnedCall);
           return;
         }
-        owner.dependencies.add(candidate);
+        connectCooperativeEffectDependency(
+          owner,
+          candidate,
+          "return",
+          returnedCall,
+        );
       }
       if (
         resolution.synchronousDeclarationCount === 0 ||
@@ -340,8 +413,23 @@ function classifyReturnDependencies(
       }
     }
   }
-  if (!returnFlow.isDefinitelyNonThenable(expression)) {
+  const returned = returnFlow.resolutionFor(expression);
+  if (!returned.closed) {
     blockCooperativeEffect(owner, "promise-producing-return", expression);
+    return;
+  }
+  for (const declaration of returned.dependencies) {
+    const dependency = candidates.get(declaration);
+    if (dependency === undefined) {
+      blockCooperativeEffect(owner, "promise-producing-return", expression);
+      return;
+    }
+    connectCooperativeEffectDependency(
+      owner,
+      dependency,
+      "return",
+      expression,
+    );
   }
 }
 
@@ -354,10 +442,6 @@ function indexCandidateSymbols(
     const name = source.ast.name(candidate.declaration);
     for (const symbol of exactSymbolsAt(source, name)) {
       result.set(symbol, candidate);
-    }
-    const reference = source.navigation.sourceReferenceFor(name);
-    if (reference?.declaration === candidate.declaration) {
-      result.set(reference.symbol, candidate);
     }
   }
   return result;

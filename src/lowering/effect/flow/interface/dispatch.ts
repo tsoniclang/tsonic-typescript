@@ -11,6 +11,8 @@ import {
 } from "../../../occurrence.js";
 import type { CallableReturnRewrite } from "../../model/callable-contract.js";
 import type { CooperativeEffectCandidate } from "../../inventory/candidates.js";
+import type { EffectProvenanceEdgeKind } from "../../provenance/model.js";
+import { connectCooperativeEffectDependency } from "../../closure/dependency.js";
 import {
   blockCooperativeEffect,
   cooperativeEffectFallbackReasons,
@@ -22,9 +24,15 @@ import {
 } from "../../model/synchronous.js";
 import {
   createInterfaceContractGraph,
+  type InterfaceContractFlowIndexes,
   type InterfaceContractComponent,
 } from "./graph.js";
 import type { InterfaceContractBoundaryCause } from "./boundary.js";
+import {
+  createExactInvocationInputIndex,
+  type ExactInvocationInputIndex,
+} from "../invocation/inputs.js";
+import { createExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import {
   type InterfaceDispatchEvidence,
   type InterfaceDispatchBoundaryCauseEvidence,
@@ -49,10 +57,14 @@ export interface DeclaredInterfaceDispatch {
   readonly rejectedFamilyCount: number;
   readonly families: readonly DeclaredInterfaceDispatchFamily[];
   readonly calls: ReadonlyMap<Node, DeclaredInterfaceDispatchFamily>;
+  readonly declarations: ReadonlyMap<Node, DeclaredInterfaceDispatchFamily>;
+  readonly invocationInputs: ExactInvocationInputIndex;
   readonly invocationTransports?: InvocationTransportContract;
   addDependencies(
     owner: CooperativeEffectCandidate,
     family: DeclaredInterfaceDispatchFamily,
+    kind: EffectProvenanceEdgeKind,
+    occurrence: Node,
   ): void;
   block(
     family: DeclaredInterfaceDispatchFamily,
@@ -95,8 +107,11 @@ export function createDeclaredInterfaceDispatch(
   transports?: InvocationTransportContract,
   sourceIdentityFor: SourceIdentityResolver = (sourceFile) =>
     source.documents.forFile(sourceFile).identity,
+  indexes?: InterfaceContractFlowIndexes,
 ): DeclaredInterfaceDispatch {
   if (profile === "open-structural") {
+    const aggregateProjections = indexes?.aggregateProjections ??
+      createExactAggregateProjectionIndex(source, program);
     return createResult(
       source,
       sourceIdentityFor,
@@ -106,6 +121,8 @@ export function createDeclaredInterfaceDispatch(
       [],
       [],
       [],
+      indexes?.invocationInputs ??
+        createExactInvocationInputIndex(source, program, aggregateProjections),
     );
   }
   const graph = createInterfaceContractGraph(
@@ -113,6 +130,7 @@ export function createDeclaredInterfaceDispatch(
     program,
     transports,
     sourceIdentityFor,
+    indexes,
   );
   const families: DeclaredInterfaceDispatchFamily[] = [];
   const rejected: RejectedInterfaceDispatchFamily[] = [];
@@ -138,6 +156,7 @@ export function createDeclaredInterfaceDispatch(
     families,
     rejected,
     graph.boundaryCauses,
+    graph.invocationInputs,
     graph.invocationTransports,
   );
 }
@@ -196,8 +215,18 @@ function connectFamily(
     return;
   }
   for (const candidate of candidates.slice(1)) {
-    coordinator.dependencies.add(candidate);
-    candidate.dependencies.add(coordinator);
+    connectCooperativeEffectDependency(
+      coordinator,
+      candidate,
+      "implementation",
+      candidate.declaration,
+    );
+    connectCooperativeEffectDependency(
+      candidate,
+      coordinator,
+      "implementation",
+      coordinator.declaration,
+    );
   }
 }
 
@@ -210,10 +239,21 @@ function createResult(
   families: readonly DeclaredInterfaceDispatchFamily[],
   rejected: readonly RejectedInterfaceDispatchFamily[],
   boundaryCauses: readonly InterfaceDispatchBoundaryCauseEvidence[],
+  invocationInputs: ExactInvocationInputIndex,
   invocationTransports?: InvocationTransportContract,
 ): DeclaredInterfaceDispatch {
   const calls = new Map<Node, DeclaredInterfaceDispatchFamily>();
+  const declarations = new Map<Node, DeclaredInterfaceDispatchFamily>();
   for (const family of families) {
+    for (const declaration of family.contractDeclarations) {
+      const existing = declarations.get(declaration);
+      if (existing !== undefined && existing !== family) {
+        throw new Error(
+          "interface declaration belongs to multiple declared families",
+        );
+      }
+      declarations.set(declaration, family);
+    }
     for (const call of family.calls) {
       if (calls.has(call)) {
         throw new Error("interface call belongs to multiple declared families");
@@ -228,13 +268,22 @@ function createResult(
     rejectedFamilyCount: rejected.length,
     families: Object.freeze([...families]),
     calls,
+    declarations,
+    invocationInputs,
     ...(invocationTransports === undefined ? {} : { invocationTransports }),
     addDependencies(
       owner: CooperativeEffectCandidate,
       family: DeclaredInterfaceDispatchFamily,
+      kind: EffectProvenanceEdgeKind,
+      occurrence: Node,
     ): void {
       if (family.coordinator !== undefined) {
-        owner.dependencies.add(family.coordinator);
+        connectCooperativeEffectDependency(
+          owner,
+          family.coordinator,
+          kind,
+          occurrence,
+        );
       }
     },
     block(

@@ -3,68 +3,58 @@ import { test } from "node:test";
 import type { Node } from "@tsonic/tsts";
 
 import {
-  mergeResolution,
-  resolutionWith,
-  sealResolution,
-  sealResolutions,
-  synchronousResolutionWith,
+  allCallableDependenciesAreOptimized,
+  createCallableValueResolution,
 } from "./value-resolution.js";
 
-test("sealing transfers resolution storage without copying or exposing it", () => {
+test("callable value resolution seals exact deduplicated evidence", () => {
   const dependency = Object.freeze({}) as Node;
   const synchronousDeclaration = Object.freeze({}) as Node;
-  const laterDependency = Object.freeze({}) as Node;
-  const mutable = resolutionWith(dependency);
-
-  mergeResolution(
-    mutable,
-    synchronousResolutionWith(synchronousDeclaration),
-  );
-  const sealed = sealResolution(mutable);
-
-  assert.equal("dependencies" in sealed, false);
-  assert.equal("synchronousDeclarations" in sealed, false);
-  assert.equal(sealed.dependencyCount, 1);
-  assert.equal(sealed.synchronousDeclarationCount, 1);
-  assert.deepEqual([...sealed.dependencyNodes()], [dependency]);
-  assert.deepEqual(
-    [...sealed.synchronousDeclarationNodes()],
-    [synchronousDeclaration],
+  const dependencies = new Set([dependency]);
+  const synchronousDeclarations = new Set([synchronousDeclaration]);
+  const resolution = createCallableValueResolution(
+    true,
+    dependencies,
+    synchronousDeclarations,
   );
 
-  assert.throws(
-    () => mergeResolution(mutable, resolutionWith(laterDependency)),
-    /already sealed/u,
-  );
-  assert.throws(() => sealResolution(mutable), /already sealed/u);
-  assert.deepEqual([...sealed.dependencyNodes()], [dependency]);
+  dependencies.clear();
+  synchronousDeclarations.clear();
+
+  assert.equal(resolution.closed, true);
+  assert.equal(resolution.dependencyCount, 1);
+  assert.equal(resolution.synchronousDeclarationCount, 1);
+  const dependencyNodes = [...resolution.dependencyNodes()];
+  const synchronousDeclarationNodes = [
+    ...resolution.synchronousDeclarationNodes(),
+  ];
+  assert.equal(dependencyNodes.length, 1);
+  assert.equal(dependencyNodes[0], dependency);
+  assert.equal(synchronousDeclarationNodes.length, 1);
+  assert.equal(synchronousDeclarationNodes[0], synchronousDeclaration);
+  assert.equal("dependencies" in resolution, false);
+  assert.equal("synchronousDeclarations" in resolution, false);
 });
 
-test("sealed resolution evidence preserves exact set behavior at every cardinality", () => {
+test("callable dependency settlement requires every exact origin", () => {
   const first = Object.freeze({}) as Node;
   const second = Object.freeze({}) as Node;
-  const empty = sealResolution(
-    synchronousResolutionWith(first),
+  const resolution = createCallableValueResolution(
+    true,
+    [first, second, first],
+    [],
   );
-  const single = sealResolution(resolutionWith(first));
-  const mutableMany = resolutionWith(first);
-  mergeResolution(mutableMany, resolutionWith(second));
-  const many = sealResolution(mutableMany);
 
-  assert.equal(empty.dependencyCount, 0);
-  assert.deepEqual([...empty.dependencyNodes()], []);
-  assert.equal(single.dependencyCount, 1);
-  assert.deepEqual([...single.dependencyNodes()], [first]);
-  assert.equal(many.dependencyCount, 2);
-  assert.deepEqual([...many.dependencyNodes()], [first, second]);
-});
-
-test("bulk sealing transfers each interned resolution exactly once", () => {
-  const dependency = Object.freeze({}) as Node;
-  const shared = resolutionWith(dependency);
-
-  sealResolutions([shared], [shared]);
-
-  assert.deepEqual([...shared.dependencyNodes()], [dependency]);
-  assert.throws(() => sealResolution(shared), /already sealed/u);
+  assert.equal(resolution.dependencyCount, 2);
+  assert.equal(
+    allCallableDependenciesAreOptimized(resolution, new Set([first])),
+    false,
+  );
+  assert.equal(
+    allCallableDependenciesAreOptimized(
+      resolution,
+      new Set([first, second]),
+    ),
+    true,
+  );
 });

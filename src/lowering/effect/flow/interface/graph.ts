@@ -28,6 +28,27 @@ import {
 } from "./boundary.js";
 import { collectInterfaceContractComponent } from "./component.js";
 import { createAbstractInvocationTransports } from "./abstract-transport.js";
+import {
+  createExactInvocationInputIndex,
+  type ExactInvocationInputIndex,
+} from "../invocation/inputs.js";
+import {
+  createExactIndirectInvocationInputIndex,
+} from "../invocation/indirect.js";
+import {
+  createExactAggregateProjectionIndex,
+  type ExactAggregateProjectionIndex,
+} from "../aggregate/projection.js";
+import {
+  createExactObjectPropertyProjectionIndex,
+  type ExactObjectPropertyProjectionIndex,
+} from "../object/projection.js";
+
+export interface InterfaceContractFlowIndexes {
+  readonly invocationInputs: ExactInvocationInputIndex;
+  readonly aggregateProjections: ExactAggregateProjectionIndex;
+  readonly objectProjections?: ExactObjectPropertyProjectionIndex;
+}
 
 export interface InterfaceContractEntry {
   readonly declaration: Node;
@@ -46,6 +67,7 @@ export interface InterfaceContractGraph {
   readonly consideredCount: number;
   readonly components: readonly InterfaceContractComponent[];
   readonly boundaryCauses: readonly InterfaceContractBoundaryCause[];
+  readonly invocationInputs: ExactInvocationInputIndex;
   readonly invocationTransports?: InvocationTransportContract;
 }
 
@@ -70,10 +92,30 @@ export function createInterfaceContractGraph(
   transports?: InvocationTransportContract,
   sourceIdentityFor: SourceIdentityResolver = (sourceFile) =>
     source.documents.forFile(sourceFile).identity,
+  indexes?: InterfaceContractFlowIndexes,
 ): InterfaceContractGraph {
+  const aggregateProjections = indexes?.aggregateProjections ??
+    createExactAggregateProjectionIndex(source, program);
+  const objectProjections = indexes?.objectProjections ??
+    createExactObjectPropertyProjectionIndex(source, program);
+  const invocationInputs = indexes?.invocationInputs ??
+    createExactIndirectInvocationInputIndex(
+      source,
+      program,
+      createExactInvocationInputIndex(source, program, aggregateProjections),
+      aggregateProjections,
+    );
   const contracts = collectContracts(source, program, sourceIdentityFor);
   collectCalls(source, program, contracts.entries);
-  collectInterfaceContractTransports(source, program, contracts, transports);
+  const completeInvocationInputs = collectInterfaceContractTransports(
+    source,
+    program,
+    contracts,
+    invocationInputs,
+    aggregateProjections,
+    objectProjections,
+    transports,
+  );
   const seeds = [...contracts.entries.values()].filter((entry) =>
     entry.returnRewrite !== undefined && entry.calls.length !== 0
   );
@@ -119,6 +161,7 @@ export function createInterfaceContractGraph(
     consideredCount: seeds.length,
     components: Object.freeze(components),
     boundaryCauses: contracts.boundaries.causesFor(consideredDeclarations),
+    invocationInputs: completeInvocationInputs,
     ...(invocationTransports === undefined ? {} : { invocationTransports }),
   });
 }

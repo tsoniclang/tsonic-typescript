@@ -38,15 +38,15 @@ export function createReturnLocalFlow(
   const roots = collectReturnRoots(source, program);
   const ownerNodes = collectOwnerNodes(source, roots);
   const candidates = collectOwnerBindings(source, ownerNodes, roots);
-  collectBindingInputs(source, candidates, ownerNodes);
-  connectIdentityBindings(source, candidates);
+  collectBindingInputs(source, program, candidates, ownerNodes);
+  connectIdentityBindings(source, program, candidates);
   const selected = selectIdentityComponents(roots, candidates);
   const components = indexIdentityComponents(selected);
-  auditBindingUses(source, selected, components, ownerNodes);
+  auditBindingUses(source, program, selected, components, ownerNodes);
   closeRejectedComponents(selected, components);
   return Object.freeze({
     bindingFor(identifier: Node): ReturnLocalBinding | undefined {
-      const declaration = source.navigation.sourceReferenceFor(identifier)?.declaration;
+      const declaration = program.declarationReferenceFor(identifier)?.declaration;
       const binding = declaration === undefined ? undefined : selected.get(declaration);
       return binding?.closed === true ? binding : undefined;
     },
@@ -61,7 +61,7 @@ function collectReturnRoots(
   for (const node of program.nodesOfKind(KindReturnStatement)) {
     const expression = source.ast.as.AsReturnStatement(node)?.Expression;
     for (const reference of directReturnReferences(source, expression)) {
-      const declaration = source.navigation.sourceReferenceFor(reference)?.declaration;
+      const declaration = program.declarationReferenceFor(reference)?.declaration;
       const owner = declaration === undefined
         ? undefined
         : containingFunction(source, declaration);
@@ -130,6 +130,7 @@ function createBinding(
 
 function collectBindingInputs(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   bindings: ReadonlyMap<Node, MutableReturnBinding>,
   nodes: readonly Node[],
 ): void {
@@ -137,7 +138,7 @@ function collectBindingInputs(
     if (!source.ast.is.IsIdentifier(node)) {
       continue;
     }
-    const declaration = source.navigation.sourceReferenceFor(node)?.declaration;
+    const declaration = program.declarationReferenceFor(node)?.declaration;
     const binding = declaration === undefined ? undefined : bindings.get(declaration);
     const assignment = binding === undefined
       ? undefined
@@ -150,7 +151,7 @@ function collectBindingInputs(
       continue;
     }
     binding.assignmentOperations.add(assignment.operation);
-    if (!isReferenceTo(source, assignment.value, binding.declaration)) {
+    if (!isReferenceTo(source, program, assignment.value, binding.declaration)) {
       binding.inputs.push(assignment.value);
     }
   }
@@ -158,12 +159,13 @@ function collectBindingInputs(
 
 function connectIdentityBindings(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   bindings: ReadonlyMap<Node, MutableReturnBinding>,
 ): void {
   for (const destination of bindings.values()) {
     for (const input of destination.inputs) {
       for (const reference of directIdentityReferences(source, input)) {
-        const declaration = source.navigation.sourceReferenceFor(reference)?.declaration;
+        const declaration = program.declarationReferenceFor(reference)?.declaration;
         const sourceBinding = declaration === undefined
           ? undefined
           : bindings.get(declaration);
@@ -221,6 +223,7 @@ function indexIdentityComponents(
 
 function auditBindingUses(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   bindings: ReadonlyMap<Node, MutableReturnBinding>,
   components: ReadonlyMap<Node, Node>,
   nodes: readonly Node[],
@@ -229,16 +232,17 @@ function auditBindingUses(
     if (!source.ast.is.IsIdentifier(node)) {
       continue;
     }
-    const declaration = source.navigation.sourceReferenceFor(node)?.declaration;
+    const declaration = program.declarationReferenceFor(node)?.declaration;
     const binding = declaration === undefined ? undefined : bindings.get(declaration);
     if (
       binding === undefined ||
       node === source.ast.name(binding.declaration) ||
       directAssignmentAtReference(source, node) !== undefined ||
       binding.returnedReferences.has(node) ||
-      directIdentityDestination(source, node, bindings) !== undefined ||
+      directIdentityDestination(source, program, node, bindings) !== undefined ||
       isAwaitedComponentReplacement(
         source,
+        program,
         node,
         binding.declaration,
         components,
@@ -292,6 +296,7 @@ function directIdentityReferences(
 
 function directIdentityDestination(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   reference: Node,
   bindings: ReadonlyMap<Node, MutableReturnBinding>,
 ): Node | undefined {
@@ -324,7 +329,7 @@ function directIdentityDestination(
       : undefined;
     const declaration = destination !== undefined &&
         source.ast.is.IsIdentifier(destination)
-      ? source.navigation.sourceReferenceFor(destination)?.declaration
+      ? program.declarationReferenceFor(destination)?.declaration
       : undefined;
     return declaration !== undefined && bindings.has(declaration)
       ? declaration
@@ -334,6 +339,7 @@ function directIdentityDestination(
 
 function isAwaitedComponentReplacement(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   reference: Node,
   declaration: Node,
   components: ReadonlyMap<Node, Node>,
@@ -355,7 +361,7 @@ function isAwaitedComponentReplacement(
       : undefined;
     const destinationDeclaration = destination !== undefined &&
         source.ast.is.IsIdentifier(destination)
-      ? source.navigation.sourceReferenceFor(destination)?.declaration
+      ? program.declarationReferenceFor(destination)?.declaration
       : undefined;
     const value = transparentExpression(source, binary?.Right);
     return destinationDeclaration !== undefined &&
@@ -492,13 +498,14 @@ function isNullishIdentityObservation(
 
 function isReferenceTo(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   expression: Node | undefined,
   declaration: Node,
 ): boolean {
   const root = transparentExpression(source, expression);
   return root !== undefined &&
     source.ast.is.IsIdentifier(root) &&
-    source.navigation.sourceReferenceFor(root)?.declaration === declaration;
+    program.declarationReferenceFor(root)?.declaration === declaration;
 }
 
 function containingFunction(

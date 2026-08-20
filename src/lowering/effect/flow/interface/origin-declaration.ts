@@ -5,10 +5,7 @@ export function declarationMayReceiveCheckedValues(
   source: TargetSourceProgram,
   declaration: Node,
 ): boolean {
-  return source.ast.is.IsVariableDeclaration(declaration) ||
-    source.ast.is.IsPropertyDeclaration(declaration) ||
-    source.ast.is.IsParameterDeclaration(declaration) ||
-    source.ast.is.IsFunctionDeclaration(declaration) ||
+  return source.ast.is.IsFunctionDeclaration(declaration) ||
     source.ast.is.IsMethodDeclaration(declaration);
 }
 

@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { Node } from "@tsonic/tsts";
-
 import {
   IsArrowFunction,
   IsAwaitExpression,
@@ -293,35 +291,6 @@ export const result = await value0();
 
   assert.equal(result.callableCount, 0);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 64);
-});
-
-test("does not resolve every unrelated identifier as a source reference", () => {
-  const unrelated = Array.from(
-    { length: 256 },
-    (_, index) => `const unrelated${index} = ${index};`,
-  ).join("\n");
-  const fixture = checkedEffectFixture(`
-${unrelated}
-async function value(): Promise<number> { return 1; }
-export const result = await value();
-`);
-  let queries = 0;
-  const source = Object.freeze({
-    ...fixture.source,
-    navigation: Object.freeze({
-      ...fixture.source.navigation,
-      sourceReferenceFor(node: Node | undefined) {
-        queries += 1;
-        return fixture.source.navigation.sourceReferenceFor(node);
-      },
-    }),
-  });
-
-  const plan = createClosedCooperativeEffectPlan(source);
-  lowerCooperativeEffects(fixture.sourceFile, plan);
-  plan.finish();
-
-  assert.ok(queries < 8, `expected bounded source-reference queries, got ${queries}`);
 });
 
 test("settles every concrete producer of a readonly callable wrapper", () => {

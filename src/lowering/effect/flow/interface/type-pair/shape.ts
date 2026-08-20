@@ -29,6 +29,27 @@ export function pairUnionTypes(
   return true;
 }
 
+export function pairTargetIntersection(
+  semantics: SourceFileSemantics,
+  source: Type,
+  target: Type,
+  state: InterfaceContractTypePairState,
+  enqueue: InterfaceContractTypePairEnqueue,
+): boolean {
+  if (!semantics.isIntersection(target)) {
+    return false;
+  }
+  const members = selectedMembers(semantics, target);
+  if (members.length === 0) {
+    markNestedTypeMismatch(semantics, source, target, state);
+    return true;
+  }
+  for (const member of members) {
+    enqueue(semantics, source, member, state);
+  }
+  return true;
+}
+
 export function pairSequenceTypes(
   semantics: SourceFileSemantics,
   source: Type,

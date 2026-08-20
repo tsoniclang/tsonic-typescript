@@ -22,7 +22,7 @@ interface MutableCooperativeEffectFilePlan {
   readonly callables: Node[];
   readonly awaits: Node[];
   readonly asyncModifiers: Node[];
-  readonly returnTypes: CallableReturnRewrite[];
+  readonly returnTypes: Map<Node, CallableReturnRewrite>;
 }
 
 export function createCooperativeEffectFilePlans(
@@ -38,7 +38,7 @@ export function createCooperativeEffectFilePlans(
       callables: [],
       awaits: [],
       asyncModifiers: [],
-      returnTypes: [],
+      returnTypes: new Map(),
     });
   }
   for (const candidate of candidates) {
@@ -57,7 +57,18 @@ export function createCooperativeEffectFilePlans(
     filePlanForNode(source, mutable, node).awaits.push(node);
   }
   for (const rewrite of returnTypes) {
-    filePlanForNode(source, mutable, rewrite.target).returnTypes.push(rewrite);
+    const file = filePlanForNode(source, mutable, rewrite.target);
+    const existing = file.returnTypes.get(rewrite.target);
+    if (
+      existing !== undefined &&
+      (
+        existing.selection.kind !== rewrite.selection.kind ||
+        existing.selection.index !== rewrite.selection.index
+      )
+    ) {
+      throw new Error("callable return contract has conflicting rewrites");
+    }
+    file.returnTypes.set(rewrite.target, rewrite);
   }
   return new Map(
     [...mutable].map(([sourceFile, file]) => [
@@ -66,7 +77,7 @@ export function createCooperativeEffectFilePlans(
         callables: Object.freeze(file.callables),
         awaits: Object.freeze(file.awaits),
         asyncModifiers: Object.freeze(file.asyncModifiers),
-        returnTypes: Object.freeze(file.returnTypes),
+        returnTypes: Object.freeze([...file.returnTypes.values()]),
       }),
     ]),
   );

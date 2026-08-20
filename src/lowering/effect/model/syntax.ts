@@ -1,6 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import type { TargetProgramIndex } from "../../program-index.js";
+export {
+  isModuleForwardingReference,
+  isProjectDeclarationName,
+  isProjectDeclarationOnlyName,
+} from "../../source-reference.js";
 
 export function exactReturnedCall(
   source: TargetSourceProgram,
@@ -152,6 +157,33 @@ export function directContainingCall(
   }
 }
 
+export function directContainingInvocation(
+  source: TargetSourceProgram,
+  reference: Node,
+): Node | undefined {
+  let current = reference;
+  for (;;) {
+    const parent = source.ast.parent(current);
+    if (parent === undefined) {
+      return undefined;
+    }
+    if (source.ast.is.IsCallExpression(parent)) {
+      return source.ast.as.AsCallExpression(parent)?.Expression === current
+        ? parent
+        : undefined;
+    }
+    if (source.ast.is.IsNewExpression(parent)) {
+      return source.ast.as.AsNewExpression(parent)?.Expression === current
+        ? parent
+        : undefined;
+    }
+    if (!isTransparentExpression(source, parent, current)) {
+      return undefined;
+    }
+    current = parent;
+  }
+}
+
 export function exactCallableTarget(
   source: TargetSourceProgram,
   expression: Node | undefined,
@@ -197,30 +229,6 @@ export function transparentExpression(
     }
     current = child;
   }
-}
-
-export function isModuleForwardingReference(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  let current = source.ast.parent(node);
-  while (current !== undefined) {
-    if (
-      source.ast.is.IsImportClause(current) ||
-      source.ast.is.IsImportSpecifier(current) ||
-      source.ast.is.IsNamespaceImport(current) ||
-      source.ast.is.IsExportSpecifier(current) ||
-      source.ast.is.IsImportDeclaration(current) ||
-      source.ast.is.IsExportDeclaration(current)
-    ) {
-      return true;
-    }
-    if (!source.ast.is.IsNamedImports(current)) {
-      return false;
-    }
-    current = source.ast.parent(current);
-  }
-  return false;
 }
 
 function isTransparentExpression(

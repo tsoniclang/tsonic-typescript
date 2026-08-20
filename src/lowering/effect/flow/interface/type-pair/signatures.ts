@@ -2,6 +2,7 @@ import type { Signature, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "@tsonic/target-api";
 
 import { sameSelectedType, typeMaySuspend } from "../../../model/synchronous.js";
+import type { InterfaceContractRelevance } from "../relevance.js";
 import {
   type InterfaceContractTypePairEnqueue,
   type InterfaceContractTypePairState,
@@ -58,27 +59,30 @@ function pairSignatureFamily(
   if (sources.length === 0 && targets.length === 0) {
     return;
   }
-  if (sources.length !== 1 || targets.length !== 1) {
+  const pairs = exactUniqueSignaturePairs(
+    semantics,
+    sources,
+    targets,
+    state.relevance,
+  );
+  if (pairs === undefined) {
     markIncompatibleSignatures(semantics, sourceType, targetType, state);
     return;
   }
-  const source = sources[0];
-  const target = targets[0];
-  if (source === undefined || target === undefined) {
-    markIncompatibleSignatures(semantics, sourceType, targetType, state);
-    return;
+  for (const [source, target] of pairs) {
+    pairSignature(semantics, source, target, state, enqueue);
   }
+}
+
+function pairSignature(
+  semantics: SourceFileSemantics,
+  source: Signature,
+  target: Signature,
+  state: InterfaceContractTypePairState,
+  enqueue: InterfaceContractTypePairEnqueue,
+): void {
   const sourceParameters = semantics.getSignatureParameterInfos(source);
   const targetParameters = semantics.getSignatureParameterInfos(target);
-  if (
-    sourceParameters.length !== targetParameters.length ||
-    sourceParameters.some((parameter, index) =>
-      parameter.parameterKind !== targetParameters[index]?.parameterKind
-    )
-  ) {
-    markIncompatibleSignatures(semantics, sourceType, targetType, state);
-    return;
-  }
   for (let index = 0; index < sourceParameters.length; index += 1) {
     enqueue(
       semantics,
@@ -97,6 +101,152 @@ function pairSignatureFamily(
       state,
     );
   }
+}
+
+export function exactUniqueSignaturePairs(
+  semantics: SourceFileSemantics,
+  sources: readonly (Signature | undefined)[],
+  targets: readonly (Signature | undefined)[],
+  relevance: InterfaceContractRelevance,
+): readonly (readonly [Signature, Signature])[] | undefined {
+  if (sources.length !== targets.length || sources.length === 0) {
+    return undefined;
+  }
+  const sourceSignatures = sources.filter(
+    (signature): signature is Signature => signature !== undefined,
+  );
+  const targetSignatures = targets.filter(
+    (signature): signature is Signature => signature !== undefined,
+  );
+  if (
+    sourceSignatures.length !== sources.length ||
+    targetSignatures.length !== targets.length
+  ) {
+    return undefined;
+  }
+  const candidates = sourceSignatures.map((source) =>
+    targetSignatures.map((target, index) =>
+      signatureCanPair(semantics, source, target, relevance) ? index : -1
+    ).filter((index) => index >= 0)
+  );
+  const selected = perfectSignatureMatching(candidates, targets.length);
+  if (selected === undefined) {
+    return undefined;
+  }
+  for (let sourceIndex = 0; sourceIndex < selected.length; sourceIndex += 1) {
+    const targetIndex = selected[sourceIndex];
+    if (
+      targetIndex === undefined ||
+      perfectSignatureMatching(
+          candidates,
+          targets.length,
+          sourceIndex,
+          targetIndex,
+        ) !== undefined
+    ) {
+      return undefined;
+    }
+  }
+  return Object.freeze(selected.map((targetIndex, sourceIndex) =>
+    Object.freeze([
+      sourceSignatures[sourceIndex]!,
+      targetSignatures[targetIndex]!,
+    ] as const)
+  ));
+}
+
+function perfectSignatureMatching(
+  candidates: readonly (readonly number[])[],
+  targetCount: number,
+  excludedSource: number = -1,
+  excludedTarget: number = -1,
+): readonly number[] | undefined {
+  const sourceForTarget = new Array<number>(targetCount).fill(-1);
+  const visit = (sourceIndex: number, seen: Set<number>): boolean => {
+    for (const targetIndex of candidates[sourceIndex] ?? []) {
+      if (
+        (sourceIndex === excludedSource && targetIndex === excludedTarget) ||
+        seen.has(targetIndex)
+      ) {
+        continue;
+      }
+      seen.add(targetIndex);
+      const previous = sourceForTarget[targetIndex] ?? -1;
+      if (previous === -1 || visit(previous, seen)) {
+        sourceForTarget[targetIndex] = sourceIndex;
+        return true;
+      }
+    }
+    return false;
+  };
+  for (let sourceIndex = 0; sourceIndex < candidates.length; sourceIndex += 1) {
+    if (!visit(sourceIndex, new Set())) {
+      return undefined;
+    }
+  }
+  const targetForSource = new Array<number>(candidates.length).fill(-1);
+  for (let targetIndex = 0; targetIndex < sourceForTarget.length; targetIndex += 1) {
+    const sourceIndex = sourceForTarget[targetIndex] ?? -1;
+    if (sourceIndex >= 0) {
+      targetForSource[sourceIndex] = targetIndex;
+    }
+  }
+  return targetForSource.some((target) => target < 0)
+    ? undefined
+    : Object.freeze(targetForSource);
+}
+
+function signatureCanPair(
+  semantics: SourceFileSemantics,
+  source: Signature,
+  target: Signature,
+  relevance: InterfaceContractRelevance,
+): boolean {
+  const sourceParameters = semantics.getSignatureParameterInfos(source);
+  const targetParameters = semantics.getSignatureParameterInfos(target);
+  if (
+    sourceParameters.length !== targetParameters.length ||
+    sourceParameters.some((parameter, index) =>
+      parameter.parameterKind !== targetParameters[index]?.parameterKind ||
+      !typesCanPair(
+        semantics,
+        parameter.type,
+        targetParameters[index]!.type,
+        relevance,
+      )
+    )
+  ) {
+    return false;
+  }
+  const sourceReturn = semantics.getReturnTypeOfSignature(source);
+  const targetReturn = semantics.getReturnTypeOfSignature(target);
+  return sourceReturn !== undefined && targetReturn !== undefined && typesCanPair(
+    semantics,
+    directEffectResultType(semantics, sourceReturn) ?? sourceReturn,
+    directEffectResultType(semantics, targetReturn) ?? targetReturn,
+    relevance,
+  );
+}
+
+function typesCanPair(
+  semantics: SourceFileSemantics,
+  source: Type,
+  target: Type,
+  relevance: InterfaceContractRelevance,
+): boolean {
+  const selectedSource = semantics.removeMissingOrUndefined(source);
+  const selectedTarget = semantics.removeMissingOrUndefined(target);
+  if (selectedSource === undefined || selectedTarget === undefined) {
+    return selectedSource === selectedTarget;
+  }
+  if (
+    semantics.getTypeRelationship(selectedSource, selectedTarget) !==
+      "unrelated"
+  ) {
+    return true;
+  }
+  return relevance.valueContracts(semantics, selectedSource).length !== 0 ||
+    relevance.valueContracts(semantics, selectedTarget).length !== 0;
 }
 
 function markIncompatibleSignatures(

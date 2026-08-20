@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ResolvedSourceCallInfo } from "@tsonic/target-api";
-import { KindCallExpression } from "@tsonic/tsts/target-ast";
+import { KindCallExpression, KindParameter } from "@tsonic/tsts/target-ast";
 
 import { createTargetProgramIndex } from "../../../program-index.js";
 import {
@@ -51,15 +51,34 @@ export const result = await read(consume(...readers));`,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
+        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);
     assert.ok(!graph.components[0]?.boundaryCauses.some((cause) =>
       cause.reason === "inexact-call-bindings"
     ));
+    const restParameter = [...createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+      declarationReferences: true,
+    }).nodesOfKind(KindParameter)].find((node) =>
+      fixture.source.ast.as.AsParameterDeclaration(node)?.DotDotDotToken !==
+        undefined
+    );
+    assert.ok(restParameter !== undefined);
+    assert.equal(
+      graph.invocationInputs.restElementInputsFor(restParameter, 0)?.length,
+      1,
+    );
+    assert.equal(
+      graph.invocationInputs.restElementInputsFor(restParameter, 1)?.length,
+      1,
+    );
     const consumeCall = [...createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
+      declarationReferences: true,
     }).nodesOfKind(KindCallExpression)].find((node) => {
       const expression = fixture.source.ast.as.AsCallExpression(node)?.Expression;
       return expression !== undefined &&
@@ -79,6 +98,28 @@ export const result = await read(consume(...readers));`,
   });
 }
 
+test("fails closed when any exact rest invocation omits an indexed element", () => {
+  const fixture = checkedEffectFixture(`${prelude}
+consume();
+export const result = await read(consume(new Pair(), new Pair()));
+`);
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: false,
+    memberDispatch: false,
+    declarationReferences: true,
+  });
+  const graph = createInterfaceContractGraph(fixture.source, program);
+  const restParameter = [...program.nodesOfKind(KindParameter)].find((node) =>
+    fixture.source.ast.as.AsParameterDeclaration(node)?.DotDotDotToken !==
+      undefined
+  );
+  assert.ok(restParameter !== undefined);
+  assert.equal(
+    graph.invocationInputs.restElementInputsFor(restParameter, 0),
+    undefined,
+  );
+});
+
 test("rejects every corrupted spread-binding dimension", () => {
   const fixture = checkedEffectFixture(`${prelude}
 const readers: readonly [Pair, Pair] = [new Pair(), new Pair()];
@@ -87,6 +128,7 @@ export const result = await read(consume(...readers));
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: false,
+    declarationReferences: true,
   });
   const selected = [...program.nodesOfKind(KindCallExpression)].flatMap(
     (node) => {

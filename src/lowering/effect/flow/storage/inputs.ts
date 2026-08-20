@@ -1,10 +1,8 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api";
 import {
-  KindCallExpression,
   KindElementAccessExpression,
   KindIdentifier,
-  KindNewExpression,
   KindParameter,
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
@@ -12,15 +10,16 @@ import {
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { CallableInputUseContract } from "../callable/input-use.js";
 import {
-  exactSourceCallImplementationInputs,
-  type ExactSourceCallImplementationInputs,
-} from "../invocation/call-binding.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+  createExactInvocationInputIndex,
+  type ExactInvocationInputIndex,
+} from "../invocation/inputs.js";
 
 import {
   callableDeclarationAllowsSynchronousValue,
-  callableDeclarationHasResolvableType,
 } from "../../model/callable-contract.js";
+import {
+  callableDeclarationHasResolvableType,
+} from "../../model/callable-contract/resolution.js";
 import {
   declarationForSymbols,
   indexDeclarationSymbols,
@@ -33,8 +32,11 @@ import {
 import type { ParameterUses } from "../callable/input-reference.js";
 import {
   directContainingCall,
+  isFunctionLike,
   isModuleForwardingReference,
+  isProjectDeclarationOnlyName,
 } from "../../model/syntax.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import {
   auditCallableLocalUse,
   collectCallableLocals,
@@ -68,7 +70,10 @@ export function collectCallableStorageInputs(
   program: TargetProgramIndex,
   excludedDeclarations: ReadonlySet<Node>,
   inputUses?: CallableInputUseContract,
+  exactInvocationInputs?: ExactInvocationInputIndex,
 ): CallableStorageInputs {
+  const invocationInputs = exactInvocationInputs ??
+    createExactInvocationInputIndex(source, program);
   const callableFields = collectCallableFields(source, program);
   const fields = callableFields.declarations;
   const parameters = collectCallableParameters(source, program);
@@ -93,41 +98,16 @@ export function collectCallableStorageInputs(
   );
   const invalidInputs = new Set<Node>();
 
-  for (const node of program.nodesOfKinds([
-    KindCallExpression,
-    KindNewExpression,
-  ])) {
-    const invocation = exactSourceCallImplementationInputs(source, node);
-    if (invocation === undefined) {
-      const declaration = resolveProjectInvocation(source, node)?.implementation;
-      if (
-        declaration !== undefined &&
-        source.ast.parameters(declaration).some((parameter) =>
-          parameter !== undefined &&
-          (parameters.has(parameter) || fields.has(parameter))
-        )
-      ) {
-        for (const parameter of source.ast.parameters(declaration)) {
-          if (
-            parameter !== undefined &&
-            (parameters.has(parameter) || fields.has(parameter))
-          ) {
-            invalidInputs.add(parameter);
-          }
-        }
-      }
-      continue;
+  for (const declaration of new Set([...parameters.keys(), ...fields])) {
+    if (invocationInputs.isInvalid(declaration)) {
+      invalidInputs.add(declaration);
     }
-    collectInvocationInputs(
-      invocation,
-      parameters,
-      fields,
-      parameterValues,
-      fieldValues,
-    );
-    for (const parameter of invocation.unresolvedParameters) {
-      if (parameters.has(parameter) || fields.has(parameter)) {
-        invalidInputs.add(parameter);
+    for (const input of invocationInputs.inputsFor(declaration) ?? []) {
+      if (parameters.has(declaration)) {
+        append(parameterValues, declaration, input);
+      }
+      if (fields.has(declaration)) {
+        append(fieldValues, declaration, input);
       }
     }
   }
@@ -138,6 +118,7 @@ export function collectCallableStorageInputs(
     fields,
     locals,
     invalidInputs,
+    invocationInputs,
     program,
     inputUses,
   );
@@ -182,6 +163,7 @@ export function collectCallableStorageInputs(
       storageSymbols,
       storageDestinations,
       inputUses,
+      invocationInputs,
     );
   }
   const validFields = callableFields.close(
@@ -289,8 +271,7 @@ function collectCallableParameters(
     const owner = source.ast.parent(node);
     if (
       owner !== undefined &&
-      (source.ast.is.IsFunctionDeclaration(owner) ||
-        source.ast.is.IsMethodDeclaration(owner)) &&
+      isFunctionLike(source, owner) &&
       source.ast.body(owner) !== undefined
     ) {
       parameters.set(node, owner);
@@ -299,29 +280,13 @@ function collectCallableParameters(
   return parameters;
 }
 
-function collectInvocationInputs(
-  invocation: ExactSourceCallImplementationInputs,
-  trackedParameters: ReadonlyMap<Node, Node>,
-  trackedFields: ReadonlySet<Node>,
-  parameterValues: Map<Node, Node[]>,
-  fieldValues: Map<Node, Node[]>,
-): void {
-  for (const [parameter, argument] of invocation.inputs) {
-    if (trackedParameters.has(parameter)) {
-      append(parameterValues, parameter, argument);
-    }
-    if (trackedFields.has(parameter)) {
-      append(fieldValues, parameter, argument);
-    }
-  }
-}
-
 function closeParameters(
   source: TargetSourceProgram,
   parameters: ReadonlyMap<Node, Node>,
   fields: ReadonlySet<Node>,
   locals: ReadonlySet<Node>,
   invalidParameters: ReadonlySet<Node>,
+  invocationInputs: ExactInvocationInputIndex,
   program: TargetProgramIndex,
   inputUses?: CallableInputUseContract,
 ): ClosedParameters {
@@ -350,7 +315,7 @@ function closeParameters(
       !invalidParameters.has(parameter) &&
       counts !== undefined &&
       counts.total === counts.admitted &&
-      counts.admitted !== 0
+      (counts.admitted !== 0 || invocationInputs.isClosed(parameter))
     ) {
       closed.add(parameter);
     }
@@ -404,6 +369,7 @@ function auditCallableOwnerReference(
     counts === undefined ||
     reference === undefined ||
     reference === source.ast.name(declaration) ||
+    isProjectDeclarationOnlyName(source, reference) ||
     isModuleForwardingReference(source, reference) ||
     isTypeOnlyReference(source, reference)
   ) {
