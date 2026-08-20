@@ -5,6 +5,11 @@ import type {
   TargetSourceProgram,
 } from "@tsonic/target-api";
 
+const exactSemanticMembership = new WeakMap<
+  TargetSourceProgram,
+  WeakMap<Node, boolean>
+>();
+
 export interface ResolvedProjectInvocation {
   readonly call: ResolvedSourceCallInfo;
   readonly contract: Node;
@@ -51,7 +56,10 @@ export function projectCallableImplementation(
   source: TargetSourceProgram,
   contract: Node | undefined,
 ): Node | undefined {
-  if (contract === undefined) {
+  if (
+    contract === undefined ||
+    !hasExactSemanticMembership(source, contract)
+  ) {
     return undefined;
   }
   const selected = source.navigation.callableImplementation(contract);
@@ -62,4 +70,23 @@ export function projectCallableImplementation(
       source.ast.body(contract) !== undefined
     ? contract
     : undefined;
+}
+
+function hasExactSemanticMembership(
+  source: TargetSourceProgram,
+  node: Node,
+): boolean {
+  let byNode = exactSemanticMembership.get(source);
+  if (byNode === undefined) {
+    byNode = new WeakMap<Node, boolean>();
+    exactSemanticMembership.set(source, byNode);
+  }
+  const existing = byNode.get(node);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const sourceFile = source.ast.getSourceFile(node);
+  const included = sourceFile !== undefined && source.semantics.includes(sourceFile);
+  byNode.set(node, included);
+  return included;
 }

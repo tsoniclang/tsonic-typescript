@@ -36,19 +36,21 @@ export function createProjectDeclarationReferenceIndex(
   source: TargetSourceProgram,
   candidates: readonly Node[],
 ): ProjectDeclarationReferenceIndex {
+  const byReference = new WeakMap<Node, SourceDeclarationReference>();
   const pending = new Map<string, Node[]>();
-  const byReference = new Map<Node, SourceDeclarationReference>();
   let referenceCount = 0;
   for (const candidate of candidates) {
-    const propertyName = isPropertyName(source, candidate);
-    const declarationName = isProjectDeclarationOnlyName(source, candidate);
+    if (
+      isPropertyName(source, candidate) ||
+      isProjectDeclarationOnlyName(source, candidate)
+    ) {
+      continue;
+    }
     const reference = source.navigation.sourceReferenceFor(candidate);
-    if (reference !== undefined && !declarationName) {
+    if (reference !== undefined) {
       byReference.set(candidate, reference);
     }
     if (
-      propertyName ||
-      declarationName ||
       reference?.project !== true ||
       sourceNodesEqual(source.ast, source.ast.name(reference.declaration), candidate)
     ) {
@@ -69,12 +71,10 @@ export function createProjectDeclarationReferenceIndex(
     }
     referenceCount += 1;
   }
-  const byDeclaration = new Map<string, readonly Node[]>(
-    [...pending].map(([identity, references]) => [
-      identity,
-      Object.freeze(references),
-    ]),
-  );
+  for (const references of pending.values()) {
+    Object.freeze(references);
+  }
+  const byDeclaration: ReadonlyMap<string, readonly Node[]> = pending;
   return Object.freeze({
     candidateCount: candidates.length,
     referenceCount,
