@@ -11,7 +11,7 @@ interface ReachableDependency {
 }
 
 export function collectClosedIndirectCallableReferences<Reason extends string>(
-  root: EffectProvenanceVertex,
+  roots: Iterable<EffectProvenanceVertex>,
   graph: EffectProvenanceGraph<Reason>,
   references: Set<Node>,
 ): void {
@@ -25,7 +25,7 @@ export function collectClosedIndirectCallableReferences<Reason extends string>(
       selected.push(dependency);
     }
   }
-  const pending = [root];
+  const pending = [...roots];
   const visited = new Set<number>();
   while (pending.length !== 0) {
     const vertex = pending.pop();

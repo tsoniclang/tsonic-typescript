@@ -325,6 +325,7 @@ function collectExactIndirectInvocationRound(
   const resolved = resolveEffectProvenance(graph);
   const result: ExactIndirectCallableInvocation[] = [];
   const callableReferences = new Set<Node>();
+  const closedRoots: EffectProvenanceVertex[] = [];
   for (const [call, state] of calls) {
     const resolution = resolved.resolutionFor(state.vertex);
     if (!resolution.closed || resolution.origins.length === 0) {
@@ -345,12 +346,13 @@ function collectExactIndirectInvocationRound(
       call,
       implementations: Object.freeze(selected),
     }));
-    collectClosedIndirectCallableReferences(
-      state.vertex,
-      graph,
-      callableReferences,
-    );
+    closedRoots.push(state.vertex);
   }
+  collectClosedIndirectCallableReferences(
+    closedRoots,
+    graph,
+    callableReferences,
+  );
   return Object.freeze({
     invocations: Object.freeze(result),
     callableReferences: Object.freeze(callableReferences),
