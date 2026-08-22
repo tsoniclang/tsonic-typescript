@@ -43,17 +43,18 @@ export function createCooperativeResultConsumption(
     transports,
     callableReferenceIsClosed,
   );
+  const evidence = Object.freeze({
+    callEntries: program.nodesOfKind(KindCallExpression).length,
+    referenceEntries: program.nodesOfKind(KindIdentifier).length,
+    ownerEvaluations: graph.ownerEvaluations,
+    consumerEdges: graph.consumerEdges,
+  });
   return Object.freeze({
     returnedCallHasClosedConsumers(call: Node): boolean {
       return graph.callHasClosedConsumers(call);
     },
     evidence(): CooperativeResultConsumptionEvidence {
-      return Object.freeze({
-        callEntries: program.nodesOfKind(KindCallExpression).length,
-        referenceEntries: program.nodesOfKind(KindIdentifier).length,
-        ownerEvaluations: graph.ownerEvaluations,
-        consumerEdges: graph.consumerEdges,
-      });
+      return evidence;
     },
   });
 }

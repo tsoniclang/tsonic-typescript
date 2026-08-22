@@ -181,21 +181,25 @@ export function createReturnProvenanceFlow(
       )),
     });
   };
+  const expressionResolutions = new Map<Node, ReturnProvenanceResolution>();
+  for (const [expression, state] of context.expressions) {
+    expressionResolutions.set(expression, resolvedFor(state));
+  }
   return Object.freeze({
     resolutionFor(expression: Node): ReturnProvenanceResolution {
       const root = transparentExpression(source, expression) ?? expression;
-      const state = context.expressions.get(root);
-      if (state === undefined) {
+      const selected = expressionResolutions.get(root);
+      if (selected === undefined) {
         throw new Error("return provenance received an uninventoried expression");
       }
-      return resolvedFor(state);
+      return selected;
     },
     callResolution(call: Node): ReturnProvenanceResolution {
-      const state = context.expressions.get(call);
-      if (state === undefined) {
+      const selected = expressionResolutions.get(call);
+      if (selected === undefined) {
         throw new Error("return provenance received an uninventoried call");
       }
-      return resolvedFor(state);
+      return selected;
     },
   });
 }

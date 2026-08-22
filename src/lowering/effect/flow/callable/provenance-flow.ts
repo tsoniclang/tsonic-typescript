@@ -71,6 +71,11 @@ interface ReturnContractState {
   readonly state: CallableState;
 }
 
+interface SettledReturnContract {
+  readonly rewrite: CallableReturnRewrite;
+  readonly resolutions: readonly CallableValueResolution[];
+}
+
 export interface CallableContext {
   readonly source: TargetSourceProgram;
   readonly program: TargetProgramIndex;
@@ -275,6 +280,17 @@ export function createGraphCallableValueFlow(
       ? [Object.freeze([...resolution.dependencyNodes()])]
       : [];
   }));
+  const closedCallableReferences = new Set(
+    [...context.callableReferences].flatMap(([reference, state]) =>
+      unsafeCallableUses.has(state) ? [] : [reference]
+    ),
+  );
+  const settledReturnContracts: readonly SettledReturnContract[] = Object.freeze(
+    [...returnTypes.values()].map(({ rewrite, states }) => Object.freeze({
+      rewrite,
+      resolutions: Object.freeze(states.map(resolutionForState)),
+    })),
+  );
   return Object.freeze({
     signatureFamilies,
     forEachCall(
@@ -288,21 +304,20 @@ export function createGraphCallableValueFlow(
       return call === undefined ? undefined : callResolutions.get(call);
     },
     allowsCallableReference(node: Node): boolean {
-      const state = context.callableReferences.get(node);
       return callableReferenceIsClosed?.(node) === true ||
-        state !== undefined && !unsafeCallableUses.has(state);
+        closedCallableReferences.has(node);
     },
     settledReturnTypes(
       optimized: ReadonlySet<Node>,
     ): readonly CallableReturnRewrite[] {
-      return Object.freeze([...returnTypes.values()].flatMap(({ rewrite, states }) =>
-        states.every((state) => {
-          const resolution = resolutionForState(state);
-          return resolution.closed &&
-            allCallableDependenciesAreOptimized(resolution, optimized);
-        })
-          ? [rewrite]
-          : []
+      return Object.freeze(settledReturnContracts.flatMap(
+        ({ rewrite, resolutions }) =>
+          resolutions.every((resolution) => {
+            return resolution.closed &&
+              allCallableDependenciesAreOptimized(resolution, optimized);
+          })
+            ? [rewrite]
+            : [],
       ));
     },
   });

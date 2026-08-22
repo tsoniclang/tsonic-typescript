@@ -140,12 +140,19 @@ export function createResultConsumerGraph(
     }
   }
   const resolution = resolveEffectProvenance(context.builder.seal());
+  const closedCalls = new Set<Node>();
+  for (const [call, state] of context.values) {
+    if (resolution.resolutionFor(state.vertex).closed) {
+      closedCalls.add(call);
+    }
+  }
+  const ownerEvaluations = context.results.size;
+  const consumerEdges = context.consumerEdges;
   return Object.freeze({
-    ownerEvaluations: context.results.size,
-    consumerEdges: context.consumerEdges,
+    ownerEvaluations,
+    consumerEdges,
     callHasClosedConsumers(call: Node): boolean {
-      const state = context.values.get(call);
-      return state !== undefined && resolution.resolutionFor(state.vertex).closed;
+      return closedCalls.has(call);
     },
   });
 }
