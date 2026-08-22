@@ -102,6 +102,8 @@ export function createClosedCooperativeEffectPlan(
     aggregateProjections,
     objectProjections,
     factOwnedTransports,
+    undefined,
+    planningObserver,
   );
   planningObserver?.("effect-indirect-invocations");
   const interfaces = createDeclaredInterfaceDispatch(
@@ -136,6 +138,7 @@ export function createClosedCooperativeEffectPlan(
         objectProjections,
         completeTransports,
         (call) => interfaces.calls.get(call)?.implementations,
+        planningObserver,
       );
   const invocationInputs = indirectInvocations.invocationInputs;
   const bootstrapCallImplementations = (

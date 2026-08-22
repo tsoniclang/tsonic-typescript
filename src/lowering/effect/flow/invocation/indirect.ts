@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import {
   createEffectProvenanceGraphBuilder,
@@ -84,6 +85,7 @@ export function createExactIndirectInvocationAnalysis(
   objectProjections: ExactObjectPropertyProjectionIndex,
   transports?: InvocationTransportContract,
   initialCallImplementations?: ExactCallImplementations,
+  planningObserver?: TypeScriptPlanningObserver,
 ): ExactIndirectInvocationAnalysis {
   let invocationInputs = direct;
   let previous = emptyRound();
@@ -103,7 +105,9 @@ export function createExactIndirectInvocationAnalysis(
         implementationsFor(previous.invocations),
       ),
       (reference) => previous.callableReferences.has(reference),
+      planningObserver,
     );
+    planningObserver?.("effect-indirect-round");
     if (sameRound(previous, current)) {
       return createAnalysis(source, current, invocationInputs);
     }
@@ -275,6 +279,7 @@ function collectExactIndirectInvocationRound(
   transports?: InvocationTransportContract,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  planningObserver?: TypeScriptPlanningObserver,
 ): ExactIndirectInvocationRound {
   const results = createCallableResultInputs(
     source,
@@ -284,22 +289,25 @@ function collectExactIndirectInvocationRound(
     exactCallImplementations,
     direct,
   );
+  planningObserver?.("effect-indirect-results");
   const inputUses = createCallableInputUseContract(
     source,
     results,
     transports,
   );
+  const values = collectCallableValueInputs(
+    source,
+    program,
+    inputUses,
+    direct,
+    exactCallImplementations,
+    callableReferenceIsClosed,
+  );
+  planningObserver?.("effect-indirect-value-inputs");
   const context: CallableOriginContext = {
     source,
     program,
-    values: collectCallableValueInputs(
-      source,
-      program,
-      inputUses,
-      direct,
-      exactCallImplementations,
-      callableReferenceIsClosed,
-    ),
+    values,
     results,
     objectProjections,
     transports,
@@ -321,8 +329,10 @@ function collectExactIndirectInvocationRound(
       calls.set(call, expressionState(target, context));
     }
   }
+  planningObserver?.("effect-indirect-graph");
   const graph = context.builder.seal();
   const resolved = resolveEffectProvenance(graph);
+  planningObserver?.("effect-indirect-resolution");
   const result: ExactIndirectCallableInvocation[] = [];
   const callableReferences = new Set<Node>();
   const closedRoots: EffectProvenanceVertex[] = [];
