@@ -69,9 +69,16 @@ export function compileTypeScriptTarget(
       code: "TYPESCRIPT_TARGET_LOWERING",
       category: "error",
       source: "@tsonic/target-typescript",
-      message: error instanceof Error ? error.message : String(error),
+      message: internalFailureMessage(error, diagnostics.planningPhases),
     })]);
   }
+}
+
+function internalFailureMessage(error: unknown, includeStack: boolean): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  return includeStack && error.stack !== undefined ? error.stack : error.message;
 }
 
 function compileSourceArtifacts(

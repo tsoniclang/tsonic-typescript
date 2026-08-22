@@ -610,6 +610,9 @@ An explicit diagnostic profile may report one bounded scalar row after each
 planning phase, containing only the closed phase identity, elapsed time, heap
 use, and RSS. It may not alter semantic selection, retain compiler objects, or
 replace the immutable evidence artifact.
+When planning fails before an artifact can be sealed, that same explicit
+profile includes the bounded host stack on the fatal internal diagnostic; the
+ordinary product diagnostic remains message-only.
 
 Focused semantic fixtures also run one test file per guarded process so a
 single failed shape cannot retain every checker graph in the batch. Assertions

@@ -19,8 +19,37 @@ import {
   compileInput,
   createTestTypeScriptCompiler,
 } from "./typescript-backend.test-support.js";
+import { compileTypeScriptTarget } from "./typescript-backend.js";
 
 const runtimeReference = typeScriptRuntimeReference();
+
+test("includes internal stacks only with explicit planning diagnostics", () => {
+  const source = checkedSource({
+    "/project/a.ts": "export const a = 1;\n",
+  });
+  const failure = new Error("diagnostic-boom");
+  const printer: TypeScriptAstPrinter = {
+    print() {
+      throw failure;
+    },
+  };
+
+  const ordinary = compileTypeScriptTarget(
+    compileInput(source),
+    printer,
+    undefined,
+    { planningPhases: false },
+  );
+  assert.equal(ordinary.diagnostics[0]?.message, "diagnostic-boom");
+
+  const observed = compileTypeScriptTarget(
+    compileInput(source),
+    printer,
+    undefined,
+    { planningPhases: true },
+  );
+  assert.equal(observed.diagnostics[0]?.message, failure.stack);
+});
 
 test("lowers and prints every checked source file in one batch", () => {
   const source = checkedSource({
