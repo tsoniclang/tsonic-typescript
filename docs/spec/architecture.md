@@ -728,9 +728,11 @@ Fact-owned transport is available to the first indirect closure. Declared
 interface ingress consumes that closure and contributes its exact invocation
 inputs, call implementations, closed reference paths, and derived transports.
 Its call-result and value-slot owners therefore inspect a preliminary indirect
-implementation exactly as they inspect a direct implementation. One final
-indirect closure is seeded by admitted interface call and declaration
-implementations and consumes the complete input and transport set. This closes
+implementation exactly as they inspect a direct implementation. The final
+indirect closure refines that stable relation on the same immutable projection
+root domain, seeded by admitted interface call and declaration implementations
+and consuming the complete input and transport set. It does not restart from an
+empty relation or reconstruct the source-sized candidate census. This closes
 callbacks returned by an interface call without a spelling join. Extracted
 interface method values remain open unless a separate exact receiver-binding
 fact owns their method-value semantics. Every later callable, return, storage,
@@ -738,6 +740,13 @@ and result-consumer flow consumes that final immutable invocation-input index,
 implementation relation, and reference closure. No consumer may reconstruct an
 indirect binding, use a preliminary index after the final closure exists, or
 treat an open callable resolution as an exact implementation list.
+
+Each callable-value census has a separate collection and finalization
+lifecycle. Source-sized reference counts, constructor ledgers, and mutable
+admission state die with the collection frame. Only sealed value, contract,
+closed-declaration, and exact-reference indexes enter the final capability
+object. A finalizer may not close over a collection frame or retain its
+transient maps across an indirect-closure round.
 
 Callable-reference closure is likewise one finalized fact of callable
 provenance. Removing `async` preserves function-object identity, nullishness,

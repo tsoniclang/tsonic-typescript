@@ -138,8 +138,13 @@ const selected = await select(new ProjectFactory());
 async function top(): Promise<number> { return await selected(); }
 export const result = await top();
 `);
+  const phases: string[] = [];
 
-  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const plan = createFixtureEffectPlan(
+    fixture.source,
+    "declared-closed",
+    (phase) => phases.push(phase),
+  );
   const result = lowerCooperativeEffects(fixture.sourceFile, plan);
   plan.finish();
 
@@ -147,6 +152,18 @@ export const result = await top();
   assert.equal(
     countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
     0,
+  );
+  assert.equal(
+    phases.filter((phase) => phase === "effect-projection-candidate-order").length,
+    2,
+  );
+  const interfacePhase = phases.indexOf("effect-interface-dispatch");
+  assert.notEqual(interfacePhase, -1);
+  assert.equal(
+    phases.slice(interfacePhase + 1).filter(
+      (phase) => phase === "effect-projection-candidate-order",
+    ).length,
+    1,
   );
 });
 

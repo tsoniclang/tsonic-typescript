@@ -47,6 +47,19 @@ interface ReferenceCounts {
   admitted: number;
 }
 
+interface CallableValueInputEvidence {
+  readonly source: TargetSourceProgram;
+  readonly invocationInputs: ExactInvocationInputIndex;
+  readonly collections: CallableCollectionInputs;
+  readonly storage: CallableStorageInputs;
+  readonly constructorValues: ReadonlyMap<Node, readonly Node[]>;
+  readonly closedConstructors: ReadonlySet<Node>;
+  readonly closedStorageSymbols: ReadonlyMap<Symbol, Node>;
+  readonly inputUses: CallableInputUseContract | undefined;
+  readonly callableReferenceIsClosed:
+    ((reference: Node) => boolean) | undefined;
+}
+
 export function collectCallableValueInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
@@ -57,6 +70,29 @@ export function collectCallableValueInputs(
   planningObserver?: TypeScriptPlanningObserver,
   callableFields?: CallableFields,
 ): CallableValueInputs {
+  const evidence = collectCallableValueInputEvidence(
+    source,
+    program,
+    inputUses,
+    exactInvocationInputs,
+    exactCallImplementations,
+    callableReferenceIsClosed,
+    planningObserver,
+    callableFields,
+  );
+  return finalizeCallableValueInputs(evidence);
+}
+
+function collectCallableValueInputEvidence(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  inputUses: CallableInputUseContract | undefined,
+  exactInvocationInputs: ExactInvocationInputIndex | undefined,
+  exactCallImplementations: ExactCallImplementations | undefined,
+  callableReferenceIsClosed: ((reference: Node) => boolean) | undefined,
+  planningObserver: TypeScriptPlanningObserver | undefined,
+  callableFields: CallableFields | undefined,
+): CallableValueInputEvidence {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
   const collections = collectCallableCollectionInputs(
@@ -203,30 +239,33 @@ export function collectCallableValueInputs(
     references: referenceCount,
     values: valueCount,
   });
-  return finalizeCallableValueInputs(
+  return Object.freeze({
     source,
     invocationInputs,
     collections,
     storage,
-    mutableValues,
-    constructorClosed,
+    constructorValues: mutableValues,
+    closedConstructors: constructorClosed,
     closedStorageSymbols,
     inputUses,
     callableReferenceIsClosed,
-  );
+  });
 }
 
 function finalizeCallableValueInputs(
-  source: TargetSourceProgram,
-  invocationInputs: ExactInvocationInputIndex,
-  collections: CallableCollectionInputs,
-  storage: CallableStorageInputs,
-  constructorValues: ReadonlyMap<Node, readonly Node[]>,
-  closedConstructors: ReadonlySet<Node>,
-  closedStorageSymbols: ReadonlyMap<Symbol, Node>,
-  inputUses: CallableInputUseContract | undefined,
-  callableReferenceIsClosed: ((reference: Node) => boolean) | undefined,
+  evidence: CallableValueInputEvidence,
 ): CallableValueInputs {
+  const {
+    source,
+    invocationInputs,
+    collections,
+    storage,
+    constructorValues,
+    closedConstructors,
+    closedStorageSymbols,
+    inputUses,
+    callableReferenceIsClosed,
+  } = evidence;
   return Object.freeze({
     contracts: collections.contracts,
     storageContracts: storage.contracts,

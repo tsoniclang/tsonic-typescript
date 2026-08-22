@@ -285,7 +285,9 @@ test("callable value finalization severs transient census state", () => {
     "utf8",
   );
 
+  assert.match(source, /const evidence = collectCallableValueInputEvidence\(/u);
   assert.match(source, /return finalizeCallableValueInputs\(/u);
+  assert.match(source, /function collectCallableValueInputEvidence\(/u);
   assert.match(source, /function finalizeCallableValueInputs\(/u);
   assert.doesNotMatch(
     source.slice(source.indexOf("function finalizeCallableValueInputs(")),

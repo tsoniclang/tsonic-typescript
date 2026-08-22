@@ -140,16 +140,11 @@ export function createClosedCooperativeEffectPlan(
   ]);
   const indirectInvocations = interfaceDispatch === "open-structural"
     ? preliminaryIndirectInvocations
-    : createExactIndirectInvocationAnalysis(
-        source,
-        program,
+    : preliminaryIndirectInvocations.refine(
         interfaces.invocationInputs,
-        aggregateProjections,
-        objectProjections,
         completeTransports,
         (call) => interfaces.calls.get(call)?.implementations,
         planningObserver,
-        callableFields,
       );
   const invocationInputs = indirectInvocations.invocationInputs;
   const bootstrapCallImplementations = (

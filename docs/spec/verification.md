@@ -371,7 +371,12 @@ adding a second exported or property-observing reference must retain it. An
 interface method returning a callable must feed the final indirect round,
 while removing the preliminary implementation relation must retain it; an
 extracted interface method remains open without exact receiver-binding
-evidence. Round-state mutations
+evidence. The preliminary and interface-refined closures must execute one
+shared candidate census; the later callable-value flow owns its separate
+census, while restarting candidate discovery during interface refinement fails
+the lifecycle gate. Callable-value collection and finalization
+must be distinct frames, and a structural mutation that creates the final
+capability inside the transient census frame fails. Round-state mutations
 change only a reference path while leaving implementation sets equal and must
 still prevent publication until both dimensions stabilize.
 An optional callable fixture includes an exact `undefined` reset behind its
