@@ -242,7 +242,15 @@ test("return provenance resolves only queried roots", () => {
     ),
     "utf8",
   );
+  const queries = readFileSync(
+    join(effectRoot, "flow", "return", "queries.ts"),
+    "utf8",
+  );
   assert.match(source, /finalizeReturnProvenanceFlow\(/u);
+  assert.match(source, /for \(const expression of queries\.roots\)/u);
+  assert.doesNotMatch(source, /program\.nodesOfKinds/u);
+  assert.match(queries, /exactCallableReturnExpressions/u);
+  assert.match(queries, /callableValues\.forEachCall/u);
   assert.doesNotMatch(
     finalization,
     /TargetSourceProgram|ReturnContext|EffectProvenanceGraphBuilder|transparentExpression/u,
@@ -277,7 +285,10 @@ test("return projection discards its value-slot construction graph", () => {
 
   assert.match(source, /collectReturnProjectionCandidates\(/u);
   assert.match(source, /finalizeReturnProjectionFlow\(closedInputs\)/u);
-  assert.match(candidates, /!staticallyNonThenable\(source, expression\)/u);
+  assert.match(candidates, /!staticallyNonThenable\(source, node\)/u);
+  assert.match(candidates, /context\.locals\.bindingFor/u);
+  assert.match(candidates, /context\.sourceForCall/u);
+  assert.match(candidates, /selected\.has\(expression\)/u);
   assert.doesNotMatch(
     finalization,
     /TargetSourceProgram|createExactValueSlotFlow|ExactValueSlotFlow|EffectProvenance/u,

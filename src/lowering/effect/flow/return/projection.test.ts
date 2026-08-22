@@ -22,6 +22,7 @@ interface ThenableValue {
 declare function pair(): [ThenableValue | undefined, number];
 const possiblyThenable = pair()[0];
 const scalar = pair()[1];
+const unrelated = pair()[0];
 export const result = [possiblyThenable, scalar];
 `);
   const program = createTargetProgramIndex(fixture.source, {
@@ -32,12 +33,29 @@ export const result = [possiblyThenable, scalar];
     fixture.source,
     program,
   );
-  const candidates = collectReturnProjectionCandidates(
-    fixture.source,
+  const candidates = collectReturnProjectionCandidates({
+    source: fixture.source,
     projections,
-  );
+    queryRoots: [projections.roots[0]!],
+    locals: Object.freeze({ bindingFor: () => undefined }),
+    storage: Object.freeze({ bindingFor: () => undefined }),
+    objectProjections: Object.freeze({
+      properties: Object.freeze([]),
+      projectionFor: () => undefined,
+      readsForInitializer: () => undefined,
+    }),
+    invocationInputs: Object.freeze({
+      inputsFor: () => undefined,
+      restElementInputsFor: () => undefined,
+      parametersFor: () => undefined,
+      isInvalid: () => false,
+      isClosed: () => false,
+    }),
+    sourceForCall: () => undefined,
+  });
 
-  assert.equal(projections.roots.length, 2);
+  assert.equal(projections.roots.length, 3);
+  assert.equal(candidates[0], projections.roots[0]);
   assert.deepEqual(
     candidates.map((candidate) => {
       const argument = fixture.source.ast.as.AsElementAccessExpression(candidate)

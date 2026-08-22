@@ -9,11 +9,15 @@ import { createExactValueSlotFlow } from "../value/slot/flow.js";
 import { exactCallableReturnExpressions } from "../invocation/results.js";
 import { callableDispatchIsClosed } from "../../model/syntax.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
+import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
+import type { ExactValueSlotCallSource } from "../value/slot/model.js";
+import type { ReturnLocalFlow } from "./local.js";
 import { collectReturnProjectionCandidates } from "./projection/candidates.js";
 import {
   finalizeReturnProjectionFlow,
   type ReturnProjectionFlow,
 } from "./projection/finalization.js";
+import type { ReturnStorageFlow } from "./storage.js";
 
 export type { ReturnProjectionFlow } from "./projection/finalization.js";
 
@@ -23,11 +27,66 @@ export function createReturnProjectionFlow(
   projections: ExactAggregateProjectionIndex,
   callDeclarations: (call: Node) => Iterable<Node>,
   invocationInputs: ExactInvocationInputIndex,
+  queryRoots: readonly Node[],
+  locals: ReturnLocalFlow,
+  storage: ReturnStorageFlow,
+  objectProjections: ExactObjectPropertyProjectionIndex,
   transports?: InvocationTransportContract,
   planningObserver?: TypeScriptPlanningObserver,
 ): ReturnProjectionFlow {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
-  const candidates = collectReturnProjectionCandidates(source, projections);
+  const sourceForCall = (
+    call: Node,
+  ): ExactValueSlotCallSource | undefined => {
+    const transport = transports?.transportFor(call);
+    if (transport?.resultOriginExpressions !== undefined) {
+      return Object.freeze({
+        declaration: call,
+        contracts: Object.freeze([]),
+        expressions: Object.freeze([...transport.resultOriginExpressions]),
+      });
+    }
+    const declarations = [...new Set(callDeclarations(call))];
+    if (declarations.length === 0) {
+      return undefined;
+    }
+    const expressions: (Node | undefined)[] = [];
+    for (const declaration of declarations) {
+      if (
+        !source.navigation.isProjectDeclaration(declaration) ||
+        !callableDispatchIsClosed(source, program, declaration)
+      ) {
+        return undefined;
+      }
+      let selected = returns.get(declaration);
+      if (selected === undefined) {
+        selected = exactCallableReturnExpressions(source, declaration) ?? null;
+        returns.set(declaration, selected);
+      }
+      if (selected === null) {
+        return undefined;
+      }
+      expressions.push(...selected);
+    }
+    const declaration = declarations[0];
+    return declaration === undefined
+      ? undefined
+      : Object.freeze({
+          declaration,
+          contracts: Object.freeze(declarations),
+          expressions: Object.freeze(expressions),
+        });
+  };
+  const candidates = collectReturnProjectionCandidates({
+    source,
+    projections,
+    queryRoots,
+    locals,
+    storage,
+    objectProjections,
+    invocationInputs,
+    sourceForCall,
+  });
   planningObserver?.("effect-return-projections", {
     candidates: candidates.length,
     roots: projections.roots.length,
@@ -36,46 +95,7 @@ export function createReturnProjectionFlow(
     source,
     program,
     projections,
-    (call) => {
-      const transport = transports?.transportFor(call);
-      if (transport?.resultOriginExpressions !== undefined) {
-        return Object.freeze({
-          declaration: call,
-          contracts: Object.freeze([]),
-          expressions: Object.freeze([...transport.resultOriginExpressions]),
-        });
-      }
-      const declarations = [...new Set(callDeclarations(call))];
-      if (declarations.length === 0) {
-        return undefined;
-      }
-      const expressions: (Node | undefined)[] = [];
-      for (const declaration of declarations) {
-        if (
-          !source.navigation.isProjectDeclaration(declaration) ||
-          !callableDispatchIsClosed(source, program, declaration)
-        ) {
-          return undefined;
-        }
-        let selected = returns.get(declaration);
-        if (selected === undefined) {
-          selected = exactCallableReturnExpressions(source, declaration) ?? null;
-          returns.set(declaration, selected);
-        }
-        if (selected === null) {
-          return undefined;
-        }
-        expressions.push(...selected);
-      }
-      const declaration = declarations[0];
-      return declaration === undefined
-        ? undefined
-        : Object.freeze({
-            declaration,
-            contracts: Object.freeze(declarations),
-            expressions: Object.freeze(expressions),
-          });
-    },
+    sourceForCall,
     invocationInputs,
     candidates,
     planningObserver,

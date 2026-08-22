@@ -543,13 +543,16 @@ finalizer fails structurally. A mutation that passes the refinable analysis
 downstream, or that restores callable query methods inside graph construction,
 must fail this gate and the guarded whole-product memory bound.
 Return-projection fixtures pair a thenable-capable aggregate slot with a numeric
-slot from the same exact source. Only the former may enter the value-slot root
-domain. A structural gate requires projection and return-provenance query
+slot from the same exact source and add an unrelated thenable-capable sibling.
+Only the queried thenable-capable slot may enter the value-slot root domain. An
+alias fixture reaches that slot through an exact local initializer so the domain
+proof is not a syntax-ancestor shortcut. A structural gate requires projection
+and return-provenance query
 methods to come from dedicated finalizers that contain no source program,
 value-slot flow, return construction context, or graph builder. Mutations that
-feed every aggregate root into return projection, retain the slot flow, or
-publish return queries directly from construction must fail the candidate,
-structure, and guarded whole-product memory gates.
+feed every aggregate root or every program call/return into return projection,
+retain the slot flow, or publish return queries directly from construction must
+fail the candidate, structure, and guarded whole-product memory gates.
 Mutations that add a producer-binding write or a derived override retain the
 complete flow. The AST proof separately distinguishes a fresh returned
 function expression from an existing function-valued reference, so freshness

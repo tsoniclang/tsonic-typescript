@@ -37,6 +37,7 @@ import {
   type CooperativeResultConsumptionEvidence,
 } from "../flow/return/result-consumption.js";
 import { createReturnValueFlow } from "../flow/return/value.js";
+import { collectReturnFlowQueries } from "../flow/return/queries.js";
 import { createCallableValueFlow } from "../flow/callable/value-flow.js";
 import { createExactAggregateProjectionIndex } from "../flow/aggregate/projection.js";
 import { createProviderInvocationTransport } from "../flow/provider/transport.js";
@@ -224,6 +225,12 @@ export function createClosedCooperativeEffectPlan(
     resultConsumptionEvidence = resultConsumption.evidence();
   }
   planningObserver?.("effect-result-consumption");
+  const returnQueries = collectReturnFlowQueries(
+    source,
+    program,
+    candidateDeclarations,
+    valueFlow,
+  );
   const returnFlow = createReturnValueFlow(
     source,
     program,
@@ -233,6 +240,7 @@ export function createClosedCooperativeEffectPlan(
     invocationInputs,
     objectProjections,
     storageOwners,
+    returnQueries,
     loweredValues,
     (call) => exactCallImplementations(call) ?? noDependencies,
     completeTransports,

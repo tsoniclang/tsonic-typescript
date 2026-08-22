@@ -13,6 +13,7 @@ import {
   type ReturnProvenanceResolution,
 } from "./provenance.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
+import type { ReturnFlowQueries } from "./queries.js";
 
 export interface ReturnValueFlow {
   resolutionFor(expression: Node): ReturnProvenanceResolution;
@@ -33,6 +34,7 @@ export function createReturnValueFlow(
   invocationInputs: ExactInvocationInputIndex,
   objectProjections: ExactObjectPropertyProjectionIndex,
   storageOwners: ClosedStorageOwnerAnalysis,
+  queries: ReturnFlowQueries,
   loweredValues?: LoweredValueContract,
   callDeclarations: (call: Node) => Iterable<Node> = () => [],
   transports?: InvocationTransportContract,
@@ -48,6 +50,7 @@ export function createReturnValueFlow(
     invocationInputs,
     objectProjections,
     storageOwners,
+    queries,
     loweredValues,
     callDeclarations,
     transports,

@@ -1,11 +1,5 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import {
-  KindAwaitExpression,
-  KindCallExpression,
-  KindNewExpression,
-  KindReturnStatement,
-} from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
@@ -53,6 +47,7 @@ import {
   type ReturnProvenanceFlow,
 } from "./provenance/finalization.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
+import type { ReturnFlowQueries } from "./queries.js";
 
 export type { ReturnProvenanceResolution } from "./provenance/resolution.js";
 
@@ -103,6 +98,7 @@ export function createReturnProvenanceFlow(
   invocationInputs: ExactInvocationInputIndex,
   objectProjections: ExactObjectPropertyProjectionIndex,
   storageOwners: ClosedStorageOwnerAnalysis,
+  queries: ReturnFlowQueries,
   loweredValues?: LoweredValueContract,
   settledCallDeclarations: (call: Node) => Iterable<Node> = () => [],
   transports?: InvocationTransportContract,
@@ -110,6 +106,20 @@ export function createReturnProvenanceFlow(
   planningObserver?: TypeScriptPlanningObserver,
 ): ReturnProvenanceFlow {
   let context: ReturnContext;
+  const locals = createReturnLocalFlow(source, program, planningObserver);
+  const storage = createReturnStorageFlow(
+    source,
+    program,
+    invocationInputs,
+    storageOwners,
+    transports,
+    (call) => {
+      const selected = [...settledCallDeclarations(call)];
+      return selected.length === 0 ? undefined : Object.freeze(selected);
+    },
+    callableReferenceIsClosed,
+    planningObserver,
+  );
   const projectionFlow = createReturnProjectionFlow(
     source,
     program,
@@ -123,6 +133,10 @@ export function createReturnProvenanceFlow(
       ]);
     },
     invocationInputs,
+    queries.roots,
+    locals,
+    storage,
+    objectProjections,
     transports,
     planningObserver,
   );
@@ -135,20 +149,8 @@ export function createReturnProvenanceFlow(
     transports,
     loweredValues,
     runtime: createTypeScriptRuntimeReturnContract(source),
-    locals: createReturnLocalFlow(source, program, planningObserver),
-    storage: createReturnStorageFlow(
-      source,
-      program,
-      invocationInputs,
-      storageOwners,
-      transports,
-      (call) => {
-        const selected = [...settledCallDeclarations(call)];
-        return selected.length === 0 ? undefined : Object.freeze(selected);
-      },
-      callableReferenceIsClosed,
-      planningObserver,
-    ),
+    locals,
+    storage,
     projections: projectionFlow,
     objectProjections,
     invocationInputs,
@@ -160,29 +162,10 @@ export function createReturnProvenanceFlow(
   };
   planningObserver?.("effect-return-inputs");
   const queryVertices = new Map<Node, EffectProvenanceVertex>();
-  for (const node of program.nodesOfKinds([
-    KindAwaitExpression,
-    KindCallExpression,
-    KindReturnStatement,
-  ])) {
-    const expression = source.ast.is.IsAwaitExpression(node)
-      ? source.ast.as.AsAwaitExpression(node)?.Expression
-      : source.ast.is.IsReturnStatement(node)
-      ? source.ast.as.AsReturnStatement(node)?.Expression
-      : node;
-    if (expression !== undefined) {
-      inventoryQueryExpression(expression, context, queryVertices);
-    }
+  for (const expression of queries.roots) {
+    inventoryQueryExpression(expression, context, queryVertices);
   }
-  for (const declaration of candidates) {
-    const body = source.ast.is.IsArrowFunction(declaration)
-      ? source.ast.body(declaration)
-      : undefined;
-    if (body !== undefined && !source.ast.is.IsBlock(body)) {
-      inventoryQueryExpression(body, context, queryVertices);
-    }
-  }
-  planningObserver?.("effect-return-inventory");
+  planningObserver?.("effect-return-inventory", { roots: queries.roots.length });
   const graph = context.builder.seal();
   planningObserver?.("effect-return-graph", {
     boundaries: graph.boundaries.length,
