@@ -14,6 +14,7 @@ import {
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import { exactCallableTarget } from "../../model/syntax.js";
+import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
 const projectionAccessKinds = Object.freeze([
   KindElementAccessExpression,
@@ -32,6 +33,9 @@ export function collectCallableProjectionCandidates(
 ): readonly Node[] {
   const candidates = new Set<Node>();
   for (const call of program.nodesOfKind(KindCallExpression)) {
+    if (resolveProjectInvocation(source, call) !== undefined) {
+      continue;
+    }
     const target = exactCallableTarget(
       source,
       source.ast.as.AsCallExpression(call)?.Expression,
@@ -40,7 +44,9 @@ export function collectCallableProjectionCandidates(
       candidates.add(target);
     }
   }
-  planningObserver?.("effect-projection-candidate-calls");
+  planningObserver?.("effect-projection-candidate-calls", {
+    candidates: candidates.size,
+  });
   const callableTypes = new WeakMap<Type, boolean>();
   for (const expression of program.nodesOfKinds(projectionAccessKinds)) {
     if (expressionMayContainCallable(
@@ -51,7 +57,9 @@ export function collectCallableProjectionCandidates(
       candidates.add(expression);
     }
   }
-  planningObserver?.("effect-projection-candidate-accesses");
+  planningObserver?.("effect-projection-candidate-accesses", {
+    candidates: candidates.size,
+  });
   for (const declaration of program.nodesOfKinds(projectionBindingKinds)) {
     const name = source.ast.name(declaration);
     if (
@@ -68,7 +76,9 @@ export function collectCallableProjectionCandidates(
       candidates.add(reference);
     }
   }
-  planningObserver?.("effect-projection-candidate-bindings");
+  planningObserver?.("effect-projection-candidate-bindings", {
+    candidates: candidates.size,
+  });
   const ordered = Object.freeze(
     program.nodes.filter((node) => candidates.has(node)),
   );

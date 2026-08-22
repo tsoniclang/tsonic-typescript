@@ -475,9 +475,10 @@ same shared projection owner must continue to pass the return-value projection
 matrix, proving that callable flow did not introduce a second binding audit.
 A candidate-domain gate adds hundreds of unrelated scalar bindings without
 changing the callable projection denominator. It also proves that a narrowed
-callable union and an invoked open target remain candidates; removing either
-admission must fail while admitting the scalar siblings must fail the bounded
-candidate count.
+callable union and an invoked open target remain candidates, while an exact
+direct project invocation does not enter projection flow. Removing either open
+admission or restoring direct invocations must fail while admitting the scalar
+siblings must fail the bounded candidate count.
 Root-ownership fixtures separately prove a tuple/array read supplied by the
 aggregate projection index, an interface origin supplied by the requirement
 ledger, and a callable projection supplied by the callable candidate owner.
@@ -513,6 +514,11 @@ not a blanket boundary and that no generic member can forge nominal exclusion.
 The whole-product memory guard also distinguishes one canonical synchronous
 call closure from a dense contract-to-call reverse graph; retrying with a larger
 heap is not an accepted repair.
+The callable-value capability gate structurally requires a separate lexical
+finalizer and excludes its reference-count, class, property, and census maps
+from that finalizer's source. The guarded product bound is the non-vacuous proof:
+inlining the returned methods into the source-sized construction function must
+retain its transient lexical environment and exceed the bound.
 Mutations that add a producer-binding write or a derived override retain the
 complete flow. The AST proof separately distinguishes a fresh returned
 function expression from an existing function-valued reference, so freshness

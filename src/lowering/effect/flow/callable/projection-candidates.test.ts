@@ -8,9 +8,11 @@ import { collectCallableProjectionCandidates } from "./projection-candidates.js"
 const callableSource = `
 type Awaitable<T> = T | PromiseLike<T>;
 declare const opaque: any;
+function direct(): number { return 1; }
 const selected: (() => Awaitable<number>) | undefined =
   async (): Promise<number> => 42;
-export const result = selected === undefined ? opaque() : selected();
+export const result = direct() +
+  (selected === undefined ? opaque() : await selected());
 `;
 
 test("indexes only callable projection candidates", () => {
@@ -28,6 +30,11 @@ ${callableSource}
   assert.ok(
     paddedCandidates.some((node) => padded.source.ast.text(node) === "opaque"),
     "an invoked open target must remain in the exact candidate domain",
+  );
+  assert.equal(
+    paddedCandidates.some((node) => padded.source.ast.text(node) === "direct"),
+    false,
+    "a direct checked invocation must not enter callable projection flow",
   );
   assert.ok(
     paddedCandidates.some((node) => padded.source.ast.text(node) === "selected"),

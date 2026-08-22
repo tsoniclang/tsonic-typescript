@@ -279,6 +279,20 @@ test("result-consumer provenance is rooted only at selected queries", () => {
   );
 });
 
+test("callable value finalization severs transient census state", () => {
+  const source = readFileSync(
+    join(effectRoot, "flow", "callable", "value-inputs.ts"),
+    "utf8",
+  );
+
+  assert.match(source, /return finalizeCallableValueInputs\(/u);
+  assert.match(source, /function finalizeCallableValueInputs\(/u);
+  assert.doesNotMatch(
+    source.slice(source.indexOf("function finalizeCallableValueInputs(")),
+    /classReferences|propertyReferences|constructorClasses/u,
+  );
+});
+
 test("every value-slot analysis requires an explicit semantic root domain", () => {
   const flow = readFileSync(
     join(effectRoot, "flow", "value", "slot", "flow.ts"),

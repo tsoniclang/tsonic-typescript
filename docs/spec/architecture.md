@@ -535,9 +535,11 @@ result or projected callable retains the complete affected flow. Projection
 discovery uses indexed linear joins and is not reimplemented by either
 consumer. Its root domain contains exact invoked targets and expressions whose
 checked type contains a call signature; unrelated scalar expressions never
-enter the value-slot graph. The invoked-target admission keeps checker-selected
-calls whose apparent type is open, while the graph still fails those calls
-closed when their provenance is not exact.
+enter the value-slot graph. A call already resolved to one exact project
+implementation belongs to the project-invocation owner and does not enter
+callable-projection discovery. The invoked-target admission keeps unresolved
+checker-selected calls whose apparent type is open, while the graph still fails
+those calls closed when their provenance is not exact.
 After graph resolution, only closed value-slot roots materialize their exact
 origins and contract steps. An open root publishes the closed bit and no
 positive evidence; expanding transitive origins for a root that cannot be
@@ -617,6 +619,14 @@ origin, while dependency adjacency exists only for components with edges. It
 queries the resolver's canonical component identity instead of retaining a
 second vertex-to-component array. One empty set or array per component is a
 forbidden dense shadow of the resolver.
+
+Every published effect-flow capability is finalized across a lexical lifecycle
+boundary. Its closure is created by a dedicated finalizer that receives only
+the sealed maps and sets the capability needs. Census counts, reference audits,
+temporary candidate ledgers, construction worklists, and graph builders remain
+in the caller and cannot be retained accidentally by a JavaScript function
+context. Returning methods directly from the construction function is forbidden
+when that function also owns source-sized transient state.
 
 Return-local identity flow is demand-driven. Starting from a local reference
 actually reached by return provenance, it walks initializers, exact binding

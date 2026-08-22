@@ -12,8 +12,12 @@ import {
 import {
   collectCallableCollectionInputs,
   type CallableCollectionContract,
+  type CallableCollectionInputs,
 } from "../collection/inputs.js";
-import { collectCallableStorageInputs } from "../storage/inputs.js";
+import {
+  collectCallableStorageInputs,
+  type CallableStorageInputs,
+} from "../storage/inputs.js";
 import type { CallableStorageContract } from "../storage/contracts.js";
 import type { CallableFields } from "../storage/fields.js";
 import {
@@ -199,18 +203,42 @@ export function collectCallableValueInputs(
     references: referenceCount,
     values: valueCount,
   });
+  return finalizeCallableValueInputs(
+    source,
+    invocationInputs,
+    collections,
+    storage,
+    mutableValues,
+    constructorClosed,
+    closedStorageSymbols,
+    inputUses,
+    callableReferenceIsClosed,
+  );
+}
+
+function finalizeCallableValueInputs(
+  source: TargetSourceProgram,
+  invocationInputs: ExactInvocationInputIndex,
+  collections: CallableCollectionInputs,
+  storage: CallableStorageInputs,
+  constructorValues: ReadonlyMap<Node, readonly Node[]>,
+  closedConstructors: ReadonlySet<Node>,
+  closedStorageSymbols: ReadonlyMap<Symbol, Node>,
+  inputUses: CallableInputUseContract | undefined,
+  callableReferenceIsClosed: ((reference: Node) => boolean) | undefined,
+): CallableValueInputs {
   return Object.freeze({
     contracts: collections.contracts,
     storageContracts: storage.contracts,
     valuesFor(declaration: Node): readonly Node[] | undefined {
       return storage.values.get(declaration) ??
         collections.values.get(declaration) ??
-        mutableValues.get(declaration);
+        constructorValues.get(declaration);
     },
     isClosed(declaration: Node): boolean {
       return storage.closed.has(declaration) ||
         collections.closed.has(declaration) ||
-        constructorClosed.has(declaration);
+        closedConstructors.has(declaration);
     },
     projectionConsumersAreClosed(consumers: readonly Node[]): boolean {
       return consumers.every((consumer) =>
