@@ -72,7 +72,9 @@ export function collectCallableProjectionCandidates(
   const ordered = Object.freeze(
     program.nodes.filter((node) => candidates.has(node)),
   );
-  planningObserver?.("effect-projection-candidate-order");
+  planningObserver?.("effect-projection-candidate-order", {
+    candidates: ordered.length,
+  });
   return ordered;
 }
 

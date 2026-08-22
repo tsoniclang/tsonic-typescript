@@ -155,11 +155,18 @@ export function createExactValueSlotFlow(
       drainValueSlotWorklist(context);
     }
   }
-  planningObserver?.("effect-value-slot-roots");
+  planningObserver?.("effect-value-slot-roots", { roots: roots.size });
   const graph = context.builder.seal();
-  planningObserver?.("effect-value-slot-graph");
+  planningObserver?.("effect-value-slot-graph", {
+    boundaries: graph.boundaries.length,
+    edges: graph.edges.length,
+    origins: graph.origins.length,
+    vertices: graph.vertices.length,
+  });
   const resolutions = resolveEffectProvenance(graph);
-  planningObserver?.("effect-value-slot-components");
+  planningObserver?.("effect-value-slot-components", {
+    components: resolutions.componentCount,
+  });
   const resolved = materializeExactValueSlotResolutions(
     graph,
     resolutions,
@@ -167,7 +174,22 @@ export function createExactValueSlotFlow(
     context.valueOrigins,
     context.steps,
   );
-  planningObserver?.("effect-value-slot-resolution");
+  let closed = 0;
+  let values = 0;
+  let steps = 0;
+  for (const resolution of resolved.values()) {
+    if (resolution.closed) {
+      closed += 1;
+      values += resolution.expressions.length;
+      steps += resolution.steps.length;
+    }
+  }
+  planningObserver?.("effect-value-slot-resolution", {
+    closed,
+    roots: roots.size,
+    steps,
+    values,
+  });
   return Object.freeze({
     resultFor(expression: Node): ExactValueSlotResolution | undefined {
       const root = transparentExpression(source, expression);

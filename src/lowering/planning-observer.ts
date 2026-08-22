@@ -34,6 +34,7 @@ export const typeScriptPlanningPhases = Object.freeze([
   "effect-indirect-storage-boundaries",
   "effect-indirect-value-storage",
   "effect-indirect-value-property-references",
+  "effect-indirect-value-finalization",
   "effect-indirect-value-inputs",
   "effect-indirect-graph",
   "effect-indirect-resolution",
@@ -77,6 +78,30 @@ export const typeScriptPlanningPhases = Object.freeze([
 
 export type TypeScriptPlanningPhase = typeof typeScriptPlanningPhases[number];
 
+export const typeScriptPlanningMeasurementNames = Object.freeze([
+  "boundaries",
+  "candidates",
+  "closed",
+  "components",
+  "contracts",
+  "declarations",
+  "edges",
+  "origins",
+  "references",
+  "roots",
+  "steps",
+  "values",
+  "vertices",
+] as const);
+
+export type TypeScriptPlanningMeasurementName =
+  typeof typeScriptPlanningMeasurementNames[number];
+
+export type TypeScriptPlanningMeasurements = Readonly<
+  Partial<Record<TypeScriptPlanningMeasurementName, number>>
+>;
+
 export type TypeScriptPlanningObserver = (
   phase: TypeScriptPlanningPhase,
+  measurements?: TypeScriptPlanningMeasurements,
 ) => void;

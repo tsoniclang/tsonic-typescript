@@ -20,7 +20,10 @@ import {
   type TypeScriptOptimizationProfileInput,
 } from "../lowering/profile.js";
 import type { TypeScriptOptimizationEvidence } from "../lowering/evidence.js";
-import type { TypeScriptPlanningObserver } from "../lowering/planning-observer.js";
+import {
+  type TypeScriptPlanningObserver,
+  typeScriptPlanningMeasurementNames,
+} from "../lowering/planning-observer.js";
 import {
   prepareTypeScriptLowering,
   type TypeScriptLoweringTransaction,
@@ -181,11 +184,15 @@ function createPlanningObserver(
     return undefined;
   }
   const started = process.hrtime.bigint();
-  return (phase) => {
+  return (phase, measurements) => {
     const memory = process.memoryUsage();
     const elapsedMilliseconds = Number(process.hrtime.bigint() - started) / 1e6;
+    const measured = typeScriptPlanningMeasurementNames.flatMap((name) => {
+      const value = measurements?.[name];
+      return value === undefined ? [] : [` ${name}=${value}`];
+    }).join("");
     process.stderr.write(
-      `typescript_target_phase=${phase} elapsed_ms=${elapsedMilliseconds.toFixed(0)} heap_used_mib=${bytesToMebibytes(memory.heapUsed)} rss_mib=${bytesToMebibytes(memory.rss)}\n`,
+      `typescript_target_phase=${phase} elapsed_ms=${elapsedMilliseconds.toFixed(0)} heap_used_mib=${bytesToMebibytes(memory.heapUsed)} rss_mib=${bytesToMebibytes(memory.rss)}${measured}\n`,
     );
   };
 }

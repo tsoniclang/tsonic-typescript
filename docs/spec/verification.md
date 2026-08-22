@@ -620,8 +620,12 @@ runtime. It reports wall time, peak RSS, source/JavaScript bytes, module count,
 allocations when available, and selected/retained denominators.
 An explicit diagnostic profile may report one bounded scalar row after each
 planning phase, containing only the closed phase identity, elapsed time, heap
-use, and RSS. It may not alter semantic selection, retain compiler objects, or
-replace the immutable evidence artifact.
+use, RSS, and values from the closed scalar-measurement catalog. Graph rows may
+report roots, vertices, edges, origins, boundaries, and components; semantic
+finalization rows may report candidates, declarations, references, contracts,
+closed members, values, and steps. Measurements iterate existing ledgers and
+must not materialize compiler objects, duplicate collections, alter semantic
+selection, or replace the immutable evidence artifact.
 When planning fails before an artifact can be sealed, that same explicit
 profile includes the bounded host stack on the fatal internal diagnostic; the
 ordinary product diagnostic remains message-only.

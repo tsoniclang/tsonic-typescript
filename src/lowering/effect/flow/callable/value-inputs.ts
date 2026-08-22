@@ -174,6 +174,31 @@ export function collectCallableValueInputs(
   for (const values of mutableValues.values()) {
     Object.freeze(values);
   }
+  let referenceCount = 0;
+  for (const counts of classReferences.values()) {
+    referenceCount += counts.total;
+  }
+  for (const counts of propertyReferences.values()) {
+    referenceCount += counts.total;
+  }
+  let valueCount = 0;
+  for (const values of mutableValues.values()) {
+    valueCount += values.length;
+  }
+  for (const values of storage.values.values()) {
+    valueCount += values.length;
+  }
+  for (const values of collections.values.values()) {
+    valueCount += values.length;
+  }
+  planningObserver?.("effect-indirect-value-finalization", {
+    closed: constructorClosed.size,
+    contracts: collections.contracts.length + storage.contracts.length,
+    declarations: constructorParameters.size + storage.closed.size +
+      collections.closed.size,
+    references: referenceCount,
+    values: valueCount,
+  });
   return Object.freeze({
     contracts: collections.contracts,
     storageContracts: storage.contracts,
