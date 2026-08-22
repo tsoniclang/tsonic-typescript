@@ -1,17 +1,7 @@
 # Agent Notes (Tsonic TypeScript Target)
 
-`AGENTS.md` and `CLAUDE.md` must remain byte-identical. Apply every change to
-both and verify with `cmp`.
-
-## Begin With WCBUBWHB
-
-Every task begins by identifying the observed artifact, complete semantic
-class, sole truth owner, highest correct fix, superseded path to delete,
-simplest exact output, staticness/size/runtime consequences, source-to-output
-example, independent proof, and broad deletion search.
-
-Do not patch a reproduction and justify it afterward. A repeated workaround
-reopens its shared owner.
+The canonical workspace policy in `../AGENTS.md` applies. This file contains
+only TypeScript-target ownership, structure, and verification rules.
 
 ## Governing Architecture
 
@@ -50,13 +40,6 @@ name owner against all authored and previously generated bindings visible at
 its insertion point. This includes parameters inside synthetic closures; a
 counter or supposedly private prefix is not collision proof.
 
-## Coordinated Repository Scope
-
-This workstream may modify only GoToTS and the TypeScript target. Any change to
-TSTS, Tsonic core, another Tsonic target, or any other repository requires the
-user's explicit approval before editing. Read-only inspection may establish a
-published contract; it does not grant change ownership.
-
 ## Project Structure
 
 - `src/config/` owns target-specific external configuration validation.
@@ -78,10 +61,8 @@ examples, exact-node fact consumption, TS-Go-AST shape inspection, pinned
 printer output, strict output typechecking, executable differential behavior,
 source/output size and runtime cost, and broad deletion searches.
 
-Keep maintained files focused and below 600 physical lines. Use `apply_patch`
-for edits, never `git stash`, never force-push, and never delete remote branches
-or tags. Work on feature branches and use `.temp/` only for ignored scratch
-evidence. Only the coordinator runs heavy suites.
+Keep maintained files focused and below 600 physical lines. Only the
+coordinator runs heavy suites.
 
 Run checker-backed test files as separate bounded Node processes, serially.
 Combining many compiler fixtures into one process retains checker graphs across
