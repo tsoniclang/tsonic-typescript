@@ -16,10 +16,8 @@ import {
   indexDeclarationSymbols,
 } from "../callable/input-reference.js";
 import { auditStorageOwnerBoundaries } from "../storage/owner-boundaries.js";
-import {
-  collectClosedStorageOwners,
-  storageDeclarationCanBeTracked,
-} from "../storage/owners.js";
+import { storageDeclarationCanBeTracked } from "../storage/owners.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 
 export interface ReturnStorageBinding {
   readonly declaration: Node;
@@ -41,12 +39,13 @@ export function createReturnStorageFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   invocationInputs: ExactInvocationInputIndex,
+  storageOwners: ClosedStorageOwnerAnalysis,
   transports?: InvocationTransportContract,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   planningObserver?: TypeScriptPlanningObserver,
 ): ReturnStorageFlow {
-  const owners = collectClosedStorageOwners(source, program);
+  const owners = storageOwners.owners;
   planningObserver?.("effect-return-storage-owners");
   const bindings = collectStorageBindings(source, owners);
   collectConstructorInputs(invocationInputs, bindings);
@@ -64,6 +63,8 @@ export function createReturnStorageFlow(
     invocationInputs,
     exactCallImplementations,
     callableReferenceIsClosed,
+    planningObserver,
+    storageOwners.topology(planningObserver),
   );
   planningObserver?.("effect-return-storage-boundaries");
   const storage = closeReturnStorageFlow(bindings);

@@ -53,8 +53,8 @@ export function auditStorageOwnerBoundaries(
     owners,
     planningObserver,
   );
-  if (!selectedTopology.matches(source, program, owners)) {
-    throw new Error("storage-owner topology does not match its source program");
+  if (!selectedTopology.covers(source, program, owners)) {
+    throw new Error("storage-owner topology does not cover its selected owners");
   }
   if (validateStoredValues) {
     rejectOpenStorageValues(source, bindings, owners);
@@ -63,6 +63,7 @@ export function auditStorageOwnerBoundaries(
     source,
     program,
     selectedTopology.ownersFor,
+    owners,
     invalid,
     transports,
     invocationInputs,
@@ -73,6 +74,7 @@ export function auditStorageOwnerBoundaries(
   auditInvocations(
     source,
     selectedTopology,
+    owners,
     invalid,
     dependencies,
     transports,
@@ -82,6 +84,7 @@ export function auditStorageOwnerBoundaries(
   auditValueFlows(
     source,
     selectedTopology,
+    owners,
     bindings,
     storageDeclarationFor,
     invalid,
@@ -99,6 +102,7 @@ export function auditStorageOwnerBoundaries(
 function auditInvocations(
   source: TargetSourceProgram,
   topology: StorageOwnerTopology,
+  selectedOwners: ReadonlySet<Node>,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
   transports: InvocationTransportContract | undefined,
@@ -114,10 +118,16 @@ function auditInvocations(
     const transport = transports?.transportFor(node);
     if (!projectInvocation && transport === undefined) {
       for (const owner of resultOwners) {
+        if (!selectedOwners.has(owner)) {
+          continue;
+        }
         invalid.add(owner);
       }
     } else if (!projectInvocation && transport !== undefined) {
       for (const owner of resultOwners) {
+        if (!selectedOwners.has(owner)) {
+          continue;
+        }
         if (
           transport.resultOriginExpressions === undefined ||
           !transport.resultOriginExpressions.some((input) =>
@@ -130,6 +140,9 @@ function auditInvocations(
     }
     for (const argument of invocation.arguments) {
       for (const owner of argument.owners) {
+        if (!selectedOwners.has(owner)) {
+          continue;
+        }
         if (transport?.inputExpressions.includes(argument.expression)) {
           continue;
         }
@@ -137,14 +150,18 @@ function auditInvocations(
           invalid.add(owner);
         } else {
           for (const resultOwner of resultOwners) {
-            appendOwnerDependency(dependencies, owner, resultOwner);
+            if (selectedOwners.has(resultOwner)) {
+              appendOwnerDependency(dependencies, owner, resultOwner);
+            }
           }
         }
       }
     }
     if (!projectInvocation && transport === undefined) {
       for (const owner of invocation.receiverOwners) {
-        invalid.add(owner);
+        if (selectedOwners.has(owner)) {
+          invalid.add(owner);
+        }
       }
     }
   }
@@ -153,6 +170,7 @@ function auditInvocations(
 function auditValueFlows(
   source: TargetSourceProgram,
   topology: StorageOwnerTopology,
+  selectedOwners: ReadonlySet<Node>,
   bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
   invalid: Set<Node>,
@@ -162,6 +180,9 @@ function auditValueFlows(
     const { node, owners } = flow;
     if (flow.childOwners !== undefined) {
       for (const owner of owners) {
+        if (!selectedOwners.has(owner)) {
+          continue;
+        }
         if (!flow.childOwners.includes(owner)) {
           invalid.add(owner);
         }
@@ -169,6 +190,9 @@ function auditValueFlows(
     }
     if (flow.transparentParentOwners !== undefined) {
       for (const owner of owners) {
+        if (!selectedOwners.has(owner)) {
+          continue;
+        }
         if (!flow.transparentParentOwners.includes(owner)) {
           invalid.add(owner);
         }
@@ -176,6 +200,9 @@ function auditValueFlows(
     }
     if (flow.compositeOwners !== undefined) {
       for (const owner of owners) {
+        if (!selectedOwners.has(owner)) {
+          continue;
+        }
         if (!flow.compositeOwners.includes(owner)) {
           invalid.add(owner);
         }
@@ -189,15 +216,22 @@ function auditValueFlows(
     );
     if (destination?.kind === "open") {
       for (const owner of owners) {
-        invalid.add(owner);
+        if (selectedOwners.has(owner)) {
+          invalid.add(owner);
+        }
       }
     } else if (destination?.kind === "closed") {
       for (const owner of owners) {
-        appendOwnerDependency(dependencies, owner, destination.owner);
+        if (selectedOwners.has(owner)) {
+          appendOwnerDependency(dependencies, owner, destination.owner);
+        }
       }
     }
     if (flow.contextualOwners !== undefined) {
       for (const owner of owners) {
+        if (!selectedOwners.has(owner)) {
+          continue;
+        }
         if (!flow.contextualOwners.includes(owner)) {
           invalid.add(owner);
         }

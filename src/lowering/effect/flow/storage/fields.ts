@@ -9,14 +9,11 @@ import {
   auditStorageOwnerBoundaries,
   type StorageOwnerBinding,
 } from "./owner-boundaries.js";
+import { storageDeclarationCanBeTracked } from "./owners.js";
 import {
-  collectClosedStorageOwners,
-  storageDeclarationCanBeTracked,
-} from "./owners.js";
-import {
-  createStorageOwnerTopology,
-  type StorageOwnerTopology,
-} from "./owner-topology.js";
+  createClosedStorageOwnerAnalysis,
+  type ClosedStorageOwnerAnalysis,
+} from "./analysis.js";
 
 export interface CallableFields {
   readonly declarations: ReadonlySet<Node>;
@@ -33,10 +30,14 @@ export interface CallableFields {
 export function collectCallableFields(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  storageOwners: ClosedStorageOwnerAnalysis = createClosedStorageOwnerAnalysis(
+    source,
+    program,
+  ),
 ): CallableFields {
   const ownerByField = new Map<Node, Node>();
   const initialValues = new Map<Node, readonly Node[]>();
-  for (const owner of collectClosedStorageOwners(source, program)) {
+  for (const owner of storageOwners.owners) {
     for (const member of source.ast.members(owner)) {
       if (member !== undefined && fieldCanCarryCallable(source, member)) {
         addField(source, ownerByField, initialValues, owner, member);
@@ -61,7 +62,6 @@ export function collectCallableFields(
   }
   const declarations = new Set(ownerByField.keys());
   const owners = new Set(ownerByField.values());
-  let topology: StorageOwnerTopology | undefined;
   return Object.freeze({
     declarations,
     initialValues,
@@ -72,14 +72,6 @@ export function collectCallableFields(
       callableReferenceIsClosed?: (reference: Node) => boolean,
       planningObserver?: TypeScriptPlanningObserver,
     ): ReadonlySet<Node> {
-      if (topology === undefined && owners.size !== 0) {
-        topology = createStorageOwnerTopology(
-          source,
-          program,
-          owners,
-          planningObserver,
-        );
-      }
       const bindings = new Map<Node, StorageOwnerBinding>();
       for (const field of declarations) {
         const owner = ownerByField.get(field);
@@ -104,7 +96,7 @@ export function collectCallableFields(
         exactCallImplementations,
         callableReferenceIsClosed,
         planningObserver,
-        topology,
+        owners.size === 0 ? undefined : storageOwners.topology(planningObserver),
       );
       return new Set([...bindings.values()]
         .filter((binding) => binding.valid)

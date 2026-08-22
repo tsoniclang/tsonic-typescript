@@ -35,13 +35,19 @@ let unrelatedValue!: Unrelated;
 `);
   const declarations = classDeclarations(fixture.source, fixture.sourceFile);
   const owner = declarations.get("Owner");
+  const unrelated = declarations.get("Unrelated");
   const ownerValue = namedVariable(fixture.source, fixture.sourceFile, "ownerValue");
   const unrelatedValue = namedVariable(
     fixture.source,
     fixture.sourceFile,
     "unrelatedValue",
   );
-  assert.ok(owner !== undefined && ownerValue !== undefined && unrelatedValue !== undefined);
+  assert.ok(
+    owner !== undefined &&
+    unrelated !== undefined &&
+    ownerValue !== undefined &&
+    unrelatedValue !== undefined,
+  );
   const carriers = collectStorageOwnerCarriers(
     fixture.source,
     createTargetProgramIndex(fixture.source, {
@@ -95,13 +101,19 @@ let unrelatedValue!: Unrelated;
 `);
   const declarations = classDeclarations(fixture.source, fixture.sourceFile);
   const owner = declarations.get("Owner");
+  const unrelated = declarations.get("Unrelated");
   const ownerValue = namedVariable(fixture.source, fixture.sourceFile, "ownerValue");
   const unrelatedValue = namedVariable(
     fixture.source,
     fixture.sourceFile,
     "unrelatedValue",
   );
-  assert.ok(owner !== undefined && ownerValue !== undefined && unrelatedValue !== undefined);
+  assert.ok(
+    owner !== undefined &&
+    unrelated !== undefined &&
+    ownerValue !== undefined &&
+    unrelatedValue !== undefined,
+  );
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: false,
@@ -122,6 +134,12 @@ let unrelatedValue!: Unrelated;
     false,
   );
   assert.equal(Object.isFrozen(topology.valueFlows), true);
+  assert.equal(topology.covers(fixture.source, program, new Set([owner])), true);
+  assert.equal(topology.covers(fixture.source, program, new Set()), true);
+  assert.equal(
+    topology.covers(fixture.source, program, new Set([unrelated])),
+    false,
+  );
 });
 
 function measureCarrierGraph(carrierCount: number): {

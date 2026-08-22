@@ -47,6 +47,7 @@ import {
 } from "./summary.js";
 import { connectCooperativeEffectDependency } from "../closure/dependency.js";
 import { collectCallableFields } from "../flow/storage/fields.js";
+import { createClosedStorageOwnerAnalysis } from "../flow/storage/analysis.js";
 
 export type { CooperativeEffectFilePlan } from "./file-plan.js";
 
@@ -96,7 +97,8 @@ export function createClosedCooperativeEffectPlan(
     aggregateProjections,
   );
   planningObserver?.("effect-invocation-inputs");
-  const callableFields = collectCallableFields(source, program);
+  const storageOwners = createClosedStorageOwnerAnalysis(source, program);
+  const callableFields = collectCallableFields(source, program, storageOwners);
   const preliminaryIndirectInvocations = createExactIndirectInvocationAnalysis(
     source,
     program,
@@ -192,6 +194,7 @@ export function createClosedCooperativeEffectPlan(
     (call) => calls.get(call)?.declaration,
     invocationInputs,
     objectProjections,
+    storageOwners,
     loweredValues,
     (call) => exactCallImplementations(call) ?? noDependencies,
     completeTransports,

@@ -51,6 +51,7 @@ import {
   createReturnProvenanceResolution,
   type ReturnProvenanceResolution,
 } from "./provenance/resolution.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 
 export type { ReturnProvenanceResolution } from "./provenance/resolution.js";
 
@@ -103,6 +104,7 @@ export function createReturnProvenanceFlow(
   directCallDeclaration: (call: Node) => Node | undefined,
   invocationInputs: ExactInvocationInputIndex,
   objectProjections: ExactObjectPropertyProjectionIndex,
+  storageOwners: ClosedStorageOwnerAnalysis,
   loweredValues?: LoweredValueContract,
   settledCallDeclarations: (call: Node) => Iterable<Node> = () => [],
   transports?: InvocationTransportContract,
@@ -140,6 +142,7 @@ export function createReturnProvenanceFlow(
       source,
       program,
       invocationInputs,
+      storageOwners,
       transports,
       (call) => {
         const selected = [...settledCallDeclarations(call)];

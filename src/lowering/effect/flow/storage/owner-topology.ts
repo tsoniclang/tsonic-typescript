@@ -51,7 +51,7 @@ export interface StorageOwnerValueFlow {
 export interface StorageOwnerTopology {
   readonly invocations: readonly StorageOwnerInvocation[];
   readonly valueFlows: readonly StorageOwnerValueFlow[];
-  matches(
+  covers(
     source: TargetSourceProgram,
     program: TargetProgramIndex,
     owners: ReadonlySet<Node>,
@@ -154,23 +154,17 @@ export function createStorageOwnerTopology(
   return Object.freeze({
     invocations: Object.freeze(invocations),
     valueFlows: Object.freeze(valueFlows),
-    matches(
+    covers(
       selectedSource: TargetSourceProgram,
       selectedProgram: TargetProgramIndex,
       selectedOwners: ReadonlySet<Node>,
     ): boolean {
       return selectedSource === source &&
         selectedProgram === program &&
-        selectedOwners.size === exactOwners.size &&
         [...selectedOwners].every((owner) => exactOwners.has(owner));
     },
     ownersFor(node: Node): StorageOwnerMembership {
-      return positiveOwners.get(node) ?? ownersForNode(
-        source,
-        node,
-        carriers,
-        new Map(),
-      );
+      return ownersFor(node);
     },
   });
 }

@@ -418,11 +418,13 @@ implementation or only the calls must fail strict output typechecking.
 The carrier cost fixture doubles a deep nominal chain and requires the recorded
 class/member/type-edge/propagation work to remain linear; arbitrary checker
 property-graph expansion is outside the admitted algorithm.
-An indirect-chain fixture requiring multiple closure rounds and the final
-callable flow records exactly one callable-storage topology construction.
-Restoring per-round or per-consumer topology construction must increase that
-count and fail. A paired storage fixture proves that the topology contains only
-positive owner rows and does not retain unrelated negative decisions.
+An indirect-chain fixture requiring multiple closure rounds, the final
+callable flow, and return flow record exactly one shared storage-owner topology
+construction. Restoring per-round or per-consumer topology construction must
+increase that count and fail. A paired storage fixture proves that a complete
+topology can serve an exact owner subset without admitting an unselected owner,
+contains only positive owner rows, and does not retain unrelated negative
+decisions.
 An exact returned-pointer fixture distinguishes the pointer binding from its
 loaded pointee, passes the pointer through a settling project call, and removes
 both cooperative callables. A mutation that drops the pointer-value result

@@ -787,6 +787,13 @@ set or negative-result ledger is retained. Recursive type-cycle state is local
 and allocated only while a nested nominal type is being inspected. The target
 must not trade bounded graph traversal for a dense checker-type-by-owner table.
 
+The complete closed-owner set and its positive topology are one plan-owned
+analysis. Callable storage consumes an exact owner subset view of that same
+topology; return storage consumes the complete view. Subset audits must ignore
+unselected owners while preserving every selected-owner boundary and
+dependency. Neither consumer may reconstruct the carrier or occurrence
+topology, and no round may retain a second copy.
+
 The pointer family may certify owner transport for validated `address-of`,
 `allocate`, `load`, `store`, pointer-equality, and pointer-hash facts. The effect
 owner consumes those exact-node facts through an immutable transport contract;

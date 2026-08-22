@@ -45,6 +45,7 @@ export function auditStorageOwnerIngress(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   ownersFor: (node: Node) => StorageOwnerMembership,
+  selectedOwners: ReadonlySet<Node>,
   invalid: Set<Node>,
   transports?: InvocationTransportContract,
   invocationInputs?: ExactInvocationInputIndex,
@@ -55,6 +56,7 @@ export function auditStorageOwnerIngress(
     source,
     program,
     ownersFor,
+    selectedOwners,
     invocationInputs,
   );
   if (ingress.size === 0) {
@@ -87,14 +89,17 @@ function collectOwnerIngress(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   ownersFor: (node: Node) => StorageOwnerMembership,
+  selectedOwners: ReadonlySet<Node>,
   invocationInputs: ExactInvocationInputIndex | undefined,
 ): Map<Node, OwnerIngress> {
   const result = new Map<Node, OwnerIngress>();
   for (const parameter of program.nodesOfKind(KindParameter)) {
-    const owners = ownersFor(parameter);
+    const owners = new Set(
+      ownersFor(parameter).filter((owner) => selectedOwners.has(owner)),
+    );
     const declaration = source.ast.parent(parameter);
     if (
-      owners.length === 0 ||
+      owners.size === 0 ||
       declaration === undefined ||
       source.ast.is.IsConstructorDeclaration(declaration)
     ) {

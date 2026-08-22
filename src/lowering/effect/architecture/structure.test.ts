@@ -196,6 +196,28 @@ test("return provenance resolves only queried roots", () => {
   assert.doesNotMatch(source, /expressionResolutions/u);
 });
 
+test("callable and return flows share one storage-owner analysis", () => {
+  const plan = readFileSync(
+    join(effectRoot, "planning", "plan.ts"),
+    "utf8",
+  );
+  const fields = readFileSync(
+    join(effectRoot, "flow", "storage", "fields.ts"),
+    "utf8",
+  );
+  const returns = readFileSync(
+    join(effectRoot, "flow", "return", "storage.ts"),
+    "utf8",
+  );
+
+  assert.match(plan, /createClosedStorageOwnerAnalysis\(source, program\)/u);
+  assert.match(plan, /collectCallableFields\(source, program, storageOwners\)/u);
+  assert.match(fields, /storageOwners\.topology\(planningObserver\)/u);
+  assert.match(returns, /storageOwners\.topology\(planningObserver\)/u);
+  assert.doesNotMatch(fields, /createStorageOwnerTopology/u);
+  assert.doesNotMatch(returns, /createStorageOwnerTopology/u);
+});
+
 function directoryNames(root: string): string[] {
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
