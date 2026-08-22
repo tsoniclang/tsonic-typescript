@@ -23,8 +23,8 @@ interface OriginClassState {
   readonly indexes: ReadonlyMap<Node, number>;
   readonly values: readonly Node[];
   readonly sets: PersistentIndexSets;
-  readonly direct: Array<IndexTrieNode | undefined>;
-  readonly propagated: Array<IndexTrieNode | undefined>;
+  readonly direct: Map<number, IndexTrieNode>;
+  readonly propagated: Map<number, IndexTrieNode>;
 }
 
 interface IndexTrieNode {
@@ -63,76 +63,79 @@ export function createEffectProvenanceOriginIndex<Reason extends string>(
       indexes,
       values,
       sets: createPersistentIndexSets(values.length),
-      direct: new Array<IndexTrieNode | undefined>(componentCount),
-      propagated: new Array<IndexTrieNode | undefined>(componentCount),
+      direct: new Map(),
+      propagated: new Map(),
     };
   });
-  const componentForVertex = graph.vertices.map((vertex) =>
-    resolutions.componentFor(vertex)
-  );
-  const dependencies = emptyComponentSets(componentCount);
-  const dependents = emptyComponentSets(componentCount);
+  const dependencies = new Map<number, Set<number>>();
+  const dependents = new Map<number, Set<number>>();
   let work = graph.vertices.length;
   resolutions.forEachComponentDependency((destination, source) => {
-    if (requiredComponentSet(dependencies, destination).add(source)) {
-      requiredComponentSet(dependents, source).add(destination);
+    if (appendComponent(dependencies, destination, source)) {
+      appendComponent(dependents, source, destination);
     }
     work += 1;
   });
 
   for (const origin of graph.origins) {
-    const component = requiredComponent(componentForVertex, origin.vertex);
+    const component = resolutions.componentFor(origin.vertex);
     for (const state of classes) {
       const selected = state.indexes.get(origin.occurrence);
       if (selected !== undefined) {
-        state.direct[component] = state.sets.union(
-          state.direct[component],
+        const direct = state.sets.union(
+          state.direct.get(component),
           state.sets.singleton(selected),
         );
+        if (direct !== undefined) {
+          state.direct.set(component, direct);
+        }
       }
     }
     work += 1;
   }
 
   const remainingDependencies = new Uint32Array(componentCount);
-  const pending: number[] = [];
+  const pending = new Uint32Array(componentCount);
+  let pendingCount = 0;
   for (let component = 0; component < componentCount; component += 1) {
-    const remaining = requiredComponentSet(dependencies, component).size;
+    const remaining = componentsFor(dependencies, component).size;
     remainingDependencies[component] = remaining;
     if (remaining === 0) {
-      pending.push(component);
+      pending[pendingCount] = component;
+      pendingCount += 1;
     }
   }
-  let nextPending = 0;
-  while (nextPending < pending.length) {
-    const component = pending[nextPending];
-    nextPending += 1;
-    if (component === undefined) {
-      throw new Error("effect provenance origin propagation lost a component");
-    }
+  let resolvedCount = 0;
+  while (pendingCount !== 0) {
+    pendingCount -= 1;
+    const component = requiredIndex(pending, pendingCount);
+    resolvedCount += 1;
     for (const state of classes) {
-      let selected = state.direct[component];
-      for (const dependency of requiredComponentSet(dependencies, component)) {
+      let selected = state.direct.get(component);
+      for (const dependency of componentsFor(dependencies, component)) {
         selected = state.sets.union(
           selected,
-          state.propagated[dependency],
+          state.propagated.get(dependency),
         );
       }
-      state.propagated[component] = selected;
+      if (selected !== undefined) {
+        state.propagated.set(component, selected);
+      }
     }
-    for (const dependent of requiredComponentSet(dependents, component)) {
-      const remaining = remainingDependencies[dependent];
-      if (remaining === undefined || remaining === 0) {
+    for (const dependent of componentsFor(dependents, component)) {
+      const remaining = requiredIndex(remainingDependencies, dependent);
+      if (remaining === 0) {
         throw new Error("effect provenance origin dependency count underflowed");
       }
       remainingDependencies[dependent] = remaining - 1;
       if (remaining === 1) {
-        pending.push(dependent);
+        pending[pendingCount] = dependent;
+        pendingCount += 1;
       }
     }
     work += 1;
   }
-  if (pending.length !== componentCount) {
+  if (resolvedCount !== componentCount) {
     throw new Error("effect provenance origin component graph remained cyclic");
   }
 
@@ -151,8 +154,8 @@ export function createEffectProvenanceOriginIndex<Reason extends string>(
       if (state === undefined) {
         throw new Error("effect provenance origin class is invalid");
       }
-      const component = requiredComponent(componentForVertex, vertex);
-      return state.sets.nodeSet(state.propagated[component], state.values);
+      const component = resolutions.componentFor(vertex);
+      return state.sets.nodeSet(state.propagated.get(component), state.values);
     },
   });
 }
@@ -329,28 +332,34 @@ function appendOriginIndex(
   values.push(occurrence);
 }
 
-function emptyComponentSets(length: number): Array<Set<number>> {
-  return Array.from({ length }, (): Set<number> => new Set());
-}
-
-function requiredComponent(
-  componentForVertex: readonly number[],
-  vertex: EffectProvenanceVertex,
-): number {
-  const selected = componentForVertex[vertex.index];
-  if (selected === undefined) {
-    throw new Error("effect provenance origin vertex has no component");
-  }
-  return selected;
-}
-
-function requiredComponentSet(
-  values: readonly Set<number>[],
+function appendComponent(
+  values: Map<number, Set<number>>,
   component: number,
-): Set<number> {
-  const selected = values[component];
+  selected: number,
+): boolean {
+  let entries = values.get(component);
+  if (entries === undefined) {
+    entries = new Set();
+    values.set(component, entries);
+  }
+  const previousSize = entries.size;
+  entries.add(selected);
+  return entries.size !== previousSize;
+}
+
+const noComponents: ReadonlySet<number> = Object.freeze(new Set<number>());
+
+function componentsFor(
+  values: ReadonlyMap<number, ReadonlySet<number>>,
+  component: number,
+): ReadonlySet<number> {
+  return values.get(component) ?? noComponents;
+}
+
+function requiredIndex(values: Uint32Array, index: number): number {
+  const selected = values[index];
   if (selected === undefined) {
-    throw new Error("effect provenance origin component set is missing");
+    throw new Error("effect provenance origin component index is missing");
   }
   return selected;
 }

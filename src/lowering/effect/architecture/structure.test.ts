@@ -159,7 +159,10 @@ test("origin selection consumes the resolver-owned component graph", () => {
 
   assert.match(source, /resolutions\.forEachComponentDependency/u);
   assert.match(source, /resolutions\.componentFor/u);
+  assert.match(source, /new Map<number, Set<number>>\(\)/u);
   assert.doesNotMatch(source, /graph\.edges|condenseEffectProvenance/u);
+  assert.doesNotMatch(source, /emptyComponentSets/u);
+  assert.doesNotMatch(source, /graph\.vertices\.map/u);
 
   for (const consumer of [
     join(

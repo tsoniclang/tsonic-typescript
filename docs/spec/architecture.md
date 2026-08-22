@@ -591,6 +591,13 @@ identity and component dependencies; semantic projections consume its
 read-only component and dependency capabilities and may not reconstruct another
 SCC or component graph.
 
+The origin index is sparse by component as well as persistent by value. Direct
+and propagated rows exist only for components carrying at least one selected
+origin, while dependency adjacency exists only for components with edges. It
+queries the resolver's canonical component identity instead of retaining a
+second vertex-to-component array. One empty set or array per component is a
+forbidden dense shadow of the resolver.
+
 Return-local identity flow is demand-driven. Starting from a local reference
 actually reached by return provenance, it walks initializers, exact binding
 writes, and the source-owned reverse-reference graph in both directions to

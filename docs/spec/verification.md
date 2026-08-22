@@ -68,7 +68,8 @@ the frozen work ratio even when the final exact origin count remains correct. A
 component-dependency gate proves the shared index consumes resolver-owned
 component identities and edges rather than re-deriving SCCs or edge
 orientation; structural inspection rejects callable or return consumers that
-flatten transitive origin arrays.
+flatten transitive origin arrays, duplicate vertex-to-component identity, or
+allocate empty origin/dependency rows for every component.
 The condensation mutation gate rejects one empty array/set per vertex or
 component and requires compact typed adjacency plus sparse component evidence.
 A mostly-isolated graph fixture preserves exact component counts and a bounded
