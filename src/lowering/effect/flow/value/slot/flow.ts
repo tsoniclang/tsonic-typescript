@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TargetProgramIndex } from "../../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../../planning-observer.js";
 import { createEffectProvenanceGraphBuilder } from "../../../provenance/graph.js";
+import type { EffectProvenanceVertex } from "../../../provenance/model.js";
 import { resolveEffectProvenance } from "../../../provenance/resolution.js";
 import { transparentExpression } from "../../../model/syntax.js";
 import type { ExactAggregateProjectionIndex } from "../../aggregate/projection.js";
@@ -39,6 +40,7 @@ import {
   type ValueSlotStateRegistry,
   type ValueSlotWorkItem,
 } from "./worklist.js";
+import { materializeExactValueSlotResolutions } from "./resolution.js";
 
 type ValueSlotBoundaryReason = "open-slot" | "recursive-slot";
 
@@ -105,7 +107,7 @@ export function createExactValueSlotFlow(
     worklist: [],
     active,
   };
-  const roots = new Map<Node, ValueSlotState>();
+  const roots = new Map<Node, EffectProvenanceVertex>();
   for (const expression of rootExpressions) {
     const projection = projections.projectionFor(expression);
     if (projection !== undefined) {
@@ -118,7 +120,7 @@ export function createExactValueSlotFlow(
             index: projection.index,
           }]),
           context,
-        ),
+        ).vertex,
       );
       drainValueSlotWorklist(context);
       continue;
@@ -131,7 +133,7 @@ export function createExactValueSlotFlow(
           read.receiver,
           Object.freeze([read.selector]),
           context,
-        ),
+        ).vertex,
       );
       drainValueSlotWorklist(context);
       continue;
@@ -148,7 +150,7 @@ export function createExactValueSlotFlow(
           binding.sources,
           path,
           context,
-        ),
+        ).vertex,
       );
       drainValueSlotWorklist(context);
     }
@@ -158,30 +160,13 @@ export function createExactValueSlotFlow(
   planningObserver?.("effect-value-slot-graph");
   const resolutions = resolveEffectProvenance(graph);
   planningObserver?.("effect-value-slot-components");
-  const resolved = new Map<Node, ExactValueSlotResolution>();
-  for (const [expression, state] of roots) {
-    const resolution = resolutions.resolutionFor(state.vertex);
-    if (!resolution.closed) {
-      resolved.set(expression, openValueSlotResolution);
-      continue;
-    }
-    const values = new Set<Node>();
-    const steps = new Map<number, ExactValueSlotStep>();
-    for (const evidence of resolution.originEvidence) {
-      for (const value of context.valueOrigins.get(evidence.vertex.index) ?? []) {
-        values.add(value);
-      }
-      const step = context.steps.get(evidence.vertex.index);
-      if (step !== undefined) {
-        steps.set(evidence.vertex.index, step);
-      }
-    }
-    resolved.set(expression, Object.freeze({
-      closed: resolution.closed,
-      expressions: Object.freeze([...values]),
-      steps: Object.freeze([...steps.values()]),
-    }));
-  }
+  const resolved = materializeExactValueSlotResolutions(
+    graph,
+    resolutions,
+    roots,
+    context.valueOrigins,
+    context.steps,
+  );
   planningObserver?.("effect-value-slot-resolution");
   return Object.freeze({
     resultFor(expression: Node): ExactValueSlotResolution | undefined {
@@ -190,12 +175,6 @@ export function createExactValueSlotFlow(
     },
   });
 }
-
-const openValueSlotResolution: ExactValueSlotResolution = Object.freeze({
-  closed: false,
-  expressions: Object.freeze([]),
-  steps: Object.freeze([]),
-});
 
 function exactInvocationInputIsClosed(
   expression: Node,
@@ -240,7 +219,7 @@ function drainValueSlotWorklist(context: ValueSlotContext): void {
       context.active.leave(item.state);
       continue;
     }
-    context.active.enter(item.state);
+    context.active.enter(item.state, item.path);
     context.worklist.push({ kind: "leave", state: item.state });
     if (item.kind === "expression") {
       expandExpression(item.state, item.root, item.path, context);

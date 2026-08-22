@@ -1,6 +1,9 @@
 import type { Node } from "@tsonic/tsts";
 
-import { createEffectProvenanceOriginIndex } from "../../../provenance/origin-index.js";
+import {
+  createEffectProvenanceOriginIndex,
+  selectOriginOccurrences,
+} from "../../../provenance/origin-index.js";
 import type {
   EffectProvenanceGraph,
   EffectProvenanceResolutionIndex,
@@ -27,7 +30,7 @@ export function selectClosedIndirectCallableOrigins<Reason extends string>(
   const origins = createEffectProvenanceOriginIndex(
     graph,
     resolutions,
-    [callableOrigins],
+    [selectOriginOccurrences(callableOrigins)],
   );
   const result: ClosedIndirectCallableOrigin[] = [];
   for (const [call, root] of roots) {
@@ -38,7 +41,7 @@ export function selectClosedIndirectCallableOrigins<Reason extends string>(
     if (selection.count === 0) {
       continue;
     }
-    const implementations = [...selection.nodes()];
+    const implementations = [...selection.values()];
     if (!implementations.every(originIsExact)) {
       continue;
     }

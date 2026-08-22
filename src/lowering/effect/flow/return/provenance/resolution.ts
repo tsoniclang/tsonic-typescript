@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 
-import type { ExactProvenanceNodeSet } from "../../../provenance/origin-index.js";
+import type { ExactProvenanceValueSet } from "../../../provenance/origin-index.js";
 
 export interface ReturnProvenanceResolution {
   readonly closed: boolean;
@@ -10,13 +10,13 @@ export interface ReturnProvenanceResolution {
 
 export function createReturnProvenanceResolution(
   closed: boolean,
-  dependencies: ExactProvenanceNodeSet,
+  dependencies: ExactProvenanceValueSet<Node>,
 ): ReturnProvenanceResolution {
   return Object.freeze({
     closed,
     dependencyCount: dependencies.count,
     dependencyNodes(): Iterable<Node> {
-      return dependencies.nodes();
+      return dependencies.values();
     },
   });
 }

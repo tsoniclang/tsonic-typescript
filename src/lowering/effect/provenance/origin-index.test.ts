@@ -4,7 +4,10 @@ import { test } from "node:test";
 import type { Node } from "@tsonic/tsts";
 
 import { createEffectProvenanceGraphBuilder } from "./graph.js";
-import { createEffectProvenanceOriginIndex } from "./origin-index.js";
+import {
+  createEffectProvenanceOriginIndex,
+  selectOriginOccurrences,
+} from "./origin-index.js";
 import { resolveEffectProvenance } from "./resolution.js";
 
 test("indexes exact origin classes without flattening intermediates", () => {
@@ -26,16 +29,19 @@ test("indexes exact origin classes without flattening intermediates", () => {
   const index = createEffectProvenanceOriginIndex(
     graph,
     resolveEffectProvenance(graph),
-    [new Set([candidate]), new Set([synchronous])],
+    [
+      selectOriginOccurrences(new Set([candidate])),
+      selectOriginOccurrences(new Set([synchronous])),
+    ],
   );
 
   const candidates = index.selectionFor(result, 0);
   const synchronousDeclarations = index.selectionFor(result, 1);
 
   assert.equal(candidates.count, 1);
-  assert.deepEqual([...candidates.nodes()], [candidate]);
+  assert.deepEqual([...candidates.values()], [candidate]);
   assert.equal(synchronousDeclarations.count, 1);
-  assert.deepEqual([...synchronousDeclarations.nodes()], [synchronous]);
+  assert.deepEqual([...synchronousDeclarations.values()], [synchronous]);
   assert.throws(
     () => index.selectionFor({ index: result.index } as never, 0),
     /foreign vertex/u,
@@ -54,6 +60,29 @@ test("keeps accumulating origin construction near linear", () => {
       `origin-index work grew ${previous.work} -> ${current.work}`,
     );
   }
+});
+
+test("selects exact origin vertices when occurrences are shared", () => {
+  const shared = node();
+  const builder = createEffectProvenanceGraphBuilder<never>();
+  const first = builder.vertex("value-slot", shared);
+  const second = builder.vertex("value-slot", shared);
+  const result = builder.vertex("value-slot", node());
+  builder.addOrigin(first, shared);
+  builder.addOrigin(second, shared);
+  builder.addDependency(result, first, "projection", shared);
+  builder.addDependency(result, second, "projection", shared);
+  const graph = builder.seal();
+  const index = createEffectProvenanceOriginIndex(
+    graph,
+    resolveEffectProvenance(graph),
+    [(origin) => origin.vertex],
+  );
+
+  assert.deepEqual(
+    new Set(index.selectionFor(result, 0).values()),
+    new Set([first, second]),
+  );
 });
 
 function measureAccumulatingOrigins(originCount: number): {
@@ -80,12 +109,12 @@ function measureAccumulatingOrigins(originCount: number): {
   const index = createEffectProvenanceOriginIndex(
     graph,
     resolveEffectProvenance(graph),
-    [new Set(origins)],
+    [selectOriginOccurrences(new Set(origins))],
   );
   const selected = index.selectionFor(accumulated, 0);
 
   assert.equal(selected.count, originCount);
-  assert.deepEqual(new Set(selected.nodes()), new Set(origins));
+  assert.deepEqual(new Set(selected.values()), new Set(origins));
   return { work: index.work };
 }
 

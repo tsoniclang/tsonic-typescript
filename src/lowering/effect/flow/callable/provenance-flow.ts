@@ -55,7 +55,10 @@ import {
   callableDeclarationState,
   callableExpressionState,
 } from "./provenance/expression.js";
-import { createEffectProvenanceOriginIndex } from "../../provenance/origin-index.js";
+import {
+  createEffectProvenanceOriginIndex,
+  selectOriginOccurrences,
+} from "../../provenance/origin-index.js";
 
 export type CallableBoundaryReason =
   | "inexact-reference"
@@ -264,7 +267,10 @@ export function createGraphCallableValueFlow(
   const origins = createEffectProvenanceOriginIndex(
     graph,
     resolved,
-    [context.candidateOrigins, context.synchronousOrigins],
+    [
+      selectOriginOccurrences(context.candidateOrigins),
+      selectOriginOccurrences(context.synchronousOrigins),
+    ],
   );
   planningObserver?.("effect-callable-origin-index");
   const resolutionByComponent = new Map<number, CallableValueResolution>();

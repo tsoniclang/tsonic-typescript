@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { ExactProvenanceNodeSet } from "../../provenance/origin-index.js";
+import type { ExactProvenanceValueSet } from "../../provenance/origin-index.js";
 
 export interface CallableValueResolution {
   readonly closed: boolean;
@@ -27,26 +27,26 @@ export function createCallableValueResolution(
 
 export function createExactCallableValueResolution(
   closed: boolean,
-  dependencies: ExactProvenanceNodeSet,
-  synchronousDeclarations: ExactProvenanceNodeSet,
+  dependencies: ExactProvenanceValueSet<Node>,
+  synchronousDeclarations: ExactProvenanceValueSet<Node>,
 ): CallableValueResolution {
   return Object.freeze({
     closed,
     dependencyCount: dependencies.count,
     synchronousDeclarationCount: synchronousDeclarations.count,
     dependencyNodes(): Iterable<Node> {
-      return dependencies.nodes();
+      return dependencies.values();
     },
     synchronousDeclarationNodes(): Iterable<Node> {
-      return synchronousDeclarations.nodes();
+      return synchronousDeclarations.values();
     },
   });
 }
 
-function arrayNodeSet(nodes: readonly Node[]): ExactProvenanceNodeSet {
+function arrayNodeSet(nodes: readonly Node[]): ExactProvenanceValueSet<Node> {
   return Object.freeze({
     count: nodes.length,
-    nodes(): Iterable<Node> {
+    values(): Iterable<Node> {
       return nodes;
     },
   });

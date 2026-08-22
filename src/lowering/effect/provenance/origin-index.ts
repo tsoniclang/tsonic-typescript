@@ -2,27 +2,32 @@ import type { Node } from "@tsonic/tsts";
 
 import type {
   EffectProvenanceGraph,
+  EffectProvenanceOrigin,
   EffectProvenanceResolutionIndex,
   EffectProvenanceVertex,
 } from "./model.js";
 
-export interface ExactProvenanceNodeSet {
+export interface ExactProvenanceValueSet<Value> {
   readonly count: number;
-  nodes(): Iterable<Node>;
+  values(): Iterable<Value>;
 }
 
-export interface EffectProvenanceOriginIndex {
+export type EffectProvenanceOriginSelector<Value> = (
+  origin: EffectProvenanceOrigin,
+) => Value | undefined;
+
+export interface EffectProvenanceOriginIndex<Value> {
   readonly work: number;
   selectionFor(
     vertex: EffectProvenanceVertex,
     originClass: number,
-  ): ExactProvenanceNodeSet;
+  ): ExactProvenanceValueSet<Value>;
 }
 
-interface OriginClassState {
-  readonly indexes: ReadonlyMap<Node, number>;
-  readonly values: readonly Node[];
-  readonly sets: PersistentIndexSets;
+interface OriginClassState<Value> {
+  readonly indexes: ReadonlyMap<Value, number>;
+  readonly values: readonly Value[];
+  readonly sets: PersistentIndexSets<Value>;
   readonly direct: Map<number, IndexTrieNode>;
   readonly propagated: Map<number, IndexTrieNode>;
 }
@@ -35,28 +40,40 @@ interface IndexTrieNode {
   readonly value?: number;
 }
 
-const emptyNodeSet: ExactProvenanceNodeSet = Object.freeze({
+const emptyValueSet: ExactProvenanceValueSet<never> = Object.freeze({
   count: 0,
-  nodes(): Iterable<Node> {
+  values(): Iterable<never> {
     return Object.freeze([]);
   },
 });
 
-export function createEffectProvenanceOriginIndex<Reason extends string>(
+export function selectOriginOccurrences(
+  selected: ReadonlySet<Node>,
+): EffectProvenanceOriginSelector<Node> {
+  return (origin) => selected.has(origin.occurrence)
+    ? origin.occurrence
+    : undefined;
+}
+
+export function createEffectProvenanceOriginIndex<
+  Reason extends string,
+  Value,
+>(
   graph: EffectProvenanceGraph<Reason>,
   resolutions: EffectProvenanceResolutionIndex<Reason>,
-  originClasses: readonly ReadonlySet<Node>[],
-): EffectProvenanceOriginIndex {
+  originClasses: readonly EffectProvenanceOriginSelector<Value>[],
+): EffectProvenanceOriginIndex<Value> {
   if (originClasses.length === 0) {
     throw new Error("effect provenance origin index requires an origin class");
   }
   const componentCount = resolutions.componentCount;
-  const classes = originClasses.map((origins): OriginClassState => {
-    const values: Node[] = [];
-    const indexes = new Map<Node, number>();
+  const classes = originClasses.map((select): OriginClassState<Value> => {
+    const values: Value[] = [];
+    const indexes = new Map<Value, number>();
     for (const origin of graph.origins) {
-      if (origins.has(origin.occurrence)) {
-        appendOriginIndex(indexes, values, origin.occurrence);
+      const selected = select(origin);
+      if (selected !== undefined) {
+        appendOriginIndex(indexes, values, selected);
       }
     }
     return {
@@ -79,9 +96,13 @@ export function createEffectProvenanceOriginIndex<Reason extends string>(
 
   for (const origin of graph.origins) {
     const component = resolutions.componentFor(origin.vertex);
-    for (const state of classes) {
-      const selected = state.indexes.get(origin.occurrence);
-      if (selected !== undefined) {
+    for (let index = 0; index < classes.length; index += 1) {
+      const state = classes[index];
+      const selectedValue = originClasses[index]?.(origin);
+      const selected = selectedValue === undefined
+        ? undefined
+        : state?.indexes.get(selectedValue);
+      if (state !== undefined && selected !== undefined) {
         const direct = state.sets.union(
           state.direct.get(component),
           state.sets.singleton(selected),
@@ -146,7 +167,7 @@ export function createEffectProvenanceOriginIndex<Reason extends string>(
     selectionFor(
       vertex: EffectProvenanceVertex,
       originClass: number,
-    ): ExactProvenanceNodeSet {
+    ): ExactProvenanceValueSet<Value> {
       if (graph.vertices[vertex.index] !== vertex) {
         throw new Error("effect provenance origin index received a foreign vertex");
       }
@@ -155,25 +176,27 @@ export function createEffectProvenanceOriginIndex<Reason extends string>(
         throw new Error("effect provenance origin class is invalid");
       }
       const component = resolutions.componentFor(vertex);
-      return state.sets.nodeSet(state.propagated.get(component), state.values);
+      return state.sets.valueSet(state.propagated.get(component), state.values);
     },
   });
 }
 
-interface PersistentIndexSets {
+interface PersistentIndexSets<Value> {
   readonly work: number;
   singleton(value: number): IndexTrieNode;
   union(
     left: IndexTrieNode | undefined,
     right: IndexTrieNode | undefined,
   ): IndexTrieNode | undefined;
-  nodeSet(
+  valueSet(
     root: IndexTrieNode | undefined,
-    values: readonly Node[],
-  ): ExactProvenanceNodeSet;
+    values: readonly Value[],
+  ): ExactProvenanceValueSet<Value>;
 }
 
-function createPersistentIndexSets(valueCount: number): PersistentIndexSets {
+function createPersistentIndexSets<Value>(
+  valueCount: number,
+): PersistentIndexSets<Value> {
   const bitDepth = Math.max(1, Math.ceil(Math.log2(Math.max(2, valueCount))));
   const branches = Array.from(
     { length: bitDepth },
@@ -182,7 +205,7 @@ function createPersistentIndexSets(valueCount: number): PersistentIndexSets {
   const leaves = new Map<number, IndexTrieNode>();
   const singletons = new Map<number, IndexTrieNode>();
   const unions = new Map<string, IndexTrieNode>();
-  const nodeSets = new Map<number, ExactProvenanceNodeSet>();
+  const valueSets = new Map<number, ExactProvenanceValueSet<Value>>();
   let nextId = 1;
   let work = 0;
 
@@ -271,32 +294,32 @@ function createPersistentIndexSets(valueCount: number): PersistentIndexSets {
     ): IndexTrieNode | undefined {
       return unionAt(left, right, 0);
     },
-    nodeSet(
+    valueSet(
       root: IndexTrieNode | undefined,
-      values: readonly Node[],
-    ): ExactProvenanceNodeSet {
+      values: readonly Value[],
+    ): ExactProvenanceValueSet<Value> {
       if (root === undefined) {
-        return emptyNodeSet;
+        return emptyValueSet;
       }
-      let selected = nodeSets.get(root.id);
+      let selected = valueSets.get(root.id);
       if (selected === undefined) {
         selected = Object.freeze({
           count: root.count,
-          nodes(): Iterable<Node> {
-            return trieNodes(root, values);
+          values(): Iterable<Value> {
+            return trieValues(root, values);
           },
         });
-        nodeSets.set(root.id, selected);
+        valueSets.set(root.id, selected);
       }
       return selected;
     },
   });
 }
 
-function *trieNodes(
+function *trieValues<Value>(
   root: IndexTrieNode,
-  values: readonly Node[],
-): IterableIterator<Node> {
+  values: readonly Value[],
+): IterableIterator<Value> {
   const pending = [root];
   while (pending.length !== 0) {
     const current = pending.pop();
@@ -320,10 +343,10 @@ function *trieNodes(
   }
 }
 
-function appendOriginIndex(
-  indexes: Map<Node, number>,
-  values: Node[],
-  occurrence: Node,
+function appendOriginIndex<Value>(
+  indexes: Map<Value, number>,
+  values: Value[],
+  occurrence: Value,
 ): void {
   if (indexes.has(occurrence)) {
     return;

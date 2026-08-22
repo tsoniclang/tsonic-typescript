@@ -174,11 +174,19 @@ test("origin selection consumes the resolver-owned component graph", () => {
     ),
     join(effectRoot, "flow", "callable", "provenance-flow.ts"),
     join(effectRoot, "flow", "return", "provenance.ts"),
+    join(effectRoot, "flow", "value", "slot", "resolution.ts"),
   ]) {
     const consumerSource = readFileSync(consumer, "utf8");
     assert.match(consumerSource, /createEffectProvenanceOriginIndex/u);
     assert.doesNotMatch(consumerSource, /\.origins\.filter/u);
+    assert.doesNotMatch(consumerSource, /\.originEvidence/u);
   }
+  const valueSlotFlow = readFileSync(
+    join(effectRoot, "flow", "value", "slot", "flow.ts"),
+    "utf8",
+  );
+  assert.match(valueSlotFlow, /materializeExactValueSlotResolutions/u);
+  assert.doesNotMatch(valueSlotFlow, /\.originEvidence/u);
 });
 
 test("provenance condensation uses compact sparse storage", () => {

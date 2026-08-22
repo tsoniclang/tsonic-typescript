@@ -603,6 +603,14 @@ identity and component dependencies; semantic projections consume its
 read-only component and dependency capabilities and may not reconstruct another
 SCC or component graph.
 
+An origin class selects its value from the exact origin record rather than only
+from the authored occurrence. Node-valued consumers select the occurrence;
+value-slot consumers select the origin vertex so two path states attached to
+the same authored call remain distinct. The persistent index is generic over
+that selected value. A consumer may not recover vertex-sensitive evidence by
+deduplicating authored nodes or by reading the resolver's flattened
+`originEvidence` capability.
+
 The origin index is sparse by component as well as persistent by value. Direct
 and propagated rows exist only for components carrying at least one selected
 origin, while dependency adjacency exists only for components with edges. It

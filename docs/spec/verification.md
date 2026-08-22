@@ -498,6 +498,10 @@ completing independently from positive-evidence materialization. A dense set of
 open callable property roots may increase the root denominator but must not
 increase the materialized positive-evidence denominator; a mutation that reads
 origins before checking `closed` must exceed the guarded planning bound.
+The value-slot materializer must consume the persistent origin index and never
+the resolver's flattened `originEvidence`. A same-authored-occurrence fixture
+places two distinct value-slot origin vertices behind one root and requires
+both exact vertices; occurrence-only deduplication must fail.
 Generic nominal-result fixtures return `RuntimeSlice<T>`,
 `RuntimeSlice<T> | undefined`, and a derived generic class whose inherited
 private readonly `then?: never` is independent of `T`; all must settle. Paired

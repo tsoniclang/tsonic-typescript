@@ -21,6 +21,7 @@ import type {
 import { resolveEffectProvenance } from "../../provenance/resolution.js";
 import {
   createEffectProvenanceOriginIndex,
+  selectOriginOccurrences,
 } from "../../provenance/origin-index.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
@@ -192,7 +193,7 @@ export function createReturnProvenanceFlow(
   const origins = createEffectProvenanceOriginIndex(
     graph,
     resolution,
-    [context.candidateOrigins],
+    [selectOriginOccurrences(context.candidateOrigins)],
   );
   planningObserver?.("effect-return-origin-index");
   const resolutionsByComponent = new Map<number, ReturnProvenanceResolution>();

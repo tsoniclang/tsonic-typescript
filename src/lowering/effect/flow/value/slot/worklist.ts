@@ -9,7 +9,6 @@ export interface ValueSlotState {
   readonly vertex: EffectProvenanceVertex;
   readonly kind: "expression" | "result";
   readonly occurrence: Node;
-  readonly selectorKeys: readonly string[];
   readonly recursive: boolean;
   expanded: boolean;
 }
@@ -41,12 +40,12 @@ export type ValueSlotWorkItem =
   };
 
 export interface ValueSlotActiveStates {
-  enter(state: ValueSlotState): void;
+  enter(state: ValueSlotState, path: ExactValueSlotPath): void;
   leave(state: ValueSlotState): void;
   pathIsRecursive(
     kind: ValueSlotState["kind"],
     occurrence: Node,
-    selectorKeys: readonly string[],
+    path: ExactValueSlotPath,
   ): boolean;
 }
 
@@ -79,19 +78,15 @@ export function createValueSlotStateRegistry<Reason extends string>(
       const key = exactValueSlotPathKey(path);
       let state = selected.get(key);
       if (state === undefined) {
-        const selectorKeys = Object.freeze(path.map((selector) =>
-          exactValueSlotPathKey(Object.freeze([selector]))
-        ));
         const recursive = active.pathIsRecursive(
           kind,
           occurrence,
-          selectorKeys,
+          path,
         );
         state = {
           vertex: builder.vertex("value-slot", occurrence),
           kind,
           occurrence,
-          selectorKeys,
           recursive,
           expanded: recursive,
         };
@@ -103,19 +98,26 @@ export function createValueSlotStateRegistry<Reason extends string>(
 }
 
 export function createValueSlotActiveStates(): ValueSlotActiveStates {
-  const active = new Map<Node, ValueSlotState[]>();
+  const active = new Map<
+    Node,
+    Array<{
+      readonly state: ValueSlotState;
+      readonly path: ExactValueSlotPath;
+    }>
+  >();
   return Object.freeze({
-    enter(state: ValueSlotState): void {
+    enter(state: ValueSlotState, path: ExactValueSlotPath): void {
       const selected = active.get(state.occurrence);
+      const entry = { state, path };
       if (selected === undefined) {
-        active.set(state.occurrence, [state]);
+        active.set(state.occurrence, [entry]);
       } else {
-        selected.push(state);
+        selected.push(entry);
       }
     },
     leave(state: ValueSlotState): void {
       const selected = active.get(state.occurrence);
-      if (selected?.pop() !== state) {
+      if (selected?.pop()?.state !== state) {
         throw new Error("value-slot active expansion order is invalid");
       }
       if (selected.length === 0) {
@@ -125,23 +127,26 @@ export function createValueSlotActiveStates(): ValueSlotActiveStates {
     pathIsRecursive(
       kind: ValueSlotState["kind"],
       occurrence: Node,
-      selectorKeys: readonly string[],
+      path: ExactValueSlotPath,
     ): boolean {
       return active.get(occurrence)?.some((candidate) =>
-        candidate.kind === kind &&
-        pathProperlyExtends(selectorKeys, candidate.selectorKeys)
+        candidate.state.kind === kind &&
+        pathProperlyExtends(path, candidate.path)
       ) === true;
     },
   });
 }
 
 function pathProperlyExtends(
-  selected: readonly string[],
-  suffix: readonly string[],
+  selected: ExactValueSlotPath,
+  suffix: ExactValueSlotPath,
 ): boolean {
   if (selected.length <= suffix.length) {
     return false;
   }
   const offset = selected.length - suffix.length;
-  return suffix.every((key, index) => selected[offset + index] === key);
+  return suffix.every((selector, index) =>
+    exactValueSlotPathKey(Object.freeze([selected[offset + index]!])) ===
+      exactValueSlotPathKey(Object.freeze([selector]))
+  );
 }
