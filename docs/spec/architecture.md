@@ -538,6 +538,10 @@ checked type contains a call signature; unrelated scalar expressions never
 enter the value-slot graph. The invoked-target admission keeps checker-selected
 calls whose apparent type is open, while the graph still fails those calls
 closed when their provenance is not exact.
+After graph resolution, only closed value-slot roots materialize their exact
+origins and contract steps. An open root publishes the closed bit and no
+positive evidence; expanding transitive origins for a root that cannot be
+consumed is forbidden work, not conservative analysis.
 
 Settlement of a produced callable is atomic with its authored result contract.
 After the producer's outer async contract is selected, every non-nullish result

@@ -153,6 +153,10 @@ export function createExactValueSlotFlow(
   const resolved = new Map<Node, ExactValueSlotResolution>();
   for (const [expression, state] of roots) {
     const resolution = resolutions.resolutionFor(state.vertex);
+    if (!resolution.closed) {
+      resolved.set(expression, openValueSlotResolution);
+      continue;
+    }
     const values = new Set<Node>();
     const steps = new Map<number, ExactValueSlotStep>();
     for (const evidence of resolution.originEvidence) {
@@ -178,6 +182,12 @@ export function createExactValueSlotFlow(
     },
   });
 }
+
+const openValueSlotResolution: ExactValueSlotResolution = Object.freeze({
+  closed: false,
+  expressions: Object.freeze([]),
+  steps: Object.freeze([]),
+});
 
 function exactInvocationInputIsClosed(
   expression: Node,

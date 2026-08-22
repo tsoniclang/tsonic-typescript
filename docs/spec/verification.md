@@ -438,6 +438,11 @@ changing the callable projection denominator. It also proves that a narrowed
 callable union and an invoked open target remain candidates; removing either
 admission must fail while admitting the scalar siblings must fail the bounded
 candidate count.
+The whole-product phase ledger must show value-slot graph condensation
+completing independently from positive-evidence materialization. A dense set of
+open callable property roots may increase the root denominator but must not
+increase the materialized positive-evidence denominator; a mutation that reads
+origins before checking `closed` must exceed the guarded planning bound.
 Generic nominal-result fixtures return `RuntimeSlice<T>`,
 `RuntimeSlice<T> | undefined`, and a derived generic class whose inherited
 private readonly `then?: never` is independent of `T`; all must settle. Paired
