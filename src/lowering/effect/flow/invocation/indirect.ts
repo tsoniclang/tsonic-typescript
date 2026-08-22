@@ -4,9 +4,7 @@ import { KindCallExpression } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
-import {
-  createEffectProvenanceGraphBuilder,
-} from "../../provenance/graph.js";
+import { createEffectProvenanceGraphBuilder } from "../../provenance/graph.js";
 import type { EffectProvenanceVertex } from "../../provenance/model.js";
 import { resolveEffectProvenance } from "../../provenance/resolution.js";
 import {
@@ -25,11 +23,10 @@ import {
 import { createCallableInputUseContract } from "../callable/input-use.js";
 import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
 import { sameValueAlternatives } from "../value/alternatives.js";
+import { collectCallableFields, type CallableFields } from "../storage/fields.js";
 import { extendExactInvocationInputIndex } from "./implementation-inputs.js";
 import type { ExactInvocationInputIndex } from "./inputs.js";
-import {
-  collectClosedIndirectCallableReferences,
-} from "./indirect/reference-closure.js";
+import { collectClosedIndirectCallableReferences } from "./indirect/reference-closure.js";
 type IndirectInvocationBoundary =
   | "open-binding"
   | "open-expression"
@@ -86,7 +83,9 @@ export function createExactIndirectInvocationAnalysis(
   transports?: InvocationTransportContract,
   initialCallImplementations?: ExactCallImplementations,
   planningObserver?: TypeScriptPlanningObserver,
+  callableFields?: CallableFields,
 ): ExactIndirectInvocationAnalysis {
+  const selectedCallableFields = callableFields ?? collectCallableFields(source, program);
   let invocationInputs = direct;
   let previous = emptyRound();
   const states = new Set<string>();
@@ -106,6 +105,7 @@ export function createExactIndirectInvocationAnalysis(
       ),
       (reference) => previous.callableReferences.has(reference),
       planningObserver,
+      selectedCallableFields,
     );
     planningObserver?.("effect-indirect-round");
     if (sameRound(previous, current)) {
@@ -280,6 +280,7 @@ function collectExactIndirectInvocationRound(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   planningObserver?: TypeScriptPlanningObserver,
+  callableFields?: CallableFields,
 ): ExactIndirectInvocationRound {
   const results = createCallableResultInputs(
     source,
@@ -304,6 +305,7 @@ function collectExactIndirectInvocationRound(
     exactCallImplementations,
     callableReferenceIsClosed,
     planningObserver,
+    callableFields,
   );
   planningObserver?.("effect-indirect-value-inputs");
   const context: CallableOriginContext = {

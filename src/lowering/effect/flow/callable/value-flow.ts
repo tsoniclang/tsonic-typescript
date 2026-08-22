@@ -12,6 +12,8 @@ import {
 } from "./provenance-flow.js";
 import type { CallableValueResolution } from "./value-resolution.js";
 import type { ExactCallImplementations } from "./result-inputs.js";
+import type { CallableFields } from "../storage/fields.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 
 export type { CallableValueResolution } from "./value-resolution.js";
 
@@ -38,6 +40,8 @@ export function createCallableValueFlow(
   exactContractImplementations?: ExactCallImplementations,
   objectProjections?: ExactObjectPropertyProjectionIndex,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  callableFields?: CallableFields,
+  planningObserver?: TypeScriptPlanningObserver,
 ): CallableValueFlow {
   return createGraphCallableValueFlow(
     source,
@@ -50,5 +54,7 @@ export function createCallableValueFlow(
     exactContractImplementations,
     objectProjections,
     callableReferenceIsClosed,
+    callableFields,
+    planningObserver,
   );
 }

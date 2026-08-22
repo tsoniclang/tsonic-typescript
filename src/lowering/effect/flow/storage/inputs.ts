@@ -32,6 +32,7 @@ import {
 } from "../callable/local-inputs.js";
 import {
   collectCallableFields,
+  type CallableFields,
 } from "./fields.js";
 import { closeDependencyCandidates } from "../../closure/dependency-closure.js";
 import { createCallableStorageContracts } from "./contracts.js";
@@ -63,10 +64,11 @@ export function collectCallableStorageInputs(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   planningObserver?: TypeScriptPlanningObserver,
+  fieldsIndex?: CallableFields,
 ): CallableStorageInputs {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
-  const callableFields = collectCallableFields(source, program);
+  const callableFields = fieldsIndex ?? collectCallableFields(source, program);
   planningObserver?.("effect-indirect-storage-fields");
   const fields = callableFields.declarations;
   const parameters = collectCallableParameters(source, program);

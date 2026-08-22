@@ -20,6 +20,8 @@ import {
   collectCallableValueInputs,
   type CallableValueInputs,
 } from "./value-inputs.js";
+import type { CallableFields } from "../storage/fields.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import {
   createCallableResultInputs,
   type ExactCallImplementations,
@@ -127,6 +129,8 @@ export function createGraphCallableValueFlow(
   exactContractImplementations?: ExactCallImplementations,
   objectProjections?: ExactObjectPropertyProjectionIndex,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  callableFields?: CallableFields,
+  planningObserver?: TypeScriptPlanningObserver,
 ): GraphCallableValueFlow {
   const results = createCallableResultInputs(
     source,
@@ -144,6 +148,8 @@ export function createGraphCallableValueFlow(
     invocationInputs,
     exactCallImplementations,
     callableReferenceIsClosed,
+    planningObserver,
+    callableFields,
   );
   const slots = createExactValueSlotFlow(
     source,

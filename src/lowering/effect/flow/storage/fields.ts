@@ -13,6 +13,10 @@ import {
   collectClosedStorageOwners,
   storageDeclarationCanBeTracked,
 } from "./owners.js";
+import {
+  createStorageOwnerTopology,
+  type StorageOwnerTopology,
+} from "./owner-topology.js";
 
 export interface CallableFields {
   readonly declarations: ReadonlySet<Node>;
@@ -30,7 +34,6 @@ export function collectCallableFields(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
 ): CallableFields {
-  const owners = new Set<Node>();
   const ownerByField = new Map<Node, Node>();
   const initialValues = new Map<Node, readonly Node[]>();
   for (const owner of collectClosedStorageOwners(source, program)) {
@@ -57,6 +60,8 @@ export function collectCallableFields(
     }
   }
   const declarations = new Set(ownerByField.keys());
+  const owners = new Set(ownerByField.values());
+  let topology: StorageOwnerTopology | undefined;
   return Object.freeze({
     declarations,
     initialValues,
@@ -67,6 +72,14 @@ export function collectCallableFields(
       callableReferenceIsClosed?: (reference: Node) => boolean,
       planningObserver?: TypeScriptPlanningObserver,
     ): ReadonlySet<Node> {
+      if (topology === undefined && owners.size !== 0) {
+        topology = createStorageOwnerTopology(
+          source,
+          program,
+          owners,
+          planningObserver,
+        );
+      }
       const bindings = new Map<Node, StorageOwnerBinding>();
       for (const field of declarations) {
         const owner = ownerByField.get(field);
@@ -82,7 +95,7 @@ export function collectCallableFields(
       auditStorageOwnerBoundaries(
         source,
         program,
-        new Set(ownerByField.values()),
+        owners,
         bindings,
         (expression) => selectedField(source, expression, declarations),
         false,
@@ -91,6 +104,7 @@ export function collectCallableFields(
         exactCallImplementations,
         callableReferenceIsClosed,
         planningObserver,
+        topology,
       );
       return new Set([...bindings.values()]
         .filter((binding) => binding.valid)

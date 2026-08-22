@@ -27,6 +27,7 @@ export const typeScriptPlanningPhases = Object.freeze([
   "effect-indirect-storage-parameters",
   "effect-indirect-storage-references",
   "effect-indirect-storage-carriers",
+  "effect-indirect-storage-topology",
   "effect-indirect-storage-ingress",
   "effect-indirect-storage-invocations",
   "effect-indirect-storage-value-flows",

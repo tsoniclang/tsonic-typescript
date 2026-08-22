@@ -597,6 +597,13 @@ field-value escape retain the complete callable component. Public visibility
 alone is neither permission nor a blocker: closure of the observable owner
 flow is the decision.
 
+That inventory is one immutable, positive-only owner topology for the complete
+effect-planning transaction. It stores only nodes and edges that carry an
+owner; it never records negative membership decisions. Preliminary indirect
+closure, interface-seeded closure, and final callable flow consume the same
+topology. Rebuilding its whole-program type and invocation scan per closure
+round or per consumer is forbidden.
+
 All effect flows share one exact project-invocation owner. It validates the
 checker-selected call, selected signature declaration, sole project
 implementation, authored arguments, and every effective argument binding

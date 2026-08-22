@@ -9,6 +9,7 @@ import {
   collectStorageOwnerCarriers,
   ownersWithinStorageType,
 } from "./owner-types.js";
+import { createStorageOwnerTopology } from "./owner-topology.js";
 
 test("indexes nominal owner carriers with bounded graph work", () => {
   const measurements = [16, 32, 64].map(measureCarrierGraph);
@@ -81,6 +82,46 @@ let unrelatedValue!: Unrelated;
   assert.equal(carried[0], owner);
   assert.equal(Object.isFrozen(carried), true);
   assert.equal(cache.size, 1);
+});
+
+test("retains only positive storage-owner topology rows", () => {
+  const fixture = checkedEffectFixture(`
+class Owner {
+  constructor(public callback: (() => number) | undefined) {}
+}
+class Unrelated { value = 1; }
+let ownerValue!: Owner;
+let unrelatedValue!: Unrelated;
+`);
+  const declarations = classDeclarations(fixture.source, fixture.sourceFile);
+  const owner = declarations.get("Owner");
+  const ownerValue = namedVariable(fixture.source, fixture.sourceFile, "ownerValue");
+  const unrelatedValue = namedVariable(
+    fixture.source,
+    fixture.sourceFile,
+    "unrelatedValue",
+  );
+  assert.ok(owner !== undefined && ownerValue !== undefined && unrelatedValue !== undefined);
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: false,
+    memberDispatch: false,
+  });
+
+  const topology = createStorageOwnerTopology(
+    fixture.source,
+    program,
+    new Set([owner]),
+  );
+
+  assert.equal(
+    topology.valueFlows.some((flow) => flow.node === ownerValue),
+    true,
+  );
+  assert.equal(
+    topology.valueFlows.some((flow) => flow.node === unrelatedValue),
+    false,
+  );
+  assert.equal(Object.isFrozen(topology.valueFlows), true);
 });
 
 function measureCarrierGraph(carrierCount: number): {

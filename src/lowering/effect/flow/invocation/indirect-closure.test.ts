@@ -39,6 +39,39 @@ export const result = await top();
   );
 });
 
+test("constructs callable-storage topology once across closure rounds", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+class Slot {
+  declare private readonly brand: void;
+  public constructor(public value: (() => Awaitable<number>) | undefined) {}
+  static zero(): Slot { return new Slot(undefined); }
+}
+async function base(): Promise<number> { return 42; }
+const slot = Slot.zero();
+slot.value = async (): Promise<number> => await base();
+async function top(): Promise<number> { return await slot.value!(); }
+export const result = await top();
+`);
+  const phases: string[] = [];
+
+  const plan = createFixtureEffectPlan(
+    fixture.source,
+    "declared-closed",
+    (phase) => phases.push(phase),
+  );
+  lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.ok(
+    phases.filter((phase) => phase === "effect-indirect-round").length > 1,
+  );
+  assert.equal(
+    phases.filter((phase) => phase === "effect-indirect-storage-topology").length,
+    1,
+  );
+});
+
 test("settles a callable returned by an exact indirect invocation", () => {
   const fixture = checkedEffectFixture(`
 type Callback = () => number | PromiseLike<number>;

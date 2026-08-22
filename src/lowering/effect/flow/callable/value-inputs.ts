@@ -15,6 +15,7 @@ import {
 } from "../collection/inputs.js";
 import { collectCallableStorageInputs } from "../storage/inputs.js";
 import type { CallableStorageContract } from "../storage/contracts.js";
+import type { CallableFields } from "../storage/fields.js";
 import {
   directContainingCall,
   isModuleForwardingReference,
@@ -50,6 +51,7 @@ export function collectCallableValueInputs(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   planningObserver?: TypeScriptPlanningObserver,
+  callableFields?: CallableFields,
 ): CallableValueInputs {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
@@ -112,6 +114,7 @@ export function collectCallableValueInputs(
     exactCallImplementations,
     callableReferenceIsClosed,
     planningObserver,
+    callableFields,
   );
   planningObserver?.("effect-indirect-value-storage");
   const propertyReferences = new Map<Node, ReferenceCounts>();

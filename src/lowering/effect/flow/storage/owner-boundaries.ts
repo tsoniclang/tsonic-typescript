@@ -1,20 +1,5 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import {
-  KindArrayLiteralExpression,
-  KindAsExpression,
-  KindCallExpression,
-  KindConditionalExpression,
-  KindElementAccessExpression,
-  KindIdentifier,
-  KindNewExpression,
-  KindNonNullExpression,
-  KindObjectLiteralExpression,
-  KindParenthesizedExpression,
-  KindPropertyAccessExpression,
-  KindSatisfiesExpression,
-  KindTypeAssertionExpression,
-} from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
@@ -24,13 +9,13 @@ import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { isTransparentParent } from "../callable/input-reference.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import {
-  collectStorageOwnerCarriers,
-  emptyStorageOwnerMembership,
-  ownersWithinStorageType,
   storageValueTypeIsClosed,
-  type StorageOwnerMembership,
 } from "./owner-types.js";
 import { auditStorageOwnerIngress } from "./owner-ingress.js";
+import {
+  createStorageOwnerTopology,
+  type StorageOwnerTopology,
+} from "./owner-topology.js";
 
 export interface StorageOwnerBinding {
   readonly declaration: Node;
@@ -55,34 +40,29 @@ export function auditStorageOwnerBoundaries(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   planningObserver?: TypeScriptPlanningObserver,
+  topology?: StorageOwnerTopology,
 ): void {
   if (owners.size === 0) {
     return;
   }
   const invalid = new Set<Node>();
   const dependencies = new Map<Node, Set<Node>>();
-  const carriers = collectStorageOwnerCarriers(source, program, owners).carriers;
-  planningObserver?.("effect-indirect-storage-carriers");
-  const typeOwners = new Map<Type, StorageOwnerMembership>();
-  const ownersFor = (node: Node): StorageOwnerMembership => {
-    const semantics = source.semantics.forNode(node);
-    const type = semantics.types.expressionType(node);
-    return type === undefined
-      ? emptyStorageOwnerMembership
-      : ownersWithinStorageType(
-        semantics,
-        type,
-        carriers,
-        typeOwners,
-      );
-  };
+  const selectedTopology = topology ?? createStorageOwnerTopology(
+    source,
+    program,
+    owners,
+    planningObserver,
+  );
+  if (!selectedTopology.matches(source, program, owners)) {
+    throw new Error("storage-owner topology does not match its source program");
+  }
   if (validateStoredValues) {
     rejectOpenStorageValues(source, bindings, owners);
   }
   auditStorageOwnerIngress(
     source,
     program,
-    ownersFor,
+    selectedTopology.ownersFor,
     invalid,
     transports,
     invocationInputs,
@@ -92,10 +72,7 @@ export function auditStorageOwnerBoundaries(
   planningObserver?.("effect-indirect-storage-ingress");
   auditInvocations(
     source,
-    program,
-    carriers,
-    ownersFor,
-    typeOwners,
+    selectedTopology,
     invalid,
     dependencies,
     transports,
@@ -104,12 +81,9 @@ export function auditStorageOwnerBoundaries(
   planningObserver?.("effect-indirect-storage-invocations");
   auditValueFlows(
     source,
-    program,
-    carriers,
+    selectedTopology,
     bindings,
     storageDeclarationFor,
-    ownersFor,
-    typeOwners,
     invalid,
     dependencies,
   );
@@ -124,21 +98,14 @@ export function auditStorageOwnerBoundaries(
 
 function auditInvocations(
   source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
-  ownersFor: (node: Node) => StorageOwnerMembership,
-  typeOwners: Map<Type, StorageOwnerMembership>,
+  topology: StorageOwnerTopology,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
   transports: InvocationTransportContract | undefined,
   exactCallImplementations: ExactCallImplementations | undefined,
 ): void {
-  for (const node of program.nodesOfKinds([
-    KindCallExpression,
-    KindNewExpression,
-  ])) {
-    const semantics = source.semantics.forNode(node);
-    const resultOwners = ownersFor(node);
+  for (const invocation of topology.invocations) {
+    const { node, resultOwners } = invocation;
     const projectInvocation = invocationHasProjectImplementation(
       source,
       node,
@@ -154,36 +121,19 @@ function auditInvocations(
         if (
           transport.resultOriginExpressions === undefined ||
           !transport.resultOriginExpressions.some((input) =>
-            ownersFor(input).includes(owner)
+            topology.ownersFor(input).includes(owner)
           )
         ) {
           invalid.add(owner);
         }
       }
     }
-    const arguments_ = source.ast.arguments(node);
-    for (const argument of arguments_) {
-      if (argument === undefined) {
-        continue;
-      }
-      const carried = ownersFor(argument);
-      if (carried.length === 0) {
-        continue;
-      }
-      for (const owner of carried) {
-        if (transport?.inputExpressions.includes(argument)) {
+    for (const argument of invocation.arguments) {
+      for (const owner of argument.owners) {
+        if (transport?.inputExpressions.includes(argument.expression)) {
           continue;
         }
-        const contextual = semantics.types.contextualValueSelection(argument);
-        const retained = contextual.kind === "selected"
-          ? ownersWithinStorageType(
-            semantics,
-            contextual.type,
-            carriers,
-            typeOwners,
-          )
-          : emptyStorageOwnerMembership;
-        if (!projectInvocation || !retained.includes(owner)) {
+        if (!projectInvocation || !argument.contextualOwners.includes(owner)) {
           invalid.add(owner);
         } else {
           for (const resultOwner of resultOwners) {
@@ -192,12 +142,9 @@ function auditInvocations(
         }
       }
     }
-    if (source.ast.is.IsCallExpression(node)) {
-      const receiver = invocationReceiver(source, node);
-      if (receiver !== undefined && !projectInvocation && transport === undefined) {
-        for (const owner of ownersFor(receiver)) {
-          invalid.add(owner);
-        }
+    if (!projectInvocation && transport === undefined) {
+      for (const owner of invocation.receiverOwners) {
+        invalid.add(owner);
       }
     }
   }
@@ -205,56 +152,31 @@ function auditInvocations(
 
 function auditValueFlows(
   source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
+  topology: StorageOwnerTopology,
   bindings: ReadonlyMap<Node, StorageOwnerBinding>,
   storageDeclarationFor: (expression: Node) => Node | undefined,
-  ownersFor: (node: Node) => StorageOwnerMembership,
-  typeOwners: Map<Type, StorageOwnerMembership>,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
 ): void {
-  for (const node of program.nodesOfKinds([
-    KindIdentifier,
-    KindCallExpression,
-    KindNewExpression,
-    KindPropertyAccessExpression,
-    KindElementAccessExpression,
-    KindConditionalExpression,
-    KindArrayLiteralExpression,
-    KindObjectLiteralExpression,
-    KindParenthesizedExpression,
-    KindAsExpression,
-    KindTypeAssertionExpression,
-    KindSatisfiesExpression,
-    KindNonNullExpression,
-  ])) {
-    const carried = ownersFor(node);
-    if (carried.length === 0) {
-      continue;
-    }
-    const child = transparentChild(source, node);
-    if (child !== undefined) {
-      const childOwners = ownersFor(child);
-      for (const owner of carried) {
-        if (!childOwners.includes(owner)) {
+  for (const flow of topology.valueFlows) {
+    const { node, owners } = flow;
+    if (flow.childOwners !== undefined) {
+      for (const owner of owners) {
+        if (!flow.childOwners.includes(owner)) {
           invalid.add(owner);
         }
       }
     }
-    auditTransparentConversion(
-      source,
-      node,
-      carried,
-      carriers,
-      typeOwners,
-      invalid,
-    );
-    const composite = containingCompositeExpression(source, node);
-    if (composite !== undefined) {
-      const compositeOwners = ownersFor(composite);
-      for (const owner of carried) {
-        if (!compositeOwners.includes(owner)) {
+    if (flow.transparentParentOwners !== undefined) {
+      for (const owner of owners) {
+        if (!flow.transparentParentOwners.includes(owner)) {
+          invalid.add(owner);
+        }
+      }
+    }
+    if (flow.compositeOwners !== undefined) {
+      for (const owner of owners) {
+        if (!flow.compositeOwners.includes(owner)) {
           invalid.add(owner);
         }
       }
@@ -266,32 +188,19 @@ function auditValueFlows(
       storageDeclarationFor,
     );
     if (destination?.kind === "open") {
-      for (const owner of carried) {
+      for (const owner of owners) {
         invalid.add(owner);
       }
     } else if (destination?.kind === "closed") {
-      for (const owner of carried) {
+      for (const owner of owners) {
         appendOwnerDependency(dependencies, owner, destination.owner);
       }
     }
-    const semantics = source.semantics.forNode(node);
-    const contextual = semantics.types.contextualValueSelection(node);
-    if (contextual.kind === "unavailable") {
-      continue;
-    }
-    const selected = contextual.kind === "selected"
-      ? [contextual.type]
-      : contextual.types;
-    for (const owner of carried) {
-      if (!selected.some((type) =>
-        ownersWithinStorageType(
-          semantics,
-          type,
-          carriers,
-          typeOwners,
-        ).includes(owner)
-      )) {
-        invalid.add(owner);
+    if (flow.contextualOwners !== undefined) {
+      for (const owner of owners) {
+        if (!flow.contextualOwners.includes(owner)) {
+          invalid.add(owner);
+        }
       }
     }
   }
@@ -319,78 +228,6 @@ function rejectOpenStorageValues(
       }
     }
   }
-}
-
-function auditTransparentConversion(
-  source: TargetSourceProgram,
-  node: Node,
-  carried: StorageOwnerMembership,
-  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
-  typeOwners: Map<Type, StorageOwnerMembership>,
-  invalid: Set<Node>,
-): void {
-  const parent = source.ast.parent(node);
-  if (parent === undefined || !isTransparentParent(source, parent, node)) {
-    return;
-  }
-  const semantics = source.semantics.forNode(parent);
-  const parentType = semantics.types.expressionType(parent);
-  const retained = parentType === undefined
-    ? emptyStorageOwnerMembership
-    : ownersWithinStorageType(
-      semantics,
-      parentType,
-      carriers,
-      typeOwners,
-    );
-  for (const owner of carried) {
-    if (!retained.includes(owner)) {
-      invalid.add(owner);
-    }
-  }
-}
-
-function containingCompositeExpression(
-  source: TargetSourceProgram,
-  expression: Node,
-): Node | undefined {
-  let current = expression;
-  for (;;) {
-    const parent = source.ast.parent(current);
-    if (parent === undefined) {
-      return undefined;
-    }
-    if (
-      source.ast.is.IsObjectLiteralExpression(parent) ||
-      source.ast.is.IsArrayLiteralExpression(parent)
-    ) {
-      return parent;
-    }
-    if (isCompositeBoundary(source, parent)) {
-      return undefined;
-    }
-    current = parent;
-  }
-}
-
-function isCompositeBoundary(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  return source.ast.is.IsCallExpression(node) ||
-    source.ast.is.IsNewExpression(node) ||
-    source.ast.is.IsReturnStatement(node) ||
-    source.ast.is.IsVariableDeclaration(node) ||
-    source.ast.is.IsBinaryExpression(node) ||
-    source.ast.is.IsExpressionStatement(node) ||
-    source.ast.is.IsSourceFile(node) ||
-    source.ast.is.IsFunctionDeclaration(node) ||
-    source.ast.is.IsFunctionExpression(node) ||
-    source.ast.is.IsArrowFunction(node) ||
-    source.ast.is.IsMethodDeclaration(node) ||
-    source.ast.is.IsConstructorDeclaration(node) ||
-    source.ast.is.IsGetAccessorDeclaration(node) ||
-    source.ast.is.IsSetAccessorDeclaration(node);
 }
 
 function storageDestination(
@@ -442,19 +279,6 @@ function storageDestination(
   }
 }
 
-function invocationReceiver(source: TargetSourceProgram, call: Node): Node | undefined {
-  const expression = source.ast.as.AsCallExpression(call)?.Expression;
-  if (expression === undefined) {
-    return undefined;
-  }
-  if (source.ast.is.IsPropertyAccessExpression(expression)) {
-    return source.ast.as.AsPropertyAccessExpression(expression)?.Expression;
-  }
-  return source.ast.is.IsElementAccessExpression(expression)
-    ? source.ast.as.AsElementAccessExpression(expression)?.Expression
-    : undefined;
-}
-
 function declarationHasProjectBody(
   source: TargetSourceProgram,
   declaration: Node | undefined,
@@ -502,24 +326,6 @@ function invocationHasProjectImplementation(
       member === undefined ||
       !source.ast.is.IsConstructorDeclaration(member)
     );
-}
-
-function transparentChild(source: TargetSourceProgram, node: Node): Node | undefined {
-  if (source.ast.is.IsParenthesizedExpression(node)) {
-    return source.ast.as.AsParenthesizedExpression(node)?.Expression;
-  }
-  if (source.ast.is.IsAsExpression(node)) {
-    return source.ast.as.AsAsExpression(node)?.Expression;
-  }
-  if (source.ast.is.IsTypeAssertion(node)) {
-    return source.ast.as.AsTypeAssertion(node)?.Expression;
-  }
-  if (source.ast.is.IsSatisfiesExpression(node)) {
-    return source.ast.as.AsSatisfiesExpression(node)?.Expression;
-  }
-  return source.ast.is.IsNonNullExpression(node)
-    ? source.ast.as.AsNonNullExpression(node)?.Expression
-    : undefined;
 }
 
 function closeInvalidOwners(

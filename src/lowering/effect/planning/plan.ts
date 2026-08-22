@@ -46,6 +46,7 @@ import {
   summarizeCooperativeEffects,
 } from "./summary.js";
 import { connectCooperativeEffectDependency } from "../closure/dependency.js";
+import { collectCallableFields } from "../flow/storage/fields.js";
 
 export type { CooperativeEffectFilePlan } from "./file-plan.js";
 
@@ -95,6 +96,7 @@ export function createClosedCooperativeEffectPlan(
     aggregateProjections,
   );
   planningObserver?.("effect-invocation-inputs");
+  const callableFields = collectCallableFields(source, program);
   const preliminaryIndirectInvocations = createExactIndirectInvocationAnalysis(
     source,
     program,
@@ -104,6 +106,7 @@ export function createClosedCooperativeEffectPlan(
     factOwnedTransports,
     undefined,
     planningObserver,
+    callableFields,
   );
   planningObserver?.("effect-indirect-invocations");
   const interfaces = createDeclaredInterfaceDispatch(
@@ -139,6 +142,7 @@ export function createClosedCooperativeEffectPlan(
         completeTransports,
         (call) => interfaces.calls.get(call)?.implementations,
         planningObserver,
+        callableFields,
       );
   const invocationInputs = indirectInvocations.invocationInputs;
   const bootstrapCallImplementations = (
@@ -162,6 +166,8 @@ export function createClosedCooperativeEffectPlan(
       interfaces.declarations.get(declaration)?.implementations,
     objectProjections,
     indirectInvocations.allowsCallableReference,
+    callableFields,
+    planningObserver,
   );
   planningObserver?.("effect-callable-flow");
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
