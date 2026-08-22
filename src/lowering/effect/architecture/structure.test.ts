@@ -225,12 +225,63 @@ test("return provenance resolves only queried roots", () => {
   );
 
   assert.match(source, /queryVertices = new Map<Node, EffectProvenanceVertex>/u);
-  assert.match(source, /return resolvedFor\(vertex\)/u);
+  assert.match(source, /finalizeReturnProvenanceFlow\(/u);
   assert.match(source, /context\.expressions\.clear\(\)/u);
   assert.match(source, /context\.declarations\.clear\(\)/u);
   assert.doesNotMatch(source, /new Set\(queryStates\.values\(\)\)/u);
   assert.doesNotMatch(source, /state\.resolution/u);
   assert.doesNotMatch(source, /expressionResolutions/u);
+
+  const finalization = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "return",
+      "provenance",
+      "finalization.ts",
+    ),
+    "utf8",
+  );
+  assert.match(source, /finalizeReturnProvenanceFlow\(/u);
+  assert.doesNotMatch(
+    finalization,
+    /TargetSourceProgram|ReturnContext|EffectProvenanceGraphBuilder|transparentExpression/u,
+  );
+});
+
+test("return projection discards its value-slot construction graph", () => {
+  const source = readFileSync(
+    join(effectRoot, "flow", "return", "projection.ts"),
+    "utf8",
+  );
+  const candidates = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "return",
+      "projection",
+      "candidates.ts",
+    ),
+    "utf8",
+  );
+  const finalization = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "return",
+      "projection",
+      "finalization.ts",
+    ),
+    "utf8",
+  );
+
+  assert.match(source, /collectReturnProjectionCandidates\(/u);
+  assert.match(source, /finalizeReturnProjectionFlow\(closedInputs\)/u);
+  assert.match(candidates, /!staticallyNonThenable\(source, expression\)/u);
+  assert.doesNotMatch(
+    finalization,
+    /TargetSourceProgram|createExactValueSlotFlow|ExactValueSlotFlow|EffectProvenance/u,
+  );
 });
 
 test("callable, return, and consumer flows share one storage-owner analysis", () => {

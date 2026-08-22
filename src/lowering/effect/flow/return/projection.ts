@@ -3,18 +3,19 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import { createExactValueSlotFlow } from "../value/slot/flow.js";
 import { exactCallableReturnExpressions } from "../invocation/results.js";
 import { callableDispatchIsClosed } from "../../model/syntax.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
+import { collectReturnProjectionCandidates } from "./projection/candidates.js";
+import {
+  finalizeReturnProjectionFlow,
+  type ReturnProjectionFlow,
+} from "./projection/finalization.js";
 
-export interface ReturnProjectionFlow {
-  isDefinitelyNonThenable(
-    expression: Node,
-    expressionProof: (expression: Node) => boolean,
-  ): boolean;
-}
+export type { ReturnProjectionFlow } from "./projection/finalization.js";
 
 export function createReturnProjectionFlow(
   source: TargetSourceProgram,
@@ -23,8 +24,14 @@ export function createReturnProjectionFlow(
   callDeclarations: (call: Node) => Iterable<Node>,
   invocationInputs: ExactInvocationInputIndex,
   transports?: InvocationTransportContract,
+  planningObserver?: TypeScriptPlanningObserver,
 ): ReturnProjectionFlow {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
+  const candidates = collectReturnProjectionCandidates(source, projections);
+  planningObserver?.("effect-return-projections", {
+    candidates: candidates.length,
+    roots: projections.roots.length,
+  });
   const slots = createExactValueSlotFlow(
     source,
     program,
@@ -70,16 +77,15 @@ export function createReturnProjectionFlow(
           });
     },
     invocationInputs,
-    projections.roots,
+    candidates,
+    planningObserver,
   );
-  return Object.freeze({
-    isDefinitelyNonThenable(
-      expression: Node,
-      expressionProof: (expression: Node) => boolean,
-    ): boolean {
-      const result = slots.resultFor(expression);
-      return result?.closed === true &&
-        result.expressions.every(expressionProof);
-    },
-  });
+  const closedInputs = new Map<Node, readonly Node[]>();
+  for (const expression of candidates) {
+    const result = slots.resultFor(expression);
+    if (result?.closed === true) {
+      closedInputs.set(expression, result.expressions);
+    }
+  }
+  return finalizeReturnProjectionFlow(closedInputs);
 }

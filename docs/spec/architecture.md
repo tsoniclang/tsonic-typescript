@@ -667,6 +667,15 @@ all-expression resolution map, retaining recursive construction states, or
 publishing a resolution for an expression outside the inventoried query domain
 is forbidden.
 
+Aggregate return projection has a bounded lifecycle before return provenance.
+The checked type owner excludes every statically non-thenable aggregate read
+before value-slot construction. The one remaining candidate graph is resolved,
+projected into exact closed input rows, and discarded before return provenance
+begins. The published projection capability contains only those rows. Feeding
+the aggregate index's whole root inventory into value-slot construction,
+retaining the slot capability or graph behind the published query, or
+reclassifying by syntax spelling is forbidden.
+
 Synchronous-call dependency closure is computed from those graph resolutions.
 Collection, storage, interface, and returned-callable contracts project from
 canonical resolutions and exact invocation/value projections; they do not

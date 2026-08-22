@@ -10,6 +10,43 @@ import {
   createFixtureEffectPlan as createClosedCooperativeEffectPlan,
 } from "../../test-support/fixture.test-support.js";
 import { lowerCooperativeEffects } from "../../rewrite/transform.js";
+import { createTargetProgramIndex } from "../../../program-index.js";
+import { createExactAggregateProjectionIndex } from "../aggregate/projection.js";
+import { collectReturnProjectionCandidates } from "./projection/candidates.js";
+
+test("roots return projection only at values that may be thenable", () => {
+  const fixture = checkedEffectFixture(`
+interface ThenableValue {
+  then(resolve: (value: number) => void): void;
+}
+declare function pair(): [ThenableValue | undefined, number];
+const possiblyThenable = pair()[0];
+const scalar = pair()[1];
+export const result = [possiblyThenable, scalar];
+`);
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: true,
+  });
+  const projections = createExactAggregateProjectionIndex(
+    fixture.source,
+    program,
+  );
+  const candidates = collectReturnProjectionCandidates(
+    fixture.source,
+    projections,
+  );
+
+  assert.equal(projections.roots.length, 2);
+  assert.deepEqual(
+    candidates.map((candidate) => {
+      const argument = fixture.source.ast.as.AsElementAccessExpression(candidate)
+        ?.ArgumentExpression;
+      return argument === undefined ? undefined : fixture.source.ast.text(argument);
+    }),
+    ["0"],
+  );
+});
 
 test("settles an exact nonthenable result projected from a direct tuple call", () => {
   const fixture = checkedEffectFixture(`
