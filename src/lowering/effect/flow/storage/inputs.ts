@@ -142,36 +142,39 @@ export function collectCallableStorageInputs(
   for (const local of locals) {
     localCounts.set(local, { total: 0, admitted: 0 });
   }
-  for (const node of program.nodesOfKinds([
-    KindIdentifier,
-    KindPropertyAccessExpression,
-    KindElementAccessExpression,
-  ])) {
-    auditFieldUse(
-      source,
-      node,
-      fieldCounts,
-      fieldValues,
-      fields,
-      storageDeclarations,
-      storageSymbols,
-      storageDestinations,
-      inputUses,
-      invocationInputs,
-      callableReferenceIsClosed,
-    );
-    auditCallableLocalUse(
-      source,
-      node,
-      localCounts,
-      localValues,
-      storageDeclarations,
-      storageSymbols,
-      storageDestinations,
-      inputUses,
-      invocationInputs,
-      callableReferenceIsClosed,
-    );
+  for (const [field] of fieldCounts) {
+    for (const reference of source.navigation.referencesToDeclaration(field)) {
+      auditFieldUse(
+        source,
+        reference,
+        fieldCounts,
+        fieldValues,
+        fields,
+        storageDeclarations,
+        storageSymbols,
+        storageDestinations,
+        inputUses,
+        invocationInputs,
+        callableReferenceIsClosed,
+      );
+    }
+  }
+  for (const [local, counts] of localCounts) {
+    for (const reference of source.navigation.referencesToDeclaration(local)) {
+      auditCallableLocalUse(
+        source,
+        reference,
+        local,
+        counts,
+        localValues,
+        storageDeclarations,
+        storageSymbols,
+        storageDestinations,
+        inputUses,
+        invocationInputs,
+        callableReferenceIsClosed,
+      );
+    }
   }
   const validFields = callableFields.close(
     fieldValues,
@@ -354,7 +357,6 @@ function closeParameters(
     source,
     parameters.keys(),
     new Set([...fields, ...locals]),
-    program,
     inputUses,
     invocationInputs,
     callableReferenceIsClosed,

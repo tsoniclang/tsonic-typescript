@@ -1,8 +1,6 @@
 import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
-import type { TargetProgramIndex } from "../../../program-index.js";
 import type { CallableInputUseContract } from "./input-use.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 
@@ -19,7 +17,6 @@ export function indexParameterUses(
   source: TargetSourceProgram,
   parameters: Iterable<Node>,
   destinations: ReadonlySet<Node>,
-  program: TargetProgramIndex,
   inputUses?: CallableInputUseContract,
   invocationInputs?: ExactInvocationInputIndex,
   callableReferenceIsClosed?: (reference: Node) => boolean,
@@ -30,64 +27,68 @@ export function indexParameterUses(
   const dependencies = new Map<Node, Set<Node>>();
   const invalid = new Set<Node>();
   const assignedValues = new Map<Node, Node[]>();
-  for (const node of program.nodesOfKind(KindIdentifier)) {
-    const parameter = declarationForSymbols(source, symbols, node);
-    if (
-      parameter === undefined ||
-      node === source.ast.name(parameter) ||
-      invalid.has(parameter)
-    ) {
-      continue;
-    }
-    const assigned = exactAssignedValue(source, node);
-    if (assigned !== undefined) {
-      append(assignedValues, parameter, assigned);
-      continue;
-    }
-    const transported = transportedCallableDestinations(
-      source,
-      node,
-      allDeclarations,
-      symbols,
-      inputUses,
-    );
-    if (transported !== undefined) {
-      for (const destination of transported) {
-        appendSet(dependencies, parameter, destination);
+  for (const parameter of tracked) {
+    for (const reference of source.navigation.referencesToDeclaration(parameter)) {
+      if (
+        !source.ast.is.IsIdentifier(reference) ||
+        reference === source.ast.name(parameter) ||
+        invalid.has(parameter)
+      ) {
+        continue;
       }
-      continue;
-    }
-    const invocationDestinations = invocationInputs?.parametersFor(node)
-      ?.filter((destination) => allDeclarations.has(destination));
-    if (invocationDestinations !== undefined && invocationDestinations.length !== 0) {
-      for (const destination of invocationDestinations) {
-        appendSet(dependencies, parameter, destination);
+      const assigned = exactAssignedValue(source, reference);
+      if (assigned !== undefined) {
+        append(assignedValues, parameter, assigned);
+        continue;
       }
-      continue;
+      const transported = transportedCallableDestinations(
+        source,
+        reference,
+        allDeclarations,
+        symbols,
+        inputUses,
+      );
+      if (transported !== undefined) {
+        for (const destination of transported) {
+          appendSet(dependencies, parameter, destination);
+        }
+        continue;
+      }
+      const invocationDestinations = invocationInputs?.parametersFor(reference)
+        ?.filter((destination) => allDeclarations.has(destination));
+      if (
+        invocationDestinations !== undefined &&
+        invocationDestinations.length !== 0
+      ) {
+        for (const destination of invocationDestinations) {
+          appendSet(dependencies, parameter, destination);
+        }
+        continue;
+      }
+      if (
+        directContainingCall(source, reference) !== undefined ||
+        callableReferenceIsClosed?.(reference) === true ||
+        isCallableNonEscapingObservation(source, reference)
+      ) {
+        continue;
+      }
+      const destination = trackedInputDestination(
+        source,
+        reference,
+        allDeclarations,
+        symbols,
+      );
+      if (destination === undefined) {
+        invalid.add(parameter);
+        continue;
+      }
+      let targets = dependencies.get(parameter);
+      if (targets === undefined) {
+        targets = new Set();
+        dependencies.set(parameter, targets);
+      }
+      targets.add(destination);
     }
-    if (
-      directContainingCall(source, node) !== undefined ||
-      callableReferenceIsClosed?.(node) === true ||
-      isCallableNonEscapingObservation(source, node)
-    ) {
-      continue;
-    }
-    const destination = trackedInputDestination(
-      source,
-      node,
-      allDeclarations,
-      symbols,
-    );
-    if (destination === undefined) {
-      invalid.add(parameter);
-      continue;
-    }
-    let targets = dependencies.get(parameter);
-    if (targets === undefined) {
-      targets = new Set();
-      dependencies.set(parameter, targets);
-    }
-    targets.add(destination);
   }
   for (const values of assignedValues.values()) {
     Object.freeze(values);

@@ -52,7 +52,10 @@ tests mutate the supplied source-navigation result and must retain the complete
 affected flow. Shared Tsonic owns independent omission, duplication,
 re-parenting, and foreign-node mutations for the graph itself. Broad searches
 prove that no target family constructs a second whole-program reverse-reference
-index or retains a target-owned reference row.
+index or retains a target-owned reference row. A structural mutation gate also
+requires declaration-bounded callable and storage consumers to query the
+source-owned reverse graph directly and rejects restoration of identifier or
+mixed-reference bucket scans at those owners.
 
 A scaling fixture doubles nodes and edges while keeping shape constant. Actual
 index/planner operation counts must grow proportionally; a quadratic control

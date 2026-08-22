@@ -1,11 +1,6 @@
 import type { Node, Symbol, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import {
-  KindConstructor,
-  KindElementAccessExpression,
-  KindIdentifier,
-  KindPropertyAccessExpression,
-} from "@tsonic/tsts/target-ast";
+import { KindConstructor } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import {
@@ -26,7 +21,6 @@ import {
 import type { CallableInputUseContract } from "./input-use.js";
 import type { ExactCallImplementations } from "./result-inputs.js";
 import {
-  declarationForSymbols,
   indexDeclarationSymbols,
   isCallableNonEscapingObservation,
   isTransparentParent,
@@ -97,12 +91,12 @@ export function collectCallableValueInputs(
   for (const classDeclaration of constructorClasses.values()) {
     classReferences.set(classDeclaration, { total: 0, admitted: 0 });
   }
-  const classSymbols = indexDeclarationSymbols(
-    source,
-    classReferences.keys(),
-  );
-  for (const node of program.nodesOfKind(KindIdentifier)) {
-    auditClassReference(source, node, classReferences, classSymbols);
+  for (const [classDeclaration, counts] of classReferences) {
+    for (const reference of source.navigation.referencesToDeclaration(
+      classDeclaration,
+    )) {
+      auditClassReference(source, reference, classDeclaration, counts);
+    }
   }
   const storage = collectCallableStorageInputs(
     source,
@@ -117,30 +111,26 @@ export function collectCallableValueInputs(
   for (const parameter of constructorParameters) {
     propertyReferences.set(parameter, { total: 0, admitted: 0 });
   }
-  const propertySymbols = indexDeclarationSymbols(
-    source,
-    propertyReferences.keys(),
-  );
   const closedStorageSymbols = indexDeclarationSymbols(
     source,
     storage.closed,
   );
-  for (const node of program.nodesOfKinds([
-    KindIdentifier,
-    KindPropertyAccessExpression,
-    KindElementAccessExpression,
-  ])) {
-    auditPropertyReference(
-      source,
-      node,
-      propertyReferences,
-      propertySymbols,
-      storage.closed,
-      closedStorageSymbols,
-      inputUses,
-      invocationInputs,
-      callableReferenceIsClosed,
-    );
+  for (const [parameter, counts] of propertyReferences) {
+    for (const reference of source.navigation.referencesToDeclaration(
+      parameter,
+    )) {
+      auditPropertyReference(
+        source,
+        reference,
+        parameter,
+        counts,
+        storage.closed,
+        closedStorageSymbols,
+        inputUses,
+        invocationInputs,
+        callableReferenceIsClosed,
+      );
+    }
   }
 
   const constructorClosed = new Set<Node>();
@@ -214,54 +204,46 @@ export function collectCallableValueInputs(
 
 function auditClassReference(
   source: TargetSourceProgram,
-  node: Node,
-  tracked: ReadonlyMap<Node, ReferenceCounts>,
-  trackedSymbols: ReadonlyMap<Symbol, Node>,
+  reference: Node,
+  declaration: Node,
+  counts: ReferenceCounts,
 ): void {
-  if (tracked.size === 0 || !source.ast.is.IsIdentifier(node)) {
+  if (!source.ast.is.IsIdentifier(reference)) {
     return;
   }
-  const declaration = declarationForSymbols(source, trackedSymbols, node);
-  const counts = declaration === undefined ? undefined : tracked.get(declaration);
   if (
-    counts === undefined ||
-    node === source.ast.name(declaration) ||
-    isTypeOnlyReference(source, node) ||
-    isModuleForwardingReference(source, node)
+    reference === source.ast.name(declaration) ||
+    isTypeOnlyReference(source, reference) ||
+    isModuleForwardingReference(source, reference)
   ) {
     return;
   }
   counts.total += 1;
-  if (directContainingNew(source, node) !== undefined) {
+  if (directContainingNew(source, reference) !== undefined) {
     counts.admitted += 1;
   }
 }
 
 function auditPropertyReference(
   source: TargetSourceProgram,
-  node: Node,
-  tracked: ReadonlyMap<Node, ReferenceCounts>,
-  trackedSymbols: ReadonlyMap<Symbol, Node>,
+  reference: Node,
+  declaration: Node,
+  counts: ReferenceCounts,
   closedStorage: ReadonlySet<Node>,
   closedStorageSymbols: ReadonlyMap<Symbol, Node>,
   inputUses?: CallableInputUseContract,
   invocationInputs?: ExactInvocationInputIndex,
   callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
-  if (tracked.size === 0) {
-    return;
-  }
-  if (source.ast.is.IsPropertyAccessExpression(node)) {
-    const selected = source.semantics.forNode(node)
-      .operations.propertyAccess(node);
+  if (source.ast.is.IsPropertyAccessExpression(reference)) {
+    const selected = source.semantics.forNode(reference)
+      .operations.propertyAccess(reference);
     countPropertyUse(
-      selected?.selectedDeclaration === undefined
-        ? undefined
-        : tracked.get(selected.selectedDeclaration),
+      selected?.selectedDeclaration === declaration ? counts : undefined,
       selected !== undefined &&
         propertyUseIsAdmitted(
           source,
-          node,
+          reference,
           closedStorage,
           closedStorageSymbols,
           inputUses,
@@ -273,17 +255,15 @@ function auditPropertyReference(
     );
     return;
   }
-  if (source.ast.is.IsElementAccessExpression(node)) {
-    const selected = source.semantics.forNode(node)
-      .operations.elementAccess(node);
+  if (source.ast.is.IsElementAccessExpression(reference)) {
+    const selected = source.semantics.forNode(reference)
+      .operations.elementAccess(reference);
     countPropertyUse(
-      selected?.selectedDeclaration === undefined
-        ? undefined
-        : tracked.get(selected.selectedDeclaration),
+      selected?.selectedDeclaration === declaration ? counts : undefined,
       selected !== undefined &&
         propertyUseIsAdmitted(
           source,
-          node,
+          reference,
           closedStorage,
           closedStorageSymbols,
           inputUses,
@@ -296,22 +276,15 @@ function auditPropertyReference(
     return;
   }
   if (
-    !source.ast.is.IsIdentifier(node) ||
-    isPropertyAccessName(source, node)
+    !source.ast.is.IsIdentifier(reference) ||
+    isPropertyAccessName(source, reference)
   ) {
     return;
   }
-  const declaration = declarationForSymbols(
-    source,
-    trackedSymbols,
-    node,
-  );
-  const counts = declaration === undefined ? undefined : tracked.get(declaration);
   if (
-    counts !== undefined &&
-    node !== source.ast.name(declaration) &&
-    !isTypeOnlyReference(source, node) &&
-    !isModuleForwardingReference(source, node)
+    reference !== source.ast.name(declaration) &&
+    !isTypeOnlyReference(source, reference) &&
+    !isModuleForwardingReference(source, reference)
   ) {
     counts.total += 1;
   }

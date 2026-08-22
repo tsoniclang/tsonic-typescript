@@ -1,16 +1,9 @@
-import type { Node, Symbol } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import {
-  KindClassDeclaration,
-  KindIdentifier,
-} from "@tsonic/tsts/target-ast";
+import { KindClassDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import {
-  declarationForSymbols,
-  indexDeclarationSymbols,
-  isTransparentParent,
-} from "../callable/input-reference.js";
+import { isTransparentParent } from "../callable/input-reference.js";
 import { isModuleForwardingReference } from "../../model/syntax.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 
@@ -24,9 +17,10 @@ export function collectClosedStorageOwners(
       owners.add(declaration);
     }
   }
-  const symbols = indexDeclarationSymbols(source, owners);
-  for (const node of program.nodesOfKind(KindIdentifier)) {
-    auditClassReference(source, node, owners, symbols);
+  for (const owner of [...owners]) {
+    for (const reference of source.navigation.referencesToDeclaration(owner)) {
+      auditClassReference(source, reference, owner, owners);
+    }
   }
   return owners;
 }
@@ -46,12 +40,10 @@ export function classCanOwnStorage(
 function auditClassReference(
   source: TargetSourceProgram,
   reference: Node,
+  owner: Node,
   owners: Set<Node>,
-  symbols: ReadonlyMap<Symbol, Node>,
 ): void {
-  const owner = declarationForSymbols(source, symbols, reference);
   if (
-    owner === undefined ||
     !owners.has(owner) ||
     reference === source.ast.name(owner) ||
     isTypeOnlyReference(source, reference) ||

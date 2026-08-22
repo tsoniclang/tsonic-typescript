@@ -77,6 +77,28 @@ test("forbids every superseded target-owned reference-index shape", () => {
   );
 });
 
+test("requires declaration-bounded reference consumers", () => {
+  const consumers = [
+    "src/lowering/effect/flow/callable/input-reference.ts",
+    "src/lowering/effect/flow/callable/value-inputs.ts",
+    "src/lowering/effect/flow/storage/owners.ts",
+  ];
+  for (const path of consumers) {
+    const source = readFileSync(join(process.cwd(), path), "utf8");
+    assert.match(source, /referencesToDeclaration\s*\(/u, path);
+    assert.doesNotMatch(source, /nodesOfKind\(KindIdentifier\)/u, path);
+    assert.doesNotMatch(
+      source,
+      /nodesOfKinds\(\[[\s\S]{0,160}KindIdentifier/u,
+      path,
+    );
+  }
+  assert.match(
+    "program.nodesOfKind(KindIdentifier)",
+    /nodesOfKind\(KindIdentifier\)/u,
+  );
+});
+
 function productionTypeScriptFiles(root: string): readonly string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const path = join(root, entry.name);

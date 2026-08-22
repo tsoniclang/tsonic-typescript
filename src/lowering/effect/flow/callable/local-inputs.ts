@@ -11,7 +11,6 @@ import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 
 import { callableDeclarationAllowsSynchronousValue } from "../../model/callable-contract.js";
 import {
-  declarationForSymbols,
   isCallableNonEscapingObservation,
   trackedInputDestination,
   transportedCallableDestinations,
@@ -98,8 +97,9 @@ function inferredTypeIsCallable(
 
 export function auditCallableLocalUse(
   source: TargetSourceProgram,
-  node: Node,
-  tracked: ReadonlyMap<Node, ReferenceCounts>,
+  reference: Node,
+  local: Node,
+  counts: ReferenceCounts,
   values: Map<Node, Node[]>,
   storageDeclarations: ReadonlySet<Node>,
   storageSymbols: ReadonlyMap<Symbol, Node>,
@@ -108,22 +108,18 @@ export function auditCallableLocalUse(
   invocationInputs?: ExactInvocationInputIndex,
   callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
-  if (!source.ast.is.IsIdentifier(node)) {
+  if (!source.ast.is.IsIdentifier(reference)) {
     return;
   }
-  const local = declarationForSymbols(source, storageSymbols, node);
-  const counts = local === undefined ? undefined : tracked.get(local);
   if (
-    local === undefined ||
-    counts === undefined ||
-    node === source.ast.name(local) ||
-    isModuleForwardingReference(source, node) ||
-    isTypeOnlyReference(source, node)
+    reference === source.ast.name(local) ||
+    isModuleForwardingReference(source, reference) ||
+    isTypeOnlyReference(source, reference)
   ) {
     return;
   }
   counts.total += 1;
-  const assigned = exactAssignedValue(source, node);
+  const assigned = exactAssignedValue(source, reference);
   if (assigned !== undefined) {
     append(values, local, assigned);
     counts.admitted += 1;
@@ -131,23 +127,23 @@ export function auditCallableLocalUse(
   }
   const destination = trackedInputDestination(
     source,
-    node,
+    reference,
     storageDeclarations,
     storageSymbols,
   );
   const transported = transportedCallableDestinations(
     source,
-    node,
+    reference,
     storageDeclarations,
     storageSymbols,
     inputUses,
   );
-  const invocationDestinations = invocationInputs?.parametersFor(node)
+  const invocationDestinations = invocationInputs?.parametersFor(reference)
     ?.filter((parameter) => storageDeclarations.has(parameter)) ?? [];
   if (
-    directContainingCall(source, node) !== undefined ||
-    callableReferenceIsClosed?.(node) === true ||
-    isCallableNonEscapingObservation(source, node) ||
+    directContainingCall(source, reference) !== undefined ||
+    callableReferenceIsClosed?.(reference) === true ||
+    isCallableNonEscapingObservation(source, reference) ||
     destination !== undefined ||
     transported !== undefined ||
     invocationDestinations.length !== 0
