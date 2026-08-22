@@ -10,10 +10,14 @@ export interface ExactIndirectCallableInvocation {
   readonly implementations: readonly Node[];
 }
 
-export interface ExactIndirectInvocationAnalysis {
+export interface ExactIndirectInvocationFacts {
   readonly invocationInputs: ExactInvocationInputIndex;
   implementationsFor(call: Node): readonly Node[] | undefined;
   allowsCallableReference(reference: Node): boolean;
+}
+
+export interface ExactIndirectInvocationAnalysis extends ExactIndirectInvocationFacts {
+  finalize(): ExactIndirectInvocationFacts;
   refine(
     invocationInputs: ExactInvocationInputIndex,
     transports: InvocationTransportContract | undefined,

@@ -43,6 +43,7 @@ import { createProviderInvocationTransport } from "../flow/provider/transport.js
 import { createExactInvocationInputIndex } from "../flow/invocation/inputs.js";
 import {
   createExactIndirectInvocationAnalysis,
+  type ExactIndirectInvocationFacts,
 } from "../flow/invocation/indirect.js";
 import { createExactObjectPropertyProjectionIndex } from "../flow/object/projection.js";
 import {
@@ -104,48 +105,52 @@ export function createClosedCooperativeEffectPlan(
   planningObserver?.("effect-invocation-inputs");
   const storageOwners = createClosedStorageOwnerAnalysis(source, program);
   const callableFields = collectCallableFields(source, program, storageOwners);
-  const preliminaryIndirectInvocations = createExactIndirectInvocationAnalysis(
-    source,
-    program,
-    directInvocationInputs,
-    aggregateProjections,
-    objectProjections,
-    factOwnedTransports,
-    undefined,
-    planningObserver,
-    callableFields,
-  );
-  planningObserver?.("effect-indirect-invocations");
-  const interfaces = createDeclaredInterfaceDispatch(
-    source,
-    program,
-    candidates,
-    interfaceDispatch,
-    factOwnedTransports,
-    sourceIdentityFor,
-    Object.freeze({
-      invocationInputs: preliminaryIndirectInvocations.invocationInputs,
-      exactCallImplementations:
-        preliminaryIndirectInvocations.implementationsFor,
-      callableReferenceIsClosed:
-        preliminaryIndirectInvocations.allowsCallableReference,
+  let interfaces: ReturnType<typeof createDeclaredInterfaceDispatch>;
+  let completeTransports: InvocationTransportContract | undefined;
+  let indirectInvocations: ExactIndirectInvocationFacts;
+  {
+    const preliminaryAnalysis = createExactIndirectInvocationAnalysis(
+      source,
+      program,
+      directInvocationInputs,
       aggregateProjections,
       objectProjections,
-    }),
-  );
-  planningObserver?.("effect-interface-dispatch");
-  const completeTransports = composeInvocationTransportContracts([
-    factOwnedTransports,
-    interfaces.invocationTransports,
-  ]);
-  const indirectInvocations = interfaceDispatch === "open-structural"
-    ? preliminaryIndirectInvocations
-    : preliminaryIndirectInvocations.refine(
-        interfaces.invocationInputs,
-        completeTransports,
-        (call) => interfaces.calls.get(call)?.implementations,
-        planningObserver,
-      );
+      factOwnedTransports,
+      undefined,
+      planningObserver,
+      callableFields,
+    );
+    const preliminaryFacts = preliminaryAnalysis.finalize();
+    planningObserver?.("effect-indirect-invocations");
+    interfaces = createDeclaredInterfaceDispatch(
+      source,
+      program,
+      candidates,
+      interfaceDispatch,
+      factOwnedTransports,
+      sourceIdentityFor,
+      Object.freeze({
+        invocationInputs: preliminaryFacts.invocationInputs,
+        exactCallImplementations: preliminaryFacts.implementationsFor,
+        callableReferenceIsClosed: preliminaryFacts.allowsCallableReference,
+        aggregateProjections,
+        objectProjections,
+      }),
+    );
+    planningObserver?.("effect-interface-dispatch");
+    completeTransports = composeInvocationTransportContracts([
+      factOwnedTransports,
+      interfaces.invocationTransports,
+    ]);
+    indirectInvocations = interfaceDispatch === "open-structural"
+      ? preliminaryFacts
+      : preliminaryAnalysis.refine(
+          interfaces.invocationInputs,
+          completeTransports,
+          (call) => interfaces.calls.get(call)?.implementations,
+          planningObserver,
+        ).finalize();
+  }
   const invocationInputs = indirectInvocations.invocationInputs;
   const bootstrapCallImplementations = (
     call: Node,

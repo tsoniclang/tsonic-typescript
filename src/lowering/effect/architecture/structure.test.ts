@@ -295,6 +295,54 @@ test("callable value finalization severs transient census state", () => {
   );
 });
 
+test("effect flow finalizers retain only settled query capabilities", () => {
+  const callableConstruction = readFileSync(
+    join(effectRoot, "flow", "callable", "provenance-flow.ts"),
+    "utf8",
+  );
+  const callableFinalization = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "callable",
+      "provenance",
+      "finalization.ts",
+    ),
+    "utf8",
+  );
+  const indirectConstruction = readFileSync(
+    join(effectRoot, "flow", "invocation", "indirect.ts"),
+    "utf8",
+  );
+  const indirectFinalization = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "invocation",
+      "indirect",
+      "finalization.ts",
+    ),
+    "utf8",
+  );
+  const plan = readFileSync(
+    join(effectRoot, "planning", "plan.ts"),
+    "utf8",
+  );
+
+  assert.match(callableConstruction, /finalizeGraphCallableValueFlow\(/u);
+  assert.doesNotMatch(
+    callableFinalization,
+    /CallableContext|EffectProvenanceGraphBuilder|resolveEffectProvenance|collectUnsafeCallableUses/u,
+  );
+  assert.match(indirectConstruction, /finalizeExactIndirectInvocationFacts\(/u);
+  assert.doesNotMatch(
+    indirectFinalization,
+    /TargetSourceProgram|ExactIndirectInvocationDomain|ExactIndirectInvocationRound|settleExactIndirectInvocationAnalysis|projectionCandidates|refine\s*\(/u,
+  );
+  assert.match(plan, /preliminaryAnalysis\.finalize\(\)/u);
+  assert.match(plan, /\)\.finalize\(\)/u);
+});
+
 test("callable result projection owns one value-slot graph", () => {
   const flow = readFileSync(
     join(effectRoot, "flow", "callable", "provenance-flow.ts"),

@@ -20,10 +20,12 @@ import type {
   ExactIndirectInvocationAnalysis,
   ExactIndirectInvocationRound,
 } from "./indirect/model.js";
+import { finalizeExactIndirectInvocationFacts } from "./indirect/finalization.js";
 
 export type {
   ExactIndirectCallableInvocation,
   ExactIndirectInvocationAnalysis,
+  ExactIndirectInvocationFacts,
 } from "./indirect/model.js";
 interface ExactIndirectInvocationDomain {
   readonly source: TargetSourceProgram;
@@ -144,19 +146,26 @@ function createAnalysis(
   round: ExactIndirectInvocationRound,
   invocationInputs: ExactInvocationInputIndex,
 ): ExactIndirectInvocationAnalysis {
-  const { source } = domain;
   const implementations = new Map(round.invocations.map((invocation) => [
     invocation.call,
     invocation.implementations,
   ]));
-  return Object.freeze({
+  const callableReferences = new Set(
+    [...round.callableReferences].filter((reference) =>
+      !callableHasOpenInvocationSurface(domain.source, reference)
+    ),
+  );
+  const facts = finalizeExactIndirectInvocationFacts(
     invocationInputs,
-    implementationsFor(call: Node): readonly Node[] | undefined {
-      return implementations.get(call);
-    },
-    allowsCallableReference(reference: Node): boolean {
-      return round.callableReferences.has(reference) &&
-        !callableHasOpenInvocationSurface(source, reference);
+    implementations,
+    callableReferences,
+  );
+  return Object.freeze({
+    invocationInputs: facts.invocationInputs,
+    implementationsFor: facts.implementationsFor,
+    allowsCallableReference: facts.allowsCallableReference,
+    finalize() {
+      return facts;
     },
     refine(
       refinedInputs: ExactInvocationInputIndex,

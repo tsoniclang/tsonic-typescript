@@ -34,7 +34,6 @@ import {
 } from "../invocation/inputs.js";
 import {
   createExactIndirectInvocationAnalysis,
-  type ExactIndirectInvocationAnalysis,
 } from "../invocation/indirect.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import {
@@ -102,7 +101,7 @@ export function createInterfaceContractGraph(
     createExactAggregateProjectionIndex(source, program);
   const objectProjections = indexes?.objectProjections ??
     createExactObjectPropertyProjectionIndex(source, program);
-  const indirectInvocations: ExactIndirectInvocationAnalysis | undefined =
+  const indirectInvocations =
     indexes === undefined
       ? createExactIndirectInvocationAnalysis(
       source,
@@ -111,7 +110,7 @@ export function createInterfaceContractGraph(
       aggregateProjections,
       objectProjections,
       transports,
-      )
+      ).finalize()
       : undefined;
   const invocationInputs = indexes?.invocationInputs ??
     indirectInvocations?.invocationInputs;

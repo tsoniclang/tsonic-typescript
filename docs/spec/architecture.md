@@ -638,6 +638,16 @@ in the caller and cannot be retained accidentally by a JavaScript function
 context. Returning methods directly from the construction function is forbidden
 when that function also owns source-sized transient state.
 
+An indirect-invocation analysis has two explicit lifetimes. Its refinable
+construction capability may retain the candidate domain only while closure is
+being settled. Before interface, callable, or return flow consumes the result,
+it must project through a finalizer into immutable invocation-input,
+implementation, and admitted-reference query facts. Callable provenance follows
+the same rule: graph construction and resolution end before a separate
+finalizer publishes call resolution, admitted-reference, signature-family, and
+settled-return queries. A finalized query may not close over the source program,
+the refinable analysis, its candidate domain, or a graph builder.
+
 Return-local identity flow is demand-driven. Starting from a local reference
 actually reached by return provenance, it walks initializers, exact binding
 writes, and the source-owned reverse-reference graph in both directions to

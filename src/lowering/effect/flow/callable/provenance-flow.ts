@@ -34,7 +34,6 @@ import { typeMayBeCallable } from "../../model/synchronous.js";
 import type { CallableReturnRewrite } from "../../model/callable-contract.js";
 import { collectCallableProjectionCandidates } from "./projection-candidates.js";
 import {
-  allCallableDependenciesAreOptimized,
   createExactCallableValueResolution,
   type CallableValueResolution,
 } from "./value-resolution.js";
@@ -57,6 +56,11 @@ import {
   createEffectProvenanceOriginIndex,
   selectOriginOccurrences,
 } from "../../provenance/origin-index.js";
+import {
+  finalizeGraphCallableValueFlow,
+  type GraphCallableValueFlow,
+  type SettledCallableReturnContract,
+} from "./provenance/finalization.js";
 
 export type CallableBoundaryReason =
   | "inexact-reference"
@@ -74,11 +78,6 @@ export interface CallableState {
 interface ReturnContractState {
   readonly returnTypes: readonly CallableReturnRewrite[];
   readonly state: CallableState;
-}
-
-interface SettledReturnContract {
-  readonly rewrite: CallableReturnRewrite;
-  readonly resolutions: readonly CallableValueResolution[];
 }
 
 export interface CallableContext {
@@ -106,18 +105,6 @@ export interface CallableContext {
   readonly dependents: Map<CallableState, Set<CallableState>>;
   readonly dependencies: Map<CallableState, Set<CallableState>>;
   readonly states: CallableState[];
-}
-
-export interface GraphCallableValueFlow {
-  readonly signatureFamilies: readonly (readonly Node[])[];
-  forEachCall(
-    visitor: (call: Node, resolution: CallableValueResolution) => void,
-  ): void;
-  resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
-  allowsCallableReference(node: Node): boolean;
-  settledReturnTypes(
-    optimized: ReadonlySet<Node>,
-  ): readonly CallableReturnRewrite[];
 }
 
 export function createGraphCallableValueFlow(
@@ -240,7 +227,12 @@ export function createGraphCallableValueFlow(
   });
   planningObserver?.("effect-callable-contracts");
   const graph = context.builder.seal();
-  planningObserver?.("effect-callable-graph");
+  planningObserver?.("effect-callable-graph", {
+    boundaries: graph.boundaries.length,
+    edges: graph.edges.length,
+    origins: graph.origins.length,
+    vertices: graph.vertices.length,
+  });
   const resolved = resolveEffectProvenance(graph);
   planningObserver?.("effect-callable-resolution");
   const origins = createEffectProvenanceOriginIndex(
@@ -303,41 +295,18 @@ export function createGraphCallableValueFlow(
       unsafeCallableUses.has(state) ? [] : [reference]
     ),
   );
-  const settledReturnContracts: readonly SettledReturnContract[] = Object.freeze(
+  const settledReturnContracts: readonly SettledCallableReturnContract[] = Object.freeze(
     [...returnTypes.values()].map(({ rewrite, states }) => Object.freeze({
       rewrite,
       resolutions: Object.freeze(states.map(resolutionForState)),
     })),
   );
   planningObserver?.("effect-callable-finalization");
-  return Object.freeze({
+  return finalizeGraphCallableValueFlow(
     signatureFamilies,
-    forEachCall(
-      visitor: (call: Node, resolution: CallableValueResolution) => void,
-    ): void {
-      for (const [call, resolution] of callResolutions) {
-        visitor(call, resolution);
-      }
-    },
-    resolutionFor(call: Node | undefined): CallableValueResolution | undefined {
-      return call === undefined ? undefined : callResolutions.get(call);
-    },
-    allowsCallableReference(node: Node): boolean {
-      return callableReferenceIsClosed?.(node) === true ||
-        closedCallableReferences.has(node);
-    },
-    settledReturnTypes(
-      optimized: ReadonlySet<Node>,
-    ): readonly CallableReturnRewrite[] {
-      return Object.freeze(settledReturnContracts.flatMap(
-        ({ rewrite, resolutions }) =>
-          resolutions.every((resolution) => {
-            return resolution.closed &&
-              allCallableDependenciesAreOptimized(resolution, optimized);
-          })
-            ? [rewrite]
-            : [],
-      ));
-    },
-  });
+    callResolutions,
+    closedCallableReferences,
+    settledReturnContracts,
+    callableReferenceIsClosed,
+  );
 }

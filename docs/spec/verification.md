@@ -534,6 +534,14 @@ finalizer and excludes its reference-count, class, property, and census maps
 from that finalizer's source. The guarded product bound is the non-vacuous proof:
 inlining the returned methods into the source-sized construction function must
 retain its transient lexical environment and exceed the bound.
+The indirect-invocation gate likewise requires the refinable construction
+analysis to cross an explicit `finalize` boundary before any downstream flow
+receives it. The finalizer accepts only settled invocation-input,
+implementation, and admitted-reference collections; importing the source
+program, round/domain model, candidate ledger, or refinement function into that
+finalizer fails structurally. A mutation that passes the refinable analysis
+downstream, or that restores callable query methods inside graph construction,
+must fail this gate and the guarded whole-product memory bound.
 Mutations that add a producer-binding write or a derived override retain the
 complete flow. The AST proof separately distinguishes a fresh returned
 function expression from an existing function-valued reference, so freshness
