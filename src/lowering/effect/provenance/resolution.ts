@@ -11,84 +11,78 @@ import type {
 import { condenseEffectProvenance } from "./scc.js";
 
 const noEvidence: readonly never[] = Object.freeze([]);
+const noComponents: ReadonlySet<number> = Object.freeze(new Set<number>());
 
 export function resolveEffectProvenance<Reason extends string>(
   graph: EffectProvenanceGraph<Reason>,
 ): EffectProvenanceResolutionIndex<Reason> {
   const condensation = condenseEffectProvenance(graph.vertices, graph.edges);
-  const componentCount = condensation.components.length;
-  const dependencies = emptySets(componentCount);
-  const dependents = emptySets(componentCount);
-  const directOrigins = emptyLists<EffectProvenanceOrigin>(componentCount);
-  const directBoundaries = emptyLists<EffectProvenanceBoundary<Reason>>(
-    componentCount,
-  );
+  const componentCount = condensation.componentCount;
+  const dependencies = new Map<number, Set<number>>();
+  const dependents = new Map<number, Set<number>>();
+  const directOrigins = new Map<number, EffectProvenanceOrigin[]>();
+  const directBoundaries = new Map<
+    number,
+    EffectProvenanceBoundary<Reason>[]
+  >();
   const hasOrigin = new Uint8Array(componentCount);
   const hasBoundary = new Uint8Array(componentCount);
   let work = condensation.work;
 
   for (const edge of graph.edges) {
-    const source = componentFor(condensation.componentForVertex, edge.source);
-    const destination = componentFor(
-      condensation.componentForVertex,
-      edge.destination,
-    );
+    const source = condensation.componentFor(edge.source);
+    const destination = condensation.componentFor(edge.destination);
     if (
       source !== destination &&
-      requiredSet(dependencies, destination).add(source)
+      appendComponent(dependencies, destination, source)
     ) {
-      requiredSet(dependents, source).add(destination);
+      appendComponent(dependents, source, destination);
       work += 1;
     }
   }
   for (const origin of graph.origins) {
-    const component = componentFor(
-      condensation.componentForVertex,
-      origin.vertex,
-    );
-    requiredMutableList(directOrigins, component).push(origin);
+    const component = condensation.componentFor(origin.vertex);
+    appendEvidence(directOrigins, component, origin);
     hasOrigin[component] = 1;
   }
   for (const boundary of graph.boundaries) {
-    const component = componentFor(
-      condensation.componentForVertex,
-      boundary.vertex,
-    );
-    requiredMutableList(directBoundaries, component).push(boundary);
+    const component = condensation.componentFor(boundary.vertex);
+    appendEvidence(directBoundaries, component, boundary);
     hasBoundary[component] = 1;
   }
 
   const remainingDependencies = new Uint32Array(componentCount);
-  const pending: number[] = [];
+  const pending = new Uint32Array(componentCount);
+  let pendingCount = 0;
   for (let component = 0; component < componentCount; component += 1) {
-    const remaining = requiredSet(dependencies, component).size;
+    const remaining = componentsFor(dependencies, component).size;
     remainingDependencies[component] = remaining;
     if (remaining === 0) {
-      pending.push(component);
+      pending[pendingCount] = component;
+      pendingCount += 1;
     }
   }
   let resolvedCount = 0;
-  while (pending.length !== 0) {
-    const component = pending.pop();
-    if (component === undefined) {
-      continue;
-    }
+  while (pendingCount !== 0) {
+    pendingCount -= 1;
+    const component = requiredIndex(pending, pendingCount);
     resolvedCount += 1;
     work += 1;
-    for (const dependent of requiredSet(dependents, component)) {
+    for (const dependent of componentsFor(dependents, component)) {
       if (hasOrigin[component] === 1) {
         hasOrigin[dependent] = 1;
       }
       if (hasBoundary[component] === 1) {
         hasBoundary[dependent] = 1;
       }
-      const remaining = remainingDependencies[dependent];
-      if (remaining === undefined || remaining === 0) {
+      const remaining = requiredIndex(remainingDependencies, dependent);
+      if (remaining === 0) {
         throw new Error("effect provenance dependency count underflowed");
       }
       remainingDependencies[dependent] = remaining - 1;
       if (remaining === 1) {
-        pending.push(dependent);
+        pending[pendingCount] = dependent;
+        pendingCount += 1;
       }
     }
   }
@@ -96,42 +90,36 @@ export function resolveEffectProvenance<Reason extends string>(
     throw new Error("effect provenance component graph remained cyclic");
   }
 
-  const sealedOrigins = Object.freeze(
-    directOrigins.map((selected) => Object.freeze(selected)),
-  );
-  const sealedBoundaries = Object.freeze(
-    directBoundaries.map((selected) => Object.freeze(selected)),
-  );
-  const originEvidence = new Array<
-    readonly EffectProvenanceOrigin[] | undefined
-  >(componentCount);
-  const boundaryEvidence = new Array<
-    readonly EffectProvenanceBoundary<Reason>[] | undefined
-  >(componentCount);
+  for (const evidence of directOrigins.values()) {
+    Object.freeze(evidence);
+  }
+  for (const evidence of directBoundaries.values()) {
+    Object.freeze(evidence);
+  }
+  const originEvidence = new Map<number, readonly EffectProvenanceOrigin[]>();
+  const boundaryEvidence = new Map<
+    number,
+    readonly EffectProvenanceBoundary<Reason>[]
+  >();
   const originOccurrences = new WeakMap<object, readonly Node[]>();
-  const dependencyLists = new Array<readonly number[] | undefined>(
-    componentCount,
-  );
-  const resolutions = new Array<
-    EffectProvenanceResolution<Reason> | undefined
-  >(graph.vertices.length);
-  const componentForVertex = condensation.componentForVertex;
-  const vertices = graph.vertices;
+  const dependencyLists = new Map<number, readonly number[]>();
+  const resolutions = new WeakMap<
+    EffectProvenanceVertex,
+    EffectProvenanceResolution<Reason>
+  >();
   const dependenciesFor = (component: number): readonly number[] => {
-    let selected = dependencyLists[component];
+    let selected = dependencyLists.get(component);
     if (selected === undefined) {
-      selected = Object.freeze([...requiredSet(dependencies, component)]);
-      dependencyLists[component] = selected;
+      selected = Object.freeze([...componentsFor(dependencies, component)]);
+      dependencyLists.set(component, selected);
     }
     return selected;
   };
-
   const originsFor = (component: number): readonly Node[] => {
     const evidence = evidenceFor(
       component,
-      componentCount,
       dependenciesFor,
-      sealedOrigins,
+      directOrigins,
       originEvidence,
     );
     let occurrences = originOccurrences.get(evidence as object);
@@ -145,9 +133,8 @@ export function resolveEffectProvenance<Reason extends string>(
     component: number,
   ): readonly EffectProvenanceBoundary<Reason>[] => evidenceFor(
     component,
-    componentCount,
     dependenciesFor,
-    sealedBoundaries,
+    directBoundaries,
     boundaryEvidence,
   );
 
@@ -156,26 +143,20 @@ export function resolveEffectProvenance<Reason extends string>(
     edgeCount: graph.edges.length,
     work,
     componentFor(vertex: EffectProvenanceVertex): number {
-      if (vertices[vertex.index] !== vertex) {
-        throw new Error("effect provenance resolution received foreign vertex");
-      }
-      return componentFor(componentForVertex, vertex);
+      return condensation.componentFor(vertex);
     },
     forEachComponentDependency(
       visitor: (destination: number, source: number) => void,
     ): void {
       for (let destination = 0; destination < componentCount; destination += 1) {
-        for (const source of requiredSet(dependencies, destination)) {
+        for (const source of componentsFor(dependencies, destination)) {
           visitor(destination, source);
         }
       }
     },
     resolutionFor(vertex: EffectProvenanceVertex) {
-      if (vertices[vertex.index] !== vertex) {
-        throw new Error("effect provenance resolution received foreign vertex");
-      }
-      const component = componentFor(componentForVertex, vertex);
-      let resolution = resolutions[vertex.index];
+      const component = condensation.componentFor(vertex);
+      let resolution = resolutions.get(vertex);
       if (resolution === undefined) {
         resolution = Object.freeze({
           vertex,
@@ -188,9 +169,8 @@ export function resolveEffectProvenance<Reason extends string>(
           get originEvidence(): readonly EffectProvenanceOrigin[] {
             return evidenceFor(
               component,
-              componentCount,
               dependenciesFor,
-              sealedOrigins,
+              directOrigins,
               originEvidence,
             );
           },
@@ -198,7 +178,7 @@ export function resolveEffectProvenance<Reason extends string>(
             return boundariesFor(component);
           },
         });
-        resolutions[vertex.index] = resolution;
+        resolutions.set(vertex, resolution);
       }
       return resolution;
     },
@@ -207,20 +187,18 @@ export function resolveEffectProvenance<Reason extends string>(
 
 function evidenceFor<Evidence>(
   root: number,
-  componentCount: number,
   dependenciesFor: (component: number) => readonly number[],
-  directEvidence: readonly (readonly Evidence[])[],
-  cache: Array<readonly Evidence[] | undefined>,
+  directEvidence: ReadonlyMap<number, readonly Evidence[]>,
+  cache: Map<number, readonly Evidence[]>,
 ): readonly Evidence[] {
-  const existing = cache[root];
+  const existing = cache.get(root);
   if (existing !== undefined) {
     return existing;
   }
-  const visiting = new Uint8Array(componentCount);
+  const visiting = new Set<number>([root]);
   const pending: Array<{ readonly component: number; next: number }> = [
     { component: root, next: 0 },
   ];
-  visiting[root] = 1;
   while (pending.length !== 0) {
     const frame = pending[pending.length - 1];
     if (frame === undefined) {
@@ -233,29 +211,32 @@ function evidenceFor<Evidence>(
         component: frame.component,
         next: frame.next + 1,
       };
-      if (cache[dependency] === undefined) {
-        if (visiting[dependency] === 1) {
+      if (cache.get(dependency) === undefined) {
+        if (visiting.has(dependency)) {
           throw new Error("effect provenance component evidence remained cyclic");
         }
-        visiting[dependency] = 1;
+        visiting.add(dependency);
         pending.push({ component: dependency, next: 0 });
       }
       continue;
     }
-    cache[frame.component] = mergeEvidence(
-      requiredList(directEvidence, frame.component),
-      selectedDependencies.map((selected) => {
-        const evidence = cache[selected];
-        if (evidence === undefined) {
-          throw new Error("effect provenance dependency evidence is missing");
-        }
-        return evidence;
-      }),
+    cache.set(
+      frame.component,
+      mergeEvidence(
+        directEvidence.get(frame.component) ?? noEvidence,
+        selectedDependencies.map((selected) => {
+          const evidence = cache.get(selected);
+          if (evidence === undefined) {
+            throw new Error("effect provenance dependency evidence is missing");
+          }
+          return evidence;
+        }),
+      ),
     );
-    visiting[frame.component] = 0;
+    visiting.delete(frame.component);
     pending.pop();
   }
-  const resolved = cache[root];
+  const resolved = cache.get(root);
   if (resolved === undefined) {
     throw new Error("effect provenance evidence was not resolved");
   }
@@ -285,54 +266,45 @@ function mergeEvidence<Evidence>(
   ]);
 }
 
-function emptySets(length: number): Array<Set<number>> {
-  return Array.from({ length }, () => new Set<number>());
-}
-
-function emptyLists<Value>(length: number): Value[][] {
-  return Array.from({ length }, (): Value[] => []);
-}
-
-function componentFor(
-  components: readonly number[],
-  vertex: EffectProvenanceVertex,
-): number {
-  const component = components[vertex.index];
-  if (component === undefined) {
-    throw new Error("effect provenance vertex has no component");
+function appendComponent(
+  values: Map<number, Set<number>>,
+  owner: number,
+  selected: number,
+): boolean {
+  let entries = values.get(owner);
+  if (entries === undefined) {
+    entries = new Set();
+    values.set(owner, entries);
   }
-  return component;
+  const previousSize = entries.size;
+  entries.add(selected);
+  return entries.size !== previousSize;
 }
 
-function requiredSet(
-  values: readonly Set<number>[],
-  index: number,
-): Set<number> {
+function componentsFor(
+  values: ReadonlyMap<number, ReadonlySet<number>>,
+  component: number,
+): ReadonlySet<number> {
+  return values.get(component) ?? noComponents;
+}
+
+function appendEvidence<Evidence>(
+  values: Map<number, Evidence[]>,
+  component: number,
+  evidence: Evidence,
+): void {
+  const entries = values.get(component);
+  if (entries === undefined) {
+    values.set(component, [evidence]);
+  } else {
+    entries.push(evidence);
+  }
+}
+
+function requiredIndex(values: Uint32Array, index: number): number {
   const selected = values[index];
   if (selected === undefined) {
-    throw new Error("effect provenance component set is missing");
-  }
-  return selected;
-}
-
-function requiredList<Value>(
-  values: readonly (readonly Value[])[],
-  index: number,
-): readonly Value[] {
-  const selected = values[index];
-  if (selected === undefined) {
-    throw new Error("effect provenance component list is missing");
-  }
-  return selected;
-}
-
-function requiredMutableList<Value>(
-  values: Value[][],
-  index: number,
-): Value[] {
-  const selected = values[index];
-  if (selected === undefined) {
-    throw new Error("effect provenance component list is missing");
+    throw new Error("effect provenance component index is missing");
   }
   return selected;
 }

@@ -571,6 +571,14 @@ this algebra but remain separate semantic graphs with separate owners and
 reason catalogs; there is no universal effect IR and no flow may read another
 flow's mutable construction state.
 
+Condensation stores graph adjacency and vertex-to-component identity in compact
+typed arrays. Component dependencies and direct evidence are sparse: a
+component with no edge, origin, or boundary allocates no collection object.
+The public capability exposes only the component count and exact vertex lookup,
+not mutable arrays or one retained vertex array per component. Dense empty
+adjacency/evidence tables are forbidden because source-sized mostly-acyclic
+graphs would otherwise consume object memory proportional to several full ASTs.
+
 Semantic origin classes are projected from that sealed component graph through
 one provenance-owned persistent-set index. Callable candidate,
 definitely-synchronous, and return-dependency counts are constant-time facts,
@@ -594,12 +602,13 @@ cross-scope, captured, or otherwise unaccounted references still fail the
 reached component closed.
 
 Return provenance distinguishes query roots from recursively discovered
-construction states. Finalization attaches one component-shared immutable
-resolution to each query-root state, clears every transient expression and
-declaration construction map, and exposes only those query cells. Building a
-second all-expression resolution map, retaining recursive construction states,
-or publishing a resolution for an expression outside the inventoried query
-domain is forbidden.
+construction states. Finalization retains only each query root's canonical
+component vertex, clears every transient expression and declaration
+construction map, and materializes a component-shared immutable resolution on
+first consumer query. Eagerly resolving every query root, building a second
+all-expression resolution map, retaining recursive construction states, or
+publishing a resolution for an expression outside the inventoried query domain
+is forbidden.
 
 Synchronous-call dependency closure is computed from those graph resolutions.
 Collection, storage, interface, and returned-callable contracts project from

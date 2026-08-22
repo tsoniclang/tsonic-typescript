@@ -178,6 +178,25 @@ test("origin selection consumes the resolver-owned component graph", () => {
   }
 });
 
+test("provenance condensation uses compact sparse storage", () => {
+  const condensation = readFileSync(
+    join(effectRoot, "provenance", "scc.ts"),
+    "utf8",
+  );
+  const resolution = readFileSync(
+    join(effectRoot, "provenance", "resolution.ts"),
+    "utf8",
+  );
+
+  assert.match(condensation, /new Uint32Array\(vertices\.length\)/u);
+  assert.match(condensation, /componentCount/u);
+  assert.doesNotMatch(condensation, /number\[\]\s*=>\s*\[\]/u);
+  assert.doesNotMatch(condensation, /readonly \(readonly EffectProvenanceVertex\[\]\)\[\]/u);
+  assert.match(resolution, /new Map<number, Set<number>>\(\)/u);
+  assert.doesNotMatch(resolution, /emptySets\(componentCount\)/u);
+  assert.doesNotMatch(resolution, /emptyLists/u);
+});
+
 test("return-local topology is demand-driven from source references", () => {
   const source = readFileSync(
     join(effectRoot, "flow", "return", "local", "topology.ts"),

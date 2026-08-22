@@ -101,28 +101,21 @@ export function propagateEffectBlockers(
     [...graphVertices].map(([owner, vertex]) => [vertex, owner]),
   );
   for (const [owner, graphVertex] of graphVertices) {
-    const component = condensed.componentForVertex[graphVertex.index];
-    if (component === undefined) {
-      throw new Error("effect blocker vertex has no SCC component");
-    }
-    componentForVertex.set(owner, component);
+    componentForVertex.set(owner, condensed.componentFor(graphVertex));
   }
-  const states: ComponentState[] = condensed.components.map(() => ({
+  const states: ComponentState[] = Array.from(
+    { length: condensed.componentCount },
+    () => ({
     dependencies: new Set(),
     dependents: new Map(),
     witnesses: new Map(),
     remaining: 0,
-  }));
+    }),
+  );
   let work = condensed.work;
   for (const edge of graph.edges) {
-    const source = requiredComponentIndex(
-      condensed.componentForVertex,
-      edge.source,
-    );
-    const destination = requiredComponentIndex(
-      condensed.componentForVertex,
-      edge.destination,
-    );
+    const source = condensed.componentFor(edge.source);
+    const destination = condensed.componentFor(edge.destination);
     if (source === destination) {
       continue;
     }
@@ -133,28 +126,23 @@ export function propagateEffectBlockers(
     }
   }
   let occurrenceOrder = 0;
-  for (const [componentIndex, component] of condensed.components.entries()) {
+  for (const [owner, graphVertex] of graphVertices) {
+    const componentIndex = condensed.componentFor(graphVertex);
     const state = requiredState(states, componentIndex);
-    for (const graphVertex of component) {
-      const owner = ownerForGraphVertex.get(graphVertex);
-      if (owner === undefined) {
-        throw new Error("effect blocker SCC lost its candidate owner");
+    for (const [reason, occurrences] of owner.directBlockerNodes) {
+      const rootOrder = order.get(owner);
+      if (rootOrder === undefined) {
+        throw new Error("effect blocker root lost its occurrence or order");
       }
-      for (const [reason, occurrences] of owner.directBlockerNodes) {
-        const rootOrder = order.get(owner);
-        if (rootOrder === undefined) {
-          throw new Error("effect blocker root lost its occurrence or order");
-        }
-        for (const occurrence of occurrences) {
-          selectWitness(state.witnesses, reason, {
-            root: owner,
-            occurrence,
-            rootOrder,
-            occurrenceOrder,
-            distance: 0,
-          });
-          occurrenceOrder += 1;
-        }
+      for (const occurrence of occurrences) {
+        selectWitness(state.witnesses, reason, {
+          root: owner,
+          occurrence,
+          rootOrder,
+          occurrenceOrder,
+          distance: 0,
+        });
+        occurrenceOrder += 1;
       }
     }
   }
@@ -229,7 +217,7 @@ export function propagateEffectBlockers(
                   reason,
                   witness,
                   states,
-                  condensed.componentForVertex,
+                  condensed.componentFor,
                   dependencyEdges,
                   internalPaths,
                   graphVertices,
@@ -250,7 +238,7 @@ function blockerPath(
   reason: CooperativeEffectFallbackReason,
   witness: BlockerWitness,
   states: readonly ComponentState[],
-  componentForVertex: readonly number[],
+  componentForVertex: (vertex: EffectProvenanceVertex) => number,
   dependencyEdges: ReadonlyMap<
     EffectProvenanceVertex,
     readonly EffectProvenanceEdge[]
@@ -364,7 +352,7 @@ function internalPath(
   from: EffectProvenanceVertex,
   to: EffectProvenanceVertex,
   component: number,
-  componentForVertex: readonly number[],
+  componentForVertex: (vertex: EffectProvenanceVertex) => number,
   dependencyEdges: ReadonlyMap<
     EffectProvenanceVertex,
     readonly EffectProvenanceEdge[]
@@ -392,7 +380,7 @@ function internalPath(
     for (const edge of dependencyEdges.get(current) ?? []) {
       const next = edge.source;
       if (
-        componentForVertex[next.index] !== component ||
+        componentForVertex(next) !== component ||
         next === from ||
         previous.has(next)
       ) {
@@ -472,17 +460,6 @@ function requiredGraphVertex(
   const selected = vertices.get(vertex);
   if (selected === undefined) {
     throw new Error("effect dependency references a non-candidate vertex");
-  }
-  return selected;
-}
-
-function requiredComponentIndex(
-  components: readonly number[],
-  vertex: EffectProvenanceVertex,
-): number {
-  const selected = components[vertex.index];
-  if (selected === undefined) {
-    throw new Error("effect dependency vertex has no SCC component");
   }
   return selected;
 }

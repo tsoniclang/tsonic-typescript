@@ -132,6 +132,23 @@ test("provenance evidence is shared through a long dependency chain", () => {
   }
 });
 
+test("mostly isolated provenance stays sparse and query-bounded", () => {
+  const builder = createEffectProvenanceGraphBuilder<never>();
+  const vertices = Array.from(
+    { length: 32_768 },
+    () => builder.vertex("expression", node()),
+  );
+  const selected = vertices[17_000];
+  assert.ok(selected !== undefined);
+  builder.addOrigin(selected, selected.occurrence);
+
+  const resolutions = resolveEffectProvenance(builder.seal());
+
+  assert.equal(resolutions.componentCount, vertices.length);
+  assert.ok(resolutions.work < vertices.length * 4);
+  assert.equal(resolutions.resolutionFor(selected).closed, true);
+});
+
 function node(): Node {
   return Object.freeze({}) as Node;
 }

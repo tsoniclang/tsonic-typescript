@@ -69,6 +69,10 @@ component-dependency gate proves the shared index consumes resolver-owned
 component identities and edges rather than re-deriving SCCs or edge
 orientation; structural inspection rejects callable or return consumers that
 flatten transitive origin arrays.
+The condensation mutation gate rejects one empty array/set per vertex or
+component and requires compact typed adjacency plus sparse component evidence.
+A mostly-isolated graph fixture preserves exact component counts and a bounded
+work ratio while querying only selected roots.
 The return-local fixture proves both directions of an exact alias component and
 contrasts awaited, returned, captured, and escaped reads. A structural gate
 requires demand-driven source-reference traversal and rejects restoration of a
