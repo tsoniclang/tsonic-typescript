@@ -147,12 +147,10 @@ const deferred = import("../deferred.js");
   );
 });
 
-test("callable origins consume the resolver-owned component graph", () => {
+test("origin selection consumes the resolver-owned component graph", () => {
   const source = readFileSync(
     join(
       effectRoot,
-      "flow",
-      "callable",
       "provenance",
       "origin-index.ts",
     ),
@@ -160,7 +158,17 @@ test("callable origins consume the resolver-owned component graph", () => {
   );
 
   assert.match(source, /resolutions\.forEachComponentDependency/u);
+  assert.match(source, /resolutions\.componentFor/u);
   assert.doesNotMatch(source, /graph\.edges|condenseEffectProvenance/u);
+
+  for (const consumer of [
+    join(effectRoot, "flow", "callable", "provenance-flow.ts"),
+    join(effectRoot, "flow", "return", "provenance.ts"),
+  ]) {
+    const consumerSource = readFileSync(consumer, "utf8");
+    assert.match(consumerSource, /createEffectProvenanceOriginIndex/u);
+    assert.doesNotMatch(consumerSource, /\.origins\.filter/u);
+  }
 });
 
 function directoryNames(root: string): string[] {

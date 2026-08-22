@@ -4,17 +4,27 @@ import type {
   EffectProvenanceGraph,
   EffectProvenanceResolutionIndex,
   EffectProvenanceVertex,
-} from "../../../provenance/model.js";
-import type { ExactCallableNodeSet } from "../value-resolution.js";
+} from "./model.js";
 
-export interface CallableOriginSelection {
-  readonly candidates: ExactCallableNodeSet;
-  readonly synchronous: ExactCallableNodeSet;
+export interface ExactProvenanceNodeSet {
+  readonly count: number;
+  nodes(): Iterable<Node>;
 }
 
-export interface CallableOriginIndex {
+export interface EffectProvenanceOriginIndex {
   readonly work: number;
-  selectionFor(vertex: EffectProvenanceVertex): CallableOriginSelection;
+  selectionFor(
+    vertex: EffectProvenanceVertex,
+    originClass: number,
+  ): ExactProvenanceNodeSet;
+}
+
+interface OriginClassState {
+  readonly indexes: ReadonlyMap<Node, number>;
+  readonly values: readonly Node[];
+  readonly sets: PersistentIndexSets;
+  readonly direct: Array<IndexTrieNode | undefined>;
+  readonly propagated: Array<IndexTrieNode | undefined>;
 }
 
 interface IndexTrieNode {
@@ -25,40 +35,40 @@ interface IndexTrieNode {
   readonly value?: number;
 }
 
-const emptyNodeSet: ExactCallableNodeSet = Object.freeze({
+const emptyNodeSet: ExactProvenanceNodeSet = Object.freeze({
   count: 0,
   nodes(): Iterable<Node> {
     return Object.freeze([]);
   },
 });
 
-export function createCallableOriginIndex<Reason extends string>(
+export function createEffectProvenanceOriginIndex<Reason extends string>(
   graph: EffectProvenanceGraph<Reason>,
   resolutions: EffectProvenanceResolutionIndex<Reason>,
-  candidateOrigins: ReadonlySet<Node>,
-  synchronousOrigins: ReadonlySet<Node>,
-): CallableOriginIndex {
-  const candidateValues: Node[] = [];
-  const synchronousValues: Node[] = [];
-  const candidateIndexes = new Map<Node, number>();
-  const synchronousIndexes = new Map<Node, number>();
-  for (const origin of graph.origins) {
-    if (candidateOrigins.has(origin.occurrence)) {
-      appendOriginIndex(candidateIndexes, candidateValues, origin.occurrence);
-    } else if (synchronousOrigins.has(origin.occurrence)) {
-      appendOriginIndex(
-        synchronousIndexes,
-        synchronousValues,
-        origin.occurrence,
-      );
-    }
+  originClasses: readonly ReadonlySet<Node>[],
+): EffectProvenanceOriginIndex {
+  if (originClasses.length === 0) {
+    throw new Error("effect provenance origin index requires an origin class");
   }
-
-  const candidateSets = createPersistentIndexSets(candidateValues.length);
-  const synchronousSets = createPersistentIndexSets(synchronousValues.length);
   const componentCount = resolutions.componentCount;
+  const classes = originClasses.map((origins): OriginClassState => {
+    const values: Node[] = [];
+    const indexes = new Map<Node, number>();
+    for (const origin of graph.origins) {
+      if (origins.has(origin.occurrence)) {
+        appendOriginIndex(indexes, values, origin.occurrence);
+      }
+    }
+    return {
+      indexes,
+      values,
+      sets: createPersistentIndexSets(values.length),
+      direct: new Array<IndexTrieNode | undefined>(componentCount),
+      propagated: new Array<IndexTrieNode | undefined>(componentCount),
+    };
+  });
   const componentForVertex = graph.vertices.map((vertex) =>
-    resolutions.resolutionFor(vertex).component
+    resolutions.componentFor(vertex)
   );
   const dependencies = emptyComponentSets(componentCount);
   const dependents = emptyComponentSets(componentCount);
@@ -70,33 +80,20 @@ export function createCallableOriginIndex<Reason extends string>(
     work += 1;
   });
 
-  const directCandidates = new Array<IndexTrieNode | undefined>(componentCount);
-  const directSynchronous = new Array<IndexTrieNode | undefined>(componentCount);
   for (const origin of graph.origins) {
     const component = requiredComponent(componentForVertex, origin.vertex);
-    const candidate = candidateIndexes.get(origin.occurrence);
-    if (candidate !== undefined) {
-      directCandidates[component] = candidateSets.union(
-        directCandidates[component],
-        candidateSets.singleton(candidate),
-      );
-    }
-    const synchronous = synchronousIndexes.get(origin.occurrence);
-    if (synchronous !== undefined) {
-      directSynchronous[component] = synchronousSets.union(
-        directSynchronous[component],
-        synchronousSets.singleton(synchronous),
-      );
+    for (const state of classes) {
+      const selected = state.indexes.get(origin.occurrence);
+      if (selected !== undefined) {
+        state.direct[component] = state.sets.union(
+          state.direct[component],
+          state.sets.singleton(selected),
+        );
+      }
     }
     work += 1;
   }
 
-  const candidatesByComponent = new Array<IndexTrieNode | undefined>(
-    componentCount,
-  );
-  const synchronousByComponent = new Array<IndexTrieNode | undefined>(
-    componentCount,
-  );
   const remainingDependencies = new Uint32Array(componentCount);
   const pending: number[] = [];
   for (let component = 0; component < componentCount; component += 1) {
@@ -111,27 +108,22 @@ export function createCallableOriginIndex<Reason extends string>(
     const component = pending[nextPending];
     nextPending += 1;
     if (component === undefined) {
-      throw new Error("callable origin propagation lost a component");
+      throw new Error("effect provenance origin propagation lost a component");
     }
-    let candidates = directCandidates[component];
-    let synchronous = directSynchronous[component];
-    for (const dependency of requiredComponentSet(dependencies, component)) {
-      candidates = candidateSets.union(
-        candidates,
-        candidatesByComponent[dependency],
-      );
-      synchronous = synchronousSets.union(
-        synchronous,
-        synchronousByComponent[dependency],
-      );
-      work += 1;
+    for (const state of classes) {
+      let selected = state.direct[component];
+      for (const dependency of requiredComponentSet(dependencies, component)) {
+        selected = state.sets.union(
+          selected,
+          state.propagated[dependency],
+        );
+      }
+      state.propagated[component] = selected;
     }
-    candidatesByComponent[component] = candidates;
-    synchronousByComponent[component] = synchronous;
     for (const dependent of requiredComponentSet(dependents, component)) {
       const remaining = remainingDependencies[dependent];
       if (remaining === undefined || remaining === 0) {
-        throw new Error("callable origin dependency count underflowed");
+        throw new Error("effect provenance origin dependency count underflowed");
       }
       remainingDependencies[dependent] = remaining - 1;
       if (remaining === 1) {
@@ -141,36 +133,26 @@ export function createCallableOriginIndex<Reason extends string>(
     work += 1;
   }
   if (pending.length !== componentCount) {
-    throw new Error("callable origin component graph remained cyclic");
+    throw new Error("effect provenance origin component graph remained cyclic");
   }
 
-  const selections = new Array<CallableOriginSelection | undefined>(
-    componentCount,
-  );
   return Object.freeze({
     get work(): number {
-      return work + candidateSets.work + synchronousSets.work;
+      return work + classes.reduce((sum, state) => sum + state.sets.work, 0);
     },
-    selectionFor(vertex: EffectProvenanceVertex): CallableOriginSelection {
+    selectionFor(
+      vertex: EffectProvenanceVertex,
+      originClass: number,
+    ): ExactProvenanceNodeSet {
       if (graph.vertices[vertex.index] !== vertex) {
-        throw new Error("callable origin index received a foreign vertex");
+        throw new Error("effect provenance origin index received a foreign vertex");
+      }
+      const state = classes[originClass];
+      if (state === undefined) {
+        throw new Error("effect provenance origin class is invalid");
       }
       const component = requiredComponent(componentForVertex, vertex);
-      let selection = selections[component];
-      if (selection === undefined) {
-        selection = Object.freeze({
-          candidates: candidateSets.nodeSet(
-            candidatesByComponent[component],
-            candidateValues,
-          ),
-          synchronous: synchronousSets.nodeSet(
-            synchronousByComponent[component],
-            synchronousValues,
-          ),
-        });
-        selections[component] = selection;
-      }
-      return selection;
+      return state.sets.nodeSet(state.propagated[component], state.values);
     },
   });
 }
@@ -185,7 +167,7 @@ interface PersistentIndexSets {
   nodeSet(
     root: IndexTrieNode | undefined,
     values: readonly Node[],
-  ): ExactCallableNodeSet;
+  ): ExactProvenanceNodeSet;
 }
 
 function createPersistentIndexSets(valueCount: number): PersistentIndexSets {
@@ -197,7 +179,7 @@ function createPersistentIndexSets(valueCount: number): PersistentIndexSets {
   const leaves = new Map<number, IndexTrieNode>();
   const singletons = new Map<number, IndexTrieNode>();
   const unions = new Map<string, IndexTrieNode>();
-  const nodeSets = new Map<number, ExactCallableNodeSet>();
+  const nodeSets = new Map<number, ExactProvenanceNodeSet>();
   let nextId = 1;
   let work = 0;
 
@@ -289,7 +271,7 @@ function createPersistentIndexSets(valueCount: number): PersistentIndexSets {
     nodeSet(
       root: IndexTrieNode | undefined,
       values: readonly Node[],
-    ): ExactCallableNodeSet {
+    ): ExactProvenanceNodeSet {
       if (root === undefined) {
         return emptyNodeSet;
       }
@@ -357,7 +339,7 @@ function requiredComponent(
 ): number {
   const selected = componentForVertex[vertex.index];
   if (selected === undefined) {
-    throw new Error("callable origin vertex has no component");
+    throw new Error("effect provenance origin vertex has no component");
   }
   return selected;
 }
@@ -368,7 +350,7 @@ function requiredComponentSet(
 ): Set<number> {
   const selected = values[component];
   if (selected === undefined) {
-    throw new Error("callable origin component set is missing");
+    throw new Error("effect provenance origin component set is missing");
   }
   return selected;
 }

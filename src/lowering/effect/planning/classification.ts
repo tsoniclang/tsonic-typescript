@@ -221,7 +221,7 @@ export function collectSettledCooperativeAwaits(
       const returned = returnFlow.resolutionFor(expression);
       if (
         returned.closed &&
-        !hasRetainedDependency(returned.dependencies, candidates, optimized)
+        !hasRetainedDependency(returned.dependencyNodes(), candidates, optimized)
       ) {
         awaits.add(node);
       }
@@ -310,7 +310,7 @@ function classifyAwaitDependencies(
       );
       return;
     }
-    for (const declaration of resolution.dependencies) {
+    for (const declaration of resolution.dependencyNodes()) {
       const candidate = candidates.get(declaration);
       if (candidate === undefined) {
         blockCooperativeEffect(owner, "unresolved-call", expression ?? node);
@@ -465,7 +465,7 @@ function classifyReturnedExpression(
     blockCooperativeEffect(owner, "promise-producing-return", expression);
     return;
   }
-  for (const declaration of returned.dependencies) {
+  for (const declaration of returned.dependencyNodes()) {
     const dependency = candidates.get(declaration);
     if (dependency === undefined) {
       blockCooperativeEffect(owner, "promise-producing-return", expression);

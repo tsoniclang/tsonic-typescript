@@ -18,6 +18,10 @@ import type {
   EffectProvenanceVertex,
 } from "../../provenance/model.js";
 import { resolveEffectProvenance } from "../../provenance/resolution.js";
+import {
+  createEffectProvenanceOriginIndex,
+  type ExactProvenanceNodeSet,
+} from "../../provenance/origin-index.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
@@ -59,7 +63,8 @@ interface ReturnState {
 
 export interface ReturnProvenanceResolution {
   readonly closed: boolean;
-  readonly dependencies: readonly Node[];
+  readonly dependencyCount: number;
+  dependencyNodes(): Iterable<Node>;
 }
 
 export interface ReturnProvenanceFlow {
@@ -171,15 +176,28 @@ export function createReturnProvenanceFlow(
       stateForExpression(body, context);
     }
   }
-  const resolution = resolveEffectProvenance(context.builder.seal());
+  const graph = context.builder.seal();
+  const resolution = resolveEffectProvenance(graph);
+  const origins = createEffectProvenanceOriginIndex(
+    graph,
+    resolution,
+    [context.candidateOrigins],
+  );
+  const resolutionsByComponent = new Map<number, ReturnProvenanceResolution>();
   const resolvedFor = (state: ReturnState): ReturnProvenanceResolution => {
+    const component = resolution.componentFor(state.vertex);
+    const existing = resolutionsByComponent.get(component);
+    if (existing !== undefined) {
+      return existing;
+    }
     const selected = resolution.resolutionFor(state.vertex);
-    return Object.freeze({
-      closed: selected.closed,
-      dependencies: Object.freeze(selected.origins.filter((origin) =>
-        context.candidateOrigins.has(origin)
-      )),
-    });
+    const dependencies = origins.selectionFor(state.vertex, 0);
+    const result = createReturnProvenanceResolution(
+      selected.closed,
+      dependencies,
+    );
+    resolutionsByComponent.set(component, result);
+    return result;
   };
   const expressionResolutions = new Map<Node, ReturnProvenanceResolution>();
   for (const [expression, state] of context.expressions) {
@@ -200,6 +218,19 @@ export function createReturnProvenanceFlow(
         throw new Error("return provenance received an uninventoried call");
       }
       return selected;
+    },
+  });
+}
+
+function createReturnProvenanceResolution(
+  closed: boolean,
+  dependencies: ExactProvenanceNodeSet,
+): ReturnProvenanceResolution {
+  return Object.freeze({
+    closed,
+    dependencyCount: dependencies.count,
+    dependencyNodes(): Iterable<Node> {
+      return dependencies.nodes();
     },
   });
 }

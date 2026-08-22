@@ -54,7 +54,7 @@ import {
   callableDeclarationState,
   callableExpressionState,
 } from "./provenance/expression.js";
-import { createCallableOriginIndex } from "./provenance/origin-index.js";
+import { createEffectProvenanceOriginIndex } from "../../provenance/origin-index.js";
 
 export type CallableBoundaryReason =
   | "inexact-reference"
@@ -252,27 +252,26 @@ export function createGraphCallableValueFlow(
   planningObserver?.("effect-callable-graph");
   const resolved = resolveEffectProvenance(graph);
   planningObserver?.("effect-callable-resolution");
-  const origins = createCallableOriginIndex(
+  const origins = createEffectProvenanceOriginIndex(
     graph,
     resolved,
-    context.candidateOrigins,
-    context.synchronousOrigins,
+    [context.candidateOrigins, context.synchronousOrigins],
   );
   planningObserver?.("effect-callable-origin-index");
   const resolutionByComponent = new Map<number, CallableValueResolution>();
   const resolutionForState = (state: CallableState): CallableValueResolution => {
-    const result = resolved.resolutionFor(state.vertex);
-    const existing = resolutionByComponent.get(result.component);
+    const component = resolved.componentFor(state.vertex);
+    const existing = resolutionByComponent.get(component);
     if (existing !== undefined) {
       return existing;
     }
-    const selected = origins.selectionFor(state.vertex);
+    const result = resolved.resolutionFor(state.vertex);
     const resolution = createExactCallableValueResolution(
       result.closed,
-      selected.candidates,
-      selected.synchronous,
+      origins.selectionFor(state.vertex, 0),
+      origins.selectionFor(state.vertex, 1),
     );
-    resolutionByComponent.set(result.component, resolution);
+    resolutionByComponent.set(component, resolution);
     return resolution;
   };
   const unsafeCallableUses = collectUnsafeCallableUses(context, resolved);

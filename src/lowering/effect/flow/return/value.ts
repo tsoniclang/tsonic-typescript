@@ -54,7 +54,7 @@ export function createReturnValueFlow(
     },
     isDefinitelyNonThenable(expression: Node): boolean {
       const resolution = provenance.resolutionFor(expression);
-      return resolution.closed && resolution.dependencies.length === 0;
+      return resolution.closed && resolution.dependencyCount === 0;
     },
     callResultIsDefinitelyNonThenable(
       call: Node,
@@ -70,9 +70,15 @@ export function createReturnValueFlow(
         }
       }
       const resolution = provenance.callResolution(call);
-      return resolution.closed && resolution.dependencies.every((dependency) =>
-        settledDeclarations?.has(dependency) === true
-      );
+      if (!resolution.closed) {
+        return false;
+      }
+      for (const dependency of resolution.dependencyNodes()) {
+        if (settledDeclarations?.has(dependency) !== true) {
+          return false;
+        }
+      }
+      return true;
     },
   });
 }

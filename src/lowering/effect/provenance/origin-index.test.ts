@@ -3,11 +3,11 @@ import { test } from "node:test";
 
 import type { Node } from "@tsonic/tsts";
 
-import { createEffectProvenanceGraphBuilder } from "../../../provenance/graph.js";
-import { resolveEffectProvenance } from "../../../provenance/resolution.js";
-import { createCallableOriginIndex } from "./origin-index.js";
+import { createEffectProvenanceGraphBuilder } from "./graph.js";
+import { createEffectProvenanceOriginIndex } from "./origin-index.js";
+import { resolveEffectProvenance } from "./resolution.js";
 
-test("indexes exact callable origin classes without flattening intermediates", () => {
+test("indexes exact origin classes without flattening intermediates", () => {
   const candidate = node();
   const synchronous = node();
   const terminal = node();
@@ -23,26 +23,27 @@ test("indexes exact callable origin classes without flattening intermediates", (
   builder.addDependency(result, synchronousVertex, "callable-invocation", node());
   builder.addDependency(result, terminalVertex, "conditional", node());
   const graph = builder.seal();
-  const index = createCallableOriginIndex(
+  const index = createEffectProvenanceOriginIndex(
     graph,
     resolveEffectProvenance(graph),
-    new Set([candidate]),
-    new Set([synchronous]),
+    [new Set([candidate]), new Set([synchronous])],
   );
 
-  const selected = index.selectionFor(result);
+  const candidates = index.selectionFor(result, 0);
+  const synchronousDeclarations = index.selectionFor(result, 1);
 
-  assert.equal(selected.candidates.count, 1);
-  assert.deepEqual([...selected.candidates.nodes()], [candidate]);
-  assert.equal(selected.synchronous.count, 1);
-  assert.deepEqual([...selected.synchronous.nodes()], [synchronous]);
+  assert.equal(candidates.count, 1);
+  assert.deepEqual([...candidates.nodes()], [candidate]);
+  assert.equal(synchronousDeclarations.count, 1);
+  assert.deepEqual([...synchronousDeclarations.nodes()], [synchronous]);
   assert.throws(
-    () => index.selectionFor({ index: result.index } as never),
+    () => index.selectionFor({ index: result.index } as never, 0),
     /foreign vertex/u,
   );
+  assert.throws(() => index.selectionFor(result, 2), /class is invalid/u);
 });
 
-test("keeps accumulating callable-origin construction near linear", () => {
+test("keeps accumulating origin construction near linear", () => {
   const measurements = [128, 256, 512].map(measureAccumulatingOrigins);
   for (let index = 1; index < measurements.length; index += 1) {
     const previous = measurements[index - 1];
@@ -76,16 +77,15 @@ function measureAccumulatingOrigins(originCount: number): {
     accumulated = next;
   }
   const graph = builder.seal();
-  const index = createCallableOriginIndex(
+  const index = createEffectProvenanceOriginIndex(
     graph,
     resolveEffectProvenance(graph),
-    new Set(origins),
-    new Set(),
+    [new Set(origins)],
   );
-  const selected = index.selectionFor(accumulated);
+  const selected = index.selectionFor(accumulated, 0);
 
-  assert.equal(selected.candidates.count, originCount);
-  assert.deepEqual(new Set(selected.candidates.nodes()), new Set(origins));
+  assert.equal(selected.count, originCount);
+  assert.deepEqual(new Set(selected.nodes()), new Set(origins));
   return { work: index.work };
 }
 

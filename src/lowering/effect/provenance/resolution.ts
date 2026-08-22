@@ -155,6 +155,12 @@ export function resolveEffectProvenance<Reason extends string>(
     componentCount,
     edgeCount: graph.edges.length,
     work,
+    componentFor(vertex: EffectProvenanceVertex): number {
+      if (vertices[vertex.index] !== vertex) {
+        throw new Error("effect provenance resolution received foreign vertex");
+      }
+      return componentFor(componentForVertex, vertex);
+    },
     forEachComponentDependency(
       visitor: (destination: number, source: number) => void,
     ): void {
@@ -168,9 +174,9 @@ export function resolveEffectProvenance<Reason extends string>(
       if (vertices[vertex.index] !== vertex) {
         throw new Error("effect provenance resolution received foreign vertex");
       }
+      const component = componentFor(componentForVertex, vertex);
       let resolution = resolutions[vertex.index];
       if (resolution === undefined) {
-        const component = componentFor(componentForVertex, vertex);
         resolution = Object.freeze({
           vertex,
           component,
