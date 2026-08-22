@@ -146,7 +146,10 @@ export function createExactValueSlotFlow(
     }
   }
   planningObserver?.("effect-value-slot-roots");
-  const resolutions = resolveEffectProvenance(context.builder.seal());
+  const graph = context.builder.seal();
+  planningObserver?.("effect-value-slot-graph");
+  const resolutions = resolveEffectProvenance(graph);
+  planningObserver?.("effect-value-slot-components");
   const resolved = new Map<Node, ExactValueSlotResolution>();
   for (const [expression, state] of roots) {
     const resolution = resolutions.resolutionFor(state.vertex);
