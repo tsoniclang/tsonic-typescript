@@ -181,15 +181,18 @@ test("return-local topology is demand-driven from source references", () => {
   assert.doesNotMatch(source, /nodesOfKind\(KindVariableDeclaration\)/u);
 });
 
-test("return provenance finalizes query roots in place", () => {
+test("return provenance resolves only queried roots", () => {
   const source = readFileSync(
     join(effectRoot, "flow", "return", "provenance.ts"),
     "utf8",
   );
 
-  assert.match(source, /state\.resolution = resolvedFor\(state\)/u);
+  assert.match(source, /queryVertices = new Map<Node, EffectProvenanceVertex>/u);
+  assert.match(source, /return resolvedFor\(vertex\)/u);
   assert.match(source, /context\.expressions\.clear\(\)/u);
   assert.match(source, /context\.declarations\.clear\(\)/u);
+  assert.doesNotMatch(source, /new Set\(queryStates\.values\(\)\)/u);
+  assert.doesNotMatch(source, /state\.resolution/u);
   assert.doesNotMatch(source, /expressionResolutions/u);
 });
 

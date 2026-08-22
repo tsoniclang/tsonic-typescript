@@ -65,7 +65,6 @@ type ReturnBoundaryReason =
 interface ReturnState {
   readonly vertex: EffectProvenanceVertex;
   expanded: boolean;
-  resolution?: ReturnProvenanceResolution;
 }
 
 export interface ReturnProvenanceFlow {
@@ -159,7 +158,7 @@ export function createReturnProvenanceFlow(
     terminalOrigin: undefined,
   };
   planningObserver?.("effect-return-inputs");
-  const queryStates = new Map<Node, ReturnState>();
+  const queryVertices = new Map<Node, EffectProvenanceVertex>();
   for (const node of program.nodesOfKinds([
     KindAwaitExpression,
     KindCallExpression,
@@ -171,7 +170,7 @@ export function createReturnProvenanceFlow(
       ? source.ast.as.AsReturnStatement(node)?.Expression
       : node;
     if (expression !== undefined) {
-      inventoryQueryExpression(expression, context, queryStates);
+      inventoryQueryExpression(expression, context, queryVertices);
     }
   }
   for (const declaration of candidates) {
@@ -179,7 +178,7 @@ export function createReturnProvenanceFlow(
       ? source.ast.body(declaration)
       : undefined;
     if (body !== undefined && !source.ast.is.IsBlock(body)) {
-      inventoryQueryExpression(body, context, queryStates);
+      inventoryQueryExpression(body, context, queryVertices);
     }
   }
   planningObserver?.("effect-return-inventory");
@@ -194,14 +193,16 @@ export function createReturnProvenanceFlow(
   );
   planningObserver?.("effect-return-origin-index");
   const resolutionsByComponent = new Map<number, ReturnProvenanceResolution>();
-  const resolvedFor = (state: ReturnState): ReturnProvenanceResolution => {
-    const component = resolution.componentFor(state.vertex);
+  const resolvedFor = (
+    vertex: EffectProvenanceVertex,
+  ): ReturnProvenanceResolution => {
+    const component = resolution.componentFor(vertex);
     const existing = resolutionsByComponent.get(component);
     if (existing !== undefined) {
       return existing;
     }
-    const selected = resolution.resolutionFor(state.vertex);
-    const dependencies = origins.selectionFor(state.vertex, 0);
+    const selected = resolution.resolutionFor(vertex);
+    const dependencies = origins.selectionFor(vertex, 0);
     const result = createReturnProvenanceResolution(
       selected.closed,
       dependencies,
@@ -209,27 +210,24 @@ export function createReturnProvenanceFlow(
     resolutionsByComponent.set(component, result);
     return result;
   };
-  for (const state of new Set(queryStates.values())) {
-    state.resolution = resolvedFor(state);
-  }
   context.expressions.clear();
   context.declarations.clear();
   planningObserver?.("effect-return-finalization");
   return Object.freeze({
     resolutionFor(expression: Node): ReturnProvenanceResolution {
       const root = transparentExpression(source, expression) ?? expression;
-      const selected = queryStates.get(root)?.resolution;
-      if (selected === undefined) {
+      const vertex = queryVertices.get(root);
+      if (vertex === undefined) {
         throw new Error("return provenance received an uninventoried expression");
       }
-      return selected;
+      return resolvedFor(vertex);
     },
     callResolution(call: Node): ReturnProvenanceResolution {
-      const selected = queryStates.get(call)?.resolution;
-      if (selected === undefined) {
+      const vertex = queryVertices.get(call);
+      if (vertex === undefined) {
         throw new Error("return provenance received an uninventoried call");
       }
-      return selected;
+      return resolvedFor(vertex);
     },
   });
 }
@@ -237,10 +235,10 @@ export function createReturnProvenanceFlow(
 function inventoryQueryExpression(
   expression: Node,
   context: ReturnContext,
-  queries: Map<Node, ReturnState>,
+  queries: Map<Node, EffectProvenanceVertex>,
 ): void {
   const root = transparentExpression(context.source, expression) ?? expression;
-  queries.set(root, stateForExpression(expression, context));
+  queries.set(root, stateForExpression(expression, context).vertex);
 }
 function stateForExpression(
   expression: Node,
