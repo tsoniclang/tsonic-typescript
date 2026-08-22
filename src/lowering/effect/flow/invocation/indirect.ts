@@ -27,6 +27,7 @@ import { collectCallableFields, type CallableFields } from "../storage/fields.js
 import { extendExactInvocationInputIndex } from "./implementation-inputs.js";
 import type { ExactInvocationInputIndex } from "./inputs.js";
 import { collectClosedIndirectCallableReferences } from "./indirect/reference-closure.js";
+import { selectClosedIndirectCallableOrigins } from "./indirect/origin-selection.js";
 type IndirectInvocationBoundary =
   | "open-binding"
   | "open-expression"
@@ -49,7 +50,7 @@ interface CallableOriginContext {
   >;
   readonly expressions: Map<Node, CallableOriginState>;
   readonly declarations: Map<Node, CallableOriginState>;
-  readonly emptyOrigins: Set<Node>;
+  readonly callableOrigins: Set<Node>;
 }
 
 export interface ExactIndirectCallableInvocation {
@@ -318,7 +319,7 @@ function collectExactIndirectInvocationRound(
     builder: createEffectProvenanceGraphBuilder<IndirectInvocationBoundary>(),
     expressions: new Map(),
     declarations: new Map(),
-    emptyOrigins: new Set(),
+    callableOrigins: new Set(),
   };
   const calls = new Map<Node, CallableOriginState>();
   for (const call of program.nodesOfKind(KindCallExpression)) {
@@ -337,30 +338,23 @@ function collectExactIndirectInvocationRound(
   const graph = context.builder.seal();
   const resolved = resolveEffectProvenance(graph);
   planningObserver?.("effect-indirect-resolution");
+  const selections = selectClosedIndirectCallableOrigins(
+    graph,
+    resolved,
+    calls,
+    context.callableOrigins,
+    (declaration) => callableOriginIsExact(source, program, declaration),
+  );
+  planningObserver?.("effect-indirect-origin-index");
   const result: ExactIndirectCallableInvocation[] = [];
   const callableReferences = new Set<Node>();
   const closedRoots: EffectProvenanceVertex[] = [];
-  for (const [call, state] of calls) {
-    const resolution = resolved.resolutionFor(state.vertex);
-    if (!resolution.closed || resolution.origins.length === 0) {
-      continue;
-    }
-    const selected = [...new Set(resolution.origins)].filter((origin) =>
-      !context.emptyOrigins.has(origin)
-    );
-    if (selected.length === 0) {
-      continue;
-    }
-    if (!selected.every((declaration) =>
-      callableOriginIsExact(source, program, declaration)
-    )) {
-      continue;
-    }
+  for (const selection of selections) {
     result.push(Object.freeze({
-      call,
-      implementations: Object.freeze(selected),
+      call: selection.call,
+      implementations: selection.implementations,
     }));
-    closedRoots.push(state.vertex);
+    closedRoots.push(selection.vertex);
   }
   collectClosedIndirectCallableReferences(
     closedRoots,
@@ -576,6 +570,7 @@ function origin(
   occurrence: Node,
   context: CallableOriginContext,
 ): void {
+  context.callableOrigins.add(occurrence);
   context.builder.addOrigin(state.vertex, occurrence);
 }
 
@@ -584,7 +579,6 @@ function emptyOrigin(
   occurrence: Node,
   context: CallableOriginContext,
 ): void {
-  context.emptyOrigins.add(occurrence);
   context.builder.addOrigin(state.vertex, occurrence);
 }
 

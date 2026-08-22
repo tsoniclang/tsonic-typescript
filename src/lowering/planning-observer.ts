@@ -37,6 +37,7 @@ export const typeScriptPlanningPhases = Object.freeze([
   "effect-indirect-value-inputs",
   "effect-indirect-graph",
   "effect-indirect-resolution",
+  "effect-indirect-origin-index",
   "effect-indirect-round",
   "effect-indirect-invocations",
   "effect-interface-dispatch",

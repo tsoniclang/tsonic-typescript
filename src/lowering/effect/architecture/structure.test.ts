@@ -162,6 +162,13 @@ test("origin selection consumes the resolver-owned component graph", () => {
   assert.doesNotMatch(source, /graph\.edges|condenseEffectProvenance/u);
 
   for (const consumer of [
+    join(
+      effectRoot,
+      "flow",
+      "invocation",
+      "indirect",
+      "origin-selection.ts",
+    ),
     join(effectRoot, "flow", "callable", "provenance-flow.ts"),
     join(effectRoot, "flow", "return", "provenance.ts"),
   ]) {

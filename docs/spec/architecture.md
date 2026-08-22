@@ -672,6 +672,12 @@ excuse a separate export, mutation, construction, property observation, or
 otherwise open use. The relation and its reference paths stabilize together;
 neither may be published from a partially stable round.
 
+Indirect implementation origins use the same persistent component-indexed
+origin algebra as callable and return flow. Nullish reset evidence remains a
+terminal origin for closure but is outside the callable-origin class. A round
+may iterate only the exact callable class selected for a closed root; it may
+not flatten or deduplicate the complete transitive origin evidence per call.
+
 Fact-owned transport is available to the first indirect closure. Declared
 interface ingress consumes that closure and contributes its exact invocation
 inputs, call implementations, closed reference paths, and derived transports.
