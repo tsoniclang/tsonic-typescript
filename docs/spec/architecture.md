@@ -583,6 +583,16 @@ identity and component dependencies; semantic projections consume its
 read-only component and dependency capabilities and may not reconstruct another
 SCC or component graph.
 
+Return-local identity flow is demand-driven. Starting from a local reference
+actually reached by return provenance, it walks initializers, exact binding
+writes, and the source-owned reverse-reference graph in both directions to
+close that local identity component. It then audits every read in the component
+before admitting any member. Unrelated variable declarations allocate no
+return-flow topology. A whole-program variable inventory, one empty adjacency
+set per local, or a scan over unrelated locals is forbidden work; exported,
+cross-scope, captured, or otherwise unaccounted references still fail the
+reached component closed.
+
 Synchronous-call dependency closure is computed from those graph resolutions.
 Collection, storage, interface, and returned-callable contracts project from
 canonical resolutions and exact invocation/value projections; they do not

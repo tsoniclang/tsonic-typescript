@@ -6,6 +6,7 @@ import {
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
@@ -43,11 +44,15 @@ export function createReturnStorageFlow(
   transports?: InvocationTransportContract,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  planningObserver?: TypeScriptPlanningObserver,
 ): ReturnStorageFlow {
   const owners = collectClosedStorageOwners(source, program);
+  planningObserver?.("effect-return-storage-owners");
   const bindings = collectStorageBindings(source, owners);
   collectConstructorInputs(invocationInputs, bindings);
+  planningObserver?.("effect-return-storage-bindings");
   auditStorageReferences(source, program, bindings);
+  planningObserver?.("effect-return-storage-references");
   auditStorageOwnerBoundaries(
     source,
     program,
@@ -60,6 +65,7 @@ export function createReturnStorageFlow(
     exactCallImplementations,
     callableReferenceIsClosed,
   );
+  planningObserver?.("effect-return-storage-boundaries");
   const storage = closeReturnStorageFlow(bindings);
   return Object.freeze({
     bindingFor(expression: Node): ReturnStorageBinding | undefined {

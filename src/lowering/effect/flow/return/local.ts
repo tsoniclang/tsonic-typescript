@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import { createExactValueBindingInputs } from "../value/binding-inputs.js";
 import type { ExactValueSlotPath } from "../value/slot/model.js";
 import { createReturnLocalTopology } from "./local/topology.js";
@@ -20,6 +21,7 @@ const rootValuePath: ExactValueSlotPath = Object.freeze([]);
 export function createReturnLocalFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  planningObserver?: TypeScriptPlanningObserver,
 ): ReturnLocalFlow {
   const topology = createReturnLocalTopology(source, program);
   const bindings = createExactValueBindingInputs(
@@ -28,6 +30,7 @@ export function createReturnLocalFlow(
     undefined,
     (reference) => topology.readIsAdmitted(reference),
   );
+  planningObserver?.("effect-return-locals");
   const cache = new Map<Node, ReturnLocalBinding>();
   return Object.freeze({
     bindingFor(identifier: Node): ReturnLocalBinding | undefined {

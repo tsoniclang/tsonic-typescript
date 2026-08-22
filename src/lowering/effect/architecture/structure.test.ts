@@ -171,6 +171,16 @@ test("origin selection consumes the resolver-owned component graph", () => {
   }
 });
 
+test("return-local topology is demand-driven from source references", () => {
+  const source = readFileSync(
+    join(effectRoot, "flow", "return", "local", "topology.ts"),
+    "utf8",
+  );
+
+  assert.match(source, /referencesToDeclaration/u);
+  assert.doesNotMatch(source, /nodesOfKind\(KindVariableDeclaration\)/u);
+});
+
 function directoryNames(root: string): string[] {
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())

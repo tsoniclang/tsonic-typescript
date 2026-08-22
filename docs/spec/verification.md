@@ -69,6 +69,11 @@ component-dependency gate proves the shared index consumes resolver-owned
 component identities and edges rather than re-deriving SCCs or edge
 orientation; structural inspection rejects callable or return consumers that
 flatten transitive origin arrays.
+The return-local fixture proves both directions of an exact alias component and
+contrasts awaited, returned, captured, and escaped reads. A structural gate
+requires demand-driven source-reference traversal and rejects restoration of a
+whole-program variable-declaration inventory. Unrelated-local scaling must not
+change the number of analyzed return-local components.
 Retention-evidence scaling separately grows negative decisions while asserting
 exact counts, deterministic ordering, and a fixed eight-occurrence maximum.
 Restoring raw retained-node or per-candidate decision ledgers must fail the

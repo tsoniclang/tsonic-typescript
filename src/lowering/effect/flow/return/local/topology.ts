@@ -1,6 +1,5 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
 import { isTransparentParent } from "../../callable/input-reference.js";
@@ -14,129 +13,167 @@ export interface ReturnLocalTopology {
   readIsAdmitted(reference: Node): boolean;
 }
 
+interface LocalComponent {
+  readonly declarations: ReadonlySet<Node>;
+  readonly admitted: ReadonlySet<Node>;
+  readonly valid: boolean;
+}
+
 export function createReturnLocalTopology(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
 ): ReturnLocalTopology {
-  const owners = new Map<Node, Node>();
-  const neighbors = new Map<Node, Set<Node>>();
-  for (const declaration of program.nodesOfKind(KindVariableDeclaration)) {
-    const owner = containingLocalScope(source, declaration);
-    if (
-      owner === undefined ||
-      !source.ast.is.IsIdentifier(source.ast.name(declaration))
-    ) {
-      continue;
+  const components = new Map<Node, LocalComponent | null>();
+  const componentFor = (declaration: Node): LocalComponent | undefined => {
+    const existing = components.get(declaration);
+    if (existing !== undefined) {
+      return existing ?? undefined;
     }
-    owners.set(declaration, owner);
-    neighbors.set(declaration, new Set());
-  }
-  connectIdentityBindings(source, program, owners, neighbors);
-  const components = indexComponents(neighbors);
-  const admitted = new Set<Node>();
-  const rejected = new Set<number>();
-  for (const [declaration, owner] of owners) {
-    const component = components.get(declaration);
-    if (component === undefined) {
-      continue;
+    const owner = localOwner(source, declaration);
+    if (owner === undefined) {
+      components.set(declaration, null);
+      return undefined;
     }
-    const writes = new Set(
-      program.bindingWritesFor(declaration).map((write) => write.reference),
+    const declarations = collectIdentityComponent(
+      source,
+      program,
+      declaration,
+      owner,
+      components,
     );
-    for (const reference of source.navigation.referencesToDeclaration(declaration)) {
-      if (writes.has(reference)) {
-        continue;
-      }
-      if (
-        containingLocalScope(source, reference) === owner &&
-        referenceIsAdmitted(source, program, reference, component, components)
-      ) {
-        admitted.add(reference);
-      } else {
-        rejected.add(component);
+    const admitted = new Set<Node>();
+    let valid = true;
+    for (const selected of declarations) {
+      const writes = new Set(
+        program.bindingWritesFor(selected).map((write) => write.reference),
+      );
+      for (const reference of source.navigation.referencesToDeclaration(selected)) {
+        if (writes.has(reference)) {
+          continue;
+        }
+        if (
+          containingLocalScope(source, reference) === owner &&
+          referenceIsAdmitted(source, program, reference, declarations)
+        ) {
+          admitted.add(reference);
+        } else {
+          valid = false;
+        }
       }
     }
-  }
+    const component = Object.freeze({ declarations, admitted, valid });
+    for (const selected of declarations) {
+      const prior = components.get(selected);
+      if (prior !== undefined && prior !== null && prior !== component) {
+        throw new Error("return-local identity components overlap");
+      }
+      components.set(selected, component);
+    }
+    return component;
+  };
   return Object.freeze({
     readIsAdmitted(reference: Node): boolean {
       const declaration = source.navigation.sourceReferenceFor(reference)?.declaration;
-      const component = declaration === undefined
-        ? undefined
-        : components.get(declaration);
-      return component !== undefined &&
-        !rejected.has(component) &&
-        admitted.has(reference);
+      if (declaration === undefined) {
+        return false;
+      }
+      const component = componentFor(declaration);
+      return component?.valid === true && component.admitted.has(reference);
     },
   });
 }
 
-function connectIdentityBindings(
+function collectIdentityComponent(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  owners: ReadonlyMap<Node, Node>,
-  neighbors: ReadonlyMap<Node, Set<Node>>,
-): void {
-  for (const [destination, owner] of owners) {
-    const declaration = source.ast.as.AsVariableDeclaration(destination);
-    const inputs: Node[] = declaration?.Initializer === undefined
-      ? []
-      : [declaration.Initializer];
-    for (const write of program.bindingWritesFor(destination)) {
-      const input = exactBindingWriteInput(source, write);
-      if (input !== undefined) {
-        inputs.push(input);
-      }
-    }
-    for (const input of inputs) {
-      for (const reference of directIdentityReferences(source, input)) {
-        const selected = source.navigation.sourceReferenceFor(reference)?.declaration;
-        if (selected === undefined || owners.get(selected) !== owner) {
-          continue;
-        }
-        neighbors.get(destination)?.add(selected);
-        neighbors.get(selected)?.add(destination);
-      }
-    }
-  }
-}
-
-function indexComponents(
-  neighbors: ReadonlyMap<Node, ReadonlySet<Node>>,
-): ReadonlyMap<Node, number> {
-  const result = new Map<Node, number>();
-  let nextComponent = 0;
-  for (const declaration of neighbors.keys()) {
-    if (result.has(declaration)) {
+  root: Node,
+  owner: Node,
+  known: ReadonlyMap<Node, LocalComponent | null>,
+): ReadonlySet<Node> {
+  const declarations = new Set<Node>();
+  const pending = [root];
+  while (pending.length !== 0) {
+    const declaration = pending.pop();
+    if (declaration === undefined || declarations.has(declaration)) {
       continue;
     }
-    const component = nextComponent;
-    nextComponent += 1;
-    const pending = [declaration];
-    while (pending.length !== 0) {
-      const member = pending.pop();
-      if (member === undefined || result.has(member)) {
-        continue;
+    const existing = known.get(declaration);
+    if (existing !== undefined && existing !== null) {
+      if (!existing.declarations.has(root)) {
+        throw new Error("return-local reverse identity edge escaped its component");
       }
-      result.set(member, component);
-      pending.push(...neighbors.get(member) ?? []);
+      return existing.declarations;
+    }
+    if (localOwner(source, declaration) !== owner) {
+      continue;
+    }
+    declarations.add(declaration);
+    for (const input of exactBindingInputs(source, program, declaration)) {
+      for (const reference of directIdentityReferences(source, input)) {
+        const selected = source.navigation.sourceReferenceFor(reference)?.declaration;
+        if (selected !== undefined && localOwner(source, selected) === owner) {
+          pending.push(selected);
+        }
+      }
+    }
+    for (const reference of source.navigation.referencesToDeclaration(declaration)) {
+      const destination = identityDestinationDeclaration(source, reference);
+      if (
+        destination !== undefined &&
+        localOwner(source, destination) === owner &&
+        exactBindingInputs(source, program, destination).some((input) =>
+          directIdentityReferences(source, input).includes(reference)
+        )
+      ) {
+        pending.push(destination);
+      }
     }
   }
-  return result;
+  return Object.freeze(declarations);
+}
+
+function exactBindingInputs(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  declaration: Node,
+): readonly Node[] {
+  const initializer = source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
+  const inputs: Node[] = initializer === undefined ? [] : [initializer];
+  for (const write of program.bindingWritesFor(declaration)) {
+    const input = exactBindingWriteInput(source, write);
+    if (input !== undefined) {
+      inputs.push(input);
+    }
+  }
+  return inputs;
+}
+
+function localOwner(
+  source: TargetSourceProgram,
+  declaration: Node,
+): Node | undefined {
+  return source.ast.is.IsVariableDeclaration(declaration) &&
+      source.ast.is.IsIdentifier(source.ast.name(declaration))
+    ? containingLocalScope(source, declaration)
+    : undefined;
 }
 
 function referenceIsAdmitted(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   reference: Node,
-  component: number,
-  components: ReadonlyMap<Node, number>,
+  declarations: ReadonlySet<Node>,
 ): boolean {
+  const destination = identityDestinationDeclaration(source, reference);
+  const replacement = awaitedReplacementDeclaration(source, reference);
   return referenceIsAwaited(source, reference) ||
     referenceIsReturned(source, reference) ||
-    identityDestinationComponent(source, program, reference, components) ===
-      component ||
-    awaitedReplacementComponent(source, program, reference, components) ===
-      component ||
+    (destination !== undefined &&
+      declarations.has(destination) &&
+      exactBindingInputs(source, program, destination).some((input) =>
+        directIdentityReferences(source, input).includes(reference)
+      )) ||
+    (replacement !== undefined && declarations.has(replacement)) ||
     isNullishIdentityObservation(source, reference);
 }
 
@@ -205,12 +242,10 @@ function referenceIsReturned(
   }
 }
 
-function identityDestinationComponent(
+function identityDestinationDeclaration(
   source: TargetSourceProgram,
-  program: TargetProgramIndex,
   reference: Node,
-  components: ReadonlyMap<Node, number>,
-): number | undefined {
+): Node | undefined {
   let current = reference;
   for (;;) {
     const parent = source.ast.parent(current);
@@ -226,31 +261,27 @@ function identityDestinationComponent(
     }
     if (source.ast.is.IsVariableDeclaration(parent)) {
       return source.ast.as.AsVariableDeclaration(parent)?.Initializer === current
-        ? components.get(parent)
+        ? parent
         : undefined;
     }
     if (!source.ast.is.IsBinaryExpression(parent)) {
       return undefined;
     }
     const binary = source.ast.as.AsBinaryExpression(parent);
-    const destination = binary?.Right === current &&
+    const target = binary?.Right === current &&
         source.ast.operatorKindName(parent) === "KindEqualsToken"
       ? transparentExpression(source, binary.Left)
       : undefined;
-    const declaration = destination !== undefined &&
-        source.ast.is.IsIdentifier(destination)
-      ? source.navigation.sourceReferenceFor(destination)?.declaration
+    return target !== undefined && source.ast.is.IsIdentifier(target)
+      ? source.navigation.sourceReferenceFor(target)?.declaration
       : undefined;
-    return declaration === undefined ? undefined : components.get(declaration);
   }
 }
 
-function awaitedReplacementComponent(
+function awaitedReplacementDeclaration(
   source: TargetSourceProgram,
-  program: TargetProgramIndex,
   reference: Node,
-  components: ReadonlyMap<Node, number>,
-): number | undefined {
+): Node | undefined {
   let current = reference;
   for (;;) {
     const parent = source.ast.parent(current);
@@ -262,19 +293,16 @@ function awaitedReplacementComponent(
       continue;
     }
     const binary = source.ast.as.AsBinaryExpression(parent);
-    const destination = binary?.Right === current &&
+    const target = binary?.Right === current &&
         source.ast.operatorKindName(parent) === "KindEqualsToken"
       ? transparentExpression(source, binary.Left)
       : undefined;
-    const declaration = destination !== undefined &&
-        source.ast.is.IsIdentifier(destination)
-      ? source.navigation.sourceReferenceFor(destination)?.declaration
-      : undefined;
     const value = transparentExpression(source, binary?.Right);
-    return declaration !== undefined &&
+    return target !== undefined &&
+        source.ast.is.IsIdentifier(target) &&
         value !== undefined &&
         source.ast.is.IsAwaitExpression(value)
-      ? components.get(declaration)
+      ? source.navigation.sourceReferenceFor(target)?.declaration
       : undefined;
   }
 }

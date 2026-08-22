@@ -136,7 +136,7 @@ export function createReturnProvenanceFlow(
     transports,
     loweredValues,
     runtime: createTypeScriptRuntimeReturnContract(source),
-    locals: createReturnLocalFlow(source, program),
+    locals: createReturnLocalFlow(source, program, planningObserver),
     storage: createReturnStorageFlow(
       source,
       program,
@@ -147,6 +147,7 @@ export function createReturnProvenanceFlow(
         return selected.length === 0 ? undefined : Object.freeze(selected);
       },
       callableReferenceIsClosed,
+      planningObserver,
     ),
     projections: projectionFlow,
     objectProjections,
@@ -230,7 +231,6 @@ export function createReturnProvenanceFlow(
     },
   });
 }
-
 function createReturnProvenanceResolution(
   closed: boolean,
   dependencies: ExactProvenanceNodeSet,
