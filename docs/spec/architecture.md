@@ -593,6 +593,14 @@ set per local, or a scan over unrelated locals is forbidden work; exported,
 cross-scope, captured, or otherwise unaccounted references still fail the
 reached component closed.
 
+Return provenance distinguishes query roots from recursively discovered
+construction states. Finalization attaches one component-shared immutable
+resolution to each query-root state, clears every transient expression and
+declaration construction map, and exposes only those query cells. Building a
+second all-expression resolution map, retaining recursive construction states,
+or publishing a resolution for an expression outside the inventoried query
+domain is forbidden.
+
 Synchronous-call dependency closure is computed from those graph resolutions.
 Collection, storage, interface, and returned-callable contracts project from
 canonical resolutions and exact invocation/value projections; they do not

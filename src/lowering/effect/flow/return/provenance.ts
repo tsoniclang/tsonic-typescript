@@ -21,7 +21,6 @@ import type {
 import { resolveEffectProvenance } from "../../provenance/resolution.js";
 import {
   createEffectProvenanceOriginIndex,
-  type ExactProvenanceNodeSet,
 } from "../../provenance/origin-index.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
@@ -48,6 +47,12 @@ import {
   staticallyNonThenable,
 } from "./provenance/semantics.js";
 import { parameterHasOpenInvocationSurface } from "../../model/declaration-surface.js";
+import {
+  createReturnProvenanceResolution,
+  type ReturnProvenanceResolution,
+} from "./provenance/resolution.js";
+
+export type { ReturnProvenanceResolution } from "./provenance/resolution.js";
 
 type ReturnBoundaryReason =
   | "inexact-call"
@@ -60,12 +65,7 @@ type ReturnBoundaryReason =
 interface ReturnState {
   readonly vertex: EffectProvenanceVertex;
   expanded: boolean;
-}
-
-export interface ReturnProvenanceResolution {
-  readonly closed: boolean;
-  readonly dependencyCount: number;
-  dependencyNodes(): Iterable<Node>;
+  resolution?: ReturnProvenanceResolution;
 }
 
 export interface ReturnProvenanceFlow {
@@ -159,6 +159,7 @@ export function createReturnProvenanceFlow(
     terminalOrigin: undefined,
   };
   planningObserver?.("effect-return-inputs");
+  const queryStates = new Map<Node, ReturnState>();
   for (const node of program.nodesOfKinds([
     KindAwaitExpression,
     KindCallExpression,
@@ -170,7 +171,7 @@ export function createReturnProvenanceFlow(
       ? source.ast.as.AsReturnStatement(node)?.Expression
       : node;
     if (expression !== undefined) {
-      stateForExpression(expression, context);
+      inventoryQueryExpression(expression, context, queryStates);
     }
   }
   for (const declaration of candidates) {
@@ -178,7 +179,7 @@ export function createReturnProvenanceFlow(
       ? source.ast.body(declaration)
       : undefined;
     if (body !== undefined && !source.ast.is.IsBlock(body)) {
-      stateForExpression(body, context);
+      inventoryQueryExpression(body, context, queryStates);
     }
   }
   planningObserver?.("effect-return-inventory");
@@ -208,22 +209,23 @@ export function createReturnProvenanceFlow(
     resolutionsByComponent.set(component, result);
     return result;
   };
-  const expressionResolutions = new Map<Node, ReturnProvenanceResolution>();
-  for (const [expression, state] of context.expressions) {
-    expressionResolutions.set(expression, resolvedFor(state));
+  for (const state of new Set(queryStates.values())) {
+    state.resolution = resolvedFor(state);
   }
+  context.expressions.clear();
+  context.declarations.clear();
   planningObserver?.("effect-return-finalization");
   return Object.freeze({
     resolutionFor(expression: Node): ReturnProvenanceResolution {
       const root = transparentExpression(source, expression) ?? expression;
-      const selected = expressionResolutions.get(root);
+      const selected = queryStates.get(root)?.resolution;
       if (selected === undefined) {
         throw new Error("return provenance received an uninventoried expression");
       }
       return selected;
     },
     callResolution(call: Node): ReturnProvenanceResolution {
-      const selected = expressionResolutions.get(call);
+      const selected = queryStates.get(call)?.resolution;
       if (selected === undefined) {
         throw new Error("return provenance received an uninventoried call");
       }
@@ -231,19 +233,15 @@ export function createReturnProvenanceFlow(
     },
   });
 }
-function createReturnProvenanceResolution(
-  closed: boolean,
-  dependencies: ExactProvenanceNodeSet,
-): ReturnProvenanceResolution {
-  return Object.freeze({
-    closed,
-    dependencyCount: dependencies.count,
-    dependencyNodes(): Iterable<Node> {
-      return dependencies.nodes();
-    },
-  });
-}
 
+function inventoryQueryExpression(
+  expression: Node,
+  context: ReturnContext,
+  queries: Map<Node, ReturnState>,
+): void {
+  const root = transparentExpression(context.source, expression) ?? expression;
+  queries.set(root, stateForExpression(expression, context));
+}
 function stateForExpression(
   expression: Node,
   context: ReturnContext,

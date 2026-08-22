@@ -74,6 +74,10 @@ contrasts awaited, returned, captured, and escaped reads. A structural gate
 requires demand-driven source-reference traversal and rejects restoration of a
 whole-program variable-declaration inventory. Unrelated-local scaling must not
 change the number of analyzed return-local components.
+Return finalization tests create deep shared provenance tails and assert that
+only inventoried call/await/return roots remain queryable after construction.
+A structural mutation that restores a second expression-resolution map or
+omits transient-map clearing must fail.
 Retention-evidence scaling separately grows negative decisions while asserting
 exact counts, deterministic ordering, and a fixed eight-occurrence maximum.
 Restoring raw retained-node or per-candidate decision ledgers must fail the

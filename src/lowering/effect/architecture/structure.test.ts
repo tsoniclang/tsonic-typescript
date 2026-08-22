@@ -181,6 +181,18 @@ test("return-local topology is demand-driven from source references", () => {
   assert.doesNotMatch(source, /nodesOfKind\(KindVariableDeclaration\)/u);
 });
 
+test("return provenance finalizes query roots in place", () => {
+  const source = readFileSync(
+    join(effectRoot, "flow", "return", "provenance.ts"),
+    "utf8",
+  );
+
+  assert.match(source, /state\.resolution = resolvedFor\(state\)/u);
+  assert.match(source, /context\.expressions\.clear\(\)/u);
+  assert.match(source, /context\.declarations\.clear\(\)/u);
+  assert.doesNotMatch(source, /expressionResolutions/u);
+});
+
 function directoryNames(root: string): string[] {
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
