@@ -489,6 +489,10 @@ An exact fixed-slot result forwarded through at least two thousand checked
 callables must settle under the ordinary guarded test stack. Replacing the
 explicit value-slot worklist with recursive expansion must exhaust that stack
 and fail the gate.
+A recursive checked producer whose return selects progressively deeper slots
+must terminate with its async contract and awaits retained. Removing the active
+ancestry check must make that fixture grow without bound, while applying the
+same rule across independent roots must fail the positive projection matrix.
 The whole-product phase ledger must show value-slot graph condensation
 completing independently from positive-evidence materialization. A dense set of
 open callable property roots may increase the root denominator but must not

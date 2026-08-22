@@ -550,6 +550,10 @@ default root set is never treated as completed analysis, and restoring every
 identifier as a root is forbidden whole-program work. The selected graph is
 expanded by an explicit worklist. Authored alias, call-result, and binding depth
 may increase graph size but may never consume the JavaScript call stack.
+If one active provenance ancestry revisits the same occurrence and state kind
+with a strictly longer path ending in the prior path, no finite slot origin has
+been proven. That state records a `recursive-slot` boundary and stops; an
+independent root or sibling path is not recurrence evidence.
 
 Settlement of a produced callable is atomic with its authored result contract.
 After the producer's outer async contract is selected, every non-nullish result

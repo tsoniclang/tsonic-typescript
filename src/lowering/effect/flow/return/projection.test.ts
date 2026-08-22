@@ -165,3 +165,23 @@ export const result = (await step${depth - 1}())[1];
     0,
   );
 });
+
+test("bounds a recursively deepening projection as open", () => {
+  const fixture = checkedEffectFixture(`
+type Nested = readonly [Nested];
+async function cycle(): Promise<Nested> {
+  return (await cycle())[0];
+}
+export const result = (await cycle())[0];
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    2,
+  );
+});

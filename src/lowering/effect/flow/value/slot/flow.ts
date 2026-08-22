@@ -27,14 +27,20 @@ import {
   containingExactValueSlotRead,
   exactBindingSlotPath,
   exactObjectSlotContributors,
-  exactValueSlotPathKey,
   exactValueSlotPathIsReadonly,
   exactValueSlotRead,
   isExactObjectSpreadContainerReference,
 } from "./selectors.js";
-import type { ValueSlotState, ValueSlotWorkItem } from "./worklist.js";
+import {
+  createValueSlotActiveStates,
+  createValueSlotStateRegistry,
+  type ValueSlotActiveStates,
+  type ValueSlotState,
+  type ValueSlotStateRegistry,
+  type ValueSlotWorkItem,
+} from "./worklist.js";
 
-type ValueSlotBoundaryReason = "open-slot";
+type ValueSlotBoundaryReason = "open-slot" | "recursive-slot";
 
 interface ValueSlotContext {
   readonly source: TargetSourceProgram;
@@ -47,13 +53,13 @@ interface ValueSlotContext {
   readonly builder: ReturnType<
     typeof createEffectProvenanceGraphBuilder<ValueSlotBoundaryReason>
   >;
-  readonly expressions: Map<Node, Map<string, ValueSlotState>>;
-  readonly results: Map<Node, Map<string, ValueSlotState>>;
+  readonly states: ValueSlotStateRegistry;
   readonly resultInputs: Map<Node, readonly (Node | undefined)[]>;
   readonly resultContracts: Map<Node, readonly Node[]>;
   readonly valueOrigins: Map<number, Set<Node>>;
   readonly steps: Map<number, ExactValueSlotStep>;
   readonly worklist: ValueSlotWorkItem[];
+  readonly active: ValueSlotActiveStates;
 }
 
 export function createExactValueSlotFlow(
@@ -82,20 +88,22 @@ export function createExactValueSlotFlow(
     invocationInputs,
   );
   planningObserver?.("effect-value-slot-binding-projections");
+  const builder = createEffectProvenanceGraphBuilder<ValueSlotBoundaryReason>();
+  const active = createValueSlotActiveStates();
   const context: ValueSlotContext = {
     source,
     projections,
     sourceForCall,
     bindings,
     bindingProjections,
-    builder: createEffectProvenanceGraphBuilder<ValueSlotBoundaryReason>(),
-    expressions: new Map(),
-    results: new Map(),
+    builder,
+    states: createValueSlotStateRegistry(active, builder),
     resultInputs: new Map(),
     resultContracts: new Map(),
     valueOrigins: new Map(),
     steps: new Map(),
     worklist: [],
+    active,
   };
   const roots = new Map<Node, ValueSlotState>();
   for (const expression of rootExpressions) {
@@ -210,7 +218,10 @@ function stateForExpression(
     throw new Error("value-slot flow requires a non-empty selector path");
   }
   const root = transparentExpression(context.source, expression) ?? expression;
-  const state = selectedState(context.expressions, root, path, context);
+  const state = context.states.select("expression", root, path);
+  if (state.recursive) {
+    boundary(state, root, context, "recursive-slot");
+  }
   if (state.expanded) {
     return state;
   }
@@ -225,6 +236,12 @@ function drainValueSlotWorklist(context: ValueSlotContext): void {
     if (item === undefined) {
       return;
     }
+    if (item.kind === "leave") {
+      context.active.leave(item.state);
+      continue;
+    }
+    context.active.enter(item.state);
+    context.worklist.push({ kind: "leave", state: item.state });
     if (item.kind === "expression") {
       expandExpression(item.state, item.root, item.path, context);
     } else if (item.kind === "binding-projection") {
@@ -404,7 +421,10 @@ function stateForBindingProjection(
   path: ExactValueSlotPath,
   context: ValueSlotContext,
 ): ValueSlotState {
-  const state = selectedState(context.expressions, reference, path, context);
+  const state = context.states.select("expression", reference, path);
+  if (state.recursive) {
+    boundary(state, reference, context, "recursive-slot");
+  }
   if (state.expanded) {
     return state;
   }
@@ -481,7 +501,10 @@ function stateForResult(
   path: ExactValueSlotPath,
   context: ValueSlotContext,
 ): ValueSlotState {
-  const state = selectedState(context.results, declaration, path, context);
+  const state = context.states.select("result", declaration, path);
+  if (state.recursive) {
+    boundary(state, declaration, context, "recursive-slot");
+  }
   if (state.expanded) {
     return state;
   }
@@ -510,29 +533,6 @@ function expandResult(
       dependency(state, expression, path, declaration, context);
     }
   }
-}
-
-function selectedState(
-  states: Map<Node, Map<string, ValueSlotState>>,
-  occurrence: Node,
-  path: ExactValueSlotPath,
-  context: ValueSlotContext,
-): ValueSlotState {
-  let selected = states.get(occurrence);
-  if (selected === undefined) {
-    selected = new Map();
-    states.set(occurrence, selected);
-  }
-  const key = exactValueSlotPathKey(path);
-  let state = selected.get(key);
-  if (state === undefined) {
-    state = {
-      vertex: context.builder.vertex("value-slot", occurrence),
-      expanded: false,
-    };
-    selected.set(key, state);
-  }
-  return state;
 }
 
 function dependency(
@@ -568,8 +568,9 @@ function boundary(
   state: ValueSlotState,
   occurrence: Node,
   context: ValueSlotContext,
+  reason: ValueSlotBoundaryReason = "open-slot",
 ): void {
-  context.builder.addBoundary(state.vertex, "open-slot", occurrence);
+  context.builder.addBoundary(state.vertex, reason, occurrence);
 }
 
 function assertSameValues(
