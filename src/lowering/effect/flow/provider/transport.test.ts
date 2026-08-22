@@ -68,6 +68,12 @@ const forward = providerContract(
   [0],
   [0],
 );
+const forwardTuple = providerContract(
+  "forwardTuple",
+  "(value: [() => Promise<void>, boolean]) => [() => Promise<void>, boolean]",
+  [0],
+  [0],
+);
 const invoke = providerContract(
   "invoke",
   "<T>(callback: (value: T) => Awaitable<number>) => void",
@@ -83,6 +89,18 @@ const forwarded = Operations.forward(callback);
 async function run(): Promise<void> { await forwarded(); }
 await run();
 `, [forward]);
+
+  assert.equal(rewrittenAsyncCount(source), 0);
+});
+
+test("settles a callable projected from one transported provider result", () => {
+  const source = checkedProviderFixture(`
+import { Operations } from "${testProviderSpecifier}";
+const callback = async (): Promise<void> => {};
+const selected = Operations.forwardTuple([callback, true])[0];
+async function run(): Promise<void> { await selected(); }
+await run();
+`, [forwardTuple]);
 
   assert.equal(rewrittenAsyncCount(source), 0);
 });

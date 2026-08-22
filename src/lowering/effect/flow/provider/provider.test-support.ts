@@ -27,6 +27,9 @@ export declare class Operations {
   static store(state: State, value: () => Promise<void>): void;
   static load(state: State): (() => Promise<void>) | undefined;
   static forward(value: () => Promise<void>): () => Promise<void>;
+  static forwardTuple(
+    value: [() => Promise<void>, boolean],
+  ): [() => Promise<void>, boolean];
   static invoke<T>(callback: (value: T) => Awaitable<number>): void;
 }
 `;
@@ -39,6 +42,7 @@ export function providerContract(
     | "load"
     | "observe"
     | "forward"
+    | "forwardTuple"
     | "invoke",
   targetType: string,
   inputParameters: readonly number[],

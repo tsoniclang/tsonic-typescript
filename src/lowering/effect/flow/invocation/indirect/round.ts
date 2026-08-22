@@ -20,6 +20,7 @@ import {
   type ExactCallImplementations,
 } from "../../callable/result-inputs.js";
 import { createCallableInputUseContract } from "../../callable/input-use.js";
+import { invocationTransportResultOrigins } from "../../callable/invocation-transport.js";
 import type { ExactObjectPropertyProjectionIndex } from "../../object/projection.js";
 import { sameValueAlternatives } from "../../value/alternatives.js";
 import type { CallableFields } from "../../storage/fields.js";
@@ -78,6 +79,7 @@ export function collectExactIndirectInvocationRound(
     exactCallImplementations,
     direct,
     projectionCandidates,
+    (call) => invocationTransportResultOrigins(call, transports),
     planningObserver,
   );
   planningObserver?.("effect-indirect-results");

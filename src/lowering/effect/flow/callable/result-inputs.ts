@@ -42,6 +42,10 @@ export type ExactCallImplementations = (
   call: Node,
 ) => readonly Node[] | undefined;
 
+export type ExactCallResultOrigins = (
+  call: Node,
+) => readonly Node[] | undefined;
+
 interface SelectedCallSource {
   readonly declaration: Node;
   readonly contracts: readonly Node[];
@@ -56,6 +60,7 @@ export function createCallableResultInputs(
   exactCallImplementations: ExactCallImplementations | undefined,
   invocationInputs: ExactInvocationInputIndex | undefined,
   projectionCandidates: readonly Node[],
+  resultOriginsForCall?: ExactCallResultOrigins,
   planningObserver?: TypeScriptPlanningObserver,
 ): CallableResultInputs {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
@@ -76,6 +81,16 @@ export function createCallableResultInputs(
     if (selected === undefined) {
       sources.set(expression, null);
       return undefined;
+    }
+    const transported = resultOriginsForCall?.(selected.call);
+    if (transported !== undefined) {
+      const result = Object.freeze({
+        declaration: selected.call,
+        contracts: Object.freeze([]),
+        expressions: Object.freeze([...transported]),
+      });
+      sources.set(expression, result);
+      return result;
     }
     const selectedSource = selectedCallSource(
       source,

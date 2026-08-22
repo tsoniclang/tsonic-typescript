@@ -203,23 +203,6 @@ function expandExpression(
     });
     return;
   }
-  const slot = context.slots.resultFor(root);
-  if (slot?.closed === true) {
-    if (slot.expressions.length === 0) {
-      emptyOrigin(state, root, context);
-      return;
-    }
-    for (const initializer of slot.expressions) {
-      dependency(
-        state,
-        callableExpressionState(initializer, context),
-        "field",
-        root,
-        context,
-      );
-    }
-    return;
-  }
   if (source.ast.is.IsCallExpression(root)) {
     const call = callableCallState(root, context);
     if (call !== state) {

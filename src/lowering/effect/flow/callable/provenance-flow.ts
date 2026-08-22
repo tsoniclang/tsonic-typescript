@@ -14,8 +14,6 @@ import { resolveEffectProvenance } from "../../provenance/resolution.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
-import { createExactValueSlotFlow } from "../value/slot/flow.js";
-import type { ExactValueSlotFlow } from "../value/slot/model.js";
 import {
   collectCallableValueInputs,
   type CallableValueInputs,
@@ -88,7 +86,6 @@ export interface CallableContext {
   readonly program: TargetProgramIndex;
   readonly candidates: ReadonlySet<Node>;
   readonly objectProjections: ExactObjectPropertyProjectionIndex | undefined;
-  readonly slots: ExactValueSlotFlow;
   readonly exactCallImplementations: ExactCallImplementations | undefined;
   readonly exactContractImplementations: ExactCallImplementations | undefined;
   readonly candidateSymbols: ReadonlyMap<Symbol, Node>;
@@ -150,6 +147,7 @@ export function createGraphCallableValueFlow(
     exactCallImplementations,
     invocationInputs,
     projectionCandidates,
+    (call) => invocationTransportResultOrigins(call, transports),
     planningObserver,
   );
   const inputUses = createCallableInputUseContract(source, results, transports);
@@ -163,30 +161,11 @@ export function createGraphCallableValueFlow(
     planningObserver,
     callableFields,
   );
-  const slots = createExactValueSlotFlow(
-    source,
-    program,
-    projections,
-    (call) => {
-      const transported = invocationTransportResultOrigins(call, transports);
-      if (transported !== undefined) {
-        return Object.freeze({
-          declaration: call,
-          contracts: Object.freeze([]),
-          expressions: Object.freeze([...transported]),
-        });
-      }
-      return results.sourceFor(call);
-    },
-    invocationInputs,
-    projectionCandidates,
-  );
   const context: CallableContext = {
     source,
     program,
     candidates,
     objectProjections,
-    slots,
     exactCallImplementations,
     exactContractImplementations,
     candidateSymbols: indexDeclarationSymbols(source, candidates),

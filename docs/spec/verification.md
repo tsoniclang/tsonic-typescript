@@ -508,6 +508,12 @@ The value-slot materializer must consume the persistent origin index and never
 the resolver's flattened `originEvidence`. A same-authored-occurrence fixture
 places two distinct value-slot origin vertices behind one root and requires
 both exact vertices; occurrence-only deduplication must fail.
+One provider fixture transports an exact tuple argument as its result and then
+invokes the callable selected from one fixed slot. The callable must settle
+through the canonical result-projection graph. A structural mutation that
+restores a second `createExactValueSlotFlow` call in callable provenance fails,
+and the guarded product phase ledger must contain no unowned duplicate graph
+between callable-value finalization and callable provenance.
 Generic nominal-result fixtures return `RuntimeSlice<T>`,
 `RuntimeSlice<T> | undefined`, and a derived generic class whose inherited
 private readonly `then?: never` is independent of `T`; all must settle. Paired

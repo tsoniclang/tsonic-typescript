@@ -295,6 +295,25 @@ test("callable value finalization severs transient census state", () => {
   );
 });
 
+test("callable result projection owns one value-slot graph", () => {
+  const flow = readFileSync(
+    join(effectRoot, "flow", "callable", "provenance-flow.ts"),
+    "utf8",
+  );
+  const projections = readFileSync(
+    join(effectRoot, "flow", "callable", "projection-inputs.ts"),
+    "utf8",
+  );
+  const results = readFileSync(
+    join(effectRoot, "flow", "callable", "result-inputs.ts"),
+    "utf8",
+  );
+
+  assert.doesNotMatch(flow, /createExactValueSlotFlow/u);
+  assert.match(projections, /createExactValueSlotFlow/u);
+  assert.match(results, /resultOriginsForCall/u);
+});
+
 test("every value-slot analysis requires an explicit semantic root domain", () => {
   const flow = readFileSync(
     join(effectRoot, "flow", "value", "slot", "flow.ts"),

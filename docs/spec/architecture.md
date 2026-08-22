@@ -557,6 +557,13 @@ with a strictly longer path ending in the prior path, no finite slot origin has
 been proven. That state records a `recursive-slot` boundary and stops; an
 independent root or sibling path is not recurrence evidence.
 
+Within one callable-flow construction, call-result projection is the sole
+value-slot graph owner. Certified invocation-transport result origins enter
+that owner's call-source lookup before the graph is sealed, so a projected
+transport result and an ordinary project result use the same graph and
+completeness audit. Callable provenance consumes the finalized result lookup;
+it may not construct a second graph over the same candidate domain.
+
 Settlement of a produced callable is atomic with its authored result contract.
 After the producer's outer async contract is selected, every non-nullish result
 branch must be a direct function-type node whose return is already definitely
