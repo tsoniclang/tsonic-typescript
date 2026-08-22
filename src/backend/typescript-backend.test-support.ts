@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
 
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
+import type {
+  TargetCompileInput,
+  TargetSourcePackageGraph,
+} from "@tsonic/target-api";
 import {
   createTargetSourceProgram,
-  type TargetCompileInput,
-  type TargetRuntimeReference,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
+import type {
+  TargetArtifact,
+  TargetCompileResult,
+  TargetRuntimeReference,
+} from "@tsonic/target-api/artifacts";
+
+import type { TypeScriptOptimizationProfileInput } from "../lowering/profile.js";
+import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
+import { compileTypeScriptTarget } from "./typescript-backend.js";
 
 export function checkedSource(files: Readonly<Record<string, string>>) {
   const rootFiles = Object.keys(files).sort();
@@ -32,6 +43,7 @@ export function compileInput(
 ): TargetCompileInput {
   return {
     source,
+    sourcePackages: testSourcePackages(source),
     project: {
       entryPoint: "/project/a.ts",
       targets: [{ id: "typescript" }],
@@ -45,4 +57,54 @@ export function compileInput(
       targetOutputRoot: "/project/out/typescript",
     },
   };
+}
+
+export function createTestTypeScriptCompiler(
+  printer: TypeScriptAstPrinter,
+  profile?: TypeScriptOptimizationProfileInput,
+): { compile(input: TargetCompileInput): TargetCompileResult } {
+  return Object.freeze({
+    compile(input: TargetCompileInput): TargetCompileResult {
+      return compileTypeScriptTarget(input, printer, profile);
+    },
+  });
+}
+
+export function compiledArtifacts(
+  result: TargetCompileResult,
+): readonly TargetArtifact[] {
+  assert.equal(result.kind, "resolved");
+  if (result.kind !== "resolved") {
+    throw new Error("TypeScript test compilation was rejected");
+  }
+  return result.value.artifacts;
+}
+
+function testSourcePackages(
+  source: ReturnType<typeof checkedSource>,
+): TargetSourcePackageGraph {
+  const packageId = "test-project";
+  const componentId = "test-component";
+  const sourceFiles = Object.freeze(source.navigation.sourceFiles.map(
+    (sourceFile) => source.documents.forFile(sourceFile).fileName,
+  ).sort());
+  return Object.freeze({
+    fingerprint: "test-source-package-graph-v1",
+    rootPackageId: packageId,
+    packages: Object.freeze([Object.freeze({
+      id: packageId,
+      name: "test-project",
+      packageRoot: "/project",
+      sourceRoot: "/project",
+      sourceFiles,
+      dependencies: Object.freeze([]),
+      exports: Object.freeze([]),
+      componentId,
+    })]),
+    components: Object.freeze([Object.freeze({
+      id: componentId,
+      packages: Object.freeze([packageId]),
+      dependencies: Object.freeze([]),
+    })]),
+  });
 }

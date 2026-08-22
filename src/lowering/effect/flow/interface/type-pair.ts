@@ -1,5 +1,5 @@
 import type { Type } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "@tsonic/target-api";
+import type { SourceFileSemantics } from "@tsonic/target-api/source";
 
 import {
   interfaceContractTypeDeclaration,
@@ -34,13 +34,13 @@ export function enqueueInterfaceContractTypePair(
   target: Type,
   state: InterfaceContractTypePairState,
 ): void {
-  const selectedSource = semantics.removeMissingOrUndefined(source);
-  const selectedTarget = semantics.removeMissingOrUndefined(target);
+  const selectedSource = semantics.types.withoutMissingOrUndefined(source);
+  const selectedTarget = semantics.types.withoutMissingOrUndefined(target);
   if (
     selectedSource === undefined ||
     selectedTarget === undefined ||
-    semantics.isNever(selectedSource) ||
-    semantics.isNever(selectedTarget) ||
+    semantics.types.isNever(selectedSource) ||
+    semantics.types.isNever(selectedTarget) ||
     selectedSource === selectedTarget
   ) {
     return;
@@ -123,10 +123,10 @@ function analyzeTypePair(
     sourceDeclaration === targetDeclaration
   ) {
     if (
-      semantics.isTypeReference(source) &&
-      semantics.isTypeReference(target) &&
-      semantics.getTypeReferenceTarget(source) !== undefined &&
-      semantics.getTypeReferenceTarget(target) !== undefined
+      semantics.types.isTypeReference(source) &&
+      semantics.types.isTypeReference(target) &&
+      semantics.types.typeReferenceTarget(source) !== undefined &&
+      semantics.types.typeReferenceTarget(target) !== undefined
     ) {
       pairTypeArguments(
         semantics,
@@ -172,13 +172,13 @@ function analyzeTypePair(
     return;
   }
   if (
-    semantics.isTypeReference(source) &&
-    semantics.isTypeReference(target)
+    semantics.types.isTypeReference(source) &&
+    semantics.types.isTypeReference(target)
   ) {
-    const sourceTarget = semantics.getTypeReferenceTarget(source);
+    const sourceTarget = semantics.types.typeReferenceTarget(source);
     if (
       sourceTarget !== undefined &&
-      sourceTarget === semantics.getTypeReferenceTarget(target)
+      sourceTarget === semantics.types.typeReferenceTarget(target)
     ) {
       pairTypeArguments(
         semantics,

@@ -1,5 +1,5 @@
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { PointerCensus } from "./flow-census.js";
 import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
@@ -210,6 +210,6 @@ function isExactNullishValue(
   expression: Node,
 ): boolean {
   const semantics = source.semantics.forNode(expression);
-  const type = semantics.getTypeAtLocation(expression);
-  return type !== undefined && semantics.isNullish(type);
+  const type = semantics.types.expressionType(expression);
+  return type !== undefined && semantics.types.isNullish(type);
 }

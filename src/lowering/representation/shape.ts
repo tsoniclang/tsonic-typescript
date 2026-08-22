@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { RepresentationProjectionRetentionReason } from "./plan.js";
@@ -172,11 +172,11 @@ function directCallCandidate(
     return undefined;
   }
   const semantics = source.semantics.forNode(callNode);
-  const callInfo = semantics.getResolvedCallInfo(callNode);
+  const callInfo = semantics.operations.call(callNode);
   const selectedDeclaration = callInfo?.outcome === "applicable" &&
       callInfo.sourceSelectedSignatureKind === "resolved" &&
       !callInfo.optionalChain
-    ? semantics.getSignatureDeclaration(callInfo.selectedSignature)
+    ? semantics.declarations.signatureDeclaration(callInfo.selectedSignature)
     : undefined;
   if (
     !source.navigation.isProjectDeclaration(targetDeclaration)
@@ -300,7 +300,7 @@ function transparentStorageConstructor(
   const parsed = source.ast.as.AsParameterDeclaration(parameter);
   const body = constructor === undefined ? undefined : source.ast.body(constructor);
   const signature = source.semantics.forNode(construction)
-    .getResolvedSignature(construction);
+    .operations.call(construction)?.selectedSignature;
   return constructor !== undefined &&
     parameter !== undefined &&
     parameter === storageDeclaration &&
@@ -315,7 +315,7 @@ function transparentStorageConstructor(
     classMembersAreConstructionTransparent(source, classDeclaration) &&
     classValueReferencesAreClosed(source, program, classDeclaration) &&
     signature !== undefined &&
-    source.semantics.forNode(construction).getSignatureDeclaration(signature) ===
+    source.semantics.forNode(construction).declarations.signatureDeclaration(signature) ===
       constructor &&
     !program.hasBindingWrite(classDeclaration) &&
     !program.hasBindingWrite(parameter);
@@ -367,7 +367,7 @@ export function classValueReferencesAreClosed(
   program: TargetProgramIndex,
   classDeclaration: Node,
 ): boolean {
-  return program.referencesToDeclaration(classDeclaration).every((reference) =>
+  return source.navigation.referencesToDeclaration(classDeclaration).every((reference) =>
     isModuleForwardingReference(source, reference) ||
     plainTypeReference(source, reference) ||
     exactConstructionTarget(source, reference) ||

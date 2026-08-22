@@ -28,7 +28,7 @@ import {
   IsTypeReferenceNode,
   KindTypeKeyword,
 } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import {
   checkedPointerFixture as checkedFixture,

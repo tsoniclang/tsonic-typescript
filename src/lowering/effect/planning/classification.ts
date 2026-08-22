@@ -1,5 +1,5 @@
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindAwaitExpression,
   KindIdentifier,
@@ -381,7 +381,7 @@ function classifyReturnDependencies(
   if (expression === undefined) {
     if (
       owner.innerType === undefined ||
-      !source.semantics.forNode(node).isVoidLike(owner.innerType)
+      !source.semantics.forNode(node).types.isVoidLike(owner.innerType)
     ) {
       blockCooperativeEffect(owner, "incompatible-return", node);
     }
@@ -512,20 +512,8 @@ function exactSymbolsAt(
   source: TargetSourceProgram,
   node: Node | undefined,
 ): readonly Symbol[] {
-  if (node === undefined) {
-    return [];
-  }
-  const semantics = source.semantics.forNode(node);
-  const symbols = new Set<Symbol>();
-  const direct = semantics.getSymbolAtLocation(node);
-  const resolved = semantics.getResolvedSymbol(node);
-  if (direct !== undefined) {
-    symbols.add(direct);
-  }
-  if (resolved !== undefined) {
-    symbols.add(resolved);
-  }
-  return [...symbols];
+  const symbol = source.navigation.sourceReferenceFor(node)?.symbol;
+  return symbol === undefined ? [] : [symbol];
 }
 
 function hasRetainedDependency(

@@ -5,7 +5,7 @@ import {
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import { sameSelectedType, typeMaySuspend } from "./synchronous.js";
 
@@ -125,8 +125,8 @@ function projectCallableResultSlot(
         return undefined;
       }
       const semantics = source.semantics.forNode(member);
-      const type = semantics.getTypeFromTypeNode(member);
-      if (type !== undefined && semantics.isNullish(type)) {
+      const type = semantics.types.authoredType(member);
+      if (type !== undefined && semantics.types.isNullish(type)) {
         continue;
       }
       const projected = projectCallableResultSlot(source, member, path);
@@ -194,12 +194,10 @@ function exactInlinePropertyType(
       return false;
     }
     const semantics = source.semantics.forNode(name);
-    const symbols = [
-      semantics.getSymbolAtLocation(name),
-      semantics.getResolvedSymbol(name),
-    ].filter((symbol): symbol is Symbol => symbol !== undefined);
+    const symbol = source.navigation.sourceReferenceFor(name)?.symbol;
+    const symbols = symbol === undefined ? [] : [symbol];
     const declarations = symbols.flatMap((symbol) =>
-      semantics.getSymbolDeclarations(symbol).filter(
+      semantics.declarations.symbolDeclarations(symbol).filter(
         (declaration): declaration is Node => declaration !== undefined,
       )
     );
@@ -287,11 +285,11 @@ function collectCallableResultRewrites(
     return callable;
   }
   const semantics = source.semantics.forNode(node);
-  const selected = semantics.getTypeFromTypeNode(node);
+  const selected = semantics.types.authoredType(node);
   if (selected === undefined) {
     return undefined;
   }
-  if (semantics.isNullish(selected)) {
+  if (semantics.types.isNullish(selected)) {
     return false;
   }
   if (!source.ast.is.IsFunctionTypeNode(node)) {
@@ -302,7 +300,7 @@ function collectCallableResultRewrites(
     return undefined;
   }
   const returnSemantics = source.semantics.forNode(returnType);
-  const selectedReturn = returnSemantics.getTypeFromTypeNode(returnType);
+  const selectedReturn = returnSemantics.types.authoredType(returnType);
   if (selectedReturn === undefined) {
     return undefined;
   }
@@ -333,8 +331,8 @@ export function callableReturnRewriteAdmitsDirectValue(
     return false;
   }
   const semantics = source.semantics.forNode(rewrite.target);
-  const contract = semantics.getTypeFromTypeNode(rewrite.target);
-  const direct = semantics.getTypeFromTypeNode(directNode);
+  const contract = semantics.types.authoredType(rewrite.target);
+  const direct = semantics.types.authoredType(directNode);
   return contract !== undefined && direct !== undefined &&
     returnContractContainsDirectValue(semantics, contract, direct);
 }
@@ -347,12 +345,12 @@ function returnContractContainsDirectValue(
   if (sameSelectedType(semantics, contract, direct)) {
     return true;
   }
-  if (!semantics.isUnion(contract)) {
+  if (!semantics.types.isUnion(contract)) {
     return false;
   }
-  const contractMembers = semantics.getUnionOrIntersectionTypes(contract);
-  const directMembers = semantics.isUnion(direct)
-    ? semantics.getUnionOrIntersectionTypes(direct)
+  const contractMembers = semantics.types.unionOrIntersectionTypes(contract);
+  const directMembers = semantics.types.isUnion(direct)
+    ? semantics.types.unionOrIntersectionTypes(direct)
     : [direct];
   return directMembers.every((directMember) =>
     directMember !== undefined && contractMembers.some((contractMember) =>
@@ -388,10 +386,10 @@ export function callableReturnRewrite(
   if (source.ast.is.IsTypeReferenceNode(node)) {
     const arguments_ = source.ast.typeArguments(node);
     const innerNode = arguments_[0];
-    const returnType = semantics.getTypeFromTypeNode(node);
+    const returnType = semantics.types.authoredType(node);
     const innerType = innerNode === undefined
       ? undefined
-      : semantics.getTypeFromTypeNode(innerNode);
+      : semantics.types.authoredType(innerNode);
     return arguments_.length === 1 &&
         returnType !== undefined &&
         innerType !== undefined &&
@@ -408,7 +406,7 @@ export function callableReturnRewrite(
   }
   const members = AsUnionTypeNode(node)?.Types?.Nodes ?? [];
   const selected = members.map((member) =>
-    member === undefined ? undefined : semantics.getTypeFromTypeNode(member)
+    member === undefined ? undefined : semantics.types.authoredType(member)
   );
   const synchronous = selected.flatMap((type, index) =>
     type !== undefined && !typeMaySuspend(semantics, type) ? [index] : []
@@ -437,7 +435,7 @@ function exactAwaitableContract(
   if (sameSelectedType(semantics, type, innerType)) {
     return true;
   }
-  if (semantics.isUnion(type)) {
+  if (semantics.types.isUnion(type)) {
     return exactAwaitableUnionContract(semantics, type, innerType);
   }
   return exactAwaitableWrapper(semantics, type, innerType);
@@ -448,9 +446,9 @@ function exactAwaitableUnionContract(
   contract: Type,
   direct: Type,
 ): boolean {
-  const contractMembers = semantics.getUnionOrIntersectionTypes(contract);
-  const directMembers = semantics.isUnion(direct)
-    ? semantics.getUnionOrIntersectionTypes(direct)
+  const contractMembers = semantics.types.unionOrIntersectionTypes(contract);
+  const directMembers = semantics.types.isUnion(direct)
+    ? semantics.types.unionOrIntersectionTypes(direct)
     : [direct];
   if (
     contractMembers.some((member) => member === undefined) ||
@@ -484,10 +482,10 @@ function exactAwaitableWrapper(
   type: Type,
   direct: Type,
 ): boolean {
-  if (!typeMaySuspend(semantics, type) || !semantics.isTypeReference(type)) {
+  if (!typeMaySuspend(semantics, type) || !semantics.types.isTypeReference(type)) {
     return false;
   }
-  const arguments_ = semantics.getTypeArguments(type);
+  const arguments_ = semantics.types.typeArguments(type);
   return arguments_.length === 1 &&
     sameSelectedType(semantics, arguments_[0], direct);
 }

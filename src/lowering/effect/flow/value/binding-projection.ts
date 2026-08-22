@@ -2,7 +2,7 @@ import type { Node, Symbol } from "@tsonic/tsts";
 import type {
   SourceBindingWrite,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import { isModuleForwardingReference } from "../../model/syntax.js";
@@ -45,7 +45,7 @@ export function createExactValueBindingProjectionIndex(
       if (!source.ast.is.IsIdentifier(reference)) {
         return undefined;
       }
-      const selected = program.declarationReferenceFor(reference);
+      const selected = source.navigation.sourceReferenceFor(reference);
       if (selected?.project !== true) {
         return undefined;
       }
@@ -81,7 +81,7 @@ function exactBindingProjection(
   if (
     !source.ast.is.IsBindingElement(declaration) ||
     program.hasBindingWrite(declaration) ||
-    program.referencesToDeclaration(declaration).some((reference) =>
+    source.navigation.referencesToDeclaration(declaration).some((reference) =>
       isModuleForwardingReference(source, reference)
     )
   ) {
@@ -178,7 +178,7 @@ function exactAssignmentBindingProjection(
   }
   if (
     selectedSteps === undefined ||
-    program.referencesToDeclaration(declaration).some((reference) =>
+    source.navigation.referencesToDeclaration(declaration).some((reference) =>
       isModuleForwardingReference(source, reference)
     )
   ) {
@@ -335,11 +335,8 @@ function exactSymbolsAt(
   source: TargetSourceProgram,
   node: Node,
 ): readonly Symbol[] {
-  const semantics = source.semantics.forNode(node);
-  return [...new Set([
-    semantics.getSymbolAtLocation(node),
-    semantics.getResolvedSymbol(node),
-  ].filter((symbol): symbol is Symbol => symbol !== undefined))];
+  const symbol = source.navigation.sourceReferenceFor(node)?.symbol;
+  return symbol === undefined ? [] : [symbol];
 }
 
 function bindingOwnerSources(

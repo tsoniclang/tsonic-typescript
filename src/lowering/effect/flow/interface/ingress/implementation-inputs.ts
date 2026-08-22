@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
 import {
@@ -57,7 +57,7 @@ function implementationReferencesAreClosed(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
 ): boolean {
-  return program.referencesToDeclaration(implementation).every((reference) => {
+  return source.navigation.referencesToDeclaration(implementation).every((reference) => {
     if (isModuleForwardingReference(source, reference)) {
       return false;
     }

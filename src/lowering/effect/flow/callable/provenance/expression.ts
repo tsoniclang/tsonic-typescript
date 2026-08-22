@@ -128,10 +128,10 @@ function expandExpression(
     return;
   }
   const semantics = source.semantics.forNode(root);
-  const type = semantics.getTypeAtLocation(root);
+  const type = semantics.types.expressionType(root);
   if (
     source.ast.is.IsVoidExpression(root) ||
-    (type !== undefined && semantics.isNullish(type))
+    (type !== undefined && semantics.types.isNullish(type))
   ) {
     emptyOrigin(state, root, context);
     return;
@@ -243,14 +243,16 @@ function callableCallState(
   state.expanded = true;
   const { source } = context;
   const semantics = source.semantics.forNode(call);
-  const signature = semantics.getResolvedSignature(call);
-  const contract = semantics.getSignatureDeclaration(signature);
+  const signature = semantics.operations.call(call)?.selectedSignature;
+  const contract = signature === undefined
+    ? undefined
+    : semantics.declarations.signatureDeclaration(signature);
   const implementation = resolveProjectInvocation(source, call)?.implementation;
   const target = exactCallableTarget(
     source,
     source.ast.as.AsCallExpression(call)?.Expression,
   );
-  const reference = context.program.declarationReferenceFor(target);
+  const reference = source.navigation.sourceReferenceFor(target);
   const exactImplementations = context.exactCallImplementations?.(call);
   if (
     exactImplementations === undefined &&
@@ -351,7 +353,7 @@ function expandReference(
     );
     return;
   }
-  const reference = context.program.declarationReferenceFor(root);
+  const reference = source.navigation.sourceReferenceFor(root);
   if (!referenceHasExactSemantics(source, reference)) {
     boundary(state, "inexact-reference", root, context);
     return;

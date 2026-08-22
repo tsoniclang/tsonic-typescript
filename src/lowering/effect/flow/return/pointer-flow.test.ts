@@ -34,7 +34,6 @@ export const result = loadPointer(await create());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
-      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
@@ -84,7 +83,6 @@ export const result = loadPointer((await selected(
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: true,
-    declarationReferences: true,
   });
   const returnedField = program.nodesOfKind(KindReturnStatement)
     .map((statement) =>
@@ -143,7 +141,6 @@ export async function selected(
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
-      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
@@ -185,7 +182,6 @@ export async function selected(
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
-      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
@@ -224,7 +220,6 @@ export async function selected(slot: Slot): Promise<Thenable | undefined> {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
-      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(
@@ -268,7 +263,6 @@ selected(new Slot(allocatePointer(new ThenableItem())));
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: true,
-    declarationReferences: true,
   });
   const returnedField = program.nodesOfKind(KindReturnStatement)
     .map((statement) =>
@@ -330,7 +324,6 @@ selected(new Slot(allocatePointer(new Item())));
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: true,
-    declarationReferences: true,
   });
   const returnedField = program.nodesOfKind(KindReturnStatement)
     .map((statement) =>

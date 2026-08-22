@@ -53,7 +53,6 @@ test("preserves a stored wrapper unless the closed profile is selected", () => {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: false,
-      declarationReferences: true,
     }),
     "preserve",
     fixtureSourceIdentityFor(fixture.source),
@@ -104,21 +103,25 @@ test("fails closed when a stored-flow reference identity is mutated", () => {
   const binding = variableNamed(fixture, fixture.sourceFile, "wrapped");
   const references = fixture.source.navigation.referencesToDeclaration(binding);
   assert.equal(references.length, 2);
-  const canonical = createTargetProgramIndex(fixture.source, {
+  const source = Object.freeze({
+    ...fixture.source,
+    navigation: Object.freeze({
+      ...fixture.source.navigation,
+      referencesToDeclaration(declaration: Node) {
+        const selected = fixture.source.navigation.referencesToDeclaration(
+          declaration,
+        );
+        return declaration === binding ? selected.slice(0, 1) : selected;
+      },
+    }),
+  });
+  const program = createTargetProgramIndex(source, {
     bindingWrites: true,
     memberDispatch: false,
-    declarationReferences: true,
-  });
-  const mutated = Object.freeze({
-    ...canonical,
-    referencesToDeclaration(declaration: Node | undefined) {
-      const selected = canonical.referencesToDeclaration(declaration);
-      return declaration === binding ? selected.slice(0, 1) : selected;
-    },
   });
   const plan = createRepresentationProjectionPlan(
-    fixture.source,
-    mutated,
+    source,
+    program,
     "closed-direct",
     fixtureSourceIdentityFor(fixture.source),
   );
@@ -151,7 +154,6 @@ function createPlan(
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
       memberDispatch: false,
-      declarationReferences: true,
     }),
     "closed-direct",
     fixtureSourceIdentityFor(fixture.source),

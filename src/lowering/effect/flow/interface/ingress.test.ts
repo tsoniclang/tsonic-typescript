@@ -194,7 +194,6 @@ ${sourceText}
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
-        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);
@@ -233,7 +232,6 @@ export const result = await read(holder.reader);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -269,7 +267,6 @@ export const result = await read(create());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -299,7 +296,6 @@ export const result = await read(await create());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -329,7 +325,6 @@ export const result = await read(await create());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -359,7 +354,6 @@ export const result = await new Holder(new Pair()).Read();
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -388,7 +382,6 @@ export const result = await create(PairFactory);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);

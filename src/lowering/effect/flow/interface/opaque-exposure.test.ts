@@ -41,7 +41,6 @@ consume({ reader: new Pair() });`,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
-        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);
@@ -63,7 +62,6 @@ export const result = await read(new Pair());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -88,7 +86,6 @@ inspect(visit);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -112,7 +109,6 @@ inspect(async (reader): Promise<void> => {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -132,7 +128,6 @@ inspect(visit);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -226,7 +221,6 @@ export const result = await read(holder.reader!);`,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
-        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);
@@ -278,7 +272,6 @@ invoke({ callback: async (reader): Promise<void> => {
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
-        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);

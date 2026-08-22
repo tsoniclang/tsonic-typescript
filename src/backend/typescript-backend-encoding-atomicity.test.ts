@@ -5,8 +5,8 @@ import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import {
   checkedSource,
   compileInput,
+  createTestTypeScriptCompiler,
 } from "./typescript-backend.test-support.js";
-import { createTypeScriptBackend } from "./typescript-backend.js";
 
 test("rejects an encoding failure atomically without publishing artifacts", () => {
   const source = checkedSource({
@@ -26,12 +26,12 @@ test("rejects an encoding failure atomically without publishing artifacts", () =
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTestTypeScriptCompiler(printer).compile(
     compileInput(source),
   );
 
   assert.equal(printCalls, 0);
-  assert.deepEqual(result.artifacts, []);
+  assert.equal(result.kind, "rejected");
   assert.equal(result.diagnostics.length, 1);
   assert.match(
     result.diagnostics[0]?.message ?? "",

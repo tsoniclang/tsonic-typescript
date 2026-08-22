@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
@@ -43,7 +43,7 @@ export function createReturnLocalTopology(
     const writes = new Set(
       program.bindingWritesFor(declaration).map((write) => write.reference),
     );
-    for (const reference of program.referencesToDeclaration(declaration)) {
+    for (const reference of source.navigation.referencesToDeclaration(declaration)) {
       if (writes.has(reference)) {
         continue;
       }
@@ -59,7 +59,7 @@ export function createReturnLocalTopology(
   }
   return Object.freeze({
     readIsAdmitted(reference: Node): boolean {
-      const declaration = program.declarationReferenceFor(reference)?.declaration;
+      const declaration = source.navigation.sourceReferenceFor(reference)?.declaration;
       const component = declaration === undefined
         ? undefined
         : components.get(declaration);
@@ -89,7 +89,7 @@ function connectIdentityBindings(
     }
     for (const input of inputs) {
       for (const reference of directIdentityReferences(source, input)) {
-        const selected = program.declarationReferenceFor(reference)?.declaration;
+        const selected = source.navigation.sourceReferenceFor(reference)?.declaration;
         if (selected === undefined || owners.get(selected) !== owner) {
           continue;
         }
@@ -239,7 +239,7 @@ function identityDestinationComponent(
       : undefined;
     const declaration = destination !== undefined &&
         source.ast.is.IsIdentifier(destination)
-      ? program.declarationReferenceFor(destination)?.declaration
+      ? source.navigation.sourceReferenceFor(destination)?.declaration
       : undefined;
     return declaration === undefined ? undefined : components.get(declaration);
   }
@@ -268,7 +268,7 @@ function awaitedReplacementComponent(
       : undefined;
     const declaration = destination !== undefined &&
         source.ast.is.IsIdentifier(destination)
-      ? program.declarationReferenceFor(destination)?.declaration
+      ? source.navigation.sourceReferenceFor(destination)?.declaration
       : undefined;
     const value = transparentExpression(source, binary?.Right);
     return declaration !== undefined &&
@@ -327,8 +327,8 @@ function isNullishIdentityObservation(
         return false;
       }
       const semantics = source.semantics.forNode(other);
-      const type = semantics.getTypeAtLocation(other);
-      return type !== undefined && semantics.isNullish(type);
+      const type = semantics.types.expressionType(other);
+      return type !== undefined && semantics.types.isNullish(type);
     }
     if (!isTransparentParent(source, parent, current)) {
       return false;

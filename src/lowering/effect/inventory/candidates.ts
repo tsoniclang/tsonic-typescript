@@ -1,5 +1,5 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindArrowFunction,
   KindCallExpression,
@@ -134,16 +134,16 @@ function asyncCallableInnerType(
     return undefined;
   }
   const semantics = source.semantics.forNode(node);
-  const returnType = semantics.getTypeFromTypeNode(typeNode);
-  const innerType = semantics.getTypeFromTypeNode(innerTypeNode);
+  const returnType = semantics.types.authoredType(typeNode);
+  const innerType = semantics.types.authoredType(innerTypeNode);
   if (
     returnType === undefined ||
     innerType === undefined ||
-    !semantics.isTypeReference(returnType)
+    !semantics.types.isTypeReference(returnType)
   ) {
     return undefined;
   }
-  const selectedArguments = semantics.getTypeArguments(returnType);
+  const selectedArguments = semantics.types.typeArguments(returnType);
   return selectedArguments.length === 1 &&
       sameSelectedType(semantics, selectedArguments[0], innerType)
     ? innerType

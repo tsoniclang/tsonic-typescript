@@ -1,4 +1,4 @@
-export { createTypeScriptBackend } from "./backend/typescript-backend.js";
+export { compileTypeScriptTarget } from "./backend/typescript-backend.js";
 export {
   readTypeScriptTargetOptions,
 } from "./config/options.js";

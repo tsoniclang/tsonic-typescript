@@ -26,7 +26,6 @@ export const result = new Scalar({ amount: 1 }).value;
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: false,
-    declarationReferences: true,
   });
   const plan = createScalarRepresentationPlan(
     fixture.source,

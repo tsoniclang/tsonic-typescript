@@ -30,7 +30,6 @@ export const result = (await first(new Pair())) + (await second(new Pair()));
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
 
@@ -63,7 +62,6 @@ export const result = (await direct(new Pair())) + (await remote(new Pair()));
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
 
@@ -109,7 +107,6 @@ export interface ExternalReader { Read(): Awaitable<number>; }
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
 
@@ -155,7 +152,6 @@ export interface ExternalReader { Read(): Awaitable<number>; }
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
 

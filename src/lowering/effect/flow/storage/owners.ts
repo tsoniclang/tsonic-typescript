@@ -1,5 +1,5 @@
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindClassDeclaration,
   KindIdentifier,
@@ -117,12 +117,12 @@ function isExactStaticMember(
   const selected = parent !== undefined &&
       source.ast.is.IsPropertyAccessExpression(parent) &&
       source.ast.as.AsPropertyAccessExpression(parent)?.Expression === reference
-    ? source.semantics.forNode(parent).getResolvedPropertyAccessInfo(parent)
+    ? source.semantics.forNode(parent).operations.propertyAccess(parent)
         ?.selectedDeclaration
     : parent !== undefined &&
         source.ast.is.IsElementAccessExpression(parent) &&
         source.ast.as.AsElementAccessExpression(parent)?.Expression === reference
-    ? source.semantics.forNode(parent).getResolvedElementAccessInfo(parent)
+    ? source.semantics.forNode(parent).operations.elementAccess(parent)
         ?.selectedDeclaration
     : undefined;
   return selected !== undefined &&

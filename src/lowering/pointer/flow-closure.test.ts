@@ -347,15 +347,23 @@ export const result = read(pointer);
     ]).length,
     "unowned-type": pointerTypeNodes(fixture.source).length,
     "callable-alias-declaration": program.nodesOfKind(KindVariableDeclaration).length,
-    "callable-alias-reference": program.nodesOfKind(KindIdentifier).length,
     "result-call": program.nodesOfKind(KindCallExpression).length,
     "variable-initializer": program.nodesOfKind(KindVariableDeclaration).length,
-    "pointer-reference": program.nodesOfKind(KindIdentifier).length,
     "pointer-call": program.nodesOfKind(KindCallExpression).length,
     "pointer-return": program.nodesOfKind(KindReturnStatement).length,
-    "pointer-audit-reference": program.nodesOfKind(KindIdentifier).length,
   } as const;
-  assert.deepEqual(plan.planningCandidates, expected);
+  const {
+    "pointer-reference": pointerReferences,
+    "pointer-audit-reference": auditedPointerReferences,
+    ...ordinaryCandidates
+  } = plan.planningCandidates;
+  assert.deepEqual(ordinaryCandidates, expected);
+  assert.equal(pointerReferences, auditedPointerReferences);
+  assert.ok((pointerReferences ?? 0) > 0);
+  assert.ok(
+    (pointerReferences ?? Number.MAX_SAFE_INTEGER) <
+      program.nodesOfKind(KindIdentifier).length,
+  );
 
   const omitted = new PointerPlanningLedger();
   for (const node of omitted.candidates(

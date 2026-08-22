@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { LoweredValueContract } from "../value-contract.js";
 import type { ScalarRepresentationPlan } from "./plan.js";

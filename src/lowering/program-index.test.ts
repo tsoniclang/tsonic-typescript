@@ -5,7 +5,7 @@ import type { Node } from "@tsonic/tsts";
 import type {
   SourceBindingWrite,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 import {
   KindClassDeclaration,
   KindIdentifier,
@@ -18,7 +18,6 @@ import {
   createTargetProgramIndex,
 } from "./program-index.js";
 import { indexedSource, requireKind } from "./program-index.test-support.js";
-import { checkedScalarFixture } from "./scalar/scalar.test-support.js";
 
 test("indexes every exact node once and preserves kind order", () => {
   const fixture = checkedEffectFixture(indexedSource);
@@ -30,7 +29,6 @@ test("indexes every exact node once and preserves kind order", () => {
   const index = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: true,
-    declarationReferences: true,
   });
 
   assertSameNodes(index.nodes, expected, "node census");
@@ -69,7 +67,6 @@ test("joins shared binding writes and member dispatch to canonical navigation", 
   const index = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: true,
-    declarationReferences: true,
   });
   const methods = index.nodesOfKind(KindMethodDeclaration);
   assert.equal(methods.length, 3);
@@ -93,48 +90,18 @@ test("joins shared binding writes and member dispatch to canonical navigation", 
   assert.ok(reference !== undefined);
   assertSameWrites(
     index.bindingWritesFor(reference.declaration),
-    fixture.source.navigation.bindingWritesWithin(
-      reference.symbol,
-      reference.sourceFile,
-    ),
+    writes,
     "counter writes",
   );
 });
 
-test("exact-joins project references to canonical navigation", () => {
+test("records non-vacuous source-owned reference statistics", () => {
   const fixture = checkedEffectFixture(indexedSource);
   const index = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: true,
-    declarationReferences: true,
   });
-  assertProjectReferencesReconcile(fixture.source, index);
-});
-
-test("exact-joins aliases, qualified names, properties, and private names", () => {
-  const fixture = checkedScalarFixture(
-    `import { Models as Domain, create } from "./library.js";
-const item: Domain.Box = create();
-const shorthand = { item };
-export const result = shorthand.item.read();`,
-    {
-      additionalFiles: {
-        "/src/library.ts": `export namespace Models {
-  export class Box {
-    #value = 1;
-    read(): number { return this.#value; }
-  }
-}
-export function create(): Models.Box { return new Models.Box(); }`,
-      },
-    },
-  );
-  const index = createTargetProgramIndex(fixture.source, {
-    bindingWrites: true,
-    memberDispatch: true,
-    declarationReferences: true,
-  });
-  assertProjectReferencesReconcile(fixture.source, index);
+  assertSourceReferenceEvidence(fixture.source, index);
 });
 
 test("shared index construction stays linear as independent classes double", () => {
@@ -188,27 +155,24 @@ function measuredIndex(source: TargetSourceProgram) {
   const index = createTargetProgramIndex(measured, {
     bindingWrites: true,
     memberDispatch: true,
-    declarationReferences: true,
   });
   return { index, heritageQueries, memberDispatchQueries };
 }
 
-function totalOperations(operations: {
-  readonly nodeVisits: number;
-  readonly childEdges: number;
-  readonly kindEntries: number;
-  readonly identifierEntries: number;
-  readonly referenceCandidates: number;
-  readonly projectReferences: number;
-  readonly bindingCandidates: number;
-  readonly bindingWrites: number;
-  readonly heritageEdges: number;
-  readonly dispatchMembers: number;
-}): number {
-  return Object.values(operations).reduce((total, count) => total + count, 0);
+function totalOperations(
+  operations: ReturnType<typeof createTargetProgramIndex>["operations"],
+): number {
+  return operations.nodeVisits + operations.childEdges +
+    operations.kindEntries + operations.identifierEntries +
+    operations.bindingCandidates + operations.bindingWrites +
+    operations.heritageEdges + operations.dispatchMembers +
+    Object.values(operations.sourceReferenceIndex).reduce(
+      (total, count) => total + count,
+      0,
+    );
 }
 
-function assertProjectReferencesReconcile(
+function assertSourceReferenceEvidence(
   source: TargetSourceProgram,
   index: ReturnType<typeof createTargetProgramIndex>,
 ): void {
@@ -220,14 +184,17 @@ function assertProjectReferencesReconcile(
     }
   }
   assert.ok(declarations.size > 0);
-  let referenceCount = 0;
+  let reverseReferences = 0;
   for (const declaration of declarations) {
-    const expected = source.navigation.referencesToDeclaration(declaration);
-    const actual = index.referencesToDeclaration(declaration);
-    assertSameNodes(actual, expected, "declaration references");
-    referenceCount += actual.length;
+    reverseReferences += source.navigation.referencesToDeclaration(
+      declaration,
+    ).length;
   }
-  assert.equal(index.operations.projectReferences, referenceCount);
+  assert.ok(reverseReferences > 0);
+  assert.deepEqual(
+    index.operations.sourceReferenceIndex,
+    source.navigation.referenceIndexStatistics,
+  );
 }
 
 function assertSameNodes(

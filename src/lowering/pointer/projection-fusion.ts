@@ -1,5 +1,5 @@
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import { transparentExpression } from "./flow-syntax.js";

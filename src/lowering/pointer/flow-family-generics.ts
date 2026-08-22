@@ -7,7 +7,7 @@ import type {
   PointerOperationFact,
   Type,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
@@ -69,7 +69,7 @@ export function applyGenericPointerBoundaries(
       continue;
     }
     const semantics = source.semantics.forNode(node);
-    const call = semantics.getResolvedCallInfo(node);
+    const call = semantics.operations.call(node);
     if (call?.sourceSelectedSignatureKind !== "resolved") {
       continue;
     }
@@ -107,7 +107,7 @@ export function applyGenericPointerBoundaries(
         ledger,
       );
     }
-    const selectedDeclaration = semantics.getSignatureDeclaration(
+    const selectedDeclaration = semantics.declarations.signatureDeclaration(
       call.selectedSignature,
     );
     const returnType = selectedDeclaration === undefined
@@ -159,16 +159,16 @@ function authoredTypeContainsRepresentationVaryingPointer(
   ledger: PointerPlanningLedger,
 ): boolean {
   const semantics = source.semantics.forNode(anchor);
-  for (const subject of semantics.getAuthoredTypeFactSubjects(authoredType)) {
+  for (const subject of semantics.facts.authoredTypeSubjects(authoredType)) {
     ledger.record("direct-family");
     const fact = facts.pointerFactFor(subject);
     if (fact === undefined) {
       continue;
     }
-    const pointee = semantics.getTypeFromTypeNode(fact.pointee);
+    const pointee = semantics.types.authoredType(fact.pointee);
     if (
       pointee !== undefined &&
-      semantics.couldContainTypeVariables(pointee) &&
+      semantics.types.couldContainTypeVariables(pointee) &&
       describePointerPointee(source, fact.pointee, pointee) === undefined
     ) {
       return true;
@@ -218,8 +218,8 @@ function selectedPointerFamilies(
       continue;
     }
     seen.add(current);
-    if (semantics.isUnion(current) || semantics.isIntersection(current)) {
-      for (const member of semantics.getUnionOrIntersectionTypes(current)) {
+    if (semantics.types.isUnion(current) || semantics.types.isIntersection(current)) {
+      for (const member of semantics.types.unionOrIntersectionTypes(current)) {
         ledger.record("direct-family");
         if (member !== undefined) {
           pending.push(member);
@@ -227,10 +227,10 @@ function selectedPointerFamilies(
       }
       continue;
     }
-    const arguments_ = semantics.getEffectiveTypeArguments(current);
+    const arguments_ = semantics.types.effectiveTypeArguments(current);
     if (selectedTypeIsPointer(
       source,
-      semantics.getTypeFactSubjects(current),
+      semantics.facts.typeSubjects(current),
       ledger,
     )) {
       const pointee = arguments_?.length === 1 ? arguments_[0] : undefined;
@@ -250,17 +250,17 @@ function selectedPointerFamilies(
       pending.push(...arguments_);
     }
     for (const signature of [
-      ...semantics.getCallSignatures(current),
-      ...semantics.getConstructSignatures(current),
+      ...semantics.types.callSignatures(current),
+      ...semantics.types.constructSignatures(current),
     ]) {
       ledger.record("direct-family");
       if (signature === undefined) {
         continue;
       }
-      pending.push(semantics.getReturnTypeOfSignature(signature));
-      for (const parameter of semantics.getSignatureParameters(signature)) {
+      pending.push(semantics.types.returnType(signature));
+      for (const parameter of semantics.declarations.signatureParameters(signature)) {
         ledger.record("direct-family");
-        pending.push(semantics.getTypeOfSymbol(parameter));
+        pending.push(semantics.types.typeOfSymbol(parameter));
       }
     }
   }

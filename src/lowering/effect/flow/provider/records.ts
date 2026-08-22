@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
@@ -29,7 +29,7 @@ export function collectProviderInvocationRecords(
     if (fact === undefined) {
       continue;
     }
-    const selected = source.semantics.forNode(call).getResolvedCallInfo(call);
+    const selected = source.semantics.forNode(call).operations.call(call);
     if (selected === undefined || selected.call !== call) {
       throw new Error(
         `Provider invocation '${fact.semanticKey}' has no exact checked call`,

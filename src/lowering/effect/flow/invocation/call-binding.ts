@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type {
   ResolvedSourceCallInfo,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
@@ -328,10 +328,10 @@ export function exactSourceCallBindings(
     return undefined;
   }
   const semantics = source.semantics.forNode(node);
-  const call = semantics.getResolvedCallInfo(node);
+  const call = semantics.operations.call(node);
   const declaration = call === undefined
     ? undefined
-    : semantics.getSignatureDeclaration(call.selectedSignature);
+    : semantics.declarations.signatureDeclaration(call.selectedSignature);
   if (
     call === undefined ||
     declaration === undefined ||

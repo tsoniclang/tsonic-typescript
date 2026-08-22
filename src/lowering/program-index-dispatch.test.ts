@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindGetAccessor,
   KindMethodDeclaration,
@@ -102,10 +102,10 @@ test("disabled facets perform zero semantic queries", () => {
   assert.equal(index.operations.bindingWrites, 0);
   assert.equal(index.operations.heritageEdges, 0);
   assert.equal(index.operations.dispatchMembers, 0);
-  assert.equal(index.operations.referenceCandidates, 0);
-  assert.equal(index.operations.projectReferences, 0);
-  assert.throws(
-    () => index.referencesToDeclaration(fixture.sourceFile),
-    /was not selected/u,
+  assert.deepEqual(
+    index.operations.sourceReferenceIndex,
+    fixture.source.navigation.referenceIndexStatistics,
   );
+  assert.equal("declarationReferenceFor" in index, false);
+  assert.equal("referencesToDeclaration" in index, false);
 });

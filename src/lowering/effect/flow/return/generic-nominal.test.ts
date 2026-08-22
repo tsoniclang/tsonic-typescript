@@ -162,7 +162,6 @@ const value = new GenericThen<() => void>(42);
   const declaration = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: false,
-    declarationReferences: true,
   }).nodesOfKind(KindVariableDeclaration).find((node) =>
     fixture.source.ast.text(fixture.source.ast.name(node)) === "value"
   );
@@ -170,7 +169,7 @@ const value = new GenericThen<() => void>(42);
   const name = fixture.source.ast.name(declaration);
   assert.ok(name !== undefined);
   const semantics = fixture.source.semantics.forNode(name);
-  const type = semantics.getTypeAtLocation(name);
+  const type = semantics.types.expressionType(name);
   assert.ok(type !== undefined);
   assert.equal(
     typeHasDefinitelyNonThenableContract(fixture.source, semantics, type),

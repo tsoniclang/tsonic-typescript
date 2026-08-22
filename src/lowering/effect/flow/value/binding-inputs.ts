@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import { isModuleForwardingReference } from "../../model/syntax.js";
@@ -31,7 +31,7 @@ export function createExactValueBindingInputs(
       reference: Node,
       path: ExactValueSlotPath,
     ): readonly Node[] | undefined {
-      const selected = program.declarationReferenceFor(reference);
+      const selected = source.navigation.sourceReferenceFor(reference);
       if (selected?.project !== true) {
         return undefined;
       }
@@ -97,7 +97,7 @@ function exactInputsForDeclaration(
   ) {
     return undefined;
   }
-  const closed = program.referencesToDeclaration(declaration).every(
+  const closed = source.navigation.referencesToDeclaration(declaration).every(
     (reference) => {
       if (isModuleForwardingReference(source, reference)) {
         return false;

@@ -3,7 +3,7 @@ import type {
   ResolvedSourceCallInfo,
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 import {
   KindCallExpression,
   KindNewExpression,
@@ -85,10 +85,10 @@ export function collectInterfaceCallTransports(
   for (const kind of [KindCallExpression, KindNewExpression]) {
     for (const node of program.nodesOfKind(kind)) {
       const semantics = source.semantics.forNode(node);
-      const call = semantics.getResolvedCallInfo(node);
+      const call = semantics.operations.call(node);
       const declaration = call === undefined
         ? undefined
-        : semantics.getSignatureDeclaration(call.selectedSignature);
+        : semantics.declarations.signatureDeclaration(call.selectedSignature);
       const transport = transports?.transportFor(node);
       calls.push({
         node,
@@ -163,10 +163,10 @@ function collectCheckedProviderParameters(
     const parameters = source.ast.parameters(expression).filter(
       (parameter): parameter is Node => parameter !== undefined,
     );
-    const sourceCallable = semantics.selectCallableType(
+    const sourceCallable = semantics.types.callable(
       binding.selectedArgumentType,
     );
-    const targetCallable = semantics.selectCallableType(
+    const targetCallable = semantics.types.callable(
       binding.selectedParameterType,
     );
     if (
@@ -385,7 +385,10 @@ function retainUnresolvedCallTransports(
   sink: InterfaceCallTransportSink,
 ): void {
   const types = source.ast.arguments(node).flatMap((argument) => {
-    const type = semantics.getTypeAtLocation(argument);
+    if (argument === undefined) {
+      return [];
+    }
+    const type = semantics.types.expressionType(argument);
     return type === undefined ? [] : [type];
   });
   if (types.some((type) => relevance.contains(semantics, type))) {

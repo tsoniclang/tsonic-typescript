@@ -5,7 +5,7 @@ import type {
 import {
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import {
   createFinalNodeJournal,
@@ -116,9 +116,6 @@ export function prepareTypeScriptLowering(
       profile.representationProjections === "closed-direct" ||
       profile.cooperativeEffects === "closed-direct",
     memberDispatch: profile.cooperativeEffects === "closed-direct",
-    declarationReferences: profile.scalarProjections === "closed-direct" ||
-      profile.representationProjections === "closed-direct" ||
-      profile.cooperativeEffects === "closed-direct",
   });
   const generatedNames = createProgramGeneratedNames(source, program);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"

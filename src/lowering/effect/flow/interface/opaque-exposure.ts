@@ -2,7 +2,7 @@ import type { Node, Signature, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import { sameSelectedType } from "../../model/synchronous.js";
 import { projectCallableImplementation } from "../../model/project-invocation.js";
@@ -74,13 +74,13 @@ function analyzeOpaquePair(
   sourceIsFresh: boolean,
   state: OpaqueInterfaceExposureState,
 ): void {
-  const selectedSource = semantics.removeMissingOrUndefined(source);
-  const selectedTarget = semantics.removeMissingOrUndefined(target);
+  const selectedSource = semantics.types.withoutMissingOrUndefined(source);
+  const selectedTarget = semantics.types.withoutMissingOrUndefined(target);
   if (
     selectedSource === undefined ||
     selectedTarget === undefined ||
-    semantics.isNever(selectedSource) ||
-    semantics.isNever(selectedTarget) ||
+    semantics.types.isNever(selectedSource) ||
+    semantics.types.isNever(selectedTarget) ||
     !sourceContainsRelevantContracts(
       semantics,
       selectedSource,
@@ -96,8 +96,8 @@ function analyzeOpaquePair(
     return;
   }
   if (
-    semantics.isAny(selectedTarget) ||
-    semantics.isUnknown(selectedTarget)
+    semantics.types.isAny(selectedTarget) ||
+    semantics.types.isUnknown(selectedTarget)
   ) {
     markAllRelevantSourceContracts(
       semantics,
@@ -151,7 +151,7 @@ function pairOpaqueUnion(
   sourceIsFresh: boolean,
   state: OpaqueInterfaceExposureState,
 ): boolean {
-  if (semantics.isUnion(source)) {
+  if (semantics.types.isUnion(source)) {
     for (const member of selectedMembers(semantics, source)) {
       pairOpaqueUnionMember(
         semantics,
@@ -163,7 +163,7 @@ function pairOpaqueUnion(
     }
     return true;
   }
-  if (!semantics.isUnion(target)) {
+  if (!semantics.types.isUnion(target)) {
     return false;
   }
   pairOpaqueUnionMember(
@@ -183,7 +183,7 @@ function pairOpaqueUnionMember(
   sourceIsFresh: boolean,
   state: OpaqueInterfaceExposureState,
 ): void {
-  if (!semantics.isUnion(target)) {
+  if (!semantics.types.isUnion(target)) {
     analyzeOpaquePair(semantics, source, target, sourceIsFresh, state);
     return;
   }
@@ -211,15 +211,15 @@ function retainCallableInputs(
   retainSignatureInputs(
     semantics,
     source,
-    semantics.getCallSignatures(source),
-    semantics.getCallSignatures(target),
+    semantics.types.callSignatures(source),
+    semantics.types.callSignatures(target),
     state,
   );
   retainSignatureInputs(
     semantics,
     source,
-    semantics.getConstructSignatures(source),
-    semantics.getConstructSignatures(target),
+    semantics.types.constructSignatures(source),
+    semantics.types.constructSignatures(target),
     state,
   );
 }
@@ -266,10 +266,10 @@ function retainSignaturePairInputs(
   source: Signature,
   state: OpaqueInterfaceExposureState,
 ): void {
-  const sourceParameters = semantics.getSignatureParameterInfos(source);
+  const sourceParameters = semantics.types.signatureParameterInfos(source);
   const implementation = projectCallableImplementation(
     state.source,
-    semantics.getSignatureDeclaration(source),
+    semantics.declarations.signatureDeclaration(source),
   );
   if (implementation !== undefined) {
     const declarations = sourceParameters.map((parameter) =>
@@ -304,7 +304,7 @@ function markSignatureParameters(
   signature: Signature,
   state: OpaqueInterfaceExposureState,
 ): void {
-  for (const parameter of semantics.getSignatureParameterInfos(signature)) {
+  for (const parameter of semantics.types.signatureParameterInfos(signature)) {
     markAllRelevantSourceContracts(
       semantics,
       parameter.type,
@@ -370,21 +370,21 @@ function sequenceElements(
   semantics: SourceFileSemantics,
   type: Type,
 ): readonly Type[] | undefined {
-  if (semantics.isTuple(type)) {
-    return semantics.getTupleElementInfos(type).map((element) => element.type);
+  if (semantics.types.isTuple(type)) {
+    return semantics.types.tupleElementInfos(type).map((element) => element.type);
   }
-  if (!semantics.isArrayLike(type)) {
+  if (!semantics.types.isArrayLike(type)) {
     return undefined;
   }
-  const arguments_ = semantics.isTypeReference(type)
-    ? semantics.getTypeArguments(type).filter(
+  const arguments_ = semantics.types.isTypeReference(type)
+    ? semantics.types.typeArguments(type).filter(
       (argument): argument is Type => argument !== undefined,
     )
     : [];
   if (arguments_.length === 1) {
     return arguments_;
   }
-  const indexed = semantics.getIndexInfos(type).map((index) => index.valueType)
+  const indexed = semantics.types.indexInfos(type).map((index) => index.valueType)
     .filter((value): value is Type => value !== undefined);
   return indexed.length === 1 ? indexed : undefined;
 }
@@ -409,7 +409,7 @@ function sequenceIsWritable(
   semantics: SourceFileSemantics,
   type: Type,
 ): boolean {
-  const indexes = semantics.getIndexInfos(type);
+  const indexes = semantics.types.indexInfos(type);
   return indexes.length === 0 || indexes.some((index) => !index.readonly);
 }
 
@@ -421,15 +421,15 @@ function pairOpaqueMembers(
   state: OpaqueInterfaceExposureState,
 ): void {
   const sources = new Map(
-    semantics.getPropertyInfos(source).map((property) => [
+    semantics.types.propertyInfos(source).map((property) => [
       property.name,
       property,
     ]),
   );
-  for (const targetProperty of semantics.getPropertyInfos(target)) {
+  for (const targetProperty of semantics.types.propertyInfos(target)) {
     const sourceProperty = sources.get(targetProperty.name);
     const sourceProviders = sourceProperty === undefined
-      ? semantics.getIndexInfos(source).filter((index) =>
+      ? semantics.types.indexInfos(source).filter((index) =>
         index.valueType !== undefined &&
         indexCoversProperty(
           state.source,
@@ -457,9 +457,9 @@ function pairOpaqueMembers(
       );
     }
   }
-  const sourceIndexes = semantics.getIndexInfos(source);
+  const sourceIndexes = semantics.types.indexInfos(source);
   const sourceProperties = [...sources.values()];
-  for (const targetIndex of semantics.getIndexInfos(target)) {
+  for (const targetIndex of semantics.types.indexInfos(target)) {
     if (targetIndex.keyType === undefined || targetIndex.valueType === undefined) {
       markAllRelevantSourceContracts(
         semantics,
@@ -510,7 +510,7 @@ function selectedMembers(
   semantics: SourceFileSemantics,
   type: Type,
 ): readonly Type[] {
-  return semantics.getUnionOrIntersectionTypes(type).filter(
+  return semantics.types.unionOrIntersectionTypes(type).filter(
     (member): member is Type => member !== undefined,
   );
 }

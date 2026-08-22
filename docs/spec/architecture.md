@@ -32,13 +32,25 @@ The TypeScript target owns:
 - executable TypeScript artifacts.
 
 The target never reparses source, builds a second AST, joins by source range,
-rereads files, re-enters a checker, recognizes marker spelling, patches text,
-or invents Go semantics. It never changes a source-facing signature merely to
-make one implementation convenient.
+rereads files, recognizes marker spelling, patches text, or invents Go
+semantics. It never changes a source-facing signature merely to make one
+implementation convenient.
+
+The target may contribute a versioned source compiler extension before TSTS
+seals the checked program. That extension runs inside the one source-checking
+transaction and may use exact checker-selected declarations to attach closed
+target-runtime or provider facts. It may recognize only an explicit package
+identity and a closed exported-API contract; a local same-spelled declaration
+or the same export from another package remains ordinary source. Once source
+checking seals, target planning and lowering consume only finalized facts and
+navigation and never re-enter the checker.
 
 ## One Target Pipeline
 
 ```text
+TSTS source check + versioned target source extensions
+                         |
+                         v
 immutable checked TS-Go AST + finalized exact-node facts
                          |
                          v
@@ -46,7 +58,7 @@ validated target profile and complete source membership
                          |
                          v
 one immutable target-program index
-  (exact nodes/source files, syntax-kind partitions, references, shared flow answers)
+  (nodes/files, syntax kinds, binding writes, dispatch, source-graph statistics)
                          |
                          v
 family plans over complete connected flows
@@ -111,18 +123,23 @@ Whole-program families consume one immutable index built once from the
 original checked tree. It contains only target-side coordination needed by
 more than one family. The current shared denominator is exact node/source-file
 membership in source preorder, immutable syntax-kind partitions, canonical
-declaration-reference joins, canonical binding-write joins, and canonical
-project-member dispatch. The declaration-reference join is materialized once
-from exact checked-node identities and is the only reverse-reference graph used
-by target families. Optional facets are built only when the selected profile
-has a consumer.
+binding-write joins, canonical project-member dispatch, and the source-owned
+reference-index statistics copied into optimization evidence. Optional
+target-owned facets are built only when the selected profile has a consumer.
+
+Declaration and reverse-reference facts are not a target-program-index facet.
+Every target family consumes them directly from the exact
+`TargetSourceProgram.navigation` graph supplied by shared Tsonic. The target
+must not census reference candidates, construct symbol/declaration reverse
+maps, expose a forwarding reference facade, or retain target-owned reference
+rows. This source graph is the one semantic owner and the one consumption path.
 
 The index is coordination state, not a second semantic model. TSTS facts remain
 the semantic authority. Canonical declaration, reference, import, signature,
-call, and alias queries remain at their existing navigation owner unless more
-than one family needs one materialized answer. Family-specific facts stay in
-their family. A query whose answer is needed once remains local instead of
-expanding the index.
+call, and alias queries remain at their source-semantic or source-navigation
+owner. Reuse by multiple target families does not transfer ownership or justify
+a second materialized answer. Family-specific facts stay in their family. A
+query whose answer is needed once remains local instead of expanding the index.
 
 Index construction and family planning must be proportional to nodes plus
 relevant edges. Repeated whole-program scans, per-candidate hierarchy walks,

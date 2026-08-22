@@ -1,5 +1,5 @@
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
@@ -188,7 +188,7 @@ export function createGraphCallableValueFlow(
   for (const property of objectProjections?.properties ?? []) {
     const callable = property.initializers.some((initializer) => {
       const semantics = source.semantics.forNode(initializer);
-      const type = semantics.getTypeAtLocation(initializer);
+      const type = semantics.types.expressionType(initializer);
       return type !== undefined && typeMayBeCallable(semantics, type);
     });
     if (callable) {

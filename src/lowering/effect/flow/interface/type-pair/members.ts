@@ -4,7 +4,7 @@ import type {
   TypeIndexInfo,
   TypePropertyInfo,
 } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "@tsonic/target-api";
+import type { SourceFileSemantics } from "@tsonic/target-api/source";
 
 import { typeHasTrustedSynchronousCallSignatures } from "../../../model/synchronous.js";
 import {
@@ -33,13 +33,13 @@ export function pairObjectMembers(
   enqueue: InterfaceContractTypePairEnqueue,
 ): void {
   const sourceProperties = new Map(
-    semantics.getPropertyInfos(sourceType).map((property) => [
+    semantics.types.propertyInfos(sourceType).map((property) => [
       property.name,
       property,
     ]),
   );
-  const sourceIndexes = semantics.getIndexInfos(sourceType);
-  for (const targetProperty of semantics.getPropertyInfos(targetType)) {
+  const sourceIndexes = semantics.types.indexInfos(sourceType);
+  for (const targetProperty of semantics.types.propertyInfos(targetType)) {
     const sourceProperty = sourceProperties.get(targetProperty.name);
     if (sourceProperty === undefined) {
       pairMissingProperty(
@@ -71,7 +71,7 @@ export function pairObjectMembers(
     targetType,
     [...sourceProperties.values()],
     sourceIndexes,
-    semantics.getIndexInfos(targetType),
+    semantics.types.indexInfos(targetType),
     state,
     enqueue,
   );
@@ -321,6 +321,6 @@ function allTypesIdentical(
   types: readonly Type[],
 ): boolean {
   return types.length !== 0 && types.slice(1).every((type) =>
-    semantics.isTypeIdenticalTo(types[0]!, type)
+    semantics.types.isIdentical(types[0]!, type)
   );
 }

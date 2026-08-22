@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindElementAccessExpression,
   KindIdentifier,
@@ -210,11 +210,11 @@ function selectedStorageDeclaration(
 ): Node | undefined {
   if (source.ast.is.IsPropertyAccessExpression(expression)) {
     return source.semantics.forNode(expression)
-      .getResolvedPropertyAccessInfo(expression)?.selectedDeclaration;
+      .operations.propertyAccess(expression)?.selectedDeclaration;
   }
   return source.ast.is.IsElementAccessExpression(expression)
     ? source.semantics.forNode(expression)
-      .getResolvedElementAccessInfo(expression)?.selectedDeclaration
+      .operations.elementAccess(expression)?.selectedDeclaration
     : undefined;
 }
 
@@ -223,9 +223,9 @@ function storageAccess(
   expression: Node,
 ): "read" | "write" | "unsupported" {
   const selected = source.ast.is.IsPropertyAccessExpression(expression)
-    ? source.semantics.forNode(expression).getResolvedPropertyAccessInfo(expression)
+    ? source.semantics.forNode(expression).operations.propertyAccess(expression)
     : source.ast.is.IsElementAccessExpression(expression)
-    ? source.semantics.forNode(expression).getResolvedElementAccessInfo(expression)
+    ? source.semantics.forNode(expression).operations.elementAccess(expression)
     : undefined;
   return selected?.accessMode === "read"
     ? "read"

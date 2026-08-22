@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
@@ -407,8 +407,8 @@ function expandExpression(
     return;
   }
   const semantics = source.semantics.forNode(root);
-  const type = semantics.getTypeAtLocation(root);
-  if (type !== undefined && semantics.isNullish(type)) {
+  const type = semantics.types.expressionType(root);
+  if (type !== undefined && semantics.types.isNullish(type)) {
     emptyOrigin(state, root, context);
     return;
   }
@@ -465,7 +465,7 @@ function expandExpression(
   const referenceNode = source.ast.is.IsPropertyAccessExpression(root)
     ? source.ast.name(root)
     : root;
-  const reference = context.program.declarationReferenceFor(referenceNode);
+  const reference = source.navigation.sourceReferenceFor(referenceNode);
   if (
     reference?.project === true &&
     callableOriginIsExact(source, context.program, reference.declaration)

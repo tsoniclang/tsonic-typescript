@@ -103,7 +103,6 @@ export const result = await read(${expression});
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
-        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);
@@ -127,7 +126,6 @@ export const result = await read(readers[0]!);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);

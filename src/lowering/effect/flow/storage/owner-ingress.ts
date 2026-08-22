@@ -1,5 +1,5 @@
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindCallExpression,
   KindElementAccessExpression,
@@ -214,14 +214,14 @@ function selectedCallableDeclaration(
   if (source.ast.is.IsPropertyAccessExpression(node)) {
     return projectCallableImplementation(
       source,
-      source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
+      source.semantics.forNode(node).operations.propertyAccess(node)
         ?.selectedDeclaration,
     );
   }
   if (source.ast.is.IsElementAccessExpression(node)) {
     return projectCallableImplementation(
       source,
-      source.semantics.forNode(node).getResolvedElementAccessInfo(node)
+      source.semantics.forNode(node).operations.elementAccess(node)
         ?.selectedDeclaration,
     );
   }

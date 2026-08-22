@@ -37,7 +37,6 @@ export declare const external: ExternalReader;
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
 
@@ -79,7 +78,6 @@ export declare const external: ExternalReader;
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
 
@@ -130,7 +128,6 @@ export const result = (await read(external)) + (await read(new LocalReader()));
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
-        declarationReferences: true,
       }),
     );
 
@@ -162,7 +159,6 @@ export interface ExternalReader<T> { Read(): T; }
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
 
@@ -194,7 +190,6 @@ export declare function createReader(): RuntimeReader;
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
 
@@ -230,7 +225,6 @@ export declare function create(): ExternalReader;
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -265,7 +259,6 @@ export declare function create(): ExternalReader;
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);

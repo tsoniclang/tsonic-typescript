@@ -35,7 +35,6 @@ test("eliminates exact identity and inverse representation calls", () => {
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: false,
-    declarationReferences: true,
   });
   const plan = createRepresentationProjectionPlan(
     fixture.source,
@@ -58,7 +57,6 @@ test("preserves each representation candidate unless selected", () => {
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: false,
-    declarationReferences: true,
   });
   const plan = createRepresentationProjectionPlan(
     fixture.source,
@@ -140,7 +138,6 @@ test("fails closed when an apparent projection pair is not exact", () => {
       createTargetProgramIndex(fixture.source, {
         bindingWrites: true,
         memberDispatch: false,
-        declarationReferences: true,
       }),
       "closed-direct",
       fixtureSourceIdentityFor(fixture.source),
@@ -162,7 +159,6 @@ test("accounts for every representation candidate in immutable evidence", () => 
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: false,
-    declarationReferences: true,
   });
   const scalar = createScalarRepresentationPlan(
     fixture.source,
@@ -186,7 +182,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     undefined,
   );
 
-  assert.equal(evidence.schemaVersion, 20);
+  assert.equal(evidence.schemaVersion, 21);
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",
     identityCandidateCount: 1,

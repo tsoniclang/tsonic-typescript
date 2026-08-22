@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
 import {
@@ -20,7 +20,7 @@ export function staticallyNonThenable(
     return true;
   }
   const semantics = source.semantics.forNode(expression);
-  const type = semantics.getTypeAtLocation(expression);
+  const type = semantics.types.expressionType(expression);
   if (type === undefined || typeExposesCallableThen(semantics, type)) {
     return false;
   }

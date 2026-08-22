@@ -59,7 +59,7 @@ export function expandInterfaceOriginContainer(
   if (ingress.source.ast.is.IsPropertyAccessExpression(expression)) {
     const access = ingress.source.ast.as.AsPropertyAccessExpression(expression);
     const declaration = ingress.source.semantics.forNode(expression)
-      .getResolvedPropertyAccessInfo(expression)?.selectedDeclaration;
+      .operations.propertyAccess(expression)?.selectedDeclaration;
     const trackedStorage = declaration !== undefined &&
       storageDeclarationCanBeTracked(ingress.source, declaration);
     const slot = ingress.slots?.resultFor(expression);
@@ -105,7 +105,7 @@ export function expandInterfaceOriginContainer(
   }
   if (ingress.source.ast.is.IsElementAccessExpression(expression)) {
     const declaration = ingress.source.semantics.forNode(expression)
-      .getResolvedElementAccessInfo(expression)?.selectedDeclaration;
+      .operations.elementAccess(expression)?.selectedDeclaration;
     const trackedStorage = declaration !== undefined &&
       storageDeclarationCanBeTracked(ingress.source, declaration);
     const slot = ingress.slots?.resultFor(expression);
@@ -166,10 +166,10 @@ export function expandInterfaceOriginContainer(
   }
   if (ingress.source.ast.is.IsNewExpression(expression)) {
     const semantics = ingress.source.semantics.forNode(expression);
-    const call = semantics.getResolvedCallInfo(expression);
+    const call = semantics.operations.call(expression);
     const declaration = call === undefined
       ? ingress.source.navigation.declarationFor(expression)
-      : semantics.getSignatureDeclaration(call.selectedSignature) ??
+      : semantics.declarations.signatureDeclaration(call.selectedSignature) ??
         ingress.source.navigation.declarationFor(expression);
     flow.terminal(
       state,
@@ -183,7 +183,7 @@ export function expandInterfaceOriginContainer(
     flow.boundary(state, "unproven-value-origin", expression, context);
     return;
   }
-  const reference = ingress.program.declarationReferenceFor(expression);
+  const reference = ingress.source.navigation.sourceReferenceFor(expression);
   if (reference !== undefined && ingress.opaqueInputs.has(reference.declaration)) {
     flow.boundary(state, "opaque-call-transport", expression, context);
     return;
@@ -246,10 +246,10 @@ function expandContainerCall(
     return;
   }
   const semantics = ingress.source.semantics.forNode(expression);
-  const call = semantics.getResolvedCallInfo(expression);
+  const call = semantics.operations.call(expression);
   const declaration = call === undefined
     ? undefined
-    : semantics.getSignatureDeclaration(call.selectedSignature);
+    : semantics.declarations.signatureDeclaration(call.selectedSignature);
   flow.terminal(
     state,
     declaration !== undefined &&

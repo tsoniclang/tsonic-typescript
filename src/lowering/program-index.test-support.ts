@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import {
+  sourceBindingWriteAtReference,
+  type SourceBindingWrite,
+  type TargetSourceProgram,
+} from "@tsonic/target-api/source";
 import {
   KindElementAccessExpression,
   KindGetAccessor,
@@ -92,9 +96,7 @@ export function assertBindingWritesReconcile(
   source: TargetSourceProgram,
   index: TargetProgramIndex,
 ): void {
-  const declarations = new Map<Node, ReturnType<
-    TargetSourceProgram["navigation"]["sourceReferenceFor"]
-  >>();
+  const expectedByDeclaration = new Map<Node, SourceBindingWrite[]>();
   for (const node of index.nodesOfKinds([
     KindIdentifier,
     KindPropertyAccessExpression,
@@ -104,18 +106,22 @@ export function assertBindingWritesReconcile(
     if (reference === undefined) {
       continue;
     }
-    declarations.set(reference.declaration, reference);
+    const expected = sourceBindingWriteAtReference(source.ast, node);
     assertSameWrites(
       index.bindingWritesAt(node),
-      source.navigation.bindingWritesWithin(reference.symbol, node),
+      expected === undefined ? [] : [expected],
       `binding writes at ${describeNode(source, node)}`,
     );
+    if (expected !== undefined) {
+      const selected = expectedByDeclaration.get(reference.declaration);
+      if (selected === undefined) {
+        expectedByDeclaration.set(reference.declaration, [expected]);
+      } else {
+        selected.push(expected);
+      }
+    }
   }
-  for (const [declaration, reference] of declarations) {
-    assert.ok(reference !== undefined);
-    const expected = source.navigation.sourceFiles.flatMap((sourceFile) =>
-      source.navigation.bindingWritesWithin(reference.symbol, sourceFile)
-    );
+  for (const [declaration, expected] of expectedByDeclaration) {
     assertSameWrites(
       index.bindingWritesFor(declaration),
       expected,
@@ -175,8 +181,8 @@ function assertSameNodes(
 }
 
 function assertSameWrites(
-  actual: readonly import("@tsonic/target-api").SourceBindingWrite[],
-  expected: readonly import("@tsonic/target-api").SourceBindingWrite[],
+  actual: readonly SourceBindingWrite[],
+  expected: readonly SourceBindingWrite[],
   subject: string,
 ): void {
   if (actual.length !== expected.length) {

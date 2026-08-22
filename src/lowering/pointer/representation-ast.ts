@@ -31,7 +31,7 @@ import {
   NodeFactory_NewNodeList,
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { GeneratedBindingName } from "../generated-names.js";
 import { PointerLoweringError } from "./diagnostic.js";
@@ -222,11 +222,11 @@ function disprovedNilGuardValue(
   const fallback = originalBinary?.Right;
   const fallbackType = fallback === undefined
     ? undefined
-    : source.semantics.forNode(fallback).getTypeAtLocation(fallback);
+    : source.semantics.forNode(fallback).types.expressionType(fallback);
   if (
     fallback === undefined ||
     fallbackType === undefined ||
-    !source.semantics.forNode(fallback).isNever(fallbackType) ||
+    !source.semantics.forNode(fallback).types.isNever(fallbackType) ||
     source.ast.operatorKindName(updated) !== "KindQuestionQuestionToken" ||
     updatedBinary?.Left === undefined
   ) {

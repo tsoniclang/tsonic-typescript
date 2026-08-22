@@ -1,5 +1,5 @@
 import type { Signature, Type } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "@tsonic/target-api";
+import type { SourceFileSemantics } from "@tsonic/target-api/source";
 
 import { sameSelectedType, typeMaySuspend } from "../../../model/synchronous.js";
 import type { InterfaceContractRelevance } from "../relevance.js";
@@ -16,10 +16,10 @@ export function pairCallableTypes(
   state: InterfaceContractTypePairState,
   enqueue: InterfaceContractTypePairEnqueue,
 ): boolean {
-  const sourceCalls = semantics.getCallSignatures(source);
-  const targetCalls = semantics.getCallSignatures(target);
-  const sourceConstructs = semantics.getConstructSignatures(source);
-  const targetConstructs = semantics.getConstructSignatures(target);
+  const sourceCalls = semantics.types.callSignatures(source);
+  const targetCalls = semantics.types.callSignatures(target);
+  const sourceConstructs = semantics.types.constructSignatures(source);
+  const targetConstructs = semantics.types.constructSignatures(target);
   if (
     sourceCalls.length === 0 && targetCalls.length === 0 &&
     sourceConstructs.length === 0 && targetConstructs.length === 0
@@ -81,8 +81,8 @@ function pairSignature(
   state: InterfaceContractTypePairState,
   enqueue: InterfaceContractTypePairEnqueue,
 ): void {
-  const sourceParameters = semantics.getSignatureParameterInfos(source);
-  const targetParameters = semantics.getSignatureParameterInfos(target);
+  const sourceParameters = semantics.types.signatureParameterInfos(source);
+  const targetParameters = semantics.types.signatureParameterInfos(target);
   for (let index = 0; index < sourceParameters.length; index += 1) {
     enqueue(
       semantics,
@@ -91,8 +91,8 @@ function pairSignature(
       state,
     );
   }
-  const sourceReturn = semantics.getReturnTypeOfSignature(source);
-  const targetReturn = semantics.getReturnTypeOfSignature(target);
+  const sourceReturn = semantics.types.returnType(source);
+  const targetReturn = semantics.types.returnType(target);
   if (sourceReturn !== undefined && targetReturn !== undefined) {
     enqueue(
       semantics,
@@ -202,8 +202,8 @@ function signatureCanPair(
   target: Signature,
   relevance: InterfaceContractRelevance,
 ): boolean {
-  const sourceParameters = semantics.getSignatureParameterInfos(source);
-  const targetParameters = semantics.getSignatureParameterInfos(target);
+  const sourceParameters = semantics.types.signatureParameterInfos(source);
+  const targetParameters = semantics.types.signatureParameterInfos(target);
   if (
     sourceParameters.length !== targetParameters.length ||
     sourceParameters.some((parameter, index) =>
@@ -218,8 +218,8 @@ function signatureCanPair(
   ) {
     return false;
   }
-  const sourceReturn = semantics.getReturnTypeOfSignature(source);
-  const targetReturn = semantics.getReturnTypeOfSignature(target);
+  const sourceReturn = semantics.types.returnType(source);
+  const targetReturn = semantics.types.returnType(target);
   return sourceReturn !== undefined && targetReturn !== undefined && typesCanPair(
     semantics,
     directEffectResultType(semantics, sourceReturn) ?? sourceReturn,
@@ -234,13 +234,13 @@ function typesCanPair(
   target: Type,
   relevance: InterfaceContractRelevance,
 ): boolean {
-  const selectedSource = semantics.removeMissingOrUndefined(source);
-  const selectedTarget = semantics.removeMissingOrUndefined(target);
+  const selectedSource = semantics.types.withoutMissingOrUndefined(source);
+  const selectedTarget = semantics.types.withoutMissingOrUndefined(target);
   if (selectedSource === undefined || selectedTarget === undefined) {
     return selectedSource === selectedTarget;
   }
   if (
-    semantics.getTypeRelationship(selectedSource, selectedTarget) !==
+    semantics.types.relationship(selectedSource, selectedTarget) !==
       "unrelated"
   ) {
     return true;
@@ -273,17 +273,17 @@ function directEffectResultType(
   semantics: SourceFileSemantics,
   type: Type,
 ): Type | undefined {
-  const selected = semantics.removeMissingOrUndefined(type);
-  if (selected === undefined || semantics.isNever(selected)) {
+  const selected = semantics.types.withoutMissingOrUndefined(type);
+  if (selected === undefined || semantics.types.isNever(selected)) {
     return selected;
   }
-  if (!semantics.isUnion(selected)) {
+  if (!semantics.types.isUnion(selected)) {
     if (!typeMaySuspend(semantics, selected)) {
       return selected;
     }
     return exactThenableFulfillmentType(semantics, selected);
   }
-  const members = semantics.getUnionOrIntersectionTypes(selected);
+  const members = semantics.types.unionOrIntersectionTypes(selected);
   if (members.some((member) => member === undefined)) {
     return undefined;
   }
@@ -320,13 +320,13 @@ function exactThenableFulfillmentType(
   type: Type,
 ): Type | undefined {
   if (
-    semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.isNever(type)
+    semantics.types.isAny(type) ||
+    semantics.types.isUnknown(type) ||
+    semantics.types.isNever(type)
   ) {
     return undefined;
   }
-  const then = semantics.getPropertyInfos(type).filter((property) =>
+  const then = semantics.types.propertyInfos(type).filter((property) =>
     property.name === "then"
   );
   if (then.length !== 1) {
@@ -336,7 +336,7 @@ function exactThenableFulfillmentType(
   if (thenCallable === undefined) {
     return undefined;
   }
-  const thenSignatures = semantics.getCallSignatures(thenCallable);
+  const thenSignatures = semantics.types.callSignatures(thenCallable);
   if (thenSignatures.length !== 1 || thenSignatures[0] === undefined) {
     return undefined;
   }
@@ -348,7 +348,7 @@ function exactThenableFulfillmentType(
   if (callbackCallable === undefined) {
     return undefined;
   }
-  const callbackSignatures = semantics.getCallSignatures(callbackCallable);
+  const callbackSignatures = semantics.types.callSignatures(callbackCallable);
   if (callbackSignatures.length !== 1 || callbackSignatures[0] === undefined) {
     return undefined;
   }
@@ -359,36 +359,36 @@ function firstParameterType(
   semantics: SourceFileSemantics,
   signature: Signature,
 ): Type | undefined {
-  const parameters = semantics.getSignatureParameterInfos(signature);
+  const parameters = semantics.types.signatureParameterInfos(signature);
   return parameters.length === 0
     ? undefined
-    : semantics.removeMissingOrUndefined(parameters[0]!.type);
+    : semantics.types.withoutMissingOrUndefined(parameters[0]!.type);
 }
 
 function singleCallableAlternative(
   semantics: SourceFileSemantics,
   type: Type,
 ): Type | undefined {
-  const selected = semantics.removeMissingOrUndefined(type);
+  const selected = semantics.types.withoutMissingOrUndefined(type);
   if (selected === undefined) {
     return undefined;
   }
-  if (!semantics.isUnion(selected)) {
-    return semantics.getCallSignatures(selected).length === 0
+  if (!semantics.types.isUnion(selected)) {
+    return semantics.types.callSignatures(selected).length === 0
       ? undefined
       : selected;
   }
-  const callable = semantics.getUnionOrIntersectionTypes(selected).filter(
+  const callable = semantics.types.unionOrIntersectionTypes(selected).filter(
     (member): member is Type =>
       member !== undefined &&
-      !semantics.isNullish(member) &&
-      semantics.getCallSignatures(member).length !== 0,
+      !semantics.types.isNullish(member) &&
+      semantics.types.callSignatures(member).length !== 0,
   );
-  const nonCallable = semantics.getUnionOrIntersectionTypes(selected).filter(
+  const nonCallable = semantics.types.unionOrIntersectionTypes(selected).filter(
     (member): member is Type =>
       member !== undefined &&
-      !semantics.isNullish(member) &&
-      semantics.getCallSignatures(member).length === 0,
+      !semantics.types.isNullish(member) &&
+      semantics.types.callSignatures(member).length === 0,
   );
   return callable.length === 1 && nonCallable.length === 0
     ? callable[0]
@@ -400,8 +400,8 @@ function sameTypeMembers(
   direct: readonly Type[],
   fulfilled: Type,
 ): boolean {
-  const expected = semantics.isUnion(fulfilled)
-    ? semantics.getUnionOrIntersectionTypes(fulfilled).filter(
+  const expected = semantics.types.isUnion(fulfilled)
+    ? semantics.types.unionOrIntersectionTypes(fulfilled).filter(
       (member): member is Type => member !== undefined,
     )
     : [fulfilled];

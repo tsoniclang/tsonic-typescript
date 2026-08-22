@@ -3,7 +3,7 @@ import type {
   SourceFile,
 } from "@tsonic/tsts";
 import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { CallableReturnRewrite } from "../model/callable-contract.js";
 
 export interface CooperativeEffectFilePlan {

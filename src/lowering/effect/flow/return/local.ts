@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import { createExactValueBindingInputs } from "../value/binding-inputs.js";
@@ -34,7 +34,7 @@ export function createReturnLocalFlow(
       if (!source.ast.is.IsIdentifier(identifier)) {
         return undefined;
       }
-      const declaration = program.declarationReferenceFor(identifier)?.declaration;
+      const declaration = source.navigation.sourceReferenceFor(identifier)?.declaration;
       if (
         declaration === undefined ||
         !source.ast.is.IsVariableDeclaration(declaration)

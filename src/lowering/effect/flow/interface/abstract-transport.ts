@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type {
   InvocationTransport,
@@ -100,7 +100,7 @@ function abstractCallTransport(
   declaration: Node,
 ): InvocationTransport | undefined {
   const bindings = exactSourceCallBindings(source, call);
-  const resolved = source.semantics.forNode(call).getResolvedCallInfo(call);
+  const resolved = source.semantics.forNode(call).operations.call(call);
   const receiver = resolved?.sourceReceiver?.expression ??
     resolved?.sourceCalleeAccess?.receiver.expression;
   if (

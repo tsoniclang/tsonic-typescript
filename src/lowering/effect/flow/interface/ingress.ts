@@ -3,7 +3,7 @@ import type {
   ResolvedSourceCallInfo,
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
@@ -51,12 +51,12 @@ export function retainUnprovenInterfaceIngress(
   targetType: Type,
   ingress: InterfaceContractIngress,
 ): void {
-  const selectedSource = semantics.removeMissingOrUndefined(sourceType);
-  if (selectedSource === undefined || semantics.isNever(selectedSource)) {
+  const selectedSource = semantics.types.withoutMissingOrUndefined(sourceType);
+  if (selectedSource === undefined || semantics.types.isNever(selectedSource)) {
     return;
   }
-  const selectedTarget = semantics.removeMissingOrUndefined(targetType);
-  if (selectedTarget === undefined || semantics.isNever(selectedTarget)) {
+  const selectedTarget = semantics.types.withoutMissingOrUndefined(targetType);
+  if (selectedTarget === undefined || semantics.types.isNever(selectedTarget)) {
     return;
   }
   const targetContracts = ingress.relevance.valueContracts(
@@ -111,7 +111,7 @@ export function retainOpenInterfaceReceiver(
   if (call === undefined) {
     return;
   }
-  const declaration = semantics.getSignatureDeclaration(call.selectedSignature);
+  const declaration = semantics.declarations.signatureDeclaration(call.selectedSignature);
   if (declaration === undefined || !ingress.entries.has(declaration)) {
     return;
   }

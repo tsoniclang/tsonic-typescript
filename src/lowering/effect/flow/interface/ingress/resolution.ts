@@ -245,7 +245,7 @@ function expandAlternatives(
       const semantics = context.ingress.source.semantics.forNode(
         alternative.expression,
       );
-      const type = semantics.getTypeAtLocation(alternative.expression);
+      const type = semantics.types.expressionType(alternative.expression);
       if (
         type !== undefined &&
         !context.ingress.relevance.valueContracts(semantics, type).includes(

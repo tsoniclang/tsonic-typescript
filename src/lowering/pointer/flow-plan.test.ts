@@ -15,7 +15,7 @@ import {
   NewParenthesizedExpression,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { createFinalNodeJournal } from "../final-nodes.js";
 import { createProgramGeneratedNames } from "../generated-names.js";
@@ -509,39 +509,6 @@ import { allocatePointer } from "./markers.js";
       assert.equal(plan.representationFor(operation.call), "location");
     }
   }
-});
-
-test("fails closed when an exact pointer-reference edge is removed", () => {
-  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, loadPointer } from "./markers.js";
-const pointer: Pointer<number> = allocatePointer(1);
-const alias = pointer;
-export const result = loadPointer(alias);
-`);
-  const source: TargetSourceProgram = Object.freeze({
-    ...fixture.source,
-    semantics: Object.freeze({
-      ...fixture.source.semantics,
-      forNode(node: Node) {
-        const semantics = fixture.source.semantics.forNode(node);
-        const omit = fixture.source.ast.is.IsIdentifier(node) &&
-          fixture.source.ast.text(node) === "alias" &&
-          fixture.source.ast.name(
-            fixture.source.navigation.sourceReferenceFor(node)?.declaration,
-          ) !== node;
-        return omit ? Object.freeze({
-          ...semantics,
-          getSymbolAtLocation: () => undefined,
-          getResolvedSymbol: () => undefined,
-        }) : semantics;
-      },
-    }),
-  });
-
-  assert.throws(
-    () => createClosedPointerFlowPlan(source),
-    /pointer operand .* lost its exact source reference/u,
-  );
 });
 
 function assertRepresentations(

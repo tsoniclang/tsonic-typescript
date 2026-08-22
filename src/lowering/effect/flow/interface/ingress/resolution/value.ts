@@ -45,7 +45,7 @@ export function expandInterfaceOriginValue(
     ingress.source.ast.is.IsClassExpression(expression)
   ) {
     const semantics = ingress.source.semantics.forNode(expression);
-    const type = semantics.getTypeAtLocation(expression);
+    const type = semantics.types.expressionType(expression);
     if (
       type !== undefined &&
       typeProvidesContract(semantics, type, contract, ingress)
@@ -90,12 +90,12 @@ export function expandInterfaceOriginValue(
   }
   if (ingress.source.ast.is.IsNewExpression(expression)) {
     const semantics = ingress.source.semantics.forNode(expression);
-    const call = semantics.getResolvedCallInfo(expression);
+    const call = semantics.operations.call(expression);
     const declaration = call === undefined
       ? undefined
-      : semantics.getSignatureDeclaration(call.selectedSignature) ??
+      : semantics.declarations.signatureDeclaration(call.selectedSignature) ??
         ingress.source.navigation.declarationFor(expression);
-    const type = semantics.getTypeAtLocation(expression);
+    const type = semantics.types.expressionType(expression);
     flow.terminal(
       state,
       originDeclarationIsClosed(ingress.source, declaration) &&
@@ -139,9 +139,9 @@ function expandPropertyRead(
   const { ingress, contract } = context;
   const access = ingress.source.ast.as.AsPropertyAccessExpression(expression);
   const semantics = ingress.source.semantics.forNode(expression);
-  const declaration = semantics.getResolvedPropertyAccessInfo(expression)
+  const declaration = semantics.operations.propertyAccess(expression)
     ?.selectedDeclaration;
-  const type = semantics.getTypeAtLocation(expression);
+  const type = semantics.types.expressionType(expression);
   const trackedStorage = declaration !== undefined &&
     storageDeclarationCanBeTracked(ingress.source, declaration);
   const slot = ingress.slots?.resultFor(expression);
@@ -195,10 +195,10 @@ function expandElementRead(
 ): void {
   const { ingress, contract } = context;
   const semantics = ingress.source.semantics.forNode(expression);
-  const access = semantics.getResolvedElementAccessInfo(expression);
+  const access = semantics.operations.elementAccess(expression);
   const owner = ingress.source.ast.as.AsElementAccessExpression(expression)
     ?.Expression;
-  const type = access?.sourceReadType ?? semantics.getTypeAtLocation(expression);
+  const type = access?.sourceReadType ?? semantics.types.expressionType(expression);
   const declaration = access?.selectedDeclaration;
   const trackedStorage = declaration !== undefined &&
     storageDeclarationCanBeTracked(ingress.source, declaration);
@@ -218,7 +218,7 @@ function expandElementRead(
   const aggregateReference = aggregateRead === undefined ||
       !ingress.source.ast.is.IsIdentifier(aggregateRead.receiver)
     ? undefined
-    : ingress.program.declarationReferenceFor(aggregateRead.receiver);
+    : ingress.source.navigation.sourceReferenceFor(aggregateRead.receiver);
   const restInputs = aggregateRead !== undefined &&
       aggregateReference?.project === true &&
       ingress.source.ast.is.IsParameterDeclaration(
@@ -316,10 +316,10 @@ function expandValueCall(
     return;
   }
   const semantics = ingress.source.semantics.forNode(expression);
-  const call = semantics.getResolvedCallInfo(expression);
+  const call = semantics.operations.call(expression);
   const declaration = call === undefined
     ? undefined
-    : semantics.getSignatureDeclaration(call.selectedSignature);
+    : semantics.declarations.signatureDeclaration(call.selectedSignature);
   flow.terminal(
     state,
     call !== undefined && declaration !== undefined &&
@@ -352,9 +352,9 @@ function expandValueIdentifier(
     expression,
   );
   if (refinement.kind !== "resolved") {
-    const reference = ingress.program.declarationReferenceFor(expression);
+    const reference = ingress.source.navigation.sourceReferenceFor(expression);
     const semantics = ingress.source.semantics.forNode(expression);
-    const type = semantics.getTypeAtLocation(expression);
+    const type = semantics.types.expressionType(expression);
     const sourceFile = reference === undefined
       ? undefined
       : ingress.source.ast.getSourceFile(reference.declaration);

@@ -22,7 +22,7 @@ import type {
 } from "@tsonic/tsts";
 import type {
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import {
   checkedScalarFixture,
@@ -328,16 +328,19 @@ test("fails closed when exact selected-field identity is mutated", () => {
         }
         return {
           ...semantics,
-          getResolvedPropertyAccessInfo(candidate) {
-            const information = semantics.getResolvedPropertyAccessInfo(candidate);
-            if (candidate !== selectedAccess || information === undefined) {
-              return information;
-            }
-            return Object.freeze({
-              ...information,
-              selectedDeclaration: wrongDeclaration,
-            });
-          },
+          operations: Object.freeze({
+            ...semantics.operations,
+            propertyAccess(candidate: Node) {
+              const information = semantics.operations.propertyAccess(candidate);
+              if (candidate !== selectedAccess || information === undefined) {
+                return information;
+              }
+              return Object.freeze({
+                ...information,
+                selectedDeclaration: wrongDeclaration,
+              });
+            },
+          }),
         };
       },
     },

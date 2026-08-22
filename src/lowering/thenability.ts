@@ -5,7 +5,7 @@ import type {
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 export function typeHasDefinitelyNonThenableContract(
   source: TargetSourceProgram,
@@ -28,25 +28,25 @@ function typeHasDefinitelyNonThenableContractWithin(
 ): boolean {
   if (
     pending.has(type) ||
-    semantics.isAny(type) ||
-    semantics.isUnknown(type)
+    semantics.types.isAny(type) ||
+    semantics.types.isUnknown(type)
   ) {
     return false;
   }
   if (
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type)
+    semantics.types.isNever(type) ||
+    semantics.types.isVoidLike(type) ||
+    semantics.types.isNullish(type) ||
+    semantics.types.isStringLike(type) ||
+    semantics.types.isNumberLike(type) ||
+    semantics.types.isBooleanLike(type) ||
+    semantics.types.isBigIntLike(type)
   ) {
     return true;
   }
-  if (semantics.isUnion(type)) {
+  if (semantics.types.isUnion(type)) {
     pending.add(type);
-    const closed = semantics.getUnionOrIntersectionTypes(type).every((member) =>
+    const closed = semantics.types.unionOrIntersectionTypes(type).every((member) =>
       member !== undefined &&
       typeHasDefinitelyNonThenableContractWithin(
         source,
@@ -58,7 +58,7 @@ function typeHasDefinitelyNonThenableContractWithin(
     pending.delete(type);
     return closed;
   }
-  const then = semantics.getPropertyInfos(type)
+  const then = semantics.types.propertyInfos(type)
     .find((property) => property.name === "then");
   if (then === undefined) {
     return false;
@@ -75,7 +75,7 @@ function propertyIsNominalThenExclusion(
   if (!property.optional || !property.readonly) {
     return false;
   }
-  const declarations = semantics.getSymbolDeclarations(property.symbol);
+  const declarations = semantics.declarations.symbolDeclarations(property.symbol);
   return declarations.length !== 0 && declarations.every((declaration) =>
     source.ast.hasModifierKind(declaration, "private")
   );
@@ -88,28 +88,28 @@ function typeCannotBeCallable(
 ): boolean {
   if (
     pending.has(type) ||
-    semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.couldContainTypeVariables(type)
+    semantics.types.isAny(type) ||
+    semantics.types.isUnknown(type) ||
+    semantics.types.couldContainTypeVariables(type)
   ) {
     return false;
   }
   if (
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type)
+    semantics.types.isNever(type) ||
+    semantics.types.isVoidLike(type) ||
+    semantics.types.isNullish(type) ||
+    semantics.types.isStringLike(type) ||
+    semantics.types.isNumberLike(type) ||
+    semantics.types.isBooleanLike(type) ||
+    semantics.types.isBigIntLike(type)
   ) {
     return true;
   }
-  if (!semantics.isUnion(type)) {
+  if (!semantics.types.isUnion(type)) {
     return false;
   }
   pending.add(type);
-  const excluded = semantics.getUnionOrIntersectionTypes(type).every((member) =>
+  const excluded = semantics.types.unionOrIntersectionTypes(type).every((member) =>
     member !== undefined &&
     typeCannotBeCallable(semantics, member, pending)
   );

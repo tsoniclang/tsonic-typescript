@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import type { TargetRuntimeReference } from "@tsonic/target-api";
+import type { TargetRuntimeReference } from "@tsonic/target-api/artifacts";
 
 export const typeScriptRuntimeModule = "@tsonic/typescript-runtime";
 

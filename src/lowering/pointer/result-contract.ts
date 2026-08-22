@@ -3,7 +3,7 @@ import {
   rawPointerOperationFactKey,
 } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type {
   LoweredInputProof,

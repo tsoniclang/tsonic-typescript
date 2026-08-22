@@ -2,7 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import type { InterfaceContractBoundaryReason } from "../boundary.js";
 import type { InterfaceContractIndex } from "../graph.js";

@@ -2,7 +2,7 @@ import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import {
   IsDecorator,
 } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { transparentExpression } from "./flow-syntax.js";
 import type { PointerPlanningLedger } from "./planning-ledger.js";
@@ -132,11 +132,11 @@ function isFreshNewExpression(
   const constructor = constructors.length === 1 ? constructors[0] : undefined;
   const body = constructor === undefined ? undefined : source.ast.body(constructor);
   const semantics = source.semantics.forNode(constructionNode);
-  const signature = semantics.getResolvedSignature(constructionNode);
+  const signature = semantics.operations.call(constructionNode)?.selectedSignature;
   return constructor !== undefined &&
     body !== undefined &&
     signature !== undefined &&
-    semantics.getSignatureDeclaration(signature) === constructor &&
+    semantics.declarations.signatureDeclaration(signature) === constructor &&
     !containsReplacementReturn(source, body, proof.ledger);
 }
 
@@ -187,7 +187,7 @@ function isFreshFactoryCall(
     : undefined;
   const returned = returnStatement?.Expression;
   const semantics = source.semantics.forNode(callNode);
-  const callInfo = semantics.getResolvedCallInfo(callNode);
+  const callInfo = semantics.operations.call(callNode);
   if (
     method === undefined ||
     method.AsteriskToken !== undefined ||
@@ -196,7 +196,7 @@ function isFreshFactoryCall(
     callInfo?.outcome !== "applicable" ||
     callInfo.sourceSelectedSignatureKind !== "resolved" ||
     callInfo.optionalChain ||
-    semantics.getSignatureDeclaration(callInfo.selectedSignature) !==
+    semantics.declarations.signatureDeclaration(callInfo.selectedSignature) !==
       methodReference.declaration ||
     proof.activeFactories.has(methodReference.declaration)
   ) {

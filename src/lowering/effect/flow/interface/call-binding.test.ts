@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ResolvedSourceCallInfo } from "@tsonic/target-api";
+import type { ResolvedSourceCallInfo } from "@tsonic/target-api/source";
 import { KindCallExpression, KindParameter } from "@tsonic/tsts/target-ast";
 
 import { createTargetProgramIndex } from "../../../program-index.js";
@@ -51,7 +51,6 @@ export const result = await read(consume(...readers));`,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
-        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);
@@ -61,7 +60,6 @@ export const result = await read(consume(...readers));`,
     const restParameter = [...createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }).nodesOfKind(KindParameter)].find((node) =>
       fixture.source.ast.as.AsParameterDeclaration(node)?.DotDotDotToken !==
         undefined
@@ -78,7 +76,6 @@ export const result = await read(consume(...readers));`,
     const consumeCall = [...createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }).nodesOfKind(KindCallExpression)].find((node) => {
       const expression = fixture.source.ast.as.AsCallExpression(node)?.Expression;
       return expression !== undefined &&
@@ -106,7 +103,6 @@ export const result = await read(consume(new Pair(), new Pair()));
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: false,
-    declarationReferences: true,
   });
   const graph = createInterfaceContractGraph(fixture.source, program);
   const restParameter = [...program.nodesOfKind(KindParameter)].find((node) =>
@@ -128,12 +124,11 @@ export const result = await read(consume(...readers));
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: false,
-    declarationReferences: true,
   });
   const selected = [...program.nodesOfKind(KindCallExpression)].flatMap(
     (node) => {
       const semantics = fixture.source.semantics.forNode(node);
-      const call = semantics.getResolvedCallInfo(node);
+      const call = semantics.operations.call(node);
       return call !== undefined &&
           call.sourceArguments.length === 1 &&
           call.sourceArgumentBindings.length === 2
@@ -142,7 +137,7 @@ export const result = await read(consume(...readers));
     },
   )[0];
   assert.ok(selected !== undefined);
-  const declaration = selected.semantics.getSignatureDeclaration(
+  const declaration = selected.semantics.declarations.signatureDeclaration(
     selected.call.selectedSignature,
   );
   assert.equal(

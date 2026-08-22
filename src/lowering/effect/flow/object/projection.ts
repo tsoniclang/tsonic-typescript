@@ -1,5 +1,5 @@
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
@@ -137,7 +137,7 @@ function collectProperties(
     }
     const initializer = propertyInitializer(source, property);
     const evidence = source.semantics.forNode(property)
-      .getResolvedObjectLiteralElementInfo(property);
+      .operations.objectLiteralElement(property);
     if (
       initializer === undefined ||
       evidence === undefined ||
@@ -271,7 +271,7 @@ function auditBinding(
   program: TargetProgramIndex,
   binding: ObjectBinding,
 ): void {
-  for (const reference of program.referencesToDeclaration(binding.declaration)) {
+  for (const reference of source.navigation.referencesToDeclaration(binding.declaration)) {
     if (isModuleForwardingReference(source, reference)) {
       binding.closed = false;
       continue;
@@ -308,7 +308,7 @@ function containingPropertyRead(
     if (source.ast.is.IsPropertyAccessExpression(parent)) {
       const access = source.ast.as.AsPropertyAccessExpression(parent);
       const selected = source.semantics.forNode(parent)
-        .getResolvedPropertyAccessInfo(parent);
+        .operations.propertyAccess(parent);
       return access?.Expression === current && selected?.accessMode === "read" &&
           !selected.optionalChain
         ? parent
@@ -317,7 +317,7 @@ function containingPropertyRead(
     if (source.ast.is.IsElementAccessExpression(parent)) {
       const access = source.ast.as.AsElementAccessExpression(parent);
       const selected = source.semantics.forNode(parent)
-        .getResolvedElementAccessInfo(parent);
+        .operations.elementAccess(parent);
       return access?.Expression === current && selected?.accessMode === "read" &&
           !selected.optionalChain
         ? parent
@@ -334,7 +334,7 @@ function propertyMatchesAccess(
 ): boolean {
   if (source.ast.is.IsPropertyAccessExpression(expression)) {
     const selected = source.semantics.forNode(expression)
-      .getResolvedPropertyAccessInfo(expression);
+      .operations.propertyAccess(expression);
     return selected !== undefined &&
       (
         selected.selectedSymbol !== undefined &&
@@ -347,7 +347,7 @@ function propertyMatchesAccess(
     return false;
   }
   const selected = source.semantics.forNode(expression)
-    .getResolvedElementAccessInfo(expression);
+    .operations.elementAccess(expression);
   return selected !== undefined &&
     (
       selected.selectedSymbol !== undefined &&

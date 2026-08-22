@@ -3,7 +3,7 @@ import type {
   PointerFact,
   PointerOperationFact,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
@@ -147,8 +147,8 @@ function applyCheckerBoundaries(
     for (const expression of pointerExpressions(operation)) {
       ledger.record("direct-family");
       const semantics = source.semantics.forNode(expression);
-      const type = semantics.getTypeAtLocation(expression);
-      if (type !== undefined && semantics.isNever(type)) {
+      const type = semantics.types.expressionType(expression);
+      if (type !== undefined && semantics.types.isNever(type)) {
         blockFamily(family, "checker-never", expression);
       }
     }
@@ -181,7 +181,7 @@ function collectPointerType(
     return;
   }
   const semantics = source.semantics.forNode(node);
-  const pointee = semantics.getTypeFromTypeNode(fact.pointee);
+  const pointee = semantics.types.authoredType(fact.pointee);
   const family = pointee === undefined
     ? undefined
     : directReferenceFamily(source, node, pointee, families);

@@ -1,9 +1,6 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
-import {
-  KindIdentifier,
-  KindVariableDeclaration,
-} from "@tsonic/tsts/target-ast";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import { indexExactDeclarations } from "./flow-references.js";
@@ -152,40 +149,15 @@ export function analyzePointerCallableAliases(
     }
   }
 
-  const references = new Map<Node, Node[]>();
-  const referenceCandidates = program.nodesOfKind(KindIdentifier);
-  const referencesWithWork = planning === undefined
-    ? referenceCandidates
-    : planning.candidates(
-        "flow-census",
-        "callable-alias-reference",
-        referenceCandidates,
-      );
-  for (const node of referencesWithWork) {
-    traversalOperations += 1;
-    const declaration = exactDeclarations.declarationFor(node);
-    if (declaration === undefined) {
-      continue;
-    }
-    const selected = references.get(declaration);
-    if (selected === undefined) {
-      references.set(declaration, [node]);
-    } else {
-      selected.push(node);
-    }
-  }
-  planning?.assertCandidateCount(
-    "callable-alias-reference",
-    referenceCandidates.length,
-  );
-
   const allowedReferences = new Set<Node>();
   for (const family of families.values()) {
     recordTraversal();
     const members = [family.owner, ...family.aliases];
     for (const declaration of members) {
       recordTraversal();
-      for (const reference of references.get(declaration) ?? []) {
+      for (const reference of source.navigation.referencesToDeclaration(
+        declaration,
+      )) {
         recordTraversal();
         if (
           reference === source.ast.name(declaration)
@@ -217,7 +189,9 @@ export function analyzePointerCallableAliases(
     }
     for (const declaration of [family.owner, ...family.aliases]) {
       recordTraversal();
-      for (const reference of references.get(declaration) ?? []) {
+      for (const reference of source.navigation.referencesToDeclaration(
+        declaration,
+      )) {
         recordTraversal();
         allowedReferences.delete(reference);
       }
@@ -354,7 +328,7 @@ function exactReferenceExpression(
     return false;
   }
   const selected = source.semantics.forNode(current)
-    .getResolvedPropertyAccessInfo(current);
+    .operations.propertyAccess(current);
   return selected?.selectedDeclaration === declaration &&
     selected.optionalChain === false &&
     selected.accessMode === "read";
@@ -400,8 +374,8 @@ function callSelectsOwner(
   owner: Node,
 ): boolean {
   const semantics = source.semantics.forNode(call);
-  const info = semantics.getResolvedCallInfo(call);
+  const info = semantics.operations.call(call);
   return info?.sourceSelectedSignatureKind === "resolved" &&
     info.optionalChain === false &&
-    semantics.getSignatureDeclaration(info.selectedSignature) === owner;
+    semantics.declarations.signatureDeclaration(info.selectedSignature) === owner;
 }

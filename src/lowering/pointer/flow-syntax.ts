@@ -2,7 +2,7 @@ import type {
   Node,
   PointerOperationFact,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { PointerLoweringError } from "./diagnostic.js";
 import type {
@@ -210,10 +210,10 @@ function isNeverFallback(
   const fallback = source.ast.as.AsBinaryExpression(node)?.Right;
   const fallbackType = fallback === undefined
     ? undefined
-    : source.semantics.forNode(fallback).getTypeAtLocation(fallback);
+    : source.semantics.forNode(fallback).types.expressionType(fallback);
   return fallback !== undefined &&
     fallbackType !== undefined &&
-    source.semantics.forNode(fallback).isNever(fallbackType);
+    source.semantics.forNode(fallback).types.isNever(fallbackType);
 }
 
 export function transparentExpressionRoot(

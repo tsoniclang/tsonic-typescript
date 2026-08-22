@@ -2,20 +2,20 @@ import type { Type, TypeIndexInfo, TypePropertyInfo } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 export function indexDomainCovers(
   semantics: SourceFileSemantics,
   source: Type,
   target: Type,
 ): boolean {
-  if (semantics.isStringLike(target)) {
-    return semantics.isStringLike(source);
+  if (semantics.types.isStringLike(target)) {
+    return semantics.types.isStringLike(source);
   }
-  if (semantics.isNumberLike(target)) {
-    return semantics.isStringLike(source) || semantics.isNumberLike(source);
+  if (semantics.types.isNumberLike(target)) {
+    return semantics.types.isStringLike(source) || semantics.types.isNumberLike(source);
   }
-  return semantics.isTypeIdenticalTo(source, target);
+  return semantics.types.isIdentical(source, target);
 }
 
 export function indexCoversProperty(
@@ -27,10 +27,10 @@ export function indexCoversProperty(
   if (index.keyType === undefined) {
     return false;
   }
-  if (semantics.isStringLike(index.keyType)) {
+  if (semantics.types.isStringLike(index.keyType)) {
     return true;
   }
-  return semantics.isNumberLike(index.keyType) &&
+  return semantics.types.isNumberLike(index.keyType) &&
     propertyHasNumericDeclaration(source, semantics, property);
 }
 
@@ -40,7 +40,7 @@ function propertyHasNumericDeclaration(
   property: TypePropertyInfo,
 ): boolean {
   return property.rootSymbols.some((symbol) =>
-    semantics.getSymbolDeclarations(symbol).some((declaration) => {
+    semantics.declarations.symbolDeclarations(symbol).some((declaration) => {
       const name = source.ast.name(declaration);
       return name !== undefined && source.ast.is.IsNumericLiteral(name);
     })

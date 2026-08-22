@@ -1,5 +1,5 @@
 import type { Node, Type } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "@tsonic/target-api";
+import type { SourceFileSemantics } from "@tsonic/target-api/source";
 
 export interface CheckedInterfaceParameterInput {
   readonly semantics: SourceFileSemantics;

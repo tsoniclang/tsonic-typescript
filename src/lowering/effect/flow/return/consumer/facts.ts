@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindCallExpression,
   KindElementAccessExpression,
@@ -127,10 +127,10 @@ export function selectedResultConsumerBinding(
   }
   const selected = source.ast.is.IsPropertyAccessExpression(expression)
     ? source.semantics.forNode(expression)
-      .getResolvedPropertyAccessInfo(expression)?.selectedDeclaration
+      .operations.propertyAccess(expression)?.selectedDeclaration
     : source.ast.is.IsElementAccessExpression(expression)
     ? source.semantics.forNode(expression)
-      .getResolvedElementAccessInfo(expression)?.selectedDeclaration
+      .operations.elementAccess(expression)?.selectedDeclaration
     : undefined;
   return selected !== undefined && source.navigation.isProjectDeclaration(selected)
     ? selected
@@ -382,9 +382,10 @@ function exactAggregateResultSource(
   readonly expressions: readonly (Node | undefined)[];
 } | undefined {
   const semantics = source.semantics.forNode(call);
-  const contract = semantics.getSignatureDeclaration(
-    semantics.getResolvedSignature(call),
-  );
+  const signature = semantics.operations.call(call)?.selectedSignature;
+  const contract = signature === undefined
+    ? undefined
+    : semantics.declarations.signatureDeclaration(signature);
   const transported = transports?.transportFor(call)?.resultOriginExpressions;
   if (transported !== undefined) {
     return Object.freeze({

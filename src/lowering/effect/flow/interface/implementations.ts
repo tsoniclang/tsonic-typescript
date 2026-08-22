@@ -2,7 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import {
   interfaceContractTypeDeclaration,
@@ -100,15 +100,15 @@ export function createInterfaceContractImplementationLedger(
     type: Type,
     contract: Node,
   ): boolean => {
-    const selected = semantics.removeMissingOrUndefined(type);
-    if (selected === undefined || semantics.isNever(selected)) {
+    const selected = semantics.types.withoutMissingOrUndefined(type);
+    if (selected === undefined || semantics.types.isNever(selected)) {
       return true;
     }
     if (typeContracts.get(selected)?.has(contract) === true) {
       return true;
     }
-    if (semantics.isUnion(selected)) {
-      const members = semantics.getUnionOrIntersectionTypes(selected).filter(
+    if (semantics.types.isUnion(selected)) {
+      const members = semantics.types.unionOrIntersectionTypes(selected).filter(
         (member): member is Type => member !== undefined,
       );
       return members.length !== 0 && members.every((member) =>
@@ -145,10 +145,10 @@ export function createInterfaceContractImplementationLedger(
         return Object.freeze([...contracts]);
       }
       const semantics = source.semantics.forFile(sourceFile);
-      const symbol = semantics.getSymbolAtLocation(name);
+      const symbol = source.navigation.sourceReferenceFor(name)?.symbol;
       const type = symbol === undefined
         ? undefined
-        : semantics.getDeclaredTypeOfSymbol(symbol);
+        : semantics.types.declaredSymbolType(symbol);
       return type === undefined
         ? Object.freeze([...contracts])
         : record(semantics, type, contracts);
@@ -174,18 +174,18 @@ function resolveContractImplementations(
   sourceType: Type,
   contract: Node,
 ): readonly ResolvedImplementation[] | undefined {
-  const selected = semantics.removeMissingOrUndefined(sourceType);
+  const selected = semantics.types.withoutMissingOrUndefined(sourceType);
   if (
     selected === undefined ||
-    semantics.isNever(selected) ||
-    semantics.isAny(selected) ||
-    semantics.isUnknown(selected)
+    semantics.types.isNever(selected) ||
+    semantics.types.isAny(selected) ||
+    semantics.types.isUnknown(selected)
   ) {
     return undefined;
   }
-  if (semantics.isUnion(selected)) {
+  if (semantics.types.isUnion(selected)) {
     const result: ResolvedImplementation[] = [];
-    for (const member of semantics.getUnionOrIntersectionTypes(selected)) {
+    for (const member of semantics.types.unionOrIntersectionTypes(selected)) {
       if (member === undefined) {
         return undefined;
       }
@@ -240,13 +240,16 @@ function resolveCallableImplementation(
   ) {
     return undefined;
   }
-  const symbol = semantics.getPropertyOfType(sourceType, source.ast.text(name));
-  if (symbol === undefined) {
+  const properties = semantics.types.propertyInfos(sourceType).filter(
+    (property) => property.name === source.ast.text(name),
+  );
+  if (properties.length !== 1) {
     return undefined;
   }
+  const symbol = properties[0]!.symbol;
   const declarations = [
-    semantics.getSymbolValueDeclaration(symbol),
-    ...semantics.getSymbolDeclarations(symbol),
+    semantics.declarations.primarySymbolDeclaration(symbol),
+    ...semantics.declarations.symbolDeclarations(symbol),
   ].filter((candidate, index, selected): candidate is Node =>
     candidate !== undefined && selected.indexOf(candidate) === index
   );
@@ -261,7 +264,7 @@ function resolveCallableImplementation(
   if (candidates.length === 1) {
     return candidates[0];
   }
-  const memberType = semantics.getTypeOfSymbol(symbol);
+  const memberType = semantics.types.typeOfSymbol(symbol);
   return declarations.length !== 0 &&
       declarations.every((declaration) =>
         declarationFileSynchronousImplementation(source, declaration)

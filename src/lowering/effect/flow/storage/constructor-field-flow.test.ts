@@ -83,7 +83,6 @@ export const result = await invoke();
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
-      declarationReferences: true,
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     undefined,

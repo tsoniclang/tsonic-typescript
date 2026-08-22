@@ -1,5 +1,5 @@
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
@@ -213,9 +213,9 @@ function trackedStorageDeclaration(
       : undefined;
   }
   const selected = source.ast.is.IsPropertyAccessExpression(expression)
-    ? source.semantics.forNode(expression).getResolvedPropertyAccessInfo(expression)
+    ? source.semantics.forNode(expression).operations.propertyAccess(expression)
     : source.ast.is.IsElementAccessExpression(expression)
-    ? source.semantics.forNode(expression).getResolvedElementAccessInfo(expression)
+    ? source.semantics.forNode(expression).operations.elementAccess(expression)
     : undefined;
   return selected?.selectedDeclaration !== undefined &&
       declarations.has(selected.selectedDeclaration)
@@ -319,9 +319,9 @@ export function isCallableNonEscapingObservation(
       : undefined;
     const otherType = other === undefined
       ? undefined
-      : source.semantics.forNode(other).getTypeAtLocation(other);
+      : source.semantics.forNode(other).types.expressionType(other);
     return other !== undefined && otherType !== undefined &&
-      source.semantics.forNode(other).isNullish(otherType);
+      source.semantics.forNode(other).types.isNullish(otherType);
   }
 }
 
@@ -395,12 +395,6 @@ function exactSymbolsAt(
   source: TargetSourceProgram,
   node: Node | undefined,
 ): readonly Symbol[] {
-  if (node === undefined) {
-    return [];
-  }
-  const semantics = source.semantics.forNode(node);
-  return [
-    semantics.getSymbolAtLocation(node),
-    semantics.getResolvedSymbol(node),
-  ].filter((symbol): symbol is Symbol => symbol !== undefined);
+  const symbol = source.navigation.sourceReferenceFor(node)?.symbol;
+  return symbol === undefined ? [] : [symbol];
 }

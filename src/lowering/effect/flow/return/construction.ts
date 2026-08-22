@@ -1,5 +1,5 @@
 import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { isFunctionLike } from "../../model/syntax.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
@@ -10,7 +10,7 @@ export function projectConstructionIsDefinitelyNonThenable(
   type: Type,
 ): boolean {
   const semantics = source.semantics.forNode(expression);
-  if (semantics.couldContainTypeVariables(type)) {
+  if (semantics.types.couldContainTypeVariables(type)) {
     return false;
   }
   const constructor = resolveProjectInvocation(source, expression)?.implementation;

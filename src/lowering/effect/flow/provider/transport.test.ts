@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import { createTargetProgramIndex } from "../../../program-index.js";
@@ -353,7 +353,6 @@ function createProgram(
   return createTargetProgramIndex(source, {
     bindingWrites: true,
     memberDispatch: true,
-    declarationReferences: true,
   });
 }
 

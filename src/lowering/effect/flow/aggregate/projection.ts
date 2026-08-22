@@ -1,5 +1,5 @@
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindBindingElement,
   KindIdentifier,
@@ -75,7 +75,7 @@ export function createExactAggregateProjectionIndex(
         return undefined;
       }
       if (source.ast.is.IsIdentifier(root)) {
-        const reference = program.declarationReferenceFor(root);
+        const reference = source.navigation.sourceReferenceFor(root);
         const projection = reference?.project === true
           ? destructured.get(reference.declaration)
           : undefined;
@@ -127,11 +127,11 @@ export function exactAggregateRead(
   const index = exactElementIndex(source, element?.ArgumentExpression);
   const receiverType = receiver === undefined
     ? undefined
-    : source.semantics.forNode(receiver).getTypeAtLocation(receiver);
+    : source.semantics.forNode(receiver).types.expressionType(receiver);
   return receiver === undefined ||
       index === undefined ||
       receiverType === undefined ||
-      !source.semantics.forNode(receiver).isArrayLike(receiverType)
+      !source.semantics.forNode(receiver).types.isArrayLike(receiverType)
     ? undefined
     : Object.freeze({ receiver, index });
 }
@@ -302,7 +302,7 @@ function elementAccessIsExactRead(
   expression: Node,
 ): boolean {
   const selected = source.semantics.forNode(expression)
-    .getResolvedElementAccessInfo(expression);
+    .operations.elementAccess(expression);
   return selected?.accessMode === "read" &&
     !selected.optionalChain &&
     !isWrittenExpression(source, expression);
@@ -370,12 +370,6 @@ function exactSymbolsAt(
   source: TargetSourceProgram,
   node: Node | undefined,
 ): readonly Symbol[] {
-  if (node === undefined) {
-    return [];
-  }
-  const semantics = source.semantics.forNode(node);
-  return [...new Set([
-    semantics.getSymbolAtLocation(node),
-    semantics.getResolvedSymbol(node),
-  ].filter((symbol): symbol is Symbol => symbol !== undefined))];
+  const symbol = source.navigation.sourceReferenceFor(node)?.symbol;
+  return symbol === undefined ? [] : [symbol];
 }

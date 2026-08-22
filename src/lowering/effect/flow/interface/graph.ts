@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindClassDeclaration,
   KindClassExpression,
@@ -354,9 +354,10 @@ function collectCalls(
 ): void {
   for (const call of program.nodesOfKind(KindCallExpression)) {
     const semantics = source.semantics.forNode(call);
-    const declaration = semantics.getSignatureDeclaration(
-      semantics.getResolvedSignature(call),
-    );
+    const signature = semantics.operations.call(call)?.selectedSignature;
+    const declaration = signature === undefined
+      ? undefined
+      : semantics.declarations.signatureDeclaration(signature);
     if (declaration !== undefined) {
       entries.get(declaration)?.calls.push(call);
     }

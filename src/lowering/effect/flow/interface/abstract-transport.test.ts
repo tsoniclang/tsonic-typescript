@@ -43,7 +43,6 @@ test("settles values transported through closed abstract project dispatch", () =
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: true,
-    declarationReferences: true,
   });
   const graph = createInterfaceContractGraph(fixture.source, program);
   const transportedCalls = program.nodesOfKind(KindCallExpression).filter(
@@ -173,7 +172,6 @@ export const result = await read();
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
     memberDispatch: true,
-    declarationReferences: true,
   });
   const graph = createInterfaceContractGraph(fixture.source, program);
 

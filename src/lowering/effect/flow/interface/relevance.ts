@@ -2,7 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import type { InterfaceContractIndex } from "./graph.js";
 import {
@@ -76,7 +76,7 @@ export function createInterfaceContractRelevance(
       return selectedValueContracts(semantics, type);
     },
     directContracts(semantics: SourceFileSemantics, type: Type): readonly Node[] {
-      const selected = semantics.removeMissingOrUndefined(type);
+      const selected = semantics.types.withoutMissingOrUndefined(type);
       return selected === undefined
         ? noContracts
         : directTypeContracts(semantics, selected, source, contracts);
@@ -102,7 +102,7 @@ function collectContracts(
       continue;
     }
     seen.add(type);
-    const selected = semantics.removeMissingOrUndefined(type);
+    const selected = semantics.types.withoutMissingOrUndefined(type);
     if (selected === undefined || isPrimitiveType(semantics, selected)) {
       continue;
     }
@@ -114,21 +114,21 @@ function collectContracts(
     )) {
       result.add(contract);
     }
-    for (const signature of semantics.getCallSignatures(selected)) {
-      const declaration = semantics.getSignatureDeclaration(signature);
+    for (const signature of semantics.types.callSignatures(selected)) {
+      const declaration = semantics.declarations.signatureDeclaration(signature);
       if (
         declaration === undefined ||
         !isExactInterfaceProjectDeclaration(source, declaration)
       ) {
         continue;
       }
-      for (const parameter of semantics.getSignatureParameters(signature)) {
-        const parameterType = semantics.getTypeOfSymbol(parameter);
+      for (const parameter of semantics.declarations.signatureParameters(signature)) {
+        const parameterType = semantics.types.typeOfSymbol(parameter);
         if (parameterType !== undefined) {
           pending.push(parameterType);
         }
       }
-      const returnType = semantics.getReturnTypeOfSignature(signature);
+      const returnType = semantics.types.returnType(signature);
       if (returnType !== undefined) {
         pending.push(returnType);
       }
@@ -165,8 +165,8 @@ function directTypeContracts(
     return noContracts;
   }
   const result = new Set<Node>();
-  for (const property of semantics.getPropertyInfos(type)) {
-    for (const member of semantics.getSymbolDeclarations(property.symbol)) {
+  for (const property of semantics.types.propertyInfos(type)) {
+    for (const member of semantics.declarations.symbolDeclarations(property.symbol)) {
       if (member !== undefined && contracts.entries.has(member)) {
         result.add(member);
       }
@@ -196,7 +196,7 @@ function collectValueContracts(
       return fallback;
     }
     seen.add(type);
-    const selected = semantics.removeMissingOrUndefined(type);
+    const selected = semantics.types.withoutMissingOrUndefined(type);
     if (selected === undefined || isPrimitiveType(semantics, selected)) {
       continue;
     }
@@ -208,35 +208,35 @@ function collectValueContracts(
     )) {
       result.add(contract);
     }
-    if (semantics.isUnion(selected) || semantics.isIntersection(selected)) {
-      appendTypes(pending, semantics.getUnionOrIntersectionTypes(selected));
+    if (semantics.types.isUnion(selected) || semantics.types.isIntersection(selected)) {
+      appendTypes(pending, semantics.types.unionOrIntersectionTypes(selected));
       continue;
     }
-    if (semantics.isTuple(selected)) {
-      appendTypes(pending, semantics.getTupleElementTypes(selected));
+    if (semantics.types.isTuple(selected)) {
+      appendTypes(pending, semantics.types.tupleElementTypes(selected));
       continue;
     }
     if (
-      semantics.getCallSignatures(selected).length !== 0 ||
-      semantics.getConstructSignatures(selected).length !== 0
+      semantics.types.callSignatures(selected).length !== 0 ||
+      semantics.types.constructSignatures(selected).length !== 0
     ) {
       continue;
     }
-    if (semantics.isArrayLike(selected)) {
-      appendTypes(pending, semantics.getTypeArguments(selected));
+    if (semantics.types.isArrayLike(selected)) {
+      appendTypes(pending, semantics.types.typeArguments(selected));
       appendTypes(
         pending,
-        semantics.getIndexInfos(selected).map((index) => index.valueType),
+        semantics.types.indexInfos(selected).map((index) => index.valueType),
       );
       continue;
     }
     appendTypes(
       pending,
-      semantics.getPropertyInfos(selected).map((property) => property.type),
+      semantics.types.propertyInfos(selected).map((property) => property.type),
     );
     appendTypes(
       pending,
-      semantics.getIndexInfos(selected).map((index) => index.valueType),
+      semantics.types.indexInfos(selected).map((index) => index.valueType),
     );
   }
   return result.size === 0
@@ -249,17 +249,17 @@ function appendStructuralTypes(
   type: Type,
   pending: Type[],
 ): void {
-  if (semantics.isUnion(type) || semantics.isIntersection(type)) {
-    appendTypes(pending, semantics.getUnionOrIntersectionTypes(type));
+  if (semantics.types.isUnion(type) || semantics.types.isIntersection(type)) {
+    appendTypes(pending, semantics.types.unionOrIntersectionTypes(type));
   }
   if (
-    semantics.isTypeReference(type) &&
-    semantics.getTypeReferenceTarget(type) !== undefined
+    semantics.types.isTypeReference(type) &&
+    semantics.types.typeReferenceTarget(type) !== undefined
   ) {
-    appendTypes(pending, semantics.getTypeArguments(type));
+    appendTypes(pending, semantics.types.typeArguments(type));
   }
-  if (semantics.isTuple(type)) {
-    appendTypes(pending, semantics.getTupleElementTypes(type));
+  if (semantics.types.isTuple(type)) {
+    appendTypes(pending, semantics.types.tupleElementTypes(type));
   }
 }
 
@@ -278,13 +278,13 @@ function isPrimitiveType(
   semantics: SourceFileSemantics,
   type: Type,
 ): boolean {
-  return semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type);
+  return semantics.types.isAny(type) ||
+    semantics.types.isUnknown(type) ||
+    semantics.types.isNever(type) ||
+    semantics.types.isVoidLike(type) ||
+    semantics.types.isNullish(type) ||
+    semantics.types.isStringLike(type) ||
+    semantics.types.isNumberLike(type) ||
+    semantics.types.isBooleanLike(type) ||
+    semantics.types.isBigIntLike(type);
 }

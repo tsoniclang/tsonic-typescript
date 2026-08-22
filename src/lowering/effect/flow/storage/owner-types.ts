@@ -1,5 +1,5 @@
 import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindClassDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
@@ -21,27 +21,27 @@ export function storageValueTypeIsClosed(
   pending: Set<Type>,
 ): boolean {
   if (
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type)
+    semantics.types.isNever(type) ||
+    semantics.types.isVoidLike(type) ||
+    semantics.types.isNullish(type) ||
+    semantics.types.isStringLike(type) ||
+    semantics.types.isNumberLike(type) ||
+    semantics.types.isBooleanLike(type) ||
+    semantics.types.isBigIntLike(type)
   ) {
     return true;
   }
-  if (semantics.isAny(type) || semantics.isUnknown(type)) {
+  if (semantics.types.isAny(type) || semantics.types.isUnknown(type)) {
     return false;
   }
   if (directCandidateOwners(semantics, type, owners).size !== 0) {
     return true;
   }
-  if (!semantics.isUnion(type) || pending.has(type)) {
+  if (!semantics.types.isUnion(type) || pending.has(type)) {
     return false;
   }
   pending.add(type);
-  const result = semantics.getUnionOrIntersectionTypes(type).every((member) =>
+  const result = semantics.types.unionOrIntersectionTypes(type).every((member) =>
     member !== undefined && storageValueTypeIsClosed(
       semantics,
       member,
@@ -128,7 +128,7 @@ export function collectStorageOwnerCarriers(
       operationCount += 1;
       const name = source.ast.name(member);
       const semantics = source.semantics.forNode(member);
-      const type = semantics.getTypeAtLocation(name ?? member);
+      const type = semantics.types.expressionType(name ?? member);
       if (type === undefined) {
         continue;
       }
@@ -251,18 +251,22 @@ function directTypeDeclarations(
   type: Type,
 ): readonly Node[] {
   const declarations: Node[] = [];
-  const direct = semantics.getPrimarySymbolDeclaration(
-    semantics.getTypeSymbol(type),
-  );
+  const directSymbol = semantics.declarations.typeSymbol(type);
+  const direct = directSymbol === undefined
+    ? undefined
+    : semantics.declarations.primarySymbolDeclaration(directSymbol);
   if (direct !== undefined) {
     declarations.push(direct);
   }
-  const target = semantics.isTypeReference(type)
-    ? semantics.getTypeReferenceTarget(type)
+  const target = semantics.types.isTypeReference(type)
+    ? semantics.types.typeReferenceTarget(type)
     : undefined;
-  const targetDeclaration = target === undefined
+  const targetSymbol = target === undefined
     ? undefined
-    : semantics.getPrimarySymbolDeclaration(semantics.getTypeSymbol(target));
+    : semantics.declarations.typeSymbol(target);
+  const targetDeclaration = targetSymbol === undefined
+    ? undefined
+    : semantics.declarations.primarySymbolDeclaration(targetSymbol);
   if (targetDeclaration !== undefined && targetDeclaration !== direct) {
     declarations.push(targetDeclaration);
   }
@@ -274,10 +278,10 @@ function nestedStorageTypes(
   type: Type,
 ): readonly Type[] {
   return [
-    ...(semantics.isUnion(type) || semantics.isIntersection(type)
-      ? semantics.getUnionOrIntersectionTypes(type)
+    ...(semantics.types.isUnion(type) || semantics.types.isIntersection(type)
+      ? semantics.types.unionOrIntersectionTypes(type)
       : []),
-    ...(semantics.isTypeReference(type) ? semantics.getTypeArguments(type) : []),
+    ...(semantics.types.isTypeReference(type) ? semantics.types.typeArguments(type) : []),
   ].filter((member): member is Type => member !== undefined);
 }
 
@@ -333,13 +337,13 @@ function storageTypeCannotCarryOwner(
   semantics: SourceSemantics,
   type: Type,
 ): boolean {
-  return semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type);
+  return semantics.types.isAny(type) ||
+    semantics.types.isUnknown(type) ||
+    semantics.types.isNever(type) ||
+    semantics.types.isVoidLike(type) ||
+    semantics.types.isNullish(type) ||
+    semantics.types.isStringLike(type) ||
+    semantics.types.isNumberLike(type) ||
+    semantics.types.isBooleanLike(type) ||
+    semantics.types.isBigIntLike(type);
 }

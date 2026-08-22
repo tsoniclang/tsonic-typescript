@@ -1,5 +1,5 @@
 import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindArrayLiteralExpression,
   KindAsExpression,
@@ -63,7 +63,7 @@ export function auditStorageOwnerBoundaries(
   const typeOwners = new Map<Type, StorageOwnerMembership>();
   const ownersFor = (node: Node): StorageOwnerMembership => {
     const semantics = source.semantics.forNode(node);
-    const type = semantics.getTypeAtLocation(node);
+    const type = semantics.types.expressionType(node);
     return type === undefined
       ? emptyStorageOwnerMembership
       : ownersWithinStorageType(
@@ -168,7 +168,7 @@ function auditInvocations(
         if (transport?.inputExpressions.includes(argument)) {
           continue;
         }
-        const contextual = semantics.selectContextualValueType(argument);
+        const contextual = semantics.types.contextualValueSelection(argument);
         const retained = contextual.kind === "selected"
           ? ownersWithinStorageType(
             semantics,
@@ -269,7 +269,7 @@ function auditValueFlows(
       }
     }
     const semantics = source.semantics.forNode(node);
-    const contextual = semantics.selectContextualValueType(node);
+    const contextual = semantics.types.contextualValueSelection(node);
     if (contextual.kind === "unavailable") {
       continue;
     }
@@ -299,7 +299,7 @@ function rejectOpenStorageValues(
   for (const binding of bindings.values()) {
     for (const input of binding.inputs) {
       const semantics = source.semantics.forNode(input);
-      const type = semantics.getTypeAtLocation(input);
+      const type = semantics.types.expressionType(input);
       if (
         type === undefined ||
         !storageValueTypeIsClosed(
@@ -328,7 +328,7 @@ function auditTransparentConversion(
     return;
   }
   const semantics = source.semantics.forNode(parent);
-  const parentType = semantics.getTypeAtLocation(parent);
+  const parentType = semantics.types.expressionType(parent);
   const retained = parentType === undefined
     ? emptyStorageOwnerMembership
     : ownersWithinStorageType(

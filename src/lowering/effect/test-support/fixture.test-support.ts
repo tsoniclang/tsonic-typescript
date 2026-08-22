@@ -9,8 +9,8 @@ import type {
 } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
-} from "@tsonic/target-api";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { createTargetProgramIndex } from "../../program-index.js";
 import type { TypeScriptInterfaceDispatchProfile } from "../../profile.js";
@@ -18,6 +18,9 @@ import {
   createClosedCooperativeEffectPlan,
   type CooperativeEffectPlan,
 } from "../planning/plan.js";
+import {
+  createTypeScriptRuntimeReturnExtension,
+} from "../../../runtime/return-source-extension.js";
 
 export interface CheckedEffectFixture {
   readonly source: TargetSourceProgram;
@@ -41,6 +44,9 @@ export function checkedEffectFixture(
       strict: true,
       target: "es2022",
     },
+    extensionHostOptions: {
+      extensions: Object.freeze([createTypeScriptRuntimeReturnExtension()]),
+    },
   });
   const checked = session.checkSource();
   assert.equal(checked.diagnostics.length, 0);
@@ -62,7 +68,6 @@ export function createFixtureEffectPlan(
     createTargetProgramIndex(source, {
       bindingWrites: true,
       memberDispatch: true,
-      declarationReferences: true,
     }),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
     undefined,

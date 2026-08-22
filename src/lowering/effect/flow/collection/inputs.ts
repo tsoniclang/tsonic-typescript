@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
@@ -410,12 +410,12 @@ function selectedArrayOperation(
     return undefined;
   }
   const selected = source.semantics.forNode(property)
-    .getResolvedPropertyAccessInfo(property);
+    .operations.propertyAccess(property);
   const declaration = selected?.selectedDeclaration;
   const declarationFile = declaration === undefined
     ? undefined
     : source.ast.getSourceFile(declaration);
-  const receiverType = source.semantics.forNode(receiver).getTypeAtLocation(receiver);
+  const receiverType = source.semantics.forNode(receiver).types.expressionType(receiver);
   if (
     selected === undefined ||
     selected.optionalChain ||
@@ -423,7 +423,7 @@ function selectedArrayOperation(
     declaration === undefined ||
     declarationFile?.IsDeclarationFile !== true ||
     receiverType === undefined ||
-    !source.semantics.forNode(receiver).isArrayLike(receiverType)
+    !source.semantics.forNode(receiver).types.isArrayLike(receiverType)
   ) {
     return undefined;
   }
@@ -526,8 +526,8 @@ function isNullishIdentityObservation(
     return false;
   }
   const semantics = source.semantics.forNode(other);
-  const type = semantics.getTypeAtLocation(other);
-  return type !== undefined && semantics.isNullish(type);
+  const type = semantics.types.expressionType(other);
+  return type !== undefined && semantics.types.isNullish(type);
 }
 
 function containingFunction(

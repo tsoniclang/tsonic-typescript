@@ -8,8 +8,8 @@ import {
 import type { Node, SourceFile } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
-} from "@tsonic/target-api";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { createProgramGeneratedNames } from "../generated-names.js";
 import { createTargetProgramIndex } from "../program-index.js";

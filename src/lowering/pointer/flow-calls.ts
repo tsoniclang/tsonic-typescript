@@ -55,7 +55,7 @@ export function connectPointerCalls(census: PointerCensus): void {
       continue;
     }
     const semantics = source.semantics.forNode(node);
-    const info = semantics.getResolvedCallInfo(node);
+    const info = semantics.operations.call(node);
     const selectedParameters = info?.sourceSelectedSignatureParameters ?? [];
     let hasPointerParameter = false;
     for (const parameter of selectedParameters) {
@@ -81,7 +81,7 @@ export function connectPointerCalls(census: PointerCensus): void {
       continue;
     }
     const boundParameters = new Set<Node>();
-    const selectedDeclaration = semantics.getSignatureDeclaration(
+    const selectedDeclaration = semantics.declarations.signatureDeclaration(
       info.selectedSignature,
     );
     for (const binding of info.sourceArgumentBindings) {
@@ -170,8 +170,8 @@ export function connectPointerCalls(census: PointerCensus): void {
 
 function isExactNullishValue(census: PointerCensus, expression: Node): boolean {
   const semantics = census.source.semantics.forNode(expression);
-  const type = semantics.getTypeAtLocation(expression);
-  return type !== undefined && semantics.isNullish(type);
+  const type = semantics.types.expressionType(expression);
+  return type !== undefined && semantics.types.isNullish(type);
 }
 
 function allowFunctionTarget(census: PointerCensus, target: Node): void {

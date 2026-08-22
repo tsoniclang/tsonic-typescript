@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { SourceIdentityResolver } from "../../occurrence.js";
 import type { TargetProgramIndex } from "../../program-index.js";

@@ -8,13 +8,17 @@ import {
 } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
-  type TargetArtifact,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
+import type { TargetArtifact } from "@tsonic/target-api/artifacts";
 
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
-import { checkedSource, compileInput } from "./typescript-backend.test-support.js";
-import { createTypeScriptBackend } from "./typescript-backend.js";
+import {
+  checkedSource,
+  compiledArtifacts,
+  compileInput,
+  createTestTypeScriptCompiler,
+} from "./typescript-backend.test-support.js";
 
 const runtimeReference = typeScriptRuntimeReference();
 
@@ -32,7 +36,7 @@ test("lowers and prints every checked source file in one batch", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTestTypeScriptCompiler(printer).compile(
     compileInput(source),
   );
 
@@ -41,7 +45,7 @@ test("lowers and prints every checked source file in one batch", () => {
   assert.equal(batches[0]?.length, 2);
   assert.ok(batches[0]?.every((encoded) => encoded.byteLength > 0));
   assert.deepEqual(
-    result.artifacts.map((artifact) => [artifact.kind, artifact.path]),
+    compiledArtifacts(result).map((artifact) => [artifact.kind, artifact.path]),
     [
       ["project", "package.json"],
       ["asset", "tsonic-typescript-optimization.json"],
@@ -50,10 +54,10 @@ test("lowers and prints every checked source file in one batch", () => {
     ],
   );
   assert.deepEqual(
-    result.artifacts.filter((artifact) => artifact.kind === "source").map((artifact) => artifact.text),
+    compiledArtifacts(result).filter((artifact) => artifact.kind === "source").map((artifact) => artifact.text),
     ["// printed 0\n", "// printed 1\n"],
   );
-  assert.deepEqual(projectDependencies(result.artifacts), {});
+  assert.deepEqual(projectDependencies(compiledArtifacts(result)), {});
 });
 
 test("orders source artifacts by locale-independent UTF-16 code units", () => {
@@ -68,13 +72,13 @@ test("orders source artifacts by locale-independent UTF-16 code units", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTestTypeScriptCompiler(printer).compile(
     compileInput(source),
   );
 
   assert.deepEqual(result.diagnostics, []);
   assert.deepEqual(
-    result.artifacts.map((artifact) => artifact.path),
+    compiledArtifacts(result).map((artifact) => artifact.path),
     ["package.json", "tsonic-typescript-optimization.json", "z.ts", "ä.ts"],
   );
 });
@@ -87,20 +91,20 @@ test("emits deterministic immutable optimization evidence", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "closed-direct",
     scalarProjections: "closed-direct",
     cooperativeEffects: "closed-direct",
   }).compile(compileInput(source));
 
   assert.deepEqual(result.diagnostics, []);
-  const artifact = result.artifacts.find((candidate) =>
+  const artifact = compiledArtifacts(result).find((candidate) =>
     candidate.path === "tsonic-typescript-optimization.json"
   );
   assert.ok(artifact !== undefined);
   assert.equal(artifact.kind, "asset");
   assert.deepEqual(JSON.parse(artifact.text), {
-    schemaVersion: 20,
+    schemaVersion: 21,
     profileIdentity:
       "typescript-optimization-v3/pointer=closed-direct/scalar=closed-direct/representations=preserve/effects=closed-direct/interfaces=open-structural",
     sourceMembership: ["index.ts", "markers.ts"],
@@ -109,8 +113,7 @@ test("emits deterministic immutable optimization evidence", () => {
       childEdges: 80,
       kindEntries: 82,
       identifierEntries: 29,
-      referenceCandidates: 29,
-      projectReferences: 15,
+      sourceReferenceIndex: source.navigation.referenceIndexStatistics,
       bindingCandidates: 0,
       bindingWrites: 0,
       heritageEdges: 0,
@@ -209,14 +212,14 @@ export async function value(): Promise<number> { return await remote(); }
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "location",
     scalarProjections: "preserve",
     cooperativeEffects: "closed-direct",
   }).compile(compileInput(source));
 
   assert.deepEqual(result.diagnostics, []);
-  const artifact = result.artifacts.find((candidate) =>
+  const artifact = compiledArtifacts(result).find((candidate) =>
     candidate.path === "tsonic-typescript-optimization.json"
   );
   assert.ok(artifact !== undefined);
@@ -260,14 +263,14 @@ export const value = loadPointer(pointer);
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "closed-direct",
     scalarProjections: "preserve",
     cooperativeEffects: "preserve",
   }).compile(compileInput(source, [runtimeReference]));
 
   assert.deepEqual(result.diagnostics, []);
-  const artifact = result.artifacts.find((candidate) =>
+  const artifact = compiledArtifacts(result).find((candidate) =>
     candidate.path === "tsonic-typescript-optimization.json"
   );
   assert.ok(artifact !== undefined);
@@ -320,14 +323,14 @@ export const same = equalPointer(left, right);
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "closed-direct",
     scalarProjections: "preserve",
     cooperativeEffects: "preserve",
   }).compile(compileInput(source, [runtimeReference]));
 
   assert.deepEqual(result.diagnostics, []);
-  const artifact = result.artifacts.find((candidate) =>
+  const artifact = compiledArtifacts(result).find((candidate) =>
     candidate.path === "tsonic-typescript-optimization.json"
   );
   assert.ok(artifact !== undefined);
@@ -366,12 +369,12 @@ test("declares the exact runtime package only when pointer lowering demands it",
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTestTypeScriptCompiler(printer).compile(
     compileInput(source, [runtimeReference]),
   );
 
   assert.deepEqual(result.diagnostics, []);
-  assert.deepEqual(projectDependencies(result.artifacts), {
+  assert.deepEqual(projectDependencies(compiledArtifacts(result)), {
     "@tsonic/typescript-runtime": "0.0.1",
   });
 });
@@ -384,14 +387,14 @@ test("omits the pointer runtime after an exact closed-flow contraction", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "closed-direct",
     scalarProjections: "preserve",
     cooperativeEffects: "preserve",
   }).compile(compileInput(source));
 
   assert.deepEqual(result.diagnostics, []);
-  assert.deepEqual(projectDependencies(result.artifacts), {});
+  assert.deepEqual(projectDependencies(compiledArtifacts(result)), {});
 });
 
 test("rejects pointer lowering when the target runtime reference is absent or mismatched", () => {
@@ -407,11 +410,11 @@ test("rejects pointer lowering when the target runtime reference is absent or mi
     [],
     [{ ...runtimeReference, version: `${runtimeReference.version}-wrong` }],
   ]) {
-    const result = createTypeScriptBackend(printer).compile(
+    const result = createTestTypeScriptCompiler(printer).compile(
       compileInput(source, references),
     );
 
-    assert.deepEqual(result.artifacts, []);
+    assert.equal(result.kind, "rejected");
     assert.match(
       result.diagnostics[0]?.message ?? "",
       /TypeScript lowering requires npm-package reference '@tsonic\/typescript-runtime@0\.0\.1'/,
@@ -429,11 +432,11 @@ test("fails the compilation when the printer omits a source file", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTestTypeScriptCompiler(printer).compile(
     compileInput(source),
   );
 
-  assert.deepEqual(result.artifacts, []);
+  assert.equal(result.kind, "rejected");
   assert.equal(result.diagnostics.length, 1);
   assert.match(
     result.diagnostics[0]?.message ?? "",
@@ -451,7 +454,7 @@ test("prepares every source and reports independent lowering failures before inv
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "location",
     scalarProjections: "preserve",
     cooperativeEffects: "closed-direct",
@@ -460,7 +463,7 @@ test("prepares every source and reports independent lowering failures before inv
   );
 
   assert.equal(printCalls, 0);
-  assert.deepEqual(result.artifacts, []);
+  assert.equal(result.kind, "rejected");
   assert.deepEqual(
     result.diagnostics.map((diagnostic) => diagnostic.message),
     [
@@ -591,7 +594,6 @@ function projectDependencies(
   }
   return result;
 }
-
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

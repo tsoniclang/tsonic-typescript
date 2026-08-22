@@ -405,7 +405,6 @@ export const result = await read(new Pair());
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -447,7 +446,6 @@ export const result = await read([new Pair()]);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -494,7 +492,6 @@ export interface ExternalReader { Read(): Awaitable<number>; }
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -514,7 +511,7 @@ export interface ExternalReader { Read(): Awaitable<number>; }
   assert.equal(evidence.rejectedFamilyCount, 0);
 });
 
-test("rejects same-identity foreign declarations before semantic queries", () => {
+test("rejects foreign declarations with the same document identity", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;
 interface Reader { Read(): Awaitable<number>; }
@@ -537,14 +534,13 @@ interface Reader { Read(): Awaitable<number>; }
   assert.ok(foreignFile !== undefined);
   assert.equal(
     fixture.source.navigation.isProjectDeclaration(foreignDeclaration),
-    true,
+    false,
   );
   assert.equal(fixture.source.semantics.includes(foreignFile), false);
 
   const indexed = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
     memberDispatch: false,
-    declarationReferences: true,
   });
   const call = indexed.nodesOfKind(KindCallExpression)[0];
   assert.ok(call !== undefined);
@@ -559,9 +555,12 @@ interface Reader { Read(): Awaitable<number>; }
           ? semantics
           : Object.freeze({
               ...callSemantics,
-              getSignatureDeclaration() {
-                return foreignDeclaration;
-              },
+              declarations: Object.freeze({
+                ...callSemantics.declarations,
+                signatureDeclaration() {
+                  return foreignDeclaration;
+                },
+              }),
             });
       },
     }),
@@ -572,7 +571,6 @@ interface Reader { Read(): Awaitable<number>; }
     createTargetProgramIndex(source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
     new Map(),
     "declared-closed",

@@ -1,5 +1,5 @@
 import type { Node, Symbol, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindConstructor,
   KindElementAccessExpression,
@@ -253,7 +253,7 @@ function auditPropertyReference(
   }
   if (source.ast.is.IsPropertyAccessExpression(node)) {
     const selected = source.semantics.forNode(node)
-      .getResolvedPropertyAccessInfo(node);
+      .operations.propertyAccess(node);
     countPropertyUse(
       selected?.selectedDeclaration === undefined
         ? undefined
@@ -275,7 +275,7 @@ function auditPropertyReference(
   }
   if (source.ast.is.IsElementAccessExpression(node)) {
     const selected = source.semantics.forNode(node)
-      .getResolvedElementAccessInfo(node);
+      .operations.elementAccess(node);
     countPropertyUse(
       selected?.selectedDeclaration === undefined
         ? undefined

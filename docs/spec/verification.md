@@ -45,10 +45,14 @@ declaration-only members, and external heritage. Binding-write tests cover
 assignment, compound assignment, update, destructuring, iteration, property,
 and read-only occurrences.
 
-Declaration-reference tests independently exact-join every materialized
-project declaration against canonical navigation. Mutations omit or re-parent
-one reference and must retain the complete affected flow. Broad searches prove
-that no family invokes a second whole-program reverse-reference index.
+Source-reference ownership tests prove target index construction performs zero
+direct or reverse-reference queries, exposes no forwarding reference facade,
+and records the exact source-owned graph statistics in evidence. Target flow
+tests mutate the supplied source-navigation result and must retain the complete
+affected flow. Shared Tsonic owns independent omission, duplication,
+re-parenting, and foreign-node mutations for the graph itself. Broad searches
+prove that no target family constructs a second whole-program reverse-reference
+index or retains a target-owned reference row.
 
 A scaling fixture doubles nodes and edges while keeping shape constant. Actual
 index/planner operation counts must grow proportionally; a quadratic control
@@ -124,6 +128,15 @@ at the effect inventory, closure, transform-consumption, or evidence gate.
 The return-boundary matrix contrasts an open structural result, a public
 `readonly then?: never` result, and a nominal
 `private readonly then?: never` result: only the nominal contract settles.
+
+Target-runtime return facts are attached during the source-checking
+transaction from the exact selected declaration of a closed runtime export.
+Fixtures cover namespace imports, aliased named imports, nested project
+forwarders, a local same-spelled function, an uncertified runtime export, the
+same export from another package, and a certified operation whose actual
+result remains thenable. Lowering must consume only the finalized call fact;
+removing the source extension or substituting another declaration retains the
+cooperative boundary.
 
 Declared-interface fixtures run under both interface-dispatch profiles. The
 open profile preserves the interface signature, interface calls, their callers,

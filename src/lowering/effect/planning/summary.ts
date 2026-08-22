@@ -1,4 +1,4 @@
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { EffectPropagationEvidence } from "../closure/blocker-propagation.js";
 import {

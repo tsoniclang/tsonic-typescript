@@ -2,7 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 import {
   KindAsExpression,
   KindArrowFunction,
@@ -259,9 +259,10 @@ function interfaceSlotSource(
   exactCallImplementations: ExactCallImplementations | undefined,
 ): ExactValueSlotCallSource | undefined {
   const semantics = source.semantics.forNode(call);
-  const contract = semantics.getSignatureDeclaration(
-    semantics.getResolvedSignature(call),
-  );
+  const signature = semantics.operations.call(call)?.selectedSignature;
+  const contract = signature === undefined
+    ? undefined
+    : semantics.declarations.signatureDeclaration(signature);
   const transported = transports?.transportFor(call)?.resultOriginExpressions;
   if (transported !== undefined) {
     return Object.freeze({

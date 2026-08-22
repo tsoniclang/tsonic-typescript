@@ -6,7 +6,7 @@ import type {
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import { typeHasDefinitelyNonThenableContract } from "../../thenability.js";
 import { resolveProjectInvocation } from "./project-invocation.js";
@@ -16,8 +16,10 @@ export function resolvedCallUsesSynchronousTransport(
   call: Node,
 ): boolean {
   const semantics = source.semantics.forNode(call);
-  const signature = semantics.getResolvedSignature(call);
-  const contract = semantics.getSignatureDeclaration(signature);
+  const signature = semantics.operations.call(call)?.selectedSignature;
+  const contract = signature === undefined
+    ? undefined
+    : semantics.declarations.signatureDeclaration(signature);
   const implementation = resolveProjectInvocation(source, call)
     ?.implementation;
   return declarationUsesSynchronousBody(source, implementation) ||
@@ -34,10 +36,12 @@ export function resolvedCallResultIsDefinitelyNonThenable(
   call: Node,
 ): boolean {
   const semantics = source.semantics.forNode(call);
-  const signature = semantics.getResolvedSignature(call);
+  const signature = semantics.operations.call(call)?.selectedSignature;
   return declarationHasTrustedContract(
     source,
-    semantics.getSignatureDeclaration(signature),
+    signature === undefined
+      ? undefined
+      : semantics.declarations.signatureDeclaration(signature),
   ) && resolvedSignatureResultIsDefinitelyNonThenable(
     source,
     semantics,
@@ -54,7 +58,7 @@ export function callableContractResultIsDefinitelyNonThenable(
   }
   const selected = source.ast.name(declaration) ?? declaration;
   const semantics = source.semantics.forNode(selected);
-  const type = semantics.getTypeAtLocation(selected);
+  const type = semantics.types.expressionType(selected);
   if (type === undefined) {
     return false;
   }
@@ -66,11 +70,11 @@ export function typeHasTrustedSynchronousCallSignatures(
   semantics: SourceFileSemantics,
   type: Type,
 ): boolean {
-  const signatures = semantics.getCallSignatures(type);
+  const signatures = semantics.types.callSignatures(type);
   return signatures.length !== 0 && signatures.every((signature) =>
     declarationHasTrustedContract(
       source,
-      semantics.getSignatureDeclaration(signature),
+      semantics.declarations.signatureDeclaration(signature),
     ) && resolvedSignatureResultIsDefinitelyNonThenable(
         source,
         semantics,
@@ -111,7 +115,7 @@ export function callableBodyResultIsDefinitelyNonThenable(
     return false;
   }
   const semantics = source.semantics.forNode(typeNode);
-  const type = semantics.getTypeFromTypeNode(typeNode);
+  const type = semantics.types.authoredType(typeNode);
   return type !== undefined && !typeMaySuspend(semantics, type);
 }
 
@@ -138,34 +142,34 @@ function typeMaySuspendWithin(
     return true;
   }
   if (
-    semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.couldContainTypeVariables(type)
+    semantics.types.isAny(type) ||
+    semantics.types.isUnknown(type) ||
+    semantics.types.couldContainTypeVariables(type)
   ) {
     return true;
   }
   if (
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type)
+    semantics.types.isNever(type) ||
+    semantics.types.isVoidLike(type) ||
+    semantics.types.isNullish(type) ||
+    semantics.types.isStringLike(type) ||
+    semantics.types.isNumberLike(type) ||
+    semantics.types.isBooleanLike(type) ||
+    semantics.types.isBigIntLike(type)
   ) {
     return false;
   }
   pending.add(type);
   if (
-    semantics.isUnion(type) &&
-    semantics.getUnionOrIntersectionTypes(type).some((member) =>
+    semantics.types.isUnion(type) &&
+    semantics.types.unionOrIntersectionTypes(type).some((member) =>
       member === undefined || typeMaySuspendWithin(semantics, member, pending)
     )
   ) {
     pending.delete(type);
     return true;
   }
-  const then = semantics.getPropertyInfos(type)
+  const then = semantics.types.propertyInfos(type)
     .find((property) => property.name === "then");
   if (
     then !== undefined &&
@@ -174,10 +178,10 @@ function typeMaySuspendWithin(
     pending.delete(type);
     return true;
   }
-  const indexedThen = semantics.getIndexInfos(type).some((index) =>
+  const indexedThen = semantics.types.indexInfos(type).some((index) =>
     index.keyType !== undefined &&
     index.valueType !== undefined &&
-    semantics.isStringLike(index.keyType) &&
+    semantics.types.isStringLike(index.keyType) &&
     typeMayBeCallable(semantics, index.valueType)
   );
   pending.delete(type);
@@ -215,7 +219,7 @@ function sameSelectedTypeWithin(
   if (left === undefined || right === undefined) {
     return false;
   }
-  if (left === right || semantics.isTypeIdenticalTo(left, right)) {
+  if (left === right || semantics.types.isIdentical(left, right)) {
     return true;
   }
   const known = pairs.get(left)?.get(right);
@@ -240,42 +244,42 @@ function sameSelectedTypeShape(
   pairs: Map<Type, Map<Type, SelectedTypePairState>>,
 ): boolean {
   if (
-    (semantics.isNumberLike(left) && semantics.isNumberLike(right)) ||
-    (semantics.isStringLike(left) && semantics.isStringLike(right)) ||
-    (semantics.isBooleanLike(left) && semantics.isBooleanLike(right)) ||
-    (semantics.isBigIntLike(left) && semantics.isBigIntLike(right)) ||
-    (semantics.isVoidLike(left) && semantics.isVoidLike(right))
+    (semantics.types.isNumberLike(left) && semantics.types.isNumberLike(right)) ||
+    (semantics.types.isStringLike(left) && semantics.types.isStringLike(right)) ||
+    (semantics.types.isBooleanLike(left) && semantics.types.isBooleanLike(right)) ||
+    (semantics.types.isBigIntLike(left) && semantics.types.isBigIntLike(right)) ||
+    (semantics.types.isVoidLike(left) && semantics.types.isVoidLike(right))
   ) {
     return true;
   }
-  if (semantics.isUnion(left) || semantics.isUnion(right)) {
-    return semantics.isUnion(left) && semantics.isUnion(right) &&
+  if (semantics.types.isUnion(left) || semantics.types.isUnion(right)) {
+    return semantics.types.isUnion(left) && semantics.types.isUnion(right) &&
       sameSelectedTypeMembers(
         semantics,
-        semantics.getUnionOrIntersectionTypes(left),
-        semantics.getUnionOrIntersectionTypes(right),
+        semantics.types.unionOrIntersectionTypes(left),
+        semantics.types.unionOrIntersectionTypes(right),
         pairs,
       );
   }
-  if (semantics.isIntersection(left) || semantics.isIntersection(right)) {
-    return semantics.isIntersection(left) && semantics.isIntersection(right) &&
+  if (semantics.types.isIntersection(left) || semantics.types.isIntersection(right)) {
+    return semantics.types.isIntersection(left) && semantics.types.isIntersection(right) &&
       sameSelectedTypeMembers(
         semantics,
-        semantics.getUnionOrIntersectionTypes(left),
-        semantics.getUnionOrIntersectionTypes(right),
+        semantics.types.unionOrIntersectionTypes(left),
+        semantics.types.unionOrIntersectionTypes(right),
         pairs,
       );
   }
   if (
-    !semantics.isTypeReference(left) ||
-    !semantics.isTypeReference(right) ||
-    semantics.getTypeReferenceTarget(left) !==
-      semantics.getTypeReferenceTarget(right)
+    !semantics.types.isTypeReference(left) ||
+    !semantics.types.isTypeReference(right) ||
+    semantics.types.typeReferenceTarget(left) !==
+      semantics.types.typeReferenceTarget(right)
   ) {
     return false;
   }
-  const leftArguments = semantics.getTypeArguments(left);
-  const rightArguments = semantics.getTypeArguments(right);
+  const leftArguments = semantics.types.typeArguments(left);
+  const rightArguments = semantics.types.typeArguments(right);
   return leftArguments.length === rightArguments.length &&
     leftArguments.every((argument, index) =>
       sameSelectedTypeWithin(
@@ -340,20 +344,20 @@ function typeCanBeCalled(
     return true;
   }
   if (
-    semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.couldContainTypeVariables(type)
+    semantics.types.isAny(type) ||
+    semantics.types.isUnknown(type) ||
+    semantics.types.couldContainTypeVariables(type)
   ) {
     return true;
   }
-  if (semantics.getCallSignatures(type).length !== 0) {
+  if (semantics.types.callSignatures(type).length !== 0) {
     return true;
   }
-  if (!semantics.isUnion(type) && !semantics.isIntersection(type)) {
+  if (!semantics.types.isUnion(type) && !semantics.types.isIntersection(type)) {
     return false;
   }
   pending.add(type);
-  const callable = semantics.getUnionOrIntersectionTypes(type).some((member) =>
+  const callable = semantics.types.unionOrIntersectionTypes(type).some((member) =>
     member === undefined || typeCanBeCalled(semantics, member, pending)
   );
   pending.delete(type);
@@ -368,24 +372,24 @@ function typeExposesCallableThenWithin(
   if (pending.has(type)) {
     return true;
   }
-  if (semantics.isAny(type) || semantics.isUnknown(type)) {
+  if (semantics.types.isAny(type) || semantics.types.isUnknown(type)) {
     return true;
   }
   if (
-    semantics.isNever(type) ||
-    semantics.isVoidLike(type) ||
-    semantics.isNullish(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isNumberLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type)
+    semantics.types.isNever(type) ||
+    semantics.types.isVoidLike(type) ||
+    semantics.types.isNullish(type) ||
+    semantics.types.isStringLike(type) ||
+    semantics.types.isNumberLike(type) ||
+    semantics.types.isBooleanLike(type) ||
+    semantics.types.isBigIntLike(type)
   ) {
     return false;
   }
   pending.add(type);
   if (
-    (semantics.isUnion(type) || semantics.isIntersection(type)) &&
-    semantics.getUnionOrIntersectionTypes(type).some((member) =>
+    (semantics.types.isUnion(type) || semantics.types.isIntersection(type)) &&
+    semantics.types.unionOrIntersectionTypes(type).some((member) =>
       member === undefined ||
       typeExposesCallableThenWithin(semantics, member, pending)
     )
@@ -393,14 +397,14 @@ function typeExposesCallableThenWithin(
     pending.delete(type);
     return true;
   }
-  const then = semantics.getPropertyInfos(type)
+  const then = semantics.types.propertyInfos(type)
     .find((property) => property.name === "then");
   const result =
     (then !== undefined && typeMayBeCallable(semantics, then.type)) ||
-    semantics.getIndexInfos(type).some((index) =>
+    semantics.types.indexInfos(type).some((index) =>
       index.keyType !== undefined &&
       index.valueType !== undefined &&
-      semantics.isStringLike(index.keyType) &&
+      semantics.types.isStringLike(index.keyType) &&
       typeMayBeCallable(semantics, index.valueType)
     );
   pending.delete(type);
@@ -443,7 +447,9 @@ function resolvedSignatureResultIsDefinitelyNonThenable(
   semantics: SourceFileSemantics,
   signature: Signature | undefined,
 ): boolean {
-  const result = semantics.getReturnTypeOfSignature(signature);
+  const result = signature === undefined
+    ? undefined
+    : semantics.types.returnType(signature);
   return result !== undefined &&
     typeHasDefinitelyNonThenableContract(source, semantics, result);
 }

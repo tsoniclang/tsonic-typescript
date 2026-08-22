@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsCallExpression,
   AsVariableDeclaration,
@@ -99,7 +99,7 @@ function resolveFlow(
     return undefined;
   }
 
-  const references = program.referencesToDeclaration(binding);
+  const references = source.navigation.referencesToDeclaration(binding);
   const referenceSet = new Set(references);
   if (
     references.length !== candidateArguments.length ||

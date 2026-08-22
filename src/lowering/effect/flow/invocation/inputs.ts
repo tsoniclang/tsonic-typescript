@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindCallExpression,
   KindFunctionDeclaration,
@@ -194,7 +194,15 @@ function callableReferencesAreClosed(
   calls: ReadonlySet<Node>,
 ): boolean {
   return [...declarations].every((declaration) =>
-    program.referencesToDeclaration(declaration).every((reference) => {
+    source.navigation.referencesToDeclaration(declaration).every((reference) => {
+      const owner = source.ast.parent(reference);
+      if (
+        owner !== undefined &&
+        source.ast.is.IsFunctionDeclaration(owner) &&
+        source.ast.name(owner) === reference
+      ) {
+        return true;
+      }
       if (isModuleForwardingReference(source, reference)) {
         return false;
       }

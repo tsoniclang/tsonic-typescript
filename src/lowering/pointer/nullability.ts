@@ -1,5 +1,5 @@
 import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 export function pointerTypeCanBeUndefined(
   source: TargetSourceProgram,
@@ -7,19 +7,19 @@ export function pointerTypeCanBeUndefined(
   type: Type,
 ): boolean {
   const semantics = source.semantics.forNode(anchor);
-  if (semantics.isNullish(type) || semantics.isAny(type) || semantics.isUnknown(type)) {
+  if (semantics.types.isNullish(type) || semantics.types.isAny(type) || semantics.types.isUnknown(type)) {
     return true;
   }
-  if (semantics.isUnion(type)) {
-    return semantics.getUnionOrIntersectionTypes(type).some((member) =>
+  if (semantics.types.isUnion(type)) {
+    return semantics.types.unionOrIntersectionTypes(type).some((member) =>
       member === undefined || pointerTypeCanBeUndefined(source, anchor, member)
     );
   }
-  if (semantics.isIntersection(type)) {
-    return semantics.getUnionOrIntersectionTypes(type).every((member) =>
+  if (semantics.types.isIntersection(type)) {
+    return semantics.types.unionOrIntersectionTypes(type).every((member) =>
       member === undefined || pointerTypeCanBeUndefined(source, anchor, member)
     );
   }
-  return semantics.couldContainTypeVariables(type) &&
-    !semantics.isTypeReference(type);
+  return semantics.types.couldContainTypeVariables(type) &&
+    !semantics.types.isTypeReference(type);
 }

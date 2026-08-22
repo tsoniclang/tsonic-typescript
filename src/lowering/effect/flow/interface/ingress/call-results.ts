@@ -13,8 +13,10 @@ export function exactInterfaceCallResultOrigins(
 ): readonly Node[] | undefined {
   const direct = resolveProjectInvocation(ingress.source, call)?.implementation;
   const semantics = ingress.source.semantics.forNode(call);
-  const signature = semantics.getResolvedSignature(call);
-  const contract = semantics.getSignatureDeclaration(signature);
+  const signature = semantics.operations.call(call)?.selectedSignature;
+  const contract = signature === undefined
+    ? undefined
+    : semantics.declarations.signatureDeclaration(signature);
   const indirect = direct === undefined
     ? ingress.exactCallImplementations?.(call)
     : undefined;
@@ -68,7 +70,7 @@ export function exactInterfaceCallResultOrigins(
       const root = transparentExpression(ingress.source, expression);
       const reference = root !== undefined &&
           ingress.source.ast.is.IsIdentifier(root)
-        ? ingress.program.declarationReferenceFor(root)
+        ? ingress.source.navigation.sourceReferenceFor(root)
         : undefined;
       const substituted = reference?.project === true &&
           ingress.source.ast.is.IsParameterDeclaration(reference.declaration)

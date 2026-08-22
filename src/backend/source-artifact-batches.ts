@@ -1,4 +1,4 @@
-import type { TargetSourceFile } from "@tsonic/target-api";
+import type { TargetSourceFile } from "@tsonic/target-api/artifacts";
 
 import {
   TypeScriptPrinterBatchBuilder,

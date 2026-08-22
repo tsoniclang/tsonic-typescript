@@ -3,7 +3,7 @@ import type {
   ResolvedSourceCallInfo,
   SourceDeclarationReference,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 const exactSemanticMembership = new WeakMap<
   TargetSourceProgram,
@@ -34,10 +34,10 @@ export function resolveProjectInvocation(
     return undefined;
   }
   const semantics = source.semantics.forNode(node);
-  const call = semantics.getResolvedCallInfo(node);
+  const call = semantics.operations.call(node);
   const contract = call === undefined
     ? undefined
-    : semantics.getSignatureDeclaration(call.selectedSignature);
+    : semantics.declarations.signatureDeclaration(call.selectedSignature);
   if (
     call === undefined ||
     call.outcome !== "applicable" ||

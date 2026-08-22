@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import {
   createTargetProgramIndex,
@@ -128,7 +128,14 @@ export const result = alias(pointer);
         return node === aliasCall
           ? Object.freeze({
               ...semantics,
-              getResolvedCallInfo: () => undefined,
+              operations: Object.freeze({
+                ...semantics.operations,
+                call(candidate: Node) {
+                  return candidate === aliasCall
+                    ? undefined
+                    : semantics.operations.call(candidate);
+                },
+              }),
             })
           : semantics;
       },

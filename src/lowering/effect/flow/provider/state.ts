@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindPropertyAssignment } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
@@ -124,7 +124,7 @@ export function createProviderStateTransportPlan(
     )) {
       invalidRoots.add(aliases.root(owner));
     }
-    for (const reference of program.referencesToDeclaration(owner)) {
+    for (const reference of source.navigation.referencesToDeclaration(owner)) {
       if (!recognizedReferences.has(reference)) {
         invalidRoots.add(aliases.root(owner));
         break;
@@ -240,7 +240,7 @@ function stateResultDestination(
       source.ast.as.AsPropertyAssignment(parent)?.Initializer === current
     ) {
       return source.semantics.forNode(parent)
-        .getResolvedObjectLiteralElementInfo(parent)?.sourceSelectedDeclaration;
+        .operations.objectLiteralElement(parent)?.sourceSelectedDeclaration;
     }
     if (
       source.ast.is.IsBinaryExpression(parent) &&
@@ -280,7 +280,7 @@ function collectPropertyInitializers(
   for (const node of program.nodesOfKind(KindPropertyAssignment)) {
     const property = source.ast.as.AsPropertyAssignment(node);
     const declaration = source.semantics.forNode(node)
-      .getResolvedObjectLiteralElementInfo(node)?.sourceSelectedDeclaration;
+      .operations.objectLiteralElement(node)?.sourceSelectedDeclaration;
     if (property?.Initializer === undefined || declaration === undefined) {
       continue;
     }

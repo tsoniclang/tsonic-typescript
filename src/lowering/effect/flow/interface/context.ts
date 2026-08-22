@@ -2,7 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import type { InterfaceContractRelevance } from "./relevance.js";
 
@@ -50,7 +50,7 @@ export function selectInterfaceContractContext(
   relevance: InterfaceContractRelevance,
 ): InterfaceContractContext | undefined {
   const semantics = source.semantics.forNode(expression);
-  const sourceType = semantics.getTypeAtLocation(expression);
+  const sourceType = semantics.types.expressionType(expression);
   if (sourceType === undefined) {
     return undefined;
   }
@@ -61,7 +61,7 @@ export function selectInterfaceContractContext(
   ) {
     return undefined;
   }
-  const contextual = semantics.selectContextualValueType(expression);
+  const contextual = semantics.types.contextualValueSelection(expression);
   const targetTypes = contextual.kind === "unavailable"
     ? explicitTargets
     : contextual.kind === "selected"
@@ -85,7 +85,7 @@ function explicitContextTypes(
 ): readonly Type[] {
   if (source.ast.is.IsBinaryExpression(owner)) {
     const left = source.ast.as.AsBinaryExpression(owner)?.Left;
-    const type = left === undefined ? undefined : semantics.getTypeAtLocation(left);
+    const type = left === undefined ? undefined : semantics.types.expressionType(left);
     return type === undefined ? [] : [type];
   }
   if (source.ast.is.IsReturnStatement(owner)) {
@@ -103,7 +103,7 @@ function explicitContextTypes(
   const typeNode = source.ast.typeNode(owner);
   const type = typeNode === undefined
     ? undefined
-    : semantics.getTypeFromTypeNode(typeNode);
+    : semantics.types.authoredType(typeNode);
   return type === undefined ? [] : [type];
 }
 
@@ -115,18 +115,18 @@ function callableResultTypes(
   const typeNode = source.ast.typeNode(callable);
   const authored = typeNode === undefined
     ? undefined
-    : semantics.getTypeFromTypeNode(typeNode);
+    : semantics.types.authoredType(typeNode);
   if (authored !== undefined) {
     return [authored];
   }
   const name = source.ast.name(callable);
-  const callableType = semantics.getTypeAtLocation(name ?? callable);
+  const callableType = semantics.types.expressionType(name ?? callable);
   if (callableType === undefined) {
     return [];
   }
   return uniqueTypes(
-    semantics.getCallSignatures(callableType)
-      .map((signature) => semantics.getReturnTypeOfSignature(signature))
+    semantics.types.callSignatures(callableType)
+      .map((signature) => semantics.types.returnType(signature))
       .filter((type): type is Type => type !== undefined),
   );
 }

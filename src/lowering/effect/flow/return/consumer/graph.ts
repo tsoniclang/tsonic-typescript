@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
@@ -431,7 +431,7 @@ function expandBinding(state: ConsumerState, context: ConsumerContext): void {
     ]),
   );
   let consumers = 0;
-  for (const reference of context.program.referencesToDeclaration(declaration)) {
+  for (const reference of context.source.navigation.referencesToDeclaration(declaration)) {
     if (isModuleForwardingReference(context.source, reference)) {
       boundary(state, "open-reference", reference, context);
       continue;
@@ -466,7 +466,7 @@ function expandResult(state: ConsumerState, context: ConsumerContext): void {
   }
   const calls = context.callsByDeclaration.get(declaration) ?? [];
   const selectedCalls = new Set(calls);
-  const references = context.program.referencesToDeclaration(declaration);
+  const references = context.source.navigation.referencesToDeclaration(declaration);
   if (references.some((reference) => {
     if (isModuleForwardingReference(context.source, reference)) {
       return true;

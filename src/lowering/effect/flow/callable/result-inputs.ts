@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
@@ -206,9 +206,10 @@ function selectedCallSource(
     ...new Set(exactCallImplementations?.(call) ?? []),
   ]);
   const semantics = source.semantics.forNode(call);
-  const contract = semantics.getSignatureDeclaration(
-    semantics.getResolvedSignature(call),
-  );
+  const signature = semantics.operations.call(call)?.selectedSignature;
+  const contract = signature === undefined
+    ? undefined
+    : semantics.declarations.signatureDeclaration(signature);
   return contract === undefined || implementations.length === 0
     ? undefined
     : Object.freeze({

@@ -2,7 +2,7 @@ import type {
   PointerOperationFact,
   Node,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import {
   compareOptimizationOccurrences,

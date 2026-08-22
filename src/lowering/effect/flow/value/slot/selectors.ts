@@ -2,7 +2,7 @@ import type { Node, Symbol, Type, TypePropertyInfo } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import { exactObjectIdentity } from "../../../provenance/identity.js";
 import { transparentExpression } from "../../../model/syntax.js";
@@ -44,9 +44,9 @@ export function exactValueSlotRead(
   }
   const semantics = source.semantics.forNode(expression);
   const info = source.ast.is.IsPropertyAccessExpression(expression)
-    ? semantics.getResolvedPropertyAccessInfo(expression)
+    ? semantics.operations.propertyAccess(expression)
     : source.ast.is.IsElementAccessExpression(expression)
-    ? semantics.getResolvedElementAccessInfo(expression)
+    ? semantics.operations.elementAccess(expression)
     : undefined;
   if (
     info === undefined || info.accessMode !== "read" || info.optionalChain
@@ -93,14 +93,7 @@ export function exactBindingSlotPath(
     const names = new Set<string>();
     addSymbolIdentity(
       semantics,
-      semantics.getSymbolAtLocation(step.name),
-      symbols,
-      declarations,
-      names,
-    );
-    addSymbolIdentity(
-      semantics,
-      semantics.getResolvedSymbol(step.name),
+      source.navigation.sourceReferenceFor(step.name)?.symbol,
       symbols,
       declarations,
       names,
@@ -142,7 +135,7 @@ export function exactValueSlotPathIsReadonly(
   path: ExactValueSlotPath,
 ): boolean {
   const semantics = source.semantics.forNode(expression);
-  const type = semantics.getTypeAtLocation(expression);
+  const type = semantics.types.expressionType(expression);
   return type !== undefined && path.length !== 0 && readonlyTypePath(
     semantics,
     type,
@@ -157,13 +150,13 @@ function readonlyTypePath(
   path: ExactValueSlotPath,
   offset: number,
 ): boolean {
-  const selected = semantics.removeMissingOrUndefined(type);
+  const selected = semantics.types.withoutMissingOrUndefined(type);
   const selector = path[offset];
   if (selected === undefined || selector === undefined) {
     return false;
   }
-  if (semantics.isUnion(selected) || semantics.isIntersection(selected)) {
-    const members = semantics.getUnionOrIntersectionTypes(selected).filter(
+  if (semantics.types.isUnion(selected) || semantics.types.isIntersection(selected)) {
+    const members = semantics.types.unionOrIntersectionTypes(selected).filter(
       (member): member is Type => member !== undefined,
     );
     return members.length !== 0 && members.every((member) =>
@@ -171,7 +164,7 @@ function readonlyTypePath(
     );
   }
   if (selector.kind === "property") {
-    const properties = semantics.getPropertyInfos(selected).filter((property) =>
+    const properties = semantics.types.propertyInfos(selected).filter((property) =>
       propertyMatchesSelector(semantics, property, selector)
     );
     if (properties.length !== 0) {
@@ -182,7 +175,7 @@ function readonlyTypePath(
         )
       );
     }
-    const indexes = semantics.getIndexInfos(selected);
+    const indexes = semantics.types.indexInfos(selected);
     return indexes.length !== 0 && indexes.every((index) =>
       index.readonly && index.valueType !== undefined && (
         offset + 1 === path.length ||
@@ -190,10 +183,10 @@ function readonlyTypePath(
       )
     );
   }
-  const values = semantics.isTuple(selected)
-    ? [semantics.getTupleElementInfos(selected)[selector.index]?.type]
-    : semantics.getIndexInfos(selected).map((index) => index.valueType);
-  const indexes = semantics.getIndexInfos(selected);
+  const values = semantics.types.isTuple(selected)
+    ? [semantics.types.tupleElementInfos(selected)[selector.index]?.type]
+    : semantics.types.indexInfos(selected).map((index) => index.valueType);
+  const indexes = semantics.types.indexInfos(selected);
   return indexes.length !== 0 && indexes.every((index) => index.readonly) &&
     values.length !== 0 && values.every((value) =>
       value !== undefined && (
@@ -215,7 +208,7 @@ function propertyMatchesSelector(
   ) {
     return true;
   }
-  return semantics.getSymbolDeclarations(property.symbol).some(
+  return semantics.declarations.symbolDeclarations(property.symbol).some(
     (declaration) =>
       declaration !== undefined && selector.declarations.has(declaration),
   );
@@ -249,7 +242,7 @@ export function exactObjectSlotContributors(
       continue;
     }
     const semantics = source.semantics.forNode(property);
-    const evidence = semantics.getResolvedObjectLiteralElementInfo(property);
+    const evidence = semantics.operations.objectLiteralElement(property);
     if (evidence?.objectLiteral !== object) {
       return null;
     }
@@ -350,16 +343,16 @@ function addSymbolIdentity(
     return;
   }
   symbols.add(symbol);
-  const name = semantics.getSymbolName(symbol);
+  const name = semantics.declarations.symbolName(symbol);
   if (name.length !== 0) {
     names?.add(name);
   }
-  for (const root of semantics.getRootSymbols(symbol)) {
+  for (const root of semantics.declarations.rootSymbols(symbol)) {
     if (root !== undefined) {
       symbols.add(root);
     }
   }
-  for (const declaration of semantics.getSymbolDeclarations(symbol)) {
+  for (const declaration of semantics.declarations.symbolDeclarations(symbol)) {
     if (declaration !== undefined) {
       declarations.add(declaration);
     }
@@ -416,28 +409,34 @@ function exactSpreadPropertySelector(
   { readonly kind: "property" }
 > | null | undefined {
   const semantics = source.semantics.forNode(expression);
-  const type = semantics.getTypeAtLocation(expression);
+  const type = semantics.types.expressionType(expression);
   const name = selector.names.size === 1 ? [...selector.names][0] : undefined;
   if (type === undefined || name === undefined) {
     return undefined;
   }
-  const selected = semantics.removeMissingOrUndefined(type);
-  if (selected === undefined || semantics.isNever(selected)) {
+  const selected = semantics.types.withoutMissingOrUndefined(type);
+  if (selected === undefined || semantics.types.isNever(selected)) {
     return null;
   }
   if (
-    semantics.isAny(selected) ||
-    semantics.isUnknown(selected)
+    semantics.types.isAny(selected) ||
+    semantics.types.isUnknown(selected)
   ) {
     return undefined;
   }
-  const symbol = semantics.getPropertyOfType(selected, name);
-  if (symbol === undefined) {
-    return semantics.couldContainTypeVariables(selected) ||
-        semantics.getIndexInfos(selected).length !== 0
+  const properties = semantics.types.propertyInfos(selected).filter(
+    (property) => property.name === name,
+  );
+  if (properties.length === 0) {
+    return semantics.types.couldContainTypeVariables(selected) ||
+        semantics.types.indexInfos(selected).length !== 0
       ? undefined
       : null;
   }
+  if (properties.length !== 1) {
+    return undefined;
+  }
+  const symbol = properties[0]!.symbol;
   const symbols = new Set<Symbol>();
   const declarations = new Set<Node>();
   const names = new Set<string>();

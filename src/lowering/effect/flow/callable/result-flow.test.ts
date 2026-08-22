@@ -117,7 +117,6 @@ export const result = await invoke();
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: true,
-      declarationReferences: true,
     }),
     new Set(),
   );

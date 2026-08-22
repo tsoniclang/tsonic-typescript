@@ -46,15 +46,14 @@ let unrelatedValue!: Unrelated;
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
     new Set([owner]),
   ).carriers;
   const cache = new Map();
   const ownerSemantics = fixture.source.semantics.forNode(ownerValue);
-  const ownerType = ownerSemantics.getTypeAtLocation(ownerValue);
+  const ownerType = ownerSemantics.types.expressionType(ownerValue);
   const unrelatedSemantics = fixture.source.semantics.forNode(unrelatedValue);
-  const unrelatedType = unrelatedSemantics.getTypeAtLocation(unrelatedValue);
+  const unrelatedType = unrelatedSemantics.types.expressionType(unrelatedValue);
   assert.ok(ownerType !== undefined && unrelatedType !== undefined);
 
   const firstEmpty = ownersWithinStorageType(
@@ -97,7 +96,6 @@ function measureCarrierGraph(carrierCount: number): {
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
     new Set([owner]),
   );

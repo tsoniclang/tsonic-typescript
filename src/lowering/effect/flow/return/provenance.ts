@@ -1,9 +1,8 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindAwaitExpression,
   KindCallExpression,
-  KindImportDeclaration,
   KindNewExpression,
   KindReturnStatement,
 } from "@tsonic/tsts/target-ast";
@@ -128,10 +127,7 @@ export function createReturnProvenanceFlow(
     settledCallDeclarations,
     transports,
     loweredValues,
-    runtime: createTypeScriptRuntimeReturnContract(
-      source,
-      program.nodesOfKind(KindImportDeclaration),
-    ),
+    runtime: createTypeScriptRuntimeReturnContract(source),
     locals: createReturnLocalFlow(source, program),
     storage: createReturnStorageFlow(
       source,
@@ -321,7 +317,7 @@ function expandExpression(
     return;
   }
   if (source.ast.is.IsIdentifier(root)) {
-    const declaration = context.program.declarationReferenceFor(root)?.declaration;
+    const declaration = source.navigation.sourceReferenceFor(root)?.declaration;
     if (
       declaration !== undefined &&
       source.ast.is.IsParameterDeclaration(declaration)

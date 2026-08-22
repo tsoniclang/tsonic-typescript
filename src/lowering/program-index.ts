@@ -1,24 +1,17 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
+import { sourceBindingWriteAtReference } from "@tsonic/target-api/source";
 import type {
   SourceBindingWrite,
-  SourceDeclarationReference,
   SourceProjectMemberDispatch,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 import {
   KindClassDeclaration,
   KindElementAccessExpression,
   KindIdentifier,
-  KindPrivateIdentifier,
   KindPropertyAccessExpression,
-  KindQualifiedName,
   type Kind,
 } from "@tsonic/tsts/target-ast";
-
-import {
-  createProjectDeclarationReferenceIndex,
-  disabledProjectDeclarationReferenceIndex,
-} from "./reference-index.js";
 import type {
   TargetProgramIndex,
   TargetProgramIndexSelection,
@@ -42,7 +35,6 @@ interface NodeCensus {
 
 interface CollectedNodeCensus extends NodeCensus {
   readonly potentialBindingReferences: readonly Node[];
-  readonly referenceCandidates: readonly Node[];
 }
 
 interface BindingWriteIndex {
@@ -64,11 +56,8 @@ export function createTargetProgramIndex(
   source: TargetSourceProgram,
   selection: TargetProgramIndexSelection,
 ): TargetProgramIndex {
-  const { potentialBindingReferences, referenceCandidates, ...census } =
+  const { potentialBindingReferences, ...census } =
     collectNodeCensus(source, selection);
-  const references = selection.declarationReferences === true
-    ? createProjectDeclarationReferenceIndex(source, referenceCandidates)
-    : disabledProjectDeclarationReferenceIndex();
   const writes = selection.bindingWrites
     ? collectBindingWrites(source, potentialBindingReferences)
     : emptyBindingWriteIndex();
@@ -80,8 +69,7 @@ export function createTargetProgramIndex(
     childEdges: census.childEdges,
     kindEntries: census.nodes.length,
     identifierEntries: census.identifierEntries,
-    referenceCandidates: references.candidateCount,
-    projectReferences: references.referenceCount,
+    sourceReferenceIndex: source.navigation.referenceIndexStatistics,
     bindingCandidates: writes.candidateCount,
     bindingWrites: writes.writeCount,
     heritageEdges: dispatch.heritageEdges,
@@ -132,14 +120,6 @@ export function createTargetProgramIndex(
         ? noWrites
         : writes.byDeclaration.get(declaration) ?? noWrites;
     },
-    declarationReferenceFor(
-      node: Node | undefined,
-    ): SourceDeclarationReference | undefined {
-      return references.declarationReferenceFor(node);
-    },
-    referencesToDeclaration(declaration: Node | undefined): readonly Node[] {
-      return references.referencesToDeclaration(declaration);
-    },
     memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined {
       return node === undefined ? undefined : dispatch.byMember.get(node);
     },
@@ -189,7 +169,6 @@ function collectNodeCensus(
   const byFile = new Map<SourceFile, readonly Node[]>();
   const identifierNamesByFile = new Map<SourceFile, ReadonlySet<string>>();
   const potentialBindingReferences: Node[] = [];
-  const referenceCandidates: Node[] = [];
   let identifierEntries = 0;
   let childEdges = 0;
   for (const sourceFile of sourceFiles) {
@@ -227,14 +206,6 @@ function collectNodeCensus(
       )) {
         potentialBindingReferences.push(node);
       }
-      if (selection.declarationReferences === true && (
-        kind === KindIdentifier ||
-        kind === KindPrivateIdentifier ||
-        kind === KindPropertyAccessExpression ||
-        kind === KindQualifiedName
-      )) {
-        referenceCandidates.push(node);
-      }
       if (kind === KindIdentifier) {
         identifierEntries += 1;
         identifierNames.add(source.ast.text(node));
@@ -265,7 +236,6 @@ function collectNodeCensus(
     byKind: sealedKinds,
     orderByKind: sealedOrders,
     potentialBindingReferences: Object.freeze(potentialBindingReferences),
-    referenceCandidates: Object.freeze(referenceCandidates),
     childEdges,
     identifierEntries,
   });
@@ -277,7 +247,6 @@ function collectBindingWrites(
 ): BindingWriteIndex {
   const atReference = new Map<Node, readonly SourceBindingWrite[]>();
   const mutableByDeclaration = new Map<Node, SourceBindingWrite[]>();
-  const seenWrites = new Set<Node>();
   let candidateCount = 0;
   let writeCount = 0;
   for (const node of references) {
@@ -289,24 +258,18 @@ function collectBindingWrites(
     if (reference?.project !== true) {
       continue;
     }
-    const selected = source.navigation.bindingWritesWithin(reference.symbol, node);
-    if (selected.length === 0) {
+    const write = sourceBindingWriteAtReference(source.ast, node);
+    if (write === undefined) {
       continue;
     }
-    const exact = Object.freeze([...selected]);
+    const exact = Object.freeze([write]);
     atReference.set(node, exact);
-    for (const write of exact) {
-      if (seenWrites.has(write.reference)) {
-        continue;
-      }
-      seenWrites.add(write.reference);
-      writeCount += 1;
-      const existing = mutableByDeclaration.get(reference.declaration);
-      if (existing === undefined) {
-        mutableByDeclaration.set(reference.declaration, [write]);
-      } else {
-        existing.push(write);
-      }
+    writeCount += 1;
+    const existing = mutableByDeclaration.get(reference.declaration);
+    if (existing === undefined) {
+      mutableByDeclaration.set(reference.declaration, [write]);
+    } else {
+      existing.push(write);
     }
   }
   const byDeclaration = new Map<Node, readonly SourceBindingWrite[]>();
@@ -320,6 +283,7 @@ function collectBindingWrites(
     writeCount,
   });
 }
+
 function mayReachWrite(source: TargetSourceProgram, node: Node): boolean {
   let current = node;
   for (;;) {

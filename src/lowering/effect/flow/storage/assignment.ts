@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type {
   SourceBindingWrite,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 export function exactBindingWriteInput(
   source: TargetSourceProgram,

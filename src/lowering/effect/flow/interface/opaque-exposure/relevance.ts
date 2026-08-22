@@ -1,5 +1,5 @@
 import type { Type } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "@tsonic/target-api";
+import type { SourceFileSemantics } from "@tsonic/target-api/source";
 
 import type { InterfaceContractRelevance } from "../relevance.js";
 import type { OpaqueInterfaceExposureSink } from "./model.js";
@@ -39,37 +39,37 @@ export function sourceContainsRelevantContracts(
       cache.set(root, true);
       return true;
     }
-    const selected = semantics.removeMissingOrUndefined(type);
-    if (selected === undefined || semantics.isNever(selected)) {
+    const selected = semantics.types.withoutMissingOrUndefined(type);
+    if (selected === undefined || semantics.types.isNever(selected)) {
       continue;
     }
-    if (semantics.isUnion(selected) || semantics.isIntersection(selected)) {
-      appendTypes(pending, semantics.getUnionOrIntersectionTypes(selected));
+    if (semantics.types.isUnion(selected) || semantics.types.isIntersection(selected)) {
+      appendTypes(pending, semantics.types.unionOrIntersectionTypes(selected));
       continue;
     }
-    if (semantics.isTuple(selected)) {
-      appendTypes(pending, semantics.getTupleElementTypes(selected));
+    if (semantics.types.isTuple(selected)) {
+      appendTypes(pending, semantics.types.tupleElementTypes(selected));
       continue;
     }
-    if (semantics.isArrayLike(selected)) {
-      if (semantics.isTypeReference(selected)) {
-        appendTypes(pending, semantics.getTypeArguments(selected));
+    if (semantics.types.isArrayLike(selected)) {
+      if (semantics.types.isTypeReference(selected)) {
+        appendTypes(pending, semantics.types.typeArguments(selected));
       }
       appendTypes(
         pending,
-        semantics.getIndexInfos(selected).map((index) => index.valueType),
+        semantics.types.indexInfos(selected).map((index) => index.valueType),
       );
       continue;
     }
     const signatures = [
-      ...semantics.getCallSignatures(selected),
-      ...semantics.getConstructSignatures(selected),
+      ...semantics.types.callSignatures(selected),
+      ...semantics.types.constructSignatures(selected),
     ];
     if (signatures.length !== 0) {
       for (const signature of signatures) {
         appendTypes(
           pending,
-          semantics.getSignatureParameterInfos(signature).map((parameter) =>
+          semantics.types.signatureParameterInfos(signature).map((parameter) =>
             parameter.type
           ),
         );
@@ -78,11 +78,11 @@ export function sourceContainsRelevantContracts(
     }
     appendTypes(
       pending,
-      semantics.getPropertyInfos(selected).map((property) => property.type),
+      semantics.types.propertyInfos(selected).map((property) => property.type),
     );
     appendTypes(
       pending,
-      semantics.getIndexInfos(selected).map((index) => index.valueType),
+      semantics.types.indexInfos(selected).map((index) => index.valueType),
     );
   }
   cache.set(root, false);
@@ -108,49 +108,49 @@ export function markAllRelevantSourceContracts(
       return;
     }
     seen.add(type);
-    const selected = semantics.removeMissingOrUndefined(type);
-    if (selected === undefined || semantics.isNever(selected)) {
+    const selected = semantics.types.withoutMissingOrUndefined(type);
+    if (selected === undefined || semantics.types.isNever(selected)) {
       continue;
     }
     sink.markExposedContracts(semantics, selected);
     sink.markExposedValueContracts(semantics, selected);
-    if (semantics.isUnion(selected) || semantics.isIntersection(selected)) {
-      appendTypes(pending, semantics.getUnionOrIntersectionTypes(selected));
+    if (semantics.types.isUnion(selected) || semantics.types.isIntersection(selected)) {
+      appendTypes(pending, semantics.types.unionOrIntersectionTypes(selected));
       continue;
     }
-    if (semantics.isTuple(selected)) {
-      appendTypes(pending, semantics.getTupleElementTypes(selected));
+    if (semantics.types.isTuple(selected)) {
+      appendTypes(pending, semantics.types.tupleElementTypes(selected));
       continue;
     }
     for (const signature of [
-      ...semantics.getCallSignatures(selected),
-      ...semantics.getConstructSignatures(selected),
+      ...semantics.types.callSignatures(selected),
+      ...semantics.types.constructSignatures(selected),
     ]) {
       appendTypes(
         pending,
-        semantics.getSignatureParameterInfos(signature).map((parameter) =>
+        semantics.types.signatureParameterInfos(signature).map((parameter) =>
           parameter.type
         ),
       );
-      appendTypes(pending, [semantics.getReturnTypeOfSignature(signature)]);
+      appendTypes(pending, [semantics.types.returnType(signature)]);
     }
-    if (semantics.isArrayLike(selected)) {
-      if (semantics.isTypeReference(selected)) {
-        appendTypes(pending, semantics.getTypeArguments(selected));
+    if (semantics.types.isArrayLike(selected)) {
+      if (semantics.types.isTypeReference(selected)) {
+        appendTypes(pending, semantics.types.typeArguments(selected));
       }
       appendTypes(
         pending,
-        semantics.getIndexInfos(selected).map((index) => index.valueType),
+        semantics.types.indexInfos(selected).map((index) => index.valueType),
       );
       continue;
     }
     appendTypes(
       pending,
-      semantics.getPropertyInfos(selected).map((property) => property.type),
+      semantics.types.propertyInfos(selected).map((property) => property.type),
     );
     appendTypes(
       pending,
-      semantics.getIndexInfos(selected).map((index) => index.valueType),
+      semantics.types.indexInfos(selected).map((index) => index.valueType),
     );
   }
 }

@@ -29,8 +29,8 @@ import {
   IsPropertyAccessExpression,
   IsVariableDeclaration,
 } from "@tsonic/tsts/target-ast";
-import { createTargetSourceProgram } from "@tsonic/target-api";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { createTargetProgramIndex } from "../program-index.js";
 

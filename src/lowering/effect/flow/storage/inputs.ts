@@ -1,5 +1,5 @@
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindElementAccessExpression,
   KindIdentifier,
@@ -390,11 +390,11 @@ function auditCallableOwnerReference(
   let reference: Node | undefined;
   if (source.ast.is.IsPropertyAccessExpression(node)) {
     declaration = source.semantics.forNode(node)
-      .getResolvedPropertyAccessInfo(node)?.selectedDeclaration;
+      .operations.propertyAccess(node)?.selectedDeclaration;
     reference = node;
   } else if (source.ast.is.IsElementAccessExpression(node)) {
     declaration = source.semantics.forNode(node)
-      .getResolvedElementAccessInfo(node)?.selectedDeclaration;
+      .operations.elementAccess(node)?.selectedDeclaration;
     reference = node;
   } else if (
     source.ast.is.IsIdentifier(node) &&
@@ -463,9 +463,9 @@ function auditFieldUse(
   callableReferenceIsClosed?: (reference: Node) => boolean,
 ): void {
   const selected = source.ast.is.IsPropertyAccessExpression(node)
-    ? source.semantics.forNode(node).getResolvedPropertyAccessInfo(node)
+    ? source.semantics.forNode(node).operations.propertyAccess(node)
     : source.ast.is.IsElementAccessExpression(node)
-    ? source.semantics.forNode(node).getResolvedElementAccessInfo(node)
+    ? source.semantics.forNode(node).operations.elementAccess(node)
     : undefined;
   const field = selected?.selectedDeclaration;
   const counts = field === undefined ? undefined : tracked.get(field);

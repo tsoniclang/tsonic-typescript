@@ -2,7 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 export interface InterfaceContractMembership {
   has(declaration: Node): boolean;
@@ -12,19 +12,19 @@ export function interfaceContractTypeDeclaration(
   semantics: SourceFileSemantics,
   type: Type,
 ): Node | undefined {
-  const target = semantics.isTypeReference(type)
-    ? semantics.getTypeReferenceTarget(type) ?? type
+  const target = semantics.types.isTypeReference(type)
+    ? semantics.types.typeReferenceTarget(type) ?? type
     : type;
   const symbols = [
-    semantics.getTypeSymbol(target),
-    semantics.getTypeAliasSymbol(target),
-    semantics.getTypeSymbol(type),
-    semantics.getTypeAliasSymbol(type),
-  ].filter((symbol, index, selected) =>
+    semantics.declarations.typeSymbol(target),
+    semantics.declarations.typeAliasSymbol(target),
+    semantics.declarations.typeSymbol(type),
+    semantics.declarations.typeAliasSymbol(type),
+  ].filter((symbol, index, selected): symbol is NonNullable<typeof symbol> =>
     symbol !== undefined && selected.indexOf(symbol) === index
   );
   const declarations = symbols.flatMap((symbol) =>
-    semantics.getSymbolDeclarations(symbol)
+    semantics.declarations.symbolDeclarations(symbol)
   ).filter((declaration, index, selected) =>
     declaration !== undefined && selected.indexOf(declaration) === index
   );
@@ -34,14 +34,14 @@ export function interfaceContractTypeDeclaration(
 export function interfaceContractsForProperty(
   source: TargetSourceProgram,
   semantics: SourceFileSemantics,
-  symbol: Parameters<SourceFileSemantics["getSymbolDeclarations"]>[0],
+  symbol: Parameters<SourceFileSemantics["declarations"]["symbolDeclarations"]>[0],
   owner: Node | undefined,
   name: string,
   entries: InterfaceContractMembership,
   declarationContracts: ReadonlyMap<Node, readonly Node[]>,
 ): readonly Node[] {
   const result = new Set(
-    semantics.getSymbolDeclarations(symbol)
+    semantics.declarations.symbolDeclarations(symbol)
       .filter((declaration): declaration is Node =>
         declaration !== undefined && entries.has(declaration)
       ),

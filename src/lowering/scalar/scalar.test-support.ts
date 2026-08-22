@@ -9,8 +9,8 @@ import type {
 } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
-} from "@tsonic/target-api";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { createTargetProgramIndex } from "../program-index.js";
 import {
@@ -33,7 +33,6 @@ export function createFixtureScalarRepresentationPlan(
     createTargetProgramIndex(source, {
       bindingWrites: true,
       memberDispatch: false,
-      declarationReferences: true,
     }),
     profile,
     fixtureSourceIdentityFor(source),

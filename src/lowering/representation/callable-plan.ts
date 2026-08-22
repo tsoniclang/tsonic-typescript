@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindFunctionDeclaration,
   KindMethodDeclaration,
@@ -136,7 +136,7 @@ function resolveSpecialization(
   )) {
     return { kind: "retained", reason: "nonidentity-contract" };
   }
-  const parameterReferences = program.referencesToDeclaration(parameter);
+  const parameterReferences = source.navigation.referencesToDeclaration(parameter);
   const parameterCalls = parameterReferences.map((reference) =>
     directParameterCallForReference(source, reference)
   );
@@ -146,7 +146,7 @@ function resolveSpecialization(
   ) {
     return { kind: "retained", reason: "open-parameter-use" };
   }
-  const ownerReferences = program.referencesToDeclaration(owner)
+  const ownerReferences = source.navigation.referencesToDeclaration(owner)
     .filter((reference) => !isModuleForwardingReference(source, reference));
   const ownerCalls = ownerReferences.map((reference) =>
     directOwnerCallForReference(source, reference)
@@ -202,28 +202,28 @@ function identityCallableContractIsEndomorphic(
     return false;
   }
   const semantics = source.semantics.forNode(typeNode);
-  const type = semantics.getTypeFromTypeNode(typeNode);
-  const signatures = type === undefined ? [] : semantics.getCallSignatures(type);
+  const type = semantics.types.authoredType(typeNode);
+  const signatures = type === undefined ? [] : semantics.types.callSignatures(type);
   const signature = signatures[0];
   if (signature === undefined || signatures.length !== 1) {
     return false;
   }
-  const parameters = semantics.getSignatureParameters(signature);
+  const parameters = semantics.declarations.signatureParameters(signature);
   const input = parameters[0] === undefined
     ? undefined
-    : semantics.getTypeOfSymbol(parameters[0]);
+    : semantics.types.typeOfSymbol(parameters[0]);
   const returnTypeNode = source.ast.typeNode(typeNode);
   const projectedReturnType = returnTypeNode === undefined
     ? undefined
     : effectProjection?.projectedReturnTypeFor(returnTypeNode);
   const output = projectedReturnType === undefined
-    ? semantics.getReturnTypeOfSignature(signature)
+    ? semantics.types.returnType(signature)
     : source.semantics.forNode(projectedReturnType)
-      .getTypeFromTypeNode(projectedReturnType);
+      .types.authoredType(projectedReturnType);
   return parameters.length === 1 &&
     input !== undefined &&
     output !== undefined &&
-    semantics.getTypeRelationship(input, output) === "identical";
+    semantics.types.relationship(input, output) === "identical";
 }
 
 function sealIdentityCallablePlan(
@@ -355,8 +355,8 @@ function isCallableParameter(
     return false;
   }
   const semantics = source.semantics.forNode(typeNode);
-  const type = semantics.getTypeFromTypeNode(typeNode);
-  return type !== undefined && semantics.getCallSignatures(type).length !== 0;
+  const type = semantics.types.authoredType(typeNode);
+  return type !== undefined && semantics.types.callSignatures(type).length !== 0;
 }
 
 function directParameterCallForReference(
@@ -403,11 +403,11 @@ function selectedCallOwns(
   declaration: Node,
 ): boolean {
   const semantics = source.semantics.forNode(call);
-  const info = semantics.getResolvedCallInfo(call);
+  const info = semantics.operations.call(call);
   return info?.outcome === "applicable" &&
     info.sourceSelectedSignatureKind === "resolved" &&
     !info.optionalChain &&
-    semantics.getSignatureDeclaration(info.selectedSignature) === declaration;
+    semantics.declarations.signatureDeclaration(info.selectedSignature) === declaration;
 }
 
 function isExactIdentityValue(

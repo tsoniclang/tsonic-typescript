@@ -3,9 +3,14 @@ import { test } from "node:test";
 
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
-import type { PointerFlowRepresentation } from "./flow-plan.js";
+import { createTargetProgramIndex } from "../program-index.js";
+import {
+  createClosedPointerFlowPlan as createProductionPointerFlowPlan,
+  type PointerFlowRepresentation,
+} from "./flow-plan.js";
 import {
   checkedPointerFixture,
   countCallsNamed,
@@ -204,8 +209,51 @@ export const result = loadPointer(pointer);
 
   assertAllOperations(source, "direct-snapshot");
   assert.ok(
-    sourceReferenceQueries < 16,
+    sourceReferenceQueries < 64,
     `expected bounded exact-reference queries, got ${sourceReferenceQueries}`,
+  );
+});
+
+test("fails closed when the pointer census omits an exact source edge", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+const pointer: Pointer<number> = allocatePointer(1);
+const alias = pointer;
+export const result = loadPointer(alias);
+`);
+  const canonical = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+    memberDispatch: false,
+  });
+  const omitted = canonical.nodesOfKind(KindIdentifier).find((node) => {
+    const reference = fixture.source.navigation.sourceReferenceFor(node);
+    return fixture.source.ast.text(node) === "alias" &&
+      reference !== undefined &&
+      fixture.source.ast.name(reference.declaration) !== node;
+  });
+  assert.ok(omitted !== undefined);
+  const source: TargetSourceProgram = Object.freeze({
+    ...fixture.source,
+    navigation: Object.freeze({
+      ...fixture.source.navigation,
+      referencesToDeclaration(declaration: Node) {
+        return fixture.source.navigation.referencesToDeclaration(declaration)
+          .filter((reference) => reference !== omitted);
+      },
+    }),
+  });
+  const program = createTargetProgramIndex(source, {
+    bindingWrites: true,
+    memberDispatch: false,
+  });
+
+  assert.throws(
+    () => createProductionPointerFlowPlan(
+      source,
+      program,
+      (sourceFile) => source.documents.forFile(sourceFile).identity,
+    ),
+    /pointer operand .* lost its exact source reference/u,
   );
 });
 

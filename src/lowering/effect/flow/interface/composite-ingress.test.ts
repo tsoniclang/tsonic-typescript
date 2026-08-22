@@ -81,7 +81,6 @@ export const result = await read(holder.reader);`,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
-        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);
@@ -105,7 +104,6 @@ export const result = await read(selected);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -127,7 +125,6 @@ export const result = await read(holder.reader);
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
-      declarationReferences: true,
     }),
   );
   assert.equal(graph.components.length, 1);
@@ -163,7 +160,6 @@ export const result = await read(holder.reader);`,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: false,
         memberDispatch: false,
-        declarationReferences: true,
       }),
     );
     assert.equal(graph.components.length, 1);

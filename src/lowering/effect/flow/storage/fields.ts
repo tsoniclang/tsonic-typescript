@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
@@ -135,10 +135,10 @@ function selectedField(
 ): Node | undefined {
   const selected = source.ast.is.IsPropertyAccessExpression(expression)
     ? source.semantics.forNode(expression)
-      .getResolvedPropertyAccessInfo(expression)?.selectedDeclaration
+      .operations.propertyAccess(expression)?.selectedDeclaration
     : source.ast.is.IsElementAccessExpression(expression)
     ? source.semantics.forNode(expression)
-      .getResolvedElementAccessInfo(expression)?.selectedDeclaration
+      .operations.elementAccess(expression)?.selectedDeclaration
     : undefined;
   return selected !== undefined && fields.has(selected) ? selected : undefined;
 }

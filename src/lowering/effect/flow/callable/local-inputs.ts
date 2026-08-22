@@ -2,7 +2,7 @@ import type { Node, Symbol, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
@@ -40,14 +40,16 @@ export function collectCallableLocals(
     const semantics = name === undefined
       ? undefined
       : source.semantics.forNode(name);
-    const type = semantics?.getTypeAtLocation(name);
+    const type = semantics === undefined || name === undefined
+      ? undefined
+      : semantics.types.expressionType(name);
     const inferredImmutableCallable =
       source.ast.variableDeclarationKind(node) === "const" &&
       initializer !== undefined &&
       semantics !== undefined &&
       type !== undefined &&
-      !semantics.isAny(type) &&
-      !semantics.isUnknown(type) &&
+      !semantics.types.isAny(type) &&
+      !semantics.types.isUnknown(type) &&
       inferredTypeIsCallable(semantics, type, new Set());
     if (
       !source.ast.is.IsIdentifier(name) ||
@@ -69,17 +71,17 @@ function inferredTypeIsCallable(
 ): boolean {
   if (
     pending.has(type) ||
-    semantics.isAny(type) ||
-    semantics.isUnknown(type) ||
-    semantics.isNullish(type)
+    semantics.types.isAny(type) ||
+    semantics.types.isUnknown(type) ||
+    semantics.types.isNullish(type)
   ) {
     return false;
   }
-  if (semantics.isUnion(type)) {
+  if (semantics.types.isUnion(type)) {
     pending.add(type);
     let callable = false;
-    for (const member of semantics.getUnionOrIntersectionTypes(type)) {
-      if (member === undefined || semantics.isNullish(member)) {
+    for (const member of semantics.types.unionOrIntersectionTypes(type)) {
+      if (member === undefined || semantics.types.isNullish(member)) {
         continue;
       }
       if (!inferredTypeIsCallable(semantics, member, pending)) {
@@ -91,7 +93,7 @@ function inferredTypeIsCallable(
     pending.delete(type);
     return callable;
   }
-  return semantics.getCallSignatures(type).length !== 0;
+  return semantics.types.callSignatures(type).length !== 0;
 }
 
 export function auditCallableLocalUse(

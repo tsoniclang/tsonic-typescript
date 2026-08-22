@@ -2,7 +2,7 @@ import type { Node, Symbol, Type } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import { typeHasDefinitelyNonThenableContract } from "../thenability.js";
 import type { PointerTypeEntry } from "./flow-fact-ledger.js";
@@ -51,7 +51,7 @@ export function closePointerValueEvidence(
     ledger.record("representation");
     const owner = pointerValueOwner(source, entry.node);
     const pointee = source.semantics.forNode(entry.fact.pointee)
-      .getTypeFromTypeNode(entry.fact.pointee);
+      .types.authoredType(entry.fact.pointee);
     for (const symbol of pointerTypeSymbols(source, entry.node)) {
       canonicalPointerSymbols.add(symbol);
     }
@@ -118,10 +118,10 @@ function expressionSelectsCanonicalPointer(
     return false;
   }
   const semantics = source.semantics.forNode(node);
-  const type = semantics.getTypeAtLocation(node);
+  const type = semantics.types.expressionType(node);
   const selected = type === undefined
     ? undefined
-    : semantics.removeMissingOrUndefined(type);
+    : semantics.types.withoutMissingOrUndefined(type);
   return selected !== undefined &&
     selectedTypeSymbols(semantics, selected).some((symbol) =>
       canonicalPointerSymbols.has(symbol)
@@ -142,7 +142,7 @@ function pointerTypeSymbols(
     throw new Error("validated pointer fact lost its canonical type reference");
   }
   const semantics = source.semantics.forNode(reference);
-  const type = semantics.getTypeFromTypeNode(reference);
+  const type = semantics.types.authoredType(reference);
   if (type === undefined) {
     throw new Error("validated pointer fact lost its canonical selected type");
   }
@@ -153,14 +153,14 @@ function selectedTypeSymbols(
   semantics: SourceFileSemantics,
   type: Type,
 ): readonly Symbol[] {
-  const target = semantics.isTypeReference(type)
-    ? semantics.getTypeReferenceTarget(type) ?? type
+  const target = semantics.types.isTypeReference(type)
+    ? semantics.types.typeReferenceTarget(type) ?? type
     : type;
   return [
-    semantics.getTypeSymbol(target),
-    semantics.getTypeAliasSymbol(target),
-    semantics.getTypeSymbol(type),
-    semantics.getTypeAliasSymbol(type),
+    semantics.declarations.typeSymbol(target),
+    semantics.declarations.typeAliasSymbol(target),
+    semantics.declarations.typeSymbol(type),
+    semantics.declarations.typeAliasSymbol(type),
   ].filter((symbol, index, selected): symbol is Symbol =>
     symbol !== undefined && selected.indexOf(symbol) === index
   );
@@ -215,11 +215,11 @@ function selectedPointerValueOwner(
 ): Node | undefined {
   if (source.ast.is.IsPropertyAccessExpression(node)) {
     return source.semantics.forNode(node)
-      .getResolvedPropertyAccessInfo(node)?.selectedDeclaration;
+      .operations.propertyAccess(node)?.selectedDeclaration;
   }
   if (source.ast.is.IsElementAccessExpression(node)) {
     return source.semantics.forNode(node)
-      .getResolvedElementAccessInfo(node)?.selectedDeclaration;
+      .operations.elementAccess(node)?.selectedDeclaration;
   }
   return source.ast.is.IsIdentifier(node)
     ? source.navigation.sourceReferenceFor(node)?.declaration

@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsPropertyAccessExpression,
   AsVariableDeclaration,
@@ -65,7 +65,7 @@ export function resolveStoredScalarFlow(
 
   const consumedProjections = new Set<Node>();
   for (const binding of bindings) {
-    for (const reference of program.referencesToDeclaration(binding)) {
+    for (const reference of source.navigation.referencesToDeclaration(binding)) {
       const projection = source.ast.parent(reference);
       const access = AsPropertyAccessExpression(projection);
       if (

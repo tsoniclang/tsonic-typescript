@@ -1,7 +1,7 @@
 import type {
   TargetArtifact,
   TargetRuntimeReference,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/artifacts";
 
 import {
   typeScriptRuntimeModule,
