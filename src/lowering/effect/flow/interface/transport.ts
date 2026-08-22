@@ -240,6 +240,7 @@ export function collectInterfaceContractTransports(
       exactCallImplementations,
     ),
     completeInvocationInputs,
+    originRequirements.requiredValues(),
   );
   checkedParameterInputs.seal();
   originRequirements.finish({

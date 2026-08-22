@@ -70,6 +70,7 @@ export function createReturnProjectionFlow(
           });
     },
     invocationInputs,
+    projections.roots,
   );
   return Object.freeze({
     isDefinitelyNonThenable(

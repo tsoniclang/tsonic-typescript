@@ -28,6 +28,17 @@ import { extendExactInvocationInputIndex } from "./implementation-inputs.js";
 import type { ExactInvocationInputIndex } from "./inputs.js";
 import { collectClosedIndirectCallableReferences } from "./indirect/reference-closure.js";
 import { selectClosedIndirectCallableOrigins } from "./indirect/origin-selection.js";
+import { collectCallableProjectionCandidates } from "../callable/projection-candidates.js";
+import type {
+  ExactIndirectCallableInvocation,
+  ExactIndirectInvocationAnalysis,
+  ExactIndirectInvocationRound,
+} from "./indirect/model.js";
+
+export type {
+  ExactIndirectCallableInvocation,
+  ExactIndirectInvocationAnalysis,
+} from "./indirect/model.js";
 type IndirectInvocationBoundary =
   | "open-binding"
   | "open-expression"
@@ -53,21 +64,6 @@ interface CallableOriginContext {
   readonly callableOrigins: Set<Node>;
 }
 
-export interface ExactIndirectCallableInvocation {
-  readonly call: Node;
-  readonly implementations: readonly Node[];
-}
-
-export interface ExactIndirectInvocationAnalysis {
-  readonly invocationInputs: ExactInvocationInputIndex;
-  implementationsFor(call: Node): readonly Node[] | undefined;
-  allowsCallableReference(reference: Node): boolean;
-}
-
-interface ExactIndirectInvocationRound {
-  readonly invocations: readonly ExactIndirectCallableInvocation[];
-  readonly callableReferences: ReadonlySet<Node>;
-}
 function emptyRound(): ExactIndirectInvocationRound {
   return Object.freeze({
     invocations: Object.freeze([]),
@@ -87,6 +83,11 @@ export function createExactIndirectInvocationAnalysis(
   callableFields?: CallableFields,
 ): ExactIndirectInvocationAnalysis {
   const selectedCallableFields = callableFields ?? collectCallableFields(source, program);
+  const projectionCandidates = collectCallableProjectionCandidates(
+    source,
+    program,
+    planningObserver,
+  );
   let invocationInputs = direct;
   let previous = emptyRound();
   const states = new Set<string>();
@@ -105,6 +106,7 @@ export function createExactIndirectInvocationAnalysis(
         implementationsFor(previous.invocations),
       ),
       (reference) => previous.callableReferences.has(reference),
+      projectionCandidates,
       planningObserver,
       selectedCallableFields,
     );
@@ -260,6 +262,7 @@ export function collectExactIndirectCallableInvocations(
   transports?: InvocationTransportContract,
   exactCallImplementations?: ExactCallImplementations,
 ): readonly ExactIndirectCallableInvocation[] {
+  const projectionCandidates = collectCallableProjectionCandidates(source, program);
   return collectExactIndirectInvocationRound(
     source,
     program,
@@ -268,6 +271,8 @@ export function collectExactIndirectCallableInvocations(
     objectProjections,
     transports,
     exactCallImplementations,
+    undefined,
+    projectionCandidates,
   ).invocations;
 }
 
@@ -280,6 +285,7 @@ function collectExactIndirectInvocationRound(
   transports?: InvocationTransportContract,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  projectionCandidates: readonly Node[] = Object.freeze([]),
   planningObserver?: TypeScriptPlanningObserver,
   callableFields?: CallableFields,
 ): ExactIndirectInvocationRound {
@@ -290,6 +296,7 @@ function collectExactIndirectInvocationRound(
     new Set(),
     exactCallImplementations,
     direct,
+    projectionCandidates,
     planningObserver,
   );
   planningObserver?.("effect-indirect-results");

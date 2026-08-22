@@ -542,6 +542,12 @@ After graph resolution, only closed value-slot roots materialize their exact
 origins and contract steps. An open root publishes the closed bit and no
 positive evidence; expanding transitive origins for a root that cannot be
 consumed is forbidden work, not conservative analysis.
+Each semantic consumer supplies that root domain from its own positive facts.
+Callable flow uses checked callable projection candidates, interface flow uses
+the exact values in its origin-requirement ledger, and return/result-consumer
+flow uses the aggregate projection owner's exact positive read roots. An empty
+default root set is never treated as completed analysis, and restoring every
+identifier as a root is forbidden whole-program work.
 
 Settlement of a produced callable is atomic with its authored result contract.
 After the producer's outer async contract is selected, every non-nullish result

@@ -29,6 +29,24 @@ export const result = await pending;
   );
 });
 
+test("settles a result consumed through an exact aggregate slot", () => {
+  const fixture = checkedEffectFixture(`
+async function leaf(): Promise<number> { return 42; }
+const pending = [leaf()];
+export const result = await pending[0];
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
 test("settles a private reverse caller reached through an exact alias", () => {
   const fixture = checkedEffectFixture(`
 async function leaf(): Promise<number> { return 42; }

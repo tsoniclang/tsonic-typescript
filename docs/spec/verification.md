@@ -478,6 +478,13 @@ changing the callable projection denominator. It also proves that a narrowed
 callable union and an invoked open target remain candidates; removing either
 admission must fail while admitting the scalar siblings must fail the bounded
 candidate count.
+Root-ownership fixtures separately prove a tuple/array read supplied by the
+aggregate projection index, an interface origin supplied by the requirement
+ledger, and a callable projection supplied by the callable candidate owner.
+Each exact root must settle its positive case, while an unrelated identifier
+scaling control must not enter any value-slot graph. Omitting one owner's roots
+must fail its semantic fixture; restoring all identifiers must fail the bounded
+candidate and guarded product gates.
 The whole-product phase ledger must show value-slot graph condensation
 completing independently from positive-evidence materialization. A dense set of
 open callable property roots may increase the root denominator but must not

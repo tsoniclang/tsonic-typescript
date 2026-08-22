@@ -18,7 +18,6 @@ import { transparentExpression } from "../../model/syntax.js";
 import type { CallableResultLookup } from "./result-inputs.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { exactValueSlotPathKey } from "../value/slot/selectors.js";
-import { collectCallableProjectionCandidates } from "./projection-candidates.js";
 
 export interface CallableProjectionInput {
   readonly declaration: Node;
@@ -38,15 +37,11 @@ export function createCallableProjectionInputs(
   program: TargetProgramIndex,
   projections: ExactAggregateProjectionIndex,
   results: CallableResultLookup,
-  exactCallContracts?: (call: Node) => readonly Node[] | undefined,
-  invocationInputs?: ExactInvocationInputIndex,
+  exactCallContracts: ((call: Node) => readonly Node[] | undefined) | undefined,
+  invocationInputs: ExactInvocationInputIndex | undefined,
+  candidates: readonly Node[],
   planningObserver?: TypeScriptPlanningObserver,
 ): CallableProjectionInputs {
-  const candidates = collectCallableProjectionCandidates(
-    source,
-    program,
-    planningObserver,
-  );
   const slots = createExactValueSlotFlow(
     source,
     program,

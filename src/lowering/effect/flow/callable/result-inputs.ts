@@ -53,8 +53,9 @@ export function createCallableResultInputs(
   program: TargetProgramIndex,
   projections: ExactAggregateProjectionIndex,
   candidates: ReadonlySet<Node>,
-  exactCallImplementations?: ExactCallImplementations,
-  invocationInputs?: ExactInvocationInputIndex,
+  exactCallImplementations: ExactCallImplementations | undefined,
+  invocationInputs: ExactInvocationInputIndex | undefined,
+  projectionCandidates: readonly Node[],
   planningObserver?: TypeScriptPlanningObserver,
 ): CallableResultInputs {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
@@ -178,6 +179,7 @@ export function createCallableResultInputs(
       exactCallImplementations,
     )?.contracts,
     invocationInputs,
+    projectionCandidates,
     planningObserver,
   );
   return Object.freeze({

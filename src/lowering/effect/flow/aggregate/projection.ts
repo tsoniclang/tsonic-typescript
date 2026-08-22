@@ -2,6 +2,7 @@ import type { Node, Symbol } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindBindingElement,
+  KindElementAccessExpression,
   KindIdentifier,
   KindVariableDeclaration,
 } from "@tsonic/tsts/target-ast";
@@ -27,6 +28,7 @@ export interface ExactAggregateRead {
 }
 
 export interface ExactAggregateProjectionIndex {
+  readonly roots: readonly Node[];
   projectionFor(expression: Node): ExactAggregateProjection | undefined;
   sourceForReference(expression: Node): ExactAggregateSource | undefined;
 }
@@ -68,7 +70,9 @@ export function createExactAggregateProjectionIndex(
   const symbols = indexBindingSymbols(source, bindings);
   auditAggregateBindings(source, program, bindings, symbols);
   const destructured = collectDestructuredProjections(source, program);
+  const roots = collectAggregateProjectionRoots(source, program, destructured);
   return Object.freeze({
+    roots,
     projectionFor(expression: Node): ExactAggregateProjection | undefined {
       const root = transparentExpression(source, expression);
       if (root === undefined) {
@@ -108,6 +112,25 @@ export function createExactAggregateProjectionIndex(
       return binding?.closed === true ? binding.source : undefined;
     },
   });
+}
+
+function collectAggregateProjectionRoots(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  destructured: ReadonlyMap<Node, ExactAggregateProjection>,
+): readonly Node[] {
+  const roots = new Set<Node>();
+  for (const expression of program.nodesOfKind(KindElementAccessExpression)) {
+    if (exactAggregateRead(source, expression) !== undefined) {
+      roots.add(expression);
+    }
+  }
+  for (const declaration of destructured.keys()) {
+    for (const reference of source.navigation.referencesToDeclaration(declaration)) {
+      roots.add(reference);
+    }
+  }
+  return Object.freeze([...roots]);
 }
 
 export function exactAggregateRead(

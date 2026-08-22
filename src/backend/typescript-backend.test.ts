@@ -189,7 +189,7 @@ test("emits deterministic immutable optimization evidence", () => {
         callEntries: 2,
         referenceEntries: 29,
         ownerEvaluations: 0,
-        consumerEdges: 1,
+        consumerEdges: 0,
       },
       interfaceDispatch: {
         profile: "open-structural",

@@ -271,6 +271,19 @@ test("result-consumer provenance is rooted only at selected queries", () => {
   );
 });
 
+test("every value-slot analysis requires an explicit semantic root domain", () => {
+  const flow = readFileSync(
+    join(effectRoot, "flow", "value", "slot", "flow.ts"),
+    "utf8",
+  );
+
+  assert.match(flow, /rootExpressions: readonly Node\[\]/u);
+  assert.doesNotMatch(
+    flow,
+    /rootExpressions: readonly Node\[\]\s*=\s*Object\.freeze/u,
+  );
+});
+
 function directoryNames(root: string): string[] {
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())

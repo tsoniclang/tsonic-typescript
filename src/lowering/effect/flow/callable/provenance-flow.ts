@@ -34,6 +34,7 @@ import {
 import { indexDeclarationSymbols } from "./input-reference.js";
 import { typeMayBeCallable } from "../../model/synchronous.js";
 import type { CallableReturnRewrite } from "../../model/callable-contract.js";
+import { collectCallableProjectionCandidates } from "./projection-candidates.js";
 import {
   allCallableDependenciesAreOptimized,
   createExactCallableValueResolution,
@@ -133,6 +134,11 @@ export function createGraphCallableValueFlow(
   callableFields?: CallableFields,
   planningObserver?: TypeScriptPlanningObserver,
 ): GraphCallableValueFlow {
+  const projectionCandidates = collectCallableProjectionCandidates(
+    source,
+    program,
+    planningObserver,
+  );
   const results = createCallableResultInputs(
     source,
     program,
@@ -140,6 +146,8 @@ export function createGraphCallableValueFlow(
     candidates,
     exactCallImplementations,
     invocationInputs,
+    projectionCandidates,
+    planningObserver,
   );
   const inputUses = createCallableInputUseContract(source, results, transports);
   const inputs = collectCallableValueInputs(
@@ -168,6 +176,7 @@ export function createGraphCallableValueFlow(
       return results.sourceFor(call);
     },
     invocationInputs,
+    projectionCandidates,
   );
   const context: CallableContext = {
     source,

@@ -14,6 +14,7 @@ export interface InterfaceOriginRequirements {
     contract: Node,
     kind: InterfaceOriginRequirementKind,
   ): void;
+  requiredValues(): readonly Node[];
   finish(ingress: InterfaceContractIngress): void;
 }
 
@@ -41,6 +42,14 @@ export function createInterfaceOriginRequirements():
         values.set(value, kinds);
       }
       kinds.add(kind);
+    },
+    requiredValues(): readonly Node[] {
+      if (finished) {
+        throw new Error("interface origin requirements are already sealed");
+      }
+      return Object.freeze([
+        ...new Set([...requests.values()].flatMap((values) => [...values.keys()])),
+      ]);
     },
     finish(ingress: InterfaceContractIngress): void {
       if (finished) {

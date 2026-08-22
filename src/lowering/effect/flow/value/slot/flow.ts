@@ -65,8 +65,8 @@ export function createExactValueSlotFlow(
   program: TargetProgramIndex,
   projections: ExactAggregateProjectionIndex,
   sourceForCall: (call: Node) => ExactValueSlotCallSource | undefined,
-  invocationInputs?: ExactInvocationInputIndex,
-  rootExpressions: readonly Node[] = Object.freeze([]),
+  invocationInputs: ExactInvocationInputIndex | undefined,
+  rootExpressions: readonly Node[],
   planningObserver?: TypeScriptPlanningObserver,
 ): ExactValueSlotFlow {
   const bindings = createExactValueBindingInputs(

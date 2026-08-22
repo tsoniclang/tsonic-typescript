@@ -317,6 +317,7 @@ export function indexResultProjectionReads(
       transports,
     ),
     invocationInputs,
+    projections.roots,
   );
   for (const read of program.nodesOfKinds([
     KindElementAccessExpression,
