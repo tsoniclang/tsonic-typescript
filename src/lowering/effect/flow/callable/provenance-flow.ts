@@ -196,6 +196,7 @@ export function createGraphCallableValueFlow(
   forEachInvocationTransportInput(program, transports, (input) => {
     callableExpressionState(input, context);
   });
+  planningObserver?.("effect-callable-transport-inputs");
   for (const property of objectProjections?.properties ?? []) {
     const callable = property.initializers.some((initializer) => {
       const semantics = source.semantics.forNode(initializer);
@@ -213,13 +214,16 @@ export function createGraphCallableValueFlow(
       }
     }
   }
+  planningObserver?.("effect-callable-object-projections");
   for (const call of program.nodesOfKind(KindCallExpression)) {
     callableExpressionState(call, context);
   }
+  planningObserver?.("effect-callable-calls");
   connectSynchronousCallableBodies(
     context,
     (declaration) => callableDeclarationState(declaration, context),
   );
+  planningObserver?.("effect-callable-bodies");
   const contractStates = inputs.contracts.map((contract) => ({
     rewrite: contract.returnType,
     state: mergeDeclarations(
@@ -242,8 +246,11 @@ export function createGraphCallableValueFlow(
     );
     return contract.returnTypes.map((rewrite) => ({ rewrite, state }));
   });
+  planningObserver?.("effect-callable-contracts");
   const graph = context.builder.seal();
+  planningObserver?.("effect-callable-graph");
   const resolved = resolveEffectProvenance(graph);
+  planningObserver?.("effect-callable-resolution");
   const resolutionForState = (state: CallableState): CallableValueResolution => {
     const result = resolved.resolutionFor(state.vertex);
     const dependencies = result.origins.filter((origin) =>
@@ -259,6 +266,7 @@ export function createGraphCallableValueFlow(
     );
   };
   const unsafeCallableUses = collectUnsafeCallableUses(context, resolved);
+  planningObserver?.("effect-callable-unsafe-uses");
   const callResolutions = new Map<Node, CallableValueResolution>();
   for (const [call, state] of context.calls) {
     const resolution = resolutionForState(state);
@@ -270,6 +278,7 @@ export function createGraphCallableValueFlow(
       callResolutions.set(call, resolution);
     }
   }
+  planningObserver?.("effect-callable-call-resolutions");
   const returnTypes = new Map<Node, MutableCallableReturnContract>();
   for (const { rewrite, state } of [
     ...contractStates,
@@ -297,6 +306,7 @@ export function createGraphCallableValueFlow(
       resolutions: Object.freeze(states.map(resolutionForState)),
     })),
   );
+  planningObserver?.("effect-callable-finalization");
   return Object.freeze({
     signatureFamilies,
     forEachCall(
