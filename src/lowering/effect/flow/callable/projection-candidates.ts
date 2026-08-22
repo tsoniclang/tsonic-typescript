@@ -32,15 +32,18 @@ export function collectCallableProjectionCandidates(
   planningObserver?: TypeScriptPlanningObserver,
 ): readonly Node[] {
   const candidates = new Set<Node>();
+  const directProjectTargets = new Set<Node>();
   for (const call of program.nodesOfKind(KindCallExpression)) {
-    if (resolveProjectInvocation(source, call) !== undefined) {
-      continue;
-    }
     const target = exactCallableTarget(
       source,
       source.ast.as.AsCallExpression(call)?.Expression,
     );
-    if (target !== undefined) {
+    if (target === undefined) {
+      continue;
+    }
+    if (resolveProjectInvocation(source, call) !== undefined) {
+      directProjectTargets.add(target);
+    } else {
       candidates.add(target);
     }
   }
@@ -49,11 +52,14 @@ export function collectCallableProjectionCandidates(
   });
   const callableTypes = new WeakMap<Type, boolean>();
   for (const expression of program.nodesOfKinds(projectionAccessKinds)) {
-    if (expressionMayContainCallable(
-      source.semantics.forNode(expression),
-      expression,
-      callableTypes,
-    )) {
+    if (
+      !directProjectTargets.has(expression) &&
+      expressionMayContainCallable(
+        source.semantics.forNode(expression),
+        expression,
+        callableTypes,
+      )
+    ) {
       candidates.add(expression);
     }
   }

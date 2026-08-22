@@ -537,7 +537,10 @@ consumer. Its root domain contains exact invoked targets and expressions whose
 checked type contains a call signature; unrelated scalar expressions never
 enter the value-slot graph. A call already resolved to one exact project
 implementation belongs to the project-invocation owner and does not enter
-callable-projection discovery. The invoked-target admission keeps unresolved
+callable-projection discovery, including when that target is a property or
+element access. A same-shaped access used as a method value remains in the
+projection domain; exclusion is by exact call-target node identity, never by
+member spelling or type shape. The invoked-target admission keeps unresolved
 checker-selected calls whose apparent type is open, while the graph still fails
 those calls closed when their provenance is not exact.
 After graph resolution, only closed value-slot roots materialize their exact

@@ -484,6 +484,10 @@ callable union and an invoked open target remain candidates, while an exact
 direct project invocation does not enter projection flow. Removing either open
 admission or restoring direct invocations must fail while admitting the scalar
 siblings must fail the bounded candidate count.
+A paired method fixture places one exact project property access in direct call
+position and an equal-spelled sibling in method-value position. The direct
+target must be absent while the method value remains; excluding by spelling or
+re-admitting property-call targets must fail the candidate-domain gate.
 Root-ownership fixtures separately prove a tuple/array read supplied by the
 aggregate projection index, an interface origin supplied by the requirement
 ledger, and a callable projection supplied by the callable candidate owner.
