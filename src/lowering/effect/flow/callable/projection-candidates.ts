@@ -35,12 +35,28 @@ export function collectCallableProjectionCandidates(
   }
   const callableTypes = new WeakMap<Type, boolean>();
   return Object.freeze(program.nodesOfKinds(projectionKinds).filter((node) =>
-    invokedTargets.has(node) || expressionMayContainCallable(
-      source.semantics.forNode(node),
-      node,
-      callableTypes,
-    )
+    invokedTargets.has(node) ||
+    projectionReferenceCanCarryCallable(source, node) &&
+      expressionMayContainCallable(
+        source.semantics.forNode(node),
+        node,
+        callableTypes,
+      )
   ));
+}
+
+function projectionReferenceCanCarryCallable(
+  source: TargetSourceProgram,
+  node: Node,
+): boolean {
+  if (!source.ast.is.IsIdentifier(node)) {
+    return true;
+  }
+  const reference = source.navigation.sourceReferenceFor(node);
+  return reference?.project === true && (
+    source.ast.is.IsBindingElement(reference.declaration) ||
+    source.ast.is.IsVariableDeclaration(reference.declaration)
+  );
 }
 
 function expressionMayContainCallable(
