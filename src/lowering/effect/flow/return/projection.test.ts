@@ -137,3 +137,31 @@ export const result = await consume();
   assert.equal(result.awaitCount, 1);
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
 });
+
+test("settles a projection through a stack-independent result chain", () => {
+  const depth = 2_500;
+  const declarations = [
+    "async function step0(): Promise<[number, undefined]> { return [1, undefined]; }",
+  ];
+  for (let index = 1; index < depth; index += 1) {
+    declarations.push(
+      `async function step${index}(): Promise<[number, undefined]> { return await step${index - 1}(); }`,
+    );
+  }
+  const fixture = checkedEffectFixture(`
+${declarations.join("\n")}
+export const result = (await step${depth - 1}())[1];
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(result.callableCount, depth);
+  assert.equal(result.awaitCount, depth);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});

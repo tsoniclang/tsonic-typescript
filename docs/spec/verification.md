@@ -485,6 +485,10 @@ Each exact root must settle its positive case, while an unrelated identifier
 scaling control must not enter any value-slot graph. Omitting one owner's roots
 must fail its semantic fixture; restoring all identifiers must fail the bounded
 candidate and guarded product gates.
+An exact fixed-slot result forwarded through at least two thousand checked
+callables must settle under the ordinary guarded test stack. Replacing the
+explicit value-slot worklist with recursive expansion must exhaust that stack
+and fail the gate.
 The whole-product phase ledger must show value-slot graph condensation
 completing independently from positive-evidence materialization. A dense set of
 open callable property roots may increase the root denominator but must not

@@ -3,7 +3,6 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TargetProgramIndex } from "../../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../../planning-observer.js";
 import { createEffectProvenanceGraphBuilder } from "../../../provenance/graph.js";
-import type { EffectProvenanceVertex } from "../../../provenance/model.js";
 import { resolveEffectProvenance } from "../../../provenance/resolution.js";
 import { transparentExpression } from "../../../model/syntax.js";
 import type { ExactAggregateProjectionIndex } from "../../aggregate/projection.js";
@@ -33,13 +32,9 @@ import {
   exactValueSlotRead,
   isExactObjectSpreadContainerReference,
 } from "./selectors.js";
+import type { ValueSlotState, ValueSlotWorkItem } from "./worklist.js";
 
 type ValueSlotBoundaryReason = "open-slot";
-
-interface ValueSlotState {
-  readonly vertex: EffectProvenanceVertex;
-  expanded: boolean;
-}
 
 interface ValueSlotContext {
   readonly source: TargetSourceProgram;
@@ -58,6 +53,7 @@ interface ValueSlotContext {
   readonly resultContracts: Map<Node, readonly Node[]>;
   readonly valueOrigins: Map<number, Set<Node>>;
   readonly steps: Map<number, ExactValueSlotStep>;
+  readonly worklist: ValueSlotWorkItem[];
 }
 
 export function createExactValueSlotFlow(
@@ -99,6 +95,7 @@ export function createExactValueSlotFlow(
     resultContracts: new Map(),
     valueOrigins: new Map(),
     steps: new Map(),
+    worklist: [],
   };
   const roots = new Map<Node, ValueSlotState>();
   for (const expression of rootExpressions) {
@@ -115,6 +112,7 @@ export function createExactValueSlotFlow(
           context,
         ),
       );
+      drainValueSlotWorklist(context);
       continue;
     }
     const read = exactValueSlotRead(source, expression);
@@ -127,6 +125,7 @@ export function createExactValueSlotFlow(
           context,
         ),
       );
+      drainValueSlotWorklist(context);
       continue;
     }
     const binding = bindingProjections.projectionForReference(expression);
@@ -143,6 +142,7 @@ export function createExactValueSlotFlow(
           context,
         ),
       );
+      drainValueSlotWorklist(context);
     }
   }
   planningObserver?.("effect-value-slot-roots");
@@ -215,8 +215,36 @@ function stateForExpression(
     return state;
   }
   state.expanded = true;
-  expandExpression(state, root, path, context);
+  context.worklist.push({ kind: "expression", state, root, path });
   return state;
+}
+
+function drainValueSlotWorklist(context: ValueSlotContext): void {
+  for (;;) {
+    const item = context.worklist.pop();
+    if (item === undefined) {
+      return;
+    }
+    if (item.kind === "expression") {
+      expandExpression(item.state, item.root, item.path, context);
+    } else if (item.kind === "binding-projection") {
+      addBindingProjectionDependencies(
+        item.state,
+        item.reference,
+        item.sources,
+        item.path,
+        context,
+      );
+    } else {
+      expandResult(
+        item.state,
+        item.declaration,
+        item.expressions,
+        item.path,
+        context,
+      );
+    }
+  }
 }
 
 function expandExpression(
@@ -381,7 +409,13 @@ function stateForBindingProjection(
     return state;
   }
   state.expanded = true;
-  addBindingProjectionDependencies(state, reference, sources, path, context);
+  context.worklist.push({
+    kind: "binding-projection",
+    state,
+    reference,
+    sources,
+    path,
+  });
   return state;
 }
 
@@ -452,6 +486,23 @@ function stateForResult(
     return state;
   }
   state.expanded = true;
+  context.worklist.push({
+    kind: "result",
+    state,
+    declaration,
+    expressions,
+    path,
+  });
+  return state;
+}
+
+function expandResult(
+  state: ValueSlotState,
+  declaration: Node,
+  expressions: readonly (Node | undefined)[],
+  path: ExactValueSlotPath,
+  context: ValueSlotContext,
+): void {
   for (const expression of expressions) {
     if (expression === undefined) {
       boundary(state, declaration, context);
@@ -459,7 +510,6 @@ function stateForResult(
       dependency(state, expression, path, declaration, context);
     }
   }
-  return state;
 }
 
 function selectedState(
