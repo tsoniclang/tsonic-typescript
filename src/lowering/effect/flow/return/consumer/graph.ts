@@ -1,6 +1,5 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
 import type { InvocationTransportContract } from "../../../../invocation-transport.js";
@@ -9,7 +8,6 @@ import {
 } from "../../../provenance/graph.js";
 import type {
   EffectProvenanceEdgeKind,
-  EffectProvenanceVertex,
   EffectProvenanceVertexKind,
 } from "../../../provenance/model.js";
 import { resolveEffectProvenance } from "../../../provenance/resolution.js";
@@ -32,60 +30,26 @@ import {
   resultConsumerBindingKind,
   resultConsumerDeclarationInitializer,
   resultConsumerProjectionReceiver,
-  resultConsumerStorageOwners,
   selectedResultConsumerBinding,
 } from "./facts.js";
+import type {
+  ConsumerContext,
+  ConsumerState,
+  ResultConsumerBoundary,
+  ResultConsumerGraph,
+} from "./model.js";
 
-type ResultConsumerBoundary =
-  | "open-binding"
-  | "open-consumer"
-  | "open-forwarder"
-  | "open-reference"
-  | "open-storage";
-
-interface ConsumerState {
-  readonly vertex: EffectProvenanceVertex;
-  readonly kind: "value" | "binding" | "result";
-  readonly occurrence: Node;
-  expanded: boolean;
-}
-
-interface ConsumerContext {
-  readonly source: TargetSourceProgram;
-  readonly program: TargetProgramIndex;
-  readonly candidates: ReadonlySet<Node>;
-  readonly callableReferenceIsClosed: ((reference: Node) => boolean) | undefined;
-  readonly invocationInputs: ExactInvocationInputIndex;
-  readonly projections: ExactAggregateProjectionIndex;
-  readonly objectProjections: ExactObjectPropertyProjectionIndex;
-  readonly closedStorageOwners: ReadonlySet<Node>;
-  readonly callsByDeclaration: ReadonlyMap<Node, readonly Node[]>;
-  readonly projectionOrigins: ReadonlyMap<Node, readonly Node[]>;
-  readonly projectionInvocations: ReadonlyMap<Node, readonly Node[]>;
-  readonly projectionReads: ReadonlySet<Node>;
-  readonly builder: ReturnType<
-    typeof createEffectProvenanceGraphBuilder<ResultConsumerBoundary>
-  >;
-  readonly values: Map<Node, ConsumerState>;
-  readonly bindings: Map<Node, ConsumerState>;
-  readonly results: Map<Node, ConsumerState>;
-  readonly pending: ConsumerState[];
-  consumerEdges: number;
-}
-
-export interface ResultConsumerGraph {
-  readonly ownerEvaluations: number;
-  readonly consumerEdges: number;
-  callHasClosedConsumers(call: Node): boolean;
-}
+export type { ResultConsumerGraph } from "./model.js";
 
 export function createResultConsumerGraph(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  queries: ReadonlySet<Node>,
   candidates: ReadonlySet<Node>,
   invocationInputs: ExactInvocationInputIndex,
   projections: ExactAggregateProjectionIndex,
   objectProjections: ExactObjectPropertyProjectionIndex,
+  closedStorageOwners: ReadonlySet<Node>,
   exactCallImplementations?: (call: Node) => readonly Node[] | undefined,
   transports?: InvocationTransportContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
@@ -106,7 +70,7 @@ export function createResultConsumerGraph(
     invocationInputs,
     projections,
     objectProjections,
-    closedStorageOwners: resultConsumerStorageOwners(source, program),
+    closedStorageOwners,
     callsByDeclaration: indexResultConsumerCalls(
       source,
       program,
@@ -122,7 +86,10 @@ export function createResultConsumerGraph(
     pending: [],
     consumerEdges: 0,
   };
-  for (const call of program.nodesOfKind(KindCallExpression)) {
+  for (const call of queries) {
+    if (!source.ast.is.IsCallExpression(call)) {
+      throw new Error("result-consumer query is not a call expression");
+    }
     valueState(call, context);
   }
   while (context.pending.length !== 0) {
@@ -141,7 +108,11 @@ export function createResultConsumerGraph(
   }
   const resolution = resolveEffectProvenance(context.builder.seal());
   const closedCalls = new Set<Node>();
-  for (const [call, state] of context.values) {
+  for (const call of queries) {
+    const state = context.values.get(call);
+    if (state === undefined) {
+      throw new Error("result-consumer query has no provenance state");
+    }
     if (resolution.resolutionFor(state.vertex).closed) {
       closedCalls.add(call);
     }

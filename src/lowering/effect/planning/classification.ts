@@ -122,16 +122,16 @@ export function classifyCooperativeEffectCallUses(
   returnedCallHasClosedConsumers: (call: Node) => boolean,
 ): void {
   for (const [call, candidate] of calls) {
-    if (containingAwait(source, call) !== undefined) {
+    const use = cooperativeCallUse(source, candidates, call);
+    if (use === "awaited") {
       continue;
     }
-    if (isDiscardedCall(source, call)) {
+    if (use === "discarded") {
       blockCooperativeEffect(candidate, "promise-observed", call);
       continue;
     }
-    const owner = enclosingCandidate(source, candidates, call);
-    if (owner !== undefined && containingReturn(source, call) !== undefined) {
-      connectCooperativeEffectDependency(owner, candidate, "return", call);
+    if (typeof use !== "string") {
+      connectCooperativeEffectDependency(use.owner, candidate, "return", call);
       continue;
     }
     if (returnedCallHasClosedConsumers(call)) {
@@ -140,16 +140,16 @@ export function classifyCooperativeEffectCallUses(
     blockCooperativeEffect(candidate, "promise-observed", call);
   }
   for (const [call, family] of interfaces.calls) {
-    if (containingAwait(source, call) !== undefined) {
+    const use = cooperativeCallUse(source, candidates, call);
+    if (use === "awaited") {
       continue;
     }
-    if (isDiscardedCall(source, call)) {
+    if (use === "discarded") {
       interfaces.block(family, "promise-observed", call);
       continue;
     }
-    const owner = enclosingCandidate(source, candidates, call);
-    if (owner !== undefined && containingReturn(source, call) !== undefined) {
-      interfaces.addDependencies(owner, family, "return", call);
+    if (typeof use !== "string") {
+      interfaces.addDependencies(use.owner, family, "return", call);
       continue;
     }
     if (returnedCallHasClosedConsumers(call)) {
@@ -165,10 +165,11 @@ export function classifyCooperativeEffectCallUses(
     ) {
       return;
     }
-    if (resolution.closed && containingAwait(source, call) !== undefined) {
+    const use = cooperativeCallUse(source, candidates, call);
+    if (resolution.closed && use === "awaited") {
       return;
     }
-    if (isDiscardedCall(source, call)) {
+    if (use === "discarded") {
       for (const declaration of resolution.dependencyNodes()) {
         const candidate = candidates.get(declaration);
         if (candidate !== undefined) {
@@ -177,12 +178,7 @@ export function classifyCooperativeEffectCallUses(
       }
       return;
     }
-    const owner = enclosingCandidate(source, candidates, call);
-    if (
-      resolution.closed &&
-      owner !== undefined &&
-      containingReturn(source, call) !== undefined
-    ) {
+    if (resolution.closed && typeof use !== "string") {
       return;
     }
     if (resolution.closed && returnedCallHasClosedConsumers(call)) {
@@ -195,6 +191,61 @@ export function classifyCooperativeEffectCallUses(
       }
     }
   });
+}
+
+export function collectCooperativeResultConsumerQueries(
+  source: TargetSourceProgram,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  interfaces: DeclaredInterfaceDispatch,
+  valueFlow: CallableValueFlow,
+): ReadonlySet<Node> {
+  const queries = new Set<Node>();
+  const include = (call: Node): void => {
+    if (cooperativeCallUse(source, candidates, call) === "consumer") {
+      queries.add(call);
+    }
+  };
+  for (const call of calls.keys()) {
+    include(call);
+  }
+  for (const call of interfaces.calls.keys()) {
+    include(call);
+  }
+  valueFlow.forEachCall((call, resolution) => {
+    if (
+      !calls.has(call) &&
+      !interfaces.calls.has(call) &&
+      resolution.closed &&
+      resolution.dependencyCount !== 0
+    ) {
+      include(call);
+    }
+  });
+  return Object.freeze(queries);
+}
+
+type CooperativeCallUse =
+  | "awaited"
+  | "discarded"
+  | "consumer"
+  | { readonly kind: "returned"; readonly owner: CooperativeEffectCandidate };
+
+function cooperativeCallUse(
+  source: TargetSourceProgram,
+  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  call: Node,
+): CooperativeCallUse {
+  if (containingAwait(source, call) !== undefined) {
+    return "awaited";
+  }
+  if (isDiscardedCall(source, call)) {
+    return "discarded";
+  }
+  const owner = enclosingCandidate(source, candidates, call);
+  return owner !== undefined && containingReturn(source, call) !== undefined
+    ? Object.freeze({ kind: "returned", owner })
+    : "consumer";
 }
 
 export function collectSettledCooperativeAwaits(

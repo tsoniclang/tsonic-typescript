@@ -405,6 +405,11 @@ open forwarder. Only the exact non-observing cases settle. A mutation that
 supplies implementations from an open callable-value resolution must fail the
 consumer or return-flow gate; exact implementation consumers may never ignore
 the resolution's closed bit.
+An unrelated-call scaling fixture grows ordinary synchronous calls while
+holding the cooperative call and consumer graph fixed. Total call inventory
+must grow exactly while consumer-owner and edge counts remain unchanged. A
+structural mutation gate rejects restoring every call expression as a consumer
+graph root or rebuilding the shared closed-storage-owner set.
 Direct and indirect discarded invocations retain their async producer so a
 rejected Promise cannot become a synchronous throw. Removing either retention
 edge must fail its owning fixture.

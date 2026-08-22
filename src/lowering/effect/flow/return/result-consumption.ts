@@ -7,6 +7,7 @@ import type { InvocationTransportContract } from "../../../invocation-transport.
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import { createResultConsumerGraph } from "./consumer/graph.js";
 
 export interface CooperativeResultConsumption {
@@ -24,10 +25,12 @@ export interface CooperativeResultConsumptionEvidence {
 export function createCooperativeResultConsumption(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  queries: ReadonlySet<Node>,
   candidates: ReadonlySet<Node>,
   invocationInputs: ExactInvocationInputIndex,
   projections: ExactAggregateProjectionIndex,
   objectProjections: ExactObjectPropertyProjectionIndex,
+  storageOwners: ClosedStorageOwnerAnalysis,
   exactCallImplementations?: (call: Node) => readonly Node[] | undefined,
   transports?: InvocationTransportContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
@@ -35,10 +38,12 @@ export function createCooperativeResultConsumption(
   const graph = createResultConsumerGraph(
     source,
     program,
+    queries,
     candidates,
     invocationInputs,
     projections,
     objectProjections,
+    storageOwners.owners,
     exactCallImplementations,
     transports,
     callableReferenceIsClosed,

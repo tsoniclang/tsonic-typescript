@@ -11,6 +11,7 @@ import {
 import type { LoweredValueContract } from "../../value-contract.js";
 import type { TypeScriptPlanningObserver } from "../../planning-observer.js";
 import {
+  collectCooperativeResultConsumerQueries,
   classifyCooperativeEffectCallUses,
   classifyCooperativeEffectProgram,
   collectSettledCooperativeAwaits,
@@ -31,7 +32,10 @@ import {
 } from "./file-plan.js";
 import { createDeclaredInterfaceDispatch } from "../flow/interface/dispatch.js";
 import { createCooperativeEffectPlanLifecycle } from "./lifecycle.js";
-import { createCooperativeResultConsumption } from "../flow/return/result-consumption.js";
+import {
+  createCooperativeResultConsumption,
+  type CooperativeResultConsumptionEvidence,
+} from "../flow/return/result-consumption.js";
 import { createReturnValueFlow } from "../flow/return/value.js";
 import { createCallableValueFlow } from "../flow/callable/value-flow.js";
 import { createExactAggregateProjectionIndex } from "../flow/aggregate/projection.js";
@@ -75,6 +79,7 @@ export function createClosedCooperativeEffectPlan(
   planningObserver?: TypeScriptPlanningObserver,
 ): CooperativeEffectPlan {
   const candidates = collectCooperativeEffectCandidates(source, program);
+  const candidateDeclarations = new Set(candidates.keys());
   planningObserver?.("effect-candidates");
   const calls = collectCooperativeEffectCalls(source, program, candidates);
   const factOwnedTransports = composeInvocationTransportContracts([
@@ -159,7 +164,7 @@ export function createClosedCooperativeEffectPlan(
   const valueFlow = createCallableValueFlow(
     source,
     program,
-    new Set(candidates.keys()),
+    candidateDeclarations,
     aggregateProjections,
     completeTransports,
     bootstrapCallImplementations,
@@ -186,11 +191,44 @@ export function createClosedCooperativeEffectPlan(
     ]);
     return selected.size === 0 ? undefined : Object.freeze([...selected]);
   };
+  let resultConsumptionEvidence: CooperativeResultConsumptionEvidence;
+  {
+    const resultConsumerQueries = collectCooperativeResultConsumerQueries(
+      source,
+      candidates,
+      calls,
+      interfaces,
+      valueFlow,
+    );
+    const resultConsumption = createCooperativeResultConsumption(
+      source,
+      program,
+      resultConsumerQueries,
+      candidateDeclarations,
+      invocationInputs,
+      aggregateProjections,
+      objectProjections,
+      storageOwners,
+      exactCallImplementations,
+      completeTransports,
+      valueFlow.allowsCallableReference,
+    );
+    classifyCooperativeEffectCallUses(
+      source,
+      candidates,
+      calls,
+      interfaces,
+      valueFlow,
+      resultConsumption.returnedCallHasClosedConsumers,
+    );
+    resultConsumptionEvidence = resultConsumption.evidence();
+  }
+  planningObserver?.("effect-result-consumption");
   const returnFlow = createReturnValueFlow(
     source,
     program,
     aggregateProjections,
-    new Set(candidates.keys()),
+    candidateDeclarations,
     (call) => calls.get(call)?.declaration,
     invocationInputs,
     objectProjections,
@@ -202,18 +240,6 @@ export function createClosedCooperativeEffectPlan(
     planningObserver,
   );
   planningObserver?.("effect-return-flow");
-  const resultConsumption = createCooperativeResultConsumption(
-    source,
-    program,
-    new Set(candidates.keys()),
-    invocationInputs,
-    aggregateProjections,
-    objectProjections,
-    exactCallImplementations,
-    completeTransports,
-    valueFlow.allowsCallableReference,
-  );
-  planningObserver?.("effect-result-consumption");
   const conditionalSettlements = createConditionalSettlementOwner(
     candidates.keys(),
   );
@@ -226,14 +252,6 @@ export function createClosedCooperativeEffectPlan(
     valueFlow,
     returnFlow,
     conditionalSettlements,
-  );
-  classifyCooperativeEffectCallUses(
-    source,
-    candidates,
-    calls,
-    interfaces,
-    valueFlow,
-    resultConsumption.returnedCallHasClosedConsumers,
   );
   planningObserver?.("effect-classification");
   const propagation = propagateEffectBlockers(candidates.values());
@@ -284,7 +302,7 @@ export function createClosedCooperativeEffectPlan(
     awaits.size,
     propagation.evidence,
     awaitAttribution,
-    resultConsumption.evidence(),
+    resultConsumptionEvidence,
     interfaces.evidence(optimized, retentions),
   );
   planningObserver?.("effect-summary");

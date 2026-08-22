@@ -213,6 +213,23 @@ test("indexes synchronous result forwarding with proportional work", () => {
   });
 });
 
+test("roots result-consumer provenance only at calls requiring proof", () => {
+  const baseline = boundedConsumerEvidence(0);
+  const withUnrelatedCalls = boundedConsumerEvidence(64);
+
+  assert.equal(withUnrelatedCalls.callEntries, baseline.callEntries + 64);
+  assert.deepEqual(
+    {
+      ownerEvaluations: withUnrelatedCalls.ownerEvaluations,
+      consumerEdges: withUnrelatedCalls.consumerEdges,
+    },
+    {
+      ownerEvaluations: baseline.ownerEvaluations,
+      consumerEdges: baseline.consumerEdges,
+    },
+  );
+});
+
 function forwardingEvidence(count: number) {
   const fixture = checkedEffectFixture(Array.from(
     { length: count },
@@ -227,6 +244,20 @@ export const result${index} = await invoke${index}(value${index});`,
   assert.equal(plan.summary.candidateCount, count);
   assert.equal(plan.summary.settledCallableCount, count);
   return plan.summary.resultConsumption;
+}
+
+function boundedConsumerEvidence(unrelatedCalls: number) {
+  const fixture = checkedEffectFixture(`
+function plain(value: number): number { return value; }
+async function selected(): Promise<number> { return 42; }
+const pending = selected();
+export const result = await pending;
+${Array.from(
+    { length: unrelatedCalls },
+    (_, index) => `const unrelated${index} = plain(${index});`,
+  ).join("\n")}
+`);
+  return createFixtureEffectPlan(fixture.source).summary.resultConsumption;
 }
 
 function lower(sourceText: string) {

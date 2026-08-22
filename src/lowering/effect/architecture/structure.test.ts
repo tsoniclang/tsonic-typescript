@@ -225,7 +225,7 @@ test("return provenance resolves only queried roots", () => {
   assert.doesNotMatch(source, /expressionResolutions/u);
 });
 
-test("callable and return flows share one storage-owner analysis", () => {
+test("callable, return, and consumer flows share one storage-owner analysis", () => {
   const plan = readFileSync(
     join(effectRoot, "planning", "plan.ts"),
     "utf8",
@@ -238,13 +238,37 @@ test("callable and return flows share one storage-owner analysis", () => {
     join(effectRoot, "flow", "return", "storage.ts"),
     "utf8",
   );
+  const consumer = readFileSync(
+    join(effectRoot, "flow", "return", "consumer", "graph.ts"),
+    "utf8",
+  );
+  const consumerFacts = readFileSync(
+    join(effectRoot, "flow", "return", "consumer", "facts.ts"),
+    "utf8",
+  );
 
   assert.match(plan, /createClosedStorageOwnerAnalysis\(source, program\)/u);
   assert.match(plan, /collectCallableFields\(source, program, storageOwners\)/u);
   assert.match(fields, /storageOwners\.topology\(planningObserver\)/u);
   assert.match(returns, /storageOwners\.topology\(planningObserver\)/u);
+  assert.match(plan, /storageOwners,/u);
+  assert.match(consumer, /closedStorageOwners: ReadonlySet<Node>/u);
   assert.doesNotMatch(fields, /createStorageOwnerTopology/u);
   assert.doesNotMatch(returns, /createStorageOwnerTopology/u);
+  assert.doesNotMatch(consumerFacts, /collectClosedStorageOwners/u);
+});
+
+test("result-consumer provenance is rooted only at selected queries", () => {
+  const graph = readFileSync(
+    join(effectRoot, "flow", "return", "consumer", "graph.ts"),
+    "utf8",
+  );
+
+  assert.match(graph, /for \(const call of queries\)/u);
+  assert.doesNotMatch(
+    graph,
+    /for \(const call of program\.nodesOfKind\(KindCallExpression\)\)/u,
+  );
 });
 
 function directoryNames(root: string): string[] {

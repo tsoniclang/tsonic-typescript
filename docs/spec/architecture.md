@@ -740,6 +740,17 @@ property or identity observation, or opaque argument also remains a boundary.
 Reverse-call closure consumes only final closed callable-reference and
 implementation facts, including exact indirect calls.
 
+Result-consumer provenance is rooted only at calls for which call-use
+classification can request consumer proof: direct cooperative calls, exact
+interface calls, and closed callable-value calls that are neither awaited,
+discarded, nor returned by an enclosing cooperative candidate. Unrelated calls
+may contribute to reverse-call or projection facts only when reached from one
+of those roots; they are never independent graph roots. Consumer flow consumes
+the planning transaction's one closed-storage-owner set and runs before return
+flow, publishing only immutable call decisions and bounded evidence. Rooting
+every call expression, rebuilding storage ownership, or retaining its transient
+graph alongside return provenance is forbidden duplicate whole-program work.
+
 An abstract project member is the one intentional multi-implementation form of
 that contract. The declared-closed profile may expose it as invocation
 transport only after the existing checked value-flow owner proves the receiver

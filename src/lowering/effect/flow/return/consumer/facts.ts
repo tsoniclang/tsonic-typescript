@@ -21,16 +21,8 @@ import {
 import { resolveProjectInvocation } from "../../../model/project-invocation.js";
 import { declarationIsExported } from "../../../model/declaration-surface.js";
 import {
-  collectClosedStorageOwners,
   storageDeclarationCanBeTracked,
 } from "../../storage/owners.js";
-
-export function resultConsumerStorageOwners(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-): ReadonlySet<Node> {
-  return collectClosedStorageOwners(source, program);
-}
 
 export function resultConsumerBindingKind(
   source: TargetSourceProgram,
