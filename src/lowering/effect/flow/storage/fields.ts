@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import { callableDeclarationAllowsSynchronousValue } from "../../model/callable-contract.js";
@@ -21,6 +22,7 @@ export interface CallableFields {
     transports?: InvocationTransportContract,
     exactCallImplementations?: ExactCallImplementations,
     callableReferenceIsClosed?: (reference: Node) => boolean,
+    planningObserver?: TypeScriptPlanningObserver,
   ): ReadonlySet<Node>;
 }
 
@@ -63,6 +65,7 @@ export function collectCallableFields(
       transports?: InvocationTransportContract,
       exactCallImplementations?: ExactCallImplementations,
       callableReferenceIsClosed?: (reference: Node) => boolean,
+      planningObserver?: TypeScriptPlanningObserver,
     ): ReadonlySet<Node> {
       const bindings = new Map<Node, StorageOwnerBinding>();
       for (const field of declarations) {
@@ -87,6 +90,7 @@ export function collectCallableFields(
         undefined,
         exactCallImplementations,
         callableReferenceIsClosed,
+        planningObserver,
       );
       return new Set([...bindings.values()]
         .filter((binding) => binding.valid)

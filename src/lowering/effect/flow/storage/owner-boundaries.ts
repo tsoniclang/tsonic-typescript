@@ -17,6 +17,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
@@ -53,6 +54,7 @@ export function auditStorageOwnerBoundaries(
   invocationInputs?: ExactInvocationInputIndex,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  planningObserver?: TypeScriptPlanningObserver,
 ): void {
   if (owners.size === 0) {
     return;
@@ -60,6 +62,7 @@ export function auditStorageOwnerBoundaries(
   const invalid = new Set<Node>();
   const dependencies = new Map<Node, Set<Node>>();
   const carriers = collectStorageOwnerCarriers(source, program, owners).carriers;
+  planningObserver?.("effect-indirect-storage-carriers");
   const typeOwners = new Map<Type, StorageOwnerMembership>();
   const ownersFor = (node: Node): StorageOwnerMembership => {
     const semantics = source.semantics.forNode(node);
@@ -86,6 +89,7 @@ export function auditStorageOwnerBoundaries(
     exactCallImplementations,
     callableReferenceIsClosed,
   );
+  planningObserver?.("effect-indirect-storage-ingress");
   auditInvocations(
     source,
     program,
@@ -97,6 +101,7 @@ export function auditStorageOwnerBoundaries(
     transports,
     exactCallImplementations,
   );
+  planningObserver?.("effect-indirect-storage-invocations");
   auditValueFlows(
     source,
     program,
@@ -108,6 +113,7 @@ export function auditStorageOwnerBoundaries(
     invalid,
     dependencies,
   );
+  planningObserver?.("effect-indirect-storage-value-flows");
   closeInvalidOwners(invalid, dependencies);
   for (const binding of bindings.values()) {
     if (invalid.has(binding.owner)) {

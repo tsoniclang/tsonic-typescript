@@ -174,6 +174,7 @@ export function collectCallableStorageInputs(
     inputUses?.invocationTransports,
     exactCallImplementations,
     callableReferenceIsClosed,
+    planningObserver,
   );
   planningObserver?.("effect-indirect-storage-boundaries");
 
