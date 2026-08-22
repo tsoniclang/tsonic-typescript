@@ -47,6 +47,7 @@ export const typeScriptPlanningPhases = Object.freeze([
   "effect-callable-contracts",
   "effect-callable-graph",
   "effect-callable-resolution",
+  "effect-callable-origin-index",
   "effect-callable-unsafe-uses",
   "effect-callable-call-resolutions",
   "effect-callable-finalization",

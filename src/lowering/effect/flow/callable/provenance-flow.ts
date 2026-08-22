@@ -36,7 +36,7 @@ import { typeMayBeCallable } from "../../model/synchronous.js";
 import type { CallableReturnRewrite } from "../../model/callable-contract.js";
 import {
   allCallableDependenciesAreOptimized,
-  createCallableValueResolution,
+  createExactCallableValueResolution,
   type CallableValueResolution,
 } from "./value-resolution.js";
 import {
@@ -54,6 +54,7 @@ import {
   callableDeclarationState,
   callableExpressionState,
 } from "./provenance/expression.js";
+import { createCallableOriginIndex } from "./provenance/origin-index.js";
 
 export type CallableBoundaryReason =
   | "inexact-reference"
@@ -251,19 +252,28 @@ export function createGraphCallableValueFlow(
   planningObserver?.("effect-callable-graph");
   const resolved = resolveEffectProvenance(graph);
   planningObserver?.("effect-callable-resolution");
+  const origins = createCallableOriginIndex(
+    graph,
+    resolved,
+    context.candidateOrigins,
+    context.synchronousOrigins,
+  );
+  planningObserver?.("effect-callable-origin-index");
+  const resolutionByComponent = new Map<number, CallableValueResolution>();
   const resolutionForState = (state: CallableState): CallableValueResolution => {
     const result = resolved.resolutionFor(state.vertex);
-    const dependencies = result.origins.filter((origin) =>
-      context.candidateOrigins.has(origin)
-    );
-    const synchronous = result.origins.filter((origin) =>
-      context.synchronousOrigins.has(origin)
-    );
-    return createCallableValueResolution(
+    const existing = resolutionByComponent.get(result.component);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const selected = origins.selectionFor(state.vertex);
+    const resolution = createExactCallableValueResolution(
       result.closed,
-      dependencies,
-      synchronous,
+      selected.candidates,
+      selected.synchronous,
     );
+    resolutionByComponent.set(result.component, resolution);
+    return resolution;
   };
   const unsafeCallableUses = collectUnsafeCallableUses(context, resolved);
   planningObserver?.("effect-callable-unsafe-uses");

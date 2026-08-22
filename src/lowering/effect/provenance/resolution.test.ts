@@ -29,6 +29,15 @@ test("provenance resolution closes cycles only from exact origins", () => {
 
   assert.equal(resolutions.componentCount, 2);
   assert.equal(resolutions.edgeCount, 3);
+  const componentDependencies: Array<readonly [number, number]> = [];
+  resolutions.forEachComponentDependency((destination, source) => {
+    componentDependencies.push([destination, source]);
+  });
+  assert.equal(componentDependencies.length, 1);
+  assert.notEqual(
+    componentDependencies[0]?.[0],
+    componentDependencies[0]?.[1],
+  );
   const firstOrigins = resolutions.resolutionFor(first).origins;
   const secondOrigins = resolutions.resolutionFor(second).origins;
   assert.equal(firstOrigins.length, 1);

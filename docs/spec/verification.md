@@ -60,6 +60,13 @@ mixed-reference bucket scans at those owners.
 A scaling fixture doubles nodes and edges while keeping shape constant. Actual
 index/planner operation counts must grow proportionally; a quadratic control
 must be distinguishable. Wall time is supporting evidence only.
+The callable-origin fixture additionally grows an accumulating dependency
+chain in which each component contributes one new exact origin. It asserts the
+final origin multiset and near-linear persistent-set construction work.
+Restoring eager transitive arrays must exceed the frozen work ratio even when
+the final exact origin count remains correct. A component-dependency gate
+proves the family index consumes the resolver-owned component edges rather than
+re-deriving SCCs or edge orientation.
 Retention-evidence scaling separately grows negative decisions while asserting
 exact counts, deterministic ordering, and a fixed eight-occurrence maximum.
 Restoring raw retained-node or per-candidate decision ledgers must fail the

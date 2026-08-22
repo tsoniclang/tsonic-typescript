@@ -571,6 +571,17 @@ this algebra but remain separate semantic graphs with separate owners and
 reason catalogs; there is no universal effect IR and no flow may read another
 flow's mutable construction state.
 
+Callable origin classes are projected from that sealed component graph through
+canonical persistent sets. Candidate and definitely-synchronous origin counts
+are constant-time facts, equal sets share structure, and enumeration remains
+lazy until a consumer requests the exact nodes. An accumulating dependency
+chain must add logarithmic structural work per new origin; eagerly flattening
+the complete transitive origin array for every intermediate component or call
+is forbidden quadratic work. The provenance resolver remains the sole owner of
+component identity and component dependencies; family projections consume its
+read-only dependency iterator and may not reconstruct another SCC or component
+graph.
+
 Synchronous-call dependency closure is computed from those graph resolutions.
 Collection, storage, interface, and returned-callable contracts project from
 canonical resolutions and exact invocation/value projections; they do not

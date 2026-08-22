@@ -81,6 +81,9 @@ export interface EffectProvenanceResolutionIndex<Reason extends string> {
   readonly componentCount: number;
   readonly edgeCount: number;
   readonly work: number;
+  forEachComponentDependency(
+    visitor: (destination: number, source: number) => void,
+  ): void;
   resolutionFor(
     vertex: EffectProvenanceVertex,
   ): EffectProvenanceResolution<Reason>;

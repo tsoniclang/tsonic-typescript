@@ -147,6 +147,22 @@ const deferred = import("../deferred.js");
   );
 });
 
+test("callable origins consume the resolver-owned component graph", () => {
+  const source = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "callable",
+      "provenance",
+      "origin-index.ts",
+    ),
+    "utf8",
+  );
+
+  assert.match(source, /resolutions\.forEachComponentDependency/u);
+  assert.doesNotMatch(source, /graph\.edges|condenseEffectProvenance/u);
+});
+
 function directoryNames(root: string): string[] {
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())

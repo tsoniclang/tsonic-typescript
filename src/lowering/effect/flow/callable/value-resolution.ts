@@ -8,6 +8,11 @@ export interface CallableValueResolution {
   synchronousDeclarationNodes(): Iterable<Node>;
 }
 
+export interface ExactCallableNodeSet {
+  readonly count: number;
+  nodes(): Iterable<Node>;
+}
+
 export function createCallableValueResolution(
   closed: boolean,
   dependencies: Iterable<Node>,
@@ -17,15 +22,36 @@ export function createCallableValueResolution(
   const selectedSynchronous = Object.freeze([
     ...new Set(synchronousDeclarations),
   ]);
+  return createExactCallableValueResolution(
+    closed,
+    arrayNodeSet(selectedDependencies),
+    arrayNodeSet(selectedSynchronous),
+  );
+}
+
+export function createExactCallableValueResolution(
+  closed: boolean,
+  dependencies: ExactCallableNodeSet,
+  synchronousDeclarations: ExactCallableNodeSet,
+): CallableValueResolution {
   return Object.freeze({
     closed,
-    dependencyCount: selectedDependencies.length,
-    synchronousDeclarationCount: selectedSynchronous.length,
+    dependencyCount: dependencies.count,
+    synchronousDeclarationCount: synchronousDeclarations.count,
     dependencyNodes(): Iterable<Node> {
-      return selectedDependencies;
+      return dependencies.nodes();
     },
     synchronousDeclarationNodes(): Iterable<Node> {
-      return selectedSynchronous;
+      return synchronousDeclarations.nodes();
+    },
+  });
+}
+
+function arrayNodeSet(nodes: readonly Node[]): ExactCallableNodeSet {
+  return Object.freeze({
+    count: nodes.length,
+    nodes(): Iterable<Node> {
+      return nodes;
     },
   });
 }

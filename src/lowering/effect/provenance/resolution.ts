@@ -155,6 +155,15 @@ export function resolveEffectProvenance<Reason extends string>(
     componentCount,
     edgeCount: graph.edges.length,
     work,
+    forEachComponentDependency(
+      visitor: (destination: number, source: number) => void,
+    ): void {
+      for (let destination = 0; destination < componentCount; destination += 1) {
+        for (const source of requiredSet(dependencies, destination)) {
+          visitor(destination, source);
+        }
+      }
+    },
     resolutionFor(vertex: EffectProvenanceVertex) {
       if (vertices[vertex.index] !== vertex) {
         throw new Error("effect provenance resolution received foreign vertex");
