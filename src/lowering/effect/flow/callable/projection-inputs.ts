@@ -1,11 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import {
-  KindCallExpression,
-  KindElementAccessExpression,
-  KindIdentifier,
-  KindPropertyAccessExpression,
-} from "@tsonic/tsts/target-ast";
+import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
@@ -22,6 +17,7 @@ import { transparentExpression } from "../../model/syntax.js";
 import type { CallableResultLookup } from "./result-inputs.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { exactValueSlotPathKey } from "../value/slot/selectors.js";
+import { collectCallableProjectionCandidates } from "./projection-candidates.js";
 
 export interface CallableProjectionInput {
   readonly declaration: Node;
@@ -44,19 +40,17 @@ export function createCallableProjectionInputs(
   exactCallContracts?: (call: Node) => readonly Node[] | undefined,
   invocationInputs?: ExactInvocationInputIndex,
 ): CallableProjectionInputs {
+  const candidates = collectCallableProjectionCandidates(source, program);
   const slots = createExactValueSlotFlow(
     source,
     program,
     projections,
     (call) => results.sourceFor(call),
     invocationInputs,
+    candidates,
   );
   const projectionResults = new Map<Node, CallableProjectionInput>();
-  for (const expression of program.nodesOfKinds([
-    KindElementAccessExpression,
-    KindIdentifier,
-    KindPropertyAccessExpression,
-  ])) {
+  for (const expression of candidates) {
     const slot = slots.resultFor(expression);
     if (slot?.closed !== true) {
       continue;

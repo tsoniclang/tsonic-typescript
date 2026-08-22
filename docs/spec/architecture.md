@@ -533,7 +533,11 @@ projected consumer must be an immediate call target or enter callable storage
 that the ordinary storage closure has already admitted. One escaped producer
 result or projected callable retains the complete affected flow. Projection
 discovery uses indexed linear joins and is not reimplemented by either
-consumer.
+consumer. Its root domain contains exact invoked targets and expressions whose
+checked type contains a call signature; unrelated scalar expressions never
+enter the value-slot graph. The invoked-target admission keeps checker-selected
+calls whose apparent type is open, while the graph still fails those calls
+closed when their provenance is not exact.
 
 Settlement of a produced callable is atomic with its authored result contract.
 After the producer's outer async contract is selected, every non-nullish result

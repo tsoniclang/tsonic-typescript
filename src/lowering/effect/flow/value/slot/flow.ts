@@ -1,11 +1,5 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import {
-  KindElementAccessExpression,
-  KindIdentifier,
-  KindPropertyAccessExpression,
-} from "@tsonic/tsts/target-ast";
-
 import type { TargetProgramIndex } from "../../../../program-index.js";
 import { createEffectProvenanceGraphBuilder } from "../../../provenance/graph.js";
 import type { EffectProvenanceVertex } from "../../../provenance/model.js";
@@ -71,6 +65,7 @@ export function createExactValueSlotFlow(
   projections: ExactAggregateProjectionIndex,
   sourceForCall: (call: Node) => ExactValueSlotCallSource | undefined,
   invocationInputs?: ExactInvocationInputIndex,
+  rootExpressions: readonly Node[] = Object.freeze([]),
 ): ExactValueSlotFlow {
   const bindings = createExactValueBindingInputs(
     source,
@@ -102,11 +97,7 @@ export function createExactValueSlotFlow(
     steps: new Map(),
   };
   const roots = new Map<Node, ValueSlotState>();
-  for (const expression of program.nodesOfKinds([
-    KindElementAccessExpression,
-    KindPropertyAccessExpression,
-    KindIdentifier,
-  ])) {
+  for (const expression of rootExpressions) {
     const projection = projections.projectionFor(expression);
     if (projection !== undefined) {
       roots.set(

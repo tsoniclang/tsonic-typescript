@@ -433,6 +433,11 @@ exported projected callable beside an otherwise closed invocation; both must
 retain the shared origin rather than let one closed use hide an escape. The
 same shared projection owner must continue to pass the return-value projection
 matrix, proving that callable flow did not introduce a second binding audit.
+A candidate-domain gate adds hundreds of unrelated scalar bindings without
+changing the callable projection denominator. It also proves that a narrowed
+callable union and an invoked open target remain candidates; removing either
+admission must fail while admitting the scalar siblings must fail the bounded
+candidate count.
 Generic nominal-result fixtures return `RuntimeSlice<T>`,
 `RuntimeSlice<T> | undefined`, and a derived generic class whose inherited
 private readonly `then?: never` is independent of `T`; all must settle. Paired
