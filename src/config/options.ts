@@ -15,6 +15,11 @@ export interface TypeScriptTargetOptions {
   readonly printer: TypeScriptAstPrinterOptions;
   readonly optimizations: TypeScriptOptimizationProfile;
   readonly providerInvocationManifests: readonly string[];
+  readonly diagnostics: TypeScriptTargetDiagnostics;
+}
+
+export interface TypeScriptTargetDiagnostics {
+  readonly planningPhases: boolean;
 }
 
 export function readTypeScriptTargetOptions(
@@ -26,7 +31,12 @@ export function readTypeScriptTargetOptions(
   }
   rejectUnknownKeys(
     options,
-    new Set(["printer", "optimizations", "providerInvocationManifests"]),
+    new Set([
+      "printer",
+      "optimizations",
+      "providerInvocationManifests",
+      "diagnostics",
+    ]),
     "TypeScript target options",
   );
   const printer = options["printer"];
@@ -63,6 +73,7 @@ export function readTypeScriptTargetOptions(
     options["providerInvocationManifests"],
     "TypeScript target option 'providerInvocationManifests'",
   );
+  const diagnostics = readDiagnostics(options["diagnostics"]);
   return Object.freeze({
     printer: Object.freeze({
       executable,
@@ -70,7 +81,29 @@ export function readTypeScriptTargetOptions(
     }),
     optimizations,
     providerInvocationManifests,
+    diagnostics,
   });
+}
+
+function readDiagnostics(value: unknown): TypeScriptTargetDiagnostics {
+  if (value === undefined) {
+    return Object.freeze({ planningPhases: false });
+  }
+  if (!isRecord(value)) {
+    throw new Error("TypeScript target option 'diagnostics' must be an object");
+  }
+  rejectUnknownKeys(
+    value,
+    new Set(["planningPhases"]),
+    "TypeScript target diagnostics",
+  );
+  const planningPhases = value["planningPhases"];
+  if (typeof planningPhases !== "boolean") {
+    throw new Error(
+      "TypeScript target diagnostic 'planningPhases' must be boolean",
+    );
+  }
+  return Object.freeze({ planningPhases });
 }
 
 function readStringArray(value: unknown, subject: string): readonly string[] {

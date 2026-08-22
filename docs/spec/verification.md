@@ -549,6 +549,10 @@ guard. Evidence separates semantic checking, index construction, each family
 planner, rewriting, encoding, printer transfer, strict typecheck, startup, and
 runtime. It reports wall time, peak RSS, source/JavaScript bytes, module count,
 allocations when available, and selected/retained denominators.
+An explicit diagnostic profile may report one bounded scalar row after each
+planning phase, containing only the closed phase identity, elapsed time, heap
+use, and RSS. It may not alter semantic selection, retain compiler objects, or
+replace the immutable evidence artifact.
 
 Focused semantic fixtures also run one test file per guarded process so a
 single failed shape cannot retain every checker graph in the batch. Assertions

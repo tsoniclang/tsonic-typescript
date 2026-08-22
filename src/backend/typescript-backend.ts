@@ -1,4 +1,5 @@
 import { isAbsolute, relative } from "node:path";
+import process from "node:process";
 
 import type { TargetCompileInput } from "@tsonic/target-api";
 import {
@@ -19,6 +20,7 @@ import {
   type TypeScriptOptimizationProfileInput,
 } from "../lowering/profile.js";
 import type { TypeScriptOptimizationEvidence } from "../lowering/evidence.js";
+import type { TypeScriptPlanningObserver } from "../lowering/planning-observer.js";
 import {
   prepareTypeScriptLowering,
   type TypeScriptLoweringTransaction,
@@ -31,15 +33,24 @@ import {
   type EncodedTypeScriptSource,
 } from "./source-artifact-batches.js";
 import { compareSourceDocumentIdentities } from "./source-order.js";
+import type { TypeScriptTargetDiagnostics } from "../config/options.js";
 
 export function compileTypeScriptTarget(
   input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
   profileInput: TypeScriptOptimizationProfileInput = canonicalTypeScriptOptimizationProfile(),
+  diagnostics: TypeScriptTargetDiagnostics = Object.freeze({
+    planningPhases: false,
+  }),
 ): TargetCompileResult {
   const profile = createTypeScriptOptimizationProfile(profileInput);
   try {
-    const compiled = compileSourceArtifacts(input, printer, profile);
+    const compiled = compileSourceArtifacts(
+      input,
+      printer,
+      profile,
+      createPlanningObserver(diagnostics),
+    );
     if (compiled.kind === "rejected") {
       return rejectedTargetStage(compiled.diagnostics);
     }
@@ -67,8 +78,9 @@ function compileSourceArtifacts(
   input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
   profile: TypeScriptOptimizationProfileInput,
+  planningObserver: TypeScriptPlanningObserver | undefined,
 ): CompiledSourceArtifacts {
-  const prepared = prepareSourceArtifacts(input, profile);
+  const prepared = prepareSourceArtifacts(input, profile, planningObserver);
   if (prepared.kind === "rejected") {
     return prepared;
   }
@@ -94,6 +106,7 @@ function compileSourceArtifacts(
 function prepareSourceArtifacts(
   input: TargetCompileInput,
   profile: TypeScriptOptimizationProfileInput,
+  planningObserver: TypeScriptPlanningObserver | undefined,
 ): PreparedSourceArtifacts {
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
   const sourceFiles = [...input.source.navigation.sourceFiles].sort(
@@ -134,6 +147,7 @@ function prepareSourceArtifacts(
       input,
       input.source.documents.forFile(sourceFile).fileName,
     ),
+    planningObserver,
   );
   if (preparation.kind === "rejected") {
     return Object.freeze({
@@ -151,6 +165,26 @@ function prepareSourceArtifacts(
     sources: Object.freeze(selectedSources),
     transaction: preparation.transaction,
   });
+}
+
+function createPlanningObserver(
+  diagnostics: TypeScriptTargetDiagnostics,
+): TypeScriptPlanningObserver | undefined {
+  if (!diagnostics.planningPhases) {
+    return undefined;
+  }
+  const started = process.hrtime.bigint();
+  return (phase) => {
+    const memory = process.memoryUsage();
+    const elapsedMilliseconds = Number(process.hrtime.bigint() - started) / 1e6;
+    process.stderr.write(
+      `typescript_target_phase=${phase} elapsed_ms=${elapsedMilliseconds.toFixed(0)} heap_used_mib=${bytesToMebibytes(memory.heapUsed)} rss_mib=${bytesToMebibytes(memory.rss)}\n`,
+    );
+  };
+}
+
+function bytesToMebibytes(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(0);
 }
 
 function* encodePreparedSources(

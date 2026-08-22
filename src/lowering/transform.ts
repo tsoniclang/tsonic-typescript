@@ -12,6 +12,7 @@ import {
   type FinalNodeJournal,
 } from "./final-nodes.js";
 import { createProgramGeneratedNames } from "./generated-names.js";
+import type { TypeScriptPlanningObserver } from "./planning-observer.js";
 
 import {
   createClosedCooperativeEffectPlan,
@@ -106,6 +107,7 @@ export function prepareTypeScriptLowering(
   sourceFiles: readonly SourceFile[],
   profileInput: TypeScriptOptimizationProfileInput,
   sourceIdentityFor: (sourceFile: SourceFile) => string,
+  planningObserver?: TypeScriptPlanningObserver,
 ): TypeScriptLoweringPreparation {
   assertExactSourceMembership(source, sourceFiles);
   const profile = createTypeScriptOptimizationProfile(profileInput);
@@ -117,16 +119,20 @@ export function prepareTypeScriptLowering(
       profile.cooperativeEffects === "closed-direct",
     memberDispatch: profile.cooperativeEffects === "closed-direct",
   });
+  planningObserver?.("program-index");
   const generatedNames = createProgramGeneratedNames(source, program);
+  planningObserver?.("generated-names");
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
     ? createClosedPointerFlowPlan(source, program, identities.forFile)
     : undefined;
+  planningObserver?.("pointer-flow");
   const scalarPlan = createScalarRepresentationPlan(
     source,
     program,
     profile.scalarProjections,
     identities.forFile,
   );
+  planningObserver?.("scalar-flow");
   const loweredValues = composeLoweredValueContracts([
     createPointerResultContract(source, pointerFlowPlan),
     createScalarResultContract(source, scalarPlan),
@@ -142,6 +148,7 @@ export function prepareTypeScriptLowering(
         loweredValues,
         ownerTransports,
         profile.interfaceDispatch,
+        planningObserver,
       )
     : undefined;
   const representationPlan = createRepresentationProjectionPlan(
@@ -151,6 +158,7 @@ export function prepareTypeScriptLowering(
     identities.forFile,
     effectPlan,
   );
+  planningObserver?.("representation-flow");
   const evidence = createTypeScriptOptimizationEvidence(
     profile,
     identities.membership,
@@ -196,6 +204,7 @@ export function prepareTypeScriptLowering(
       }));
     }
   }
+  planningObserver?.("source-plans");
   if (failures.length !== 0) {
     return Object.freeze({
       kind: "rejected",

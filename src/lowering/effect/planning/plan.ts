@@ -9,6 +9,7 @@ import {
   type InvocationTransportContract,
 } from "../../invocation-transport.js";
 import type { LoweredValueContract } from "../../value-contract.js";
+import type { TypeScriptPlanningObserver } from "../../planning-observer.js";
 import {
   classifyCooperativeEffectCallUses,
   classifyCooperativeEffectProgram,
@@ -69,13 +70,16 @@ export function createClosedCooperativeEffectPlan(
   loweredValues?: LoweredValueContract,
   transports?: InvocationTransportContract,
   interfaceDispatch: TypeScriptInterfaceDispatchProfile = "open-structural",
+  planningObserver?: TypeScriptPlanningObserver,
 ): CooperativeEffectPlan {
   const candidates = collectCooperativeEffectCandidates(source, program);
+  planningObserver?.("effect-candidates");
   const calls = collectCooperativeEffectCalls(source, program, candidates);
   const factOwnedTransports = composeInvocationTransportContracts([
     transports,
     createProviderInvocationTransport(source, program),
   ]);
+  planningObserver?.("effect-calls");
   const aggregateProjections = createExactAggregateProjectionIndex(
     source,
     program,
@@ -84,11 +88,13 @@ export function createClosedCooperativeEffectPlan(
     source,
     program,
   );
+  planningObserver?.("effect-projections");
   const directInvocationInputs = createExactInvocationInputIndex(
     source,
     program,
     aggregateProjections,
   );
+  planningObserver?.("effect-invocation-inputs");
   const preliminaryIndirectInvocations = createExactIndirectInvocationAnalysis(
     source,
     program,
@@ -97,6 +103,7 @@ export function createClosedCooperativeEffectPlan(
     objectProjections,
     factOwnedTransports,
   );
+  planningObserver?.("effect-indirect-invocations");
   const interfaces = createDeclaredInterfaceDispatch(
     source,
     program,
@@ -114,6 +121,7 @@ export function createClosedCooperativeEffectPlan(
       objectProjections,
     }),
   );
+  planningObserver?.("effect-interface-dispatch");
   const completeTransports = composeInvocationTransportContracts([
     factOwnedTransports,
     interfaces.invocationTransports,
@@ -152,6 +160,7 @@ export function createClosedCooperativeEffectPlan(
     objectProjections,
     indirectInvocations.allowsCallableReference,
   );
+  planningObserver?.("effect-callable-flow");
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const exactCallImplementations = (call: Node): readonly Node[] | undefined => {
     const resolution = valueFlow.resolutionFor(call);
@@ -179,6 +188,7 @@ export function createClosedCooperativeEffectPlan(
     completeTransports,
     valueFlow.allowsCallableReference,
   );
+  planningObserver?.("effect-return-flow");
   const resultConsumption = createCooperativeResultConsumption(
     source,
     program,
@@ -190,6 +200,7 @@ export function createClosedCooperativeEffectPlan(
     completeTransports,
     valueFlow.allowsCallableReference,
   );
+  planningObserver?.("effect-result-consumption");
   const conditionalSettlements = createConditionalSettlementOwner(
     candidates.keys(),
   );
@@ -211,7 +222,9 @@ export function createClosedCooperativeEffectPlan(
     valueFlow,
     resultConsumption.returnedCallHasClosedConsumers,
   );
+  planningObserver?.("effect-classification");
   const propagation = propagateEffectBlockers(candidates.values());
+  planningObserver?.("effect-propagation");
   const candidateList = [...candidates.values()];
   const retentions = decideCooperativeEffectRetentions(candidateList);
   const optimized = new Set(
@@ -248,6 +261,7 @@ export function createClosedCooperativeEffectPlan(
       ...interfaces.settledReturnTypes(optimized),
     ],
   );
+  planningObserver?.("effect-file-plans");
   const summary = summarizeCooperativeEffects(
     source,
     sourceIdentityFor,
@@ -260,6 +274,7 @@ export function createClosedCooperativeEffectPlan(
     resultConsumption.evidence(),
     interfaces.evidence(optimized, retentions),
   );
+  planningObserver?.("effect-summary");
   return createCooperativeEffectPlanLifecycle(source, files, summary);
 }
 

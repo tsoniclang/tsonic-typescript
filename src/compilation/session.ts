@@ -75,7 +75,12 @@ export function createTypeScriptCompilationSession(
     compile(input: TargetCompileInput): TargetCompileResult {
       requireState(state, "runtime-contributed", "compile");
       state = "compiled";
-      return compileTypeScriptTarget(input, printer, options.optimizations);
+      return compileTypeScriptTarget(
+        input,
+        printer,
+        options.optimizations,
+        options.diagnostics,
+      );
     },
     close(): void {
       state = "closed";

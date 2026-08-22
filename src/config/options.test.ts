@@ -32,11 +32,36 @@ test("validates and freezes the external printer configuration", () => {
     interfaceDispatch: "open-structural",
   });
   assert.deepEqual(result.providerInvocationManifests, []);
+  assert.deepEqual(result.diagnostics, { planningPhases: false });
   assert.ok(Object.isFrozen(result));
   assert.ok(Object.isFrozen(result.printer));
   assert.ok(Object.isFrozen(result.printer.arguments));
   assert.ok(Object.isFrozen(result.optimizations));
   assert.ok(Object.isFrozen(result.providerInvocationManifests));
+  assert.ok(Object.isFrozen(result.diagnostics));
+});
+
+test("validates explicit bounded planning diagnostics", () => {
+  const result = readTypeScriptTargetOptions({
+    id: "typescript",
+    options: {
+      printer: { executable: "tsgo-ast-printer" },
+      diagnostics: { planningPhases: true },
+    },
+  });
+
+  assert.deepEqual(result.diagnostics, { planningPhases: true });
+  assert.ok(Object.isFrozen(result.diagnostics));
+  assert.throws(
+    () => readTypeScriptTargetOptions({
+      id: "typescript",
+      options: {
+        printer: { executable: "tsgo-ast-printer" },
+        diagnostics: { planningPhases: "yes" },
+      },
+    }),
+    /'planningPhases' must be boolean/u,
+  );
 });
 
 test("validates immutable provider invocation manifest paths", () => {
