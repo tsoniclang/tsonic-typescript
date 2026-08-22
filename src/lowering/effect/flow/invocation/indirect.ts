@@ -288,6 +288,7 @@ function collectExactIndirectInvocationRound(
     new Set(),
     exactCallImplementations,
     direct,
+    planningObserver,
   );
   planningObserver?.("effect-indirect-results");
   const inputUses = createCallableInputUseContract(

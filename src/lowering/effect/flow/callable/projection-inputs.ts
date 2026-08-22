@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import { createExactValueSlotFlow } from "../value/slot/flow.js";
 import type {
@@ -39,8 +40,13 @@ export function createCallableProjectionInputs(
   results: CallableResultLookup,
   exactCallContracts?: (call: Node) => readonly Node[] | undefined,
   invocationInputs?: ExactInvocationInputIndex,
+  planningObserver?: TypeScriptPlanningObserver,
 ): CallableProjectionInputs {
-  const candidates = collectCallableProjectionCandidates(source, program);
+  const candidates = collectCallableProjectionCandidates(
+    source,
+    program,
+    planningObserver,
+  );
   const slots = createExactValueSlotFlow(
     source,
     program,
@@ -48,6 +54,7 @@ export function createCallableProjectionInputs(
     (call) => results.sourceFor(call),
     invocationInputs,
     candidates,
+    planningObserver,
   );
   const projectionResults = new Map<Node, CallableProjectionInput>();
   for (const expression of candidates) {
@@ -106,6 +113,7 @@ export function createCallableProjectionInputs(
       Object.freeze([...outputs]),
     ]),
   );
+  planningObserver?.("effect-callable-projections");
   return Object.freeze({
     resultFor(expression: Node): CallableProjectionInput | undefined {
       const root = transparentExpression(source, expression);

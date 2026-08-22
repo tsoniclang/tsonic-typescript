@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import {
   callableResultReturnRewrites,
@@ -54,6 +55,7 @@ export function createCallableResultInputs(
   candidates: ReadonlySet<Node>,
   exactCallImplementations?: ExactCallImplementations,
   invocationInputs?: ExactInvocationInputIndex,
+  planningObserver?: TypeScriptPlanningObserver,
 ): CallableResultInputs {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
   const returnTypes = new Map<
@@ -176,6 +178,7 @@ export function createCallableResultInputs(
       exactCallImplementations,
     )?.contracts,
     invocationInputs,
+    planningObserver,
   );
   return Object.freeze({
     sourceFor,

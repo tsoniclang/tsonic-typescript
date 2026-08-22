@@ -12,6 +12,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import { exactCallableTarget } from "../../model/syntax.js";
 
 const projectionAccessKinds = Object.freeze([
@@ -27,6 +28,7 @@ const projectionBindingKinds = Object.freeze([
 export function collectCallableProjectionCandidates(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  planningObserver?: TypeScriptPlanningObserver,
 ): readonly Node[] {
   const candidates = new Set<Node>();
   for (const call of program.nodesOfKind(KindCallExpression)) {
@@ -38,6 +40,7 @@ export function collectCallableProjectionCandidates(
       candidates.add(target);
     }
   }
+  planningObserver?.("effect-projection-candidate-calls");
   const callableTypes = new WeakMap<Type, boolean>();
   for (const expression of program.nodesOfKinds(projectionAccessKinds)) {
     if (expressionMayContainCallable(
@@ -48,6 +51,7 @@ export function collectCallableProjectionCandidates(
       candidates.add(expression);
     }
   }
+  planningObserver?.("effect-projection-candidate-accesses");
   for (const declaration of program.nodesOfKinds(projectionBindingKinds)) {
     const name = source.ast.name(declaration);
     if (
@@ -64,7 +68,12 @@ export function collectCallableProjectionCandidates(
       candidates.add(reference);
     }
   }
-  return Object.freeze(program.nodes.filter((node) => candidates.has(node)));
+  planningObserver?.("effect-projection-candidate-bindings");
+  const ordered = Object.freeze(
+    program.nodes.filter((node) => candidates.has(node)),
+  );
+  planningObserver?.("effect-projection-candidate-order");
+  return ordered;
 }
 
 function expressionMayContainCallable(

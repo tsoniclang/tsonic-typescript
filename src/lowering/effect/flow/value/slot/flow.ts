@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TargetProgramIndex } from "../../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../../planning-observer.js";
 import { createEffectProvenanceGraphBuilder } from "../../../provenance/graph.js";
 import type { EffectProvenanceVertex } from "../../../provenance/model.js";
 import { resolveEffectProvenance } from "../../../provenance/resolution.js";
@@ -66,6 +67,7 @@ export function createExactValueSlotFlow(
   sourceForCall: (call: Node) => ExactValueSlotCallSource | undefined,
   invocationInputs?: ExactInvocationInputIndex,
   rootExpressions: readonly Node[] = Object.freeze([]),
+  planningObserver?: TypeScriptPlanningObserver,
 ): ExactValueSlotFlow {
   const bindings = createExactValueBindingInputs(
     source,
@@ -77,11 +79,13 @@ export function createExactValueSlotFlow(
       exactInvocationInputIsClosed(reference, invocationInputs) ||
       exactValueSlotPathIsReadonly(source, reference, path),
   );
+  planningObserver?.("effect-value-slot-bindings");
   const bindingProjections = createExactValueBindingProjectionIndex(
     source,
     program,
     invocationInputs,
   );
+  planningObserver?.("effect-value-slot-binding-projections");
   const context: ValueSlotContext = {
     source,
     projections,
@@ -141,6 +145,7 @@ export function createExactValueSlotFlow(
       );
     }
   }
+  planningObserver?.("effect-value-slot-roots");
   const resolutions = resolveEffectProvenance(context.builder.seal());
   const resolved = new Map<Node, ExactValueSlotResolution>();
   for (const [expression, state] of roots) {
@@ -162,6 +167,7 @@ export function createExactValueSlotFlow(
       steps: Object.freeze([...steps.values()]),
     }));
   }
+  planningObserver?.("effect-value-slot-resolution");
   return Object.freeze({
     resultFor(expression: Node): ExactValueSlotResolution | undefined {
       const root = transparentExpression(source, expression);
