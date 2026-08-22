@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindConstructor } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import {
   createExactInvocationInputIndex,
   type ExactInvocationInputIndex,
@@ -48,6 +49,7 @@ export function collectCallableValueInputs(
   exactInvocationInputs?: ExactInvocationInputIndex,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  planningObserver?: TypeScriptPlanningObserver,
 ): CallableValueInputs {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
@@ -56,6 +58,7 @@ export function collectCallableValueInputs(
     program,
     exactCallImplementations,
   );
+  planningObserver?.("effect-indirect-value-collections");
   const mutableValues = new Map<Node, Node[]>();
   const constructorParameters = new Set<Node>();
   const constructorClasses = new Map<Node, Node>();
@@ -86,6 +89,7 @@ export function collectCallableValueInputs(
       }
     }
   }
+  planningObserver?.("effect-indirect-value-constructors");
 
   const classReferences = new Map<Node, ReferenceCounts>();
   for (const classDeclaration of constructorClasses.values()) {
@@ -98,6 +102,7 @@ export function collectCallableValueInputs(
       auditClassReference(source, reference, classDeclaration, counts);
     }
   }
+  planningObserver?.("effect-indirect-value-class-references");
   const storage = collectCallableStorageInputs(
     source,
     program,
@@ -106,7 +111,9 @@ export function collectCallableValueInputs(
     invocationInputs,
     exactCallImplementations,
     callableReferenceIsClosed,
+    planningObserver,
   );
+  planningObserver?.("effect-indirect-value-storage");
   const propertyReferences = new Map<Node, ReferenceCounts>();
   for (const parameter of constructorParameters) {
     propertyReferences.set(parameter, { total: 0, admitted: 0 });
@@ -132,6 +139,7 @@ export function collectCallableValueInputs(
       );
     }
   }
+  planningObserver?.("effect-indirect-value-property-references");
 
   const constructorClosed = new Set<Node>();
   for (const [constructor, classDeclaration] of constructorClasses) {

@@ -303,6 +303,7 @@ function collectExactIndirectInvocationRound(
     direct,
     exactCallImplementations,
     callableReferenceIsClosed,
+    planningObserver,
   );
   planningObserver?.("effect-indirect-value-inputs");
   const context: CallableOriginContext = {
