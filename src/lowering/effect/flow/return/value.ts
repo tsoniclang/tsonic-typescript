@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { LoweredValueContract } from "../../../value-contract.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
@@ -34,6 +35,7 @@ export function createReturnValueFlow(
   callDeclarations: (call: Node) => Iterable<Node> = () => [],
   transports?: InvocationTransportContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  planningObserver?: TypeScriptPlanningObserver,
 ): ReturnValueFlow {
   const provenance = createReturnProvenanceFlow(
     source,
@@ -47,6 +49,7 @@ export function createReturnValueFlow(
     callDeclarations,
     transports,
     callableReferenceIsClosed,
+    planningObserver,
   );
   return Object.freeze({
     resolutionFor(expression: Node): ReturnProvenanceResolution {

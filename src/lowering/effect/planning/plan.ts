@@ -196,6 +196,7 @@ export function createClosedCooperativeEffectPlan(
     (call) => exactCallImplementations(call) ?? noDependencies,
     completeTransports,
     valueFlow.allowsCallableReference,
+    planningObserver,
   );
   planningObserver?.("effect-return-flow");
   const resultConsumption = createCooperativeResultConsumption(

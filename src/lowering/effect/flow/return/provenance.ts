@@ -10,6 +10,7 @@ import {
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { LoweredValueContract } from "../../../value-contract.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import {
   createEffectProvenanceGraphBuilder,
 } from "../../provenance/graph.js";
@@ -107,6 +108,7 @@ export function createReturnProvenanceFlow(
   settledCallDeclarations: (call: Node) => Iterable<Node> = () => [],
   transports?: InvocationTransportContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  planningObserver?: TypeScriptPlanningObserver,
 ): ReturnProvenanceFlow {
   let context: ReturnContext;
   const projectionFlow = createReturnProjectionFlow(
@@ -124,6 +126,7 @@ export function createReturnProvenanceFlow(
     invocationInputs,
     transports,
   );
+  planningObserver?.("effect-return-projections");
   context = {
     source,
     program,
@@ -154,6 +157,7 @@ export function createReturnProvenanceFlow(
     candidateOrigins: new Set(),
     terminalOrigin: undefined,
   };
+  planningObserver?.("effect-return-inputs");
   for (const node of program.nodesOfKinds([
     KindAwaitExpression,
     KindCallExpression,
@@ -176,13 +180,17 @@ export function createReturnProvenanceFlow(
       stateForExpression(body, context);
     }
   }
+  planningObserver?.("effect-return-inventory");
   const graph = context.builder.seal();
+  planningObserver?.("effect-return-graph");
   const resolution = resolveEffectProvenance(graph);
+  planningObserver?.("effect-return-resolution");
   const origins = createEffectProvenanceOriginIndex(
     graph,
     resolution,
     [context.candidateOrigins],
   );
+  planningObserver?.("effect-return-origin-index");
   const resolutionsByComponent = new Map<number, ReturnProvenanceResolution>();
   const resolvedFor = (state: ReturnState): ReturnProvenanceResolution => {
     const component = resolution.componentFor(state.vertex);
@@ -203,6 +211,7 @@ export function createReturnProvenanceFlow(
   for (const [expression, state] of context.expressions) {
     expressionResolutions.set(expression, resolvedFor(state));
   }
+  planningObserver?.("effect-return-finalization");
   return Object.freeze({
     resolutionFor(expression: Node): ReturnProvenanceResolution {
       const root = transparentExpression(source, expression) ?? expression;
