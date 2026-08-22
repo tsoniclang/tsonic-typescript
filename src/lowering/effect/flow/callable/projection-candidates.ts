@@ -4,59 +4,67 @@ import type {
   TargetSourceProgram,
 } from "@tsonic/target-api/source";
 import {
+  KindBindingElement,
   KindCallExpression,
   KindElementAccessExpression,
-  KindIdentifier,
   KindPropertyAccessExpression,
+  KindVariableDeclaration,
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import { exactCallableTarget } from "../../model/syntax.js";
 
-const projectionKinds = Object.freeze([
+const projectionAccessKinds = Object.freeze([
   KindElementAccessExpression,
-  KindIdentifier,
   KindPropertyAccessExpression,
+]);
+
+const projectionBindingKinds = Object.freeze([
+  KindBindingElement,
+  KindVariableDeclaration,
 ]);
 
 export function collectCallableProjectionCandidates(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
 ): readonly Node[] {
-  const invokedTargets = new Set<Node>();
+  const candidates = new Set<Node>();
   for (const call of program.nodesOfKind(KindCallExpression)) {
     const target = exactCallableTarget(
       source,
       source.ast.as.AsCallExpression(call)?.Expression,
     );
     if (target !== undefined) {
-      invokedTargets.add(target);
+      candidates.add(target);
     }
   }
   const callableTypes = new WeakMap<Type, boolean>();
-  return Object.freeze(program.nodesOfKinds(projectionKinds).filter((node) =>
-    invokedTargets.has(node) ||
-    projectionReferenceCanCarryCallable(source, node) &&
-      expressionMayContainCallable(
-        source.semantics.forNode(node),
-        node,
+  for (const expression of program.nodesOfKinds(projectionAccessKinds)) {
+    if (expressionMayContainCallable(
+      source.semantics.forNode(expression),
+      expression,
+      callableTypes,
+    )) {
+      candidates.add(expression);
+    }
+  }
+  for (const declaration of program.nodesOfKinds(projectionBindingKinds)) {
+    const name = source.ast.name(declaration);
+    if (
+      name === undefined ||
+      !expressionMayContainCallable(
+        source.semantics.forNode(name),
+        name,
         callableTypes,
       )
-  ));
-}
-
-function projectionReferenceCanCarryCallable(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  if (!source.ast.is.IsIdentifier(node)) {
-    return true;
+    ) {
+      continue;
+    }
+    for (const reference of source.navigation.referencesToDeclaration(declaration)) {
+      candidates.add(reference);
+    }
   }
-  const reference = source.navigation.sourceReferenceFor(node);
-  return reference?.project === true && (
-    source.ast.is.IsBindingElement(reference.declaration) ||
-    source.ast.is.IsVariableDeclaration(reference.declaration)
-  );
+  return Object.freeze(program.nodes.filter((node) => candidates.has(node)));
 }
 
 function expressionMayContainCallable(
