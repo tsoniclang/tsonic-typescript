@@ -44,6 +44,17 @@ test("normalizes every optimization selection to one immutable identity", () => 
     optimized,
   );
   assert.ok(Object.isFrozen(optimized));
+
+  const closedProgram = createTypeScriptOptimizationProfile({
+    pointerFlows: "location",
+    scalarProjections: "preserve",
+    cooperativeEffects: "closed-program",
+  });
+  assert.equal(
+    closedProgram.identity,
+    "typescript-optimization-v3/pointer=location/scalar=preserve/representations=preserve/effects=closed-program/interfaces=open-structural",
+  );
+  assert.ok(Object.isFrozen(closedProgram));
 });
 
 test("does not infer a closed interface world from effect selection", () => {
@@ -88,5 +99,15 @@ test("rejects a fabricated optimization selection", () => {
   assert.throws(
     () => createTypeScriptOptimizationProfile(fabricatedRepresentation),
     /'representationProjections' must be 'preserve' or 'closed-direct'/,
+  );
+
+  const fabricatedEffects = {
+    pointerFlows: "location",
+    scalarProjections: "preserve",
+    cooperativeEffects: "whole-program",
+  } as unknown as TypeScriptOptimizationProfileInput;
+  assert.throws(
+    () => createTypeScriptOptimizationProfile(fabricatedEffects),
+    /'cooperativeEffects' must be 'preserve', 'closed-direct', or 'closed-program'/,
   );
 });

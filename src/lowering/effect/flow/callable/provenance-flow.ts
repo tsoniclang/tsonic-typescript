@@ -65,6 +65,7 @@ import {
   callableCallContractRequirement,
   callableContractSourceRequirement,
 } from "./provenance/contract-settlement.js";
+import { transparentExpression } from "../../model/syntax.js";
 import {
   collectCallReturnContractStates,
 } from "./provenance/call-contracts.js";
@@ -282,6 +283,15 @@ export function createGraphCallableValueFlow(
   };
   const unsafeCallableUses = collectUnsafeCallableUses(context, resolved);
   planningObserver?.("effect-callable-unsafe-uses");
+  const expressionResolution = (
+    expression: Node,
+  ): CallableValueResolution | undefined => {
+    const root = transparentExpression(source, expression) ?? expression;
+    const state = context.expressions.get(root);
+    return state === undefined || unsafeCallableUses.has(state)
+      ? undefined
+      : resolutionForState(state);
+  };
   const callResolutions = new Map<Node, CallableValueResolution>();
   for (const [call, state] of context.calls) {
     const resolution = resolutionForState(state);
@@ -355,12 +365,21 @@ export function createGraphCallableValueFlow(
           kind,
           context,
           callResolutions,
+          expressionResolution,
         )
       )),
     })),
   );
   const callContractRequirements = new Map([...callResolutions.keys()].map(
-    (call) => [call, callableCallContractRequirement(source, call)] as const,
+    (call) => [
+      call,
+      callableCallContractRequirement(
+        call,
+        context,
+        callResolutions,
+        expressionResolution,
+      ),
+    ] as const,
   ));
   planningObserver?.("effect-callable-finalization", {
     boundaries: settledReturnContracts.filter((contract) =>

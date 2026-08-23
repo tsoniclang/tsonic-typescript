@@ -353,9 +353,9 @@ only when every reference is an exact indexed call and every result is awaited,
 returned by a settling callable, or passed through another such private
 forwarder. A discarded invocation retains its async producer because changing
 a rejected Promise into a synchronous throw is observable without a separate
-exact non-throwing fact. Export, alias escape, ordinary Promise observation,
-open dispatch, provider behavior, or unresolved transport retains the
-component.
+exact non-throwing fact. Under library-safe `closed-direct`, export retains the
+component. Alias escape, ordinary Promise observation, open dispatch, provider
+behavior, or unresolved transport retains it under every profile.
 
 Calls selected through an interface member remain canonical under the default
 `interfaceDispatch: "open-structural"` profile. The independent
@@ -729,7 +729,12 @@ every exact nested projection contract, every direct-value-capable
 implementation return contract, and every exact implementation return
 expression into one atomic settlement family. Direct, immutable-alias,
 object-projection, and declared-closed interface calls use this same route. A
-project generic callback result is admitted only through its exact callable
+project implementation with an inferred return type has no authored contract
+node to rewrite; its exact closed body-result projection supplies the call
+contract instead. Callable aliases in that projection consume the canonical
+callable-provenance resolution, including its candidate dependencies and
+escape state, rather than being re-inferred from a missing annotation.
+A project generic callback result is admitted only through its exact callable
 value contract and closed implementation set. A missing implementation,
 foreign or provider signature, Promise-only contract, unresolved return
 expression, or open implementation retains the entire family; no
@@ -774,6 +779,16 @@ implementation parameter may retain its exact value input even when a separate
 rest, spread, omitted, or defaulted slot cannot be represented. The unresolved
 slot alone remains open. Missing, ambiguous, inapplicable, or corrupt evidence
 grants no transport permission.
+
+For this invocation-input owner, `closed-direct` treats an ordinary project
+`export` as an external call surface. The separately selected `closed-program`
+profile treats exact import/re-export occurrences as neutral linkage rather
+than calls and does not fabricate an unknown caller from export alone. Every
+actual project invocation must still exact-join through source navigation.
+Ambient or declaration-file callables, references outside selected source
+membership, unresolved calls, and corrupt linkage remain open. This permission
+does not independently close callable storage, result observation, or another
+effect-flow family.
 
 Indirect project invocation is a separate exact extension of that owner. The
 callable target is resolved from one node-identity provenance graph over local
@@ -1108,7 +1123,9 @@ ambient environment state does not select an optimization.
 
 The optimization profile independently selects `pointerFlows`,
 `scalarProjections`, `representationProjections`, `cooperativeEffects`, and
-`interfaceDispatch`. Omitting
+`interfaceDispatch`. Cooperative effects accept open-world `preserve`,
+library-safe `closed-direct`, or executable-only `closed-program`; no other
+optimization field inherits that boundary. Omitting
 `interfaceDispatch` selects `open-structural`; `declared-closed` is never
 implied by cooperative-effect selection.
 

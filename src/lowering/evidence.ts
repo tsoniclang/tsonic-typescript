@@ -105,7 +105,10 @@ export type CooperativeEffectOptimizationEvidence =
       readonly interfaceDispatch: InterfaceDispatchEvidence;
     }
   | {
-      readonly profile: "closed-direct";
+      readonly profile: Exclude<
+        TypeScriptOptimizationProfile["cooperativeEffects"],
+        "preserve"
+      >;
       readonly analyzed: true;
       readonly candidateCount: number;
       readonly settledCallableCount: number;
@@ -305,7 +308,7 @@ function effectEvidence(
     throw new Error("closed cooperative effects require a closed plan");
   }
   return Object.freeze({
-    profile: "closed-direct",
+    profile: profile.cooperativeEffects,
     analyzed: true,
     candidateCount: summary.candidateCount,
     settledCallableCount: summary.settledCallableCount,

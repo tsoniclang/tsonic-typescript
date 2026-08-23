@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { LoweredValueContract } from "../../../value-contract.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
@@ -39,6 +40,7 @@ export function createReturnValueFlow(
   callDeclarations: (call: Node) => Iterable<Node> = () => [],
   transports?: InvocationTransportContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
   planningObserver?: TypeScriptPlanningObserver,
 ): ReturnValueFlow {
   const provenance = createReturnProvenanceFlow(
@@ -55,6 +57,7 @@ export function createReturnValueFlow(
     callDeclarations,
     transports,
     callableReferenceIsClosed,
+    cooperativeEffects,
     planningObserver,
   );
   return Object.freeze({

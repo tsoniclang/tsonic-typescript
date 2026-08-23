@@ -7,6 +7,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import { exactSourceCallImplementationInputs } from "./call-binding.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
@@ -30,6 +31,7 @@ export function createExactInvocationInputIndex(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   projections?: ExactAggregateProjectionIndex,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ExactInvocationInputIndex {
   const inputs = new Map<Node, Node[]>();
   const inputGroups = new Map<Node, (readonly Node[])[]>();
@@ -88,13 +90,15 @@ export function createExactInvocationInputIndex(
       callsByImplementation.has(implementation) ||
       source.ast.body(implementation) === undefined ||
       source.ast.hasModifierKind(implementation, "ambient") ||
-      source.ast.hasModifierKind(implementation, "export") ||
-      source.ast.hasModifierKind(implementation, "default") ||
+      (cooperativeEffects === "closed-direct" &&
+        (source.ast.hasModifierKind(implementation, "export") ||
+          source.ast.hasModifierKind(implementation, "default"))) ||
       !callableReferencesAreClosed(
         source,
         program,
         new Set([implementation]),
         new Set(),
+        cooperativeEffects,
       )
     ) {
       continue;
@@ -112,6 +116,7 @@ export function createExactInvocationInputIndex(
       referenceDeclarationsByImplementation.get(implementation) ??
         new Set([implementation]),
       calls,
+      cooperativeEffects,
     )) {
       for (const parameter of source.ast.parameters(implementation)) {
         if (parameter !== undefined) {
@@ -192,6 +197,7 @@ function callableReferencesAreClosed(
   program: TargetProgramIndex,
   declarations: ReadonlySet<Node>,
   calls: ReadonlySet<Node>,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
 ): boolean {
   return [...declarations].every((declaration) =>
     source.navigation.referencesToDeclaration(declaration).every((reference) => {
@@ -204,7 +210,7 @@ function callableReferencesAreClosed(
         return true;
       }
       if (isModuleForwardingReference(source, reference)) {
-        return false;
+        return cooperativeEffects === "closed-program";
       }
       const invocation = directContainingInvocation(source, reference);
       return invocation !== undefined && calls.has(invocation);

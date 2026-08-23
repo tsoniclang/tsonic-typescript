@@ -5,6 +5,7 @@ import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { LoweredValueContract } from "../../../value-contract.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import {
   createEffectProvenanceGraphBuilder,
 } from "../../provenance/graph.js";
@@ -41,7 +42,7 @@ import {
   callableResultIsInspectable,
   staticallyNonThenable,
 } from "./provenance/semantics.js";
-import { parameterHasOpenInvocationSurface } from "../../model/declaration-surface.js";
+import { parameterHasExternalInvocationSurface } from "../../model/declaration-surface.js";
 import {
   finalizeReturnProvenanceFlow,
   type ReturnProvenanceFlow,
@@ -80,6 +81,7 @@ interface ReturnContext {
   readonly projections: ReturnType<typeof createReturnProjectionFlow>;
   readonly objectProjections: ExactObjectPropertyProjectionIndex;
   readonly invocationInputs: ExactInvocationInputIndex;
+  readonly cooperativeEffects: TypeScriptActiveCooperativeEffectProfile;
   readonly builder: ReturnType<
     typeof createEffectProvenanceGraphBuilder<ReturnBoundaryReason>
   >;
@@ -103,6 +105,7 @@ export function createReturnProvenanceFlow(
   settledCallDeclarations: (call: Node) => Iterable<Node> = () => [],
   transports?: InvocationTransportContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
   planningObserver?: TypeScriptPlanningObserver,
 ): ReturnProvenanceFlow {
   let context: ReturnContext;
@@ -154,6 +157,7 @@ export function createReturnProvenanceFlow(
     projections: projectionFlow,
     objectProjections,
     invocationInputs,
+    cooperativeEffects,
     builder: createEffectProvenanceGraphBuilder<ReturnBoundaryReason>(),
     expressions: new Map(),
     declarations: new Map(),
@@ -489,7 +493,11 @@ function stateForParameter(
   state.expanded = true;
   const inputs = context.invocationInputs.inputsFor(parameter);
   if (
-    parameterHasOpenInvocationSurface(context.source, parameter) ||
+    parameterHasExternalInvocationSurface(
+      context.source,
+      parameter,
+      context.cooperativeEffects,
+    ) ||
     inputs === undefined ||
     !context.invocationInputs.isClosed(parameter)
   ) {

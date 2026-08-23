@@ -430,7 +430,10 @@ function classifyAwaitDependencies(
     !returnFlow.callResultIsDefinitelyNonThenable(
       call,
       resolution.synchronousDeclarationNodes(),
-      conditionalSettlements(resolution.dependencyNodes()),
+      conditionalSettlements([
+        ...resolution.dependencyNodes(),
+        ...contract.dependencyNodes(),
+      ]),
     )
   ) {
     blockCooperativeEffect(owner, "promise-observed", call);

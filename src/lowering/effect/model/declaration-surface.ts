@@ -1,6 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../profile.js";
+
 export function declarationIsAmbient(
   source: TargetSourceProgram,
   declaration: Node,
@@ -95,10 +97,14 @@ export function callableHasOpenInvocationSurface(
         expressionIsExportedBindingInitializer(source, container));
 }
 
-export function parameterHasOpenInvocationSurface(
+export function parameterHasExternalInvocationSurface(
   source: TargetSourceProgram,
   parameter: Node,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
 ): boolean {
   const owner = source.ast.parent(parameter);
-  return owner === undefined || callableHasOpenInvocationSurface(source, owner);
+  return owner === undefined ||
+    declarationIsAmbient(source, owner) ||
+    (cooperativeEffects === "closed-direct" &&
+      callableHasOpenInvocationSurface(source, owner));
 }

@@ -57,8 +57,21 @@ export function finalizeGraphCallableValueFlow(
       if (requirement === undefined) {
         return undefined;
       }
-      return requirement.resolvable
-        ? returnContracts.resolutionFor(requirement.contractDependencies)
+      if (!requirement.resolvable) {
+        return unresolvedContract;
+      }
+      const contract = returnContracts.resolutionFor(
+        requirement.contractDependencies,
+      );
+      return contract.closed
+        ? createCallableValueResolution(
+            true,
+            [
+              ...requirement.candidateDependencies,
+              ...contract.dependencyNodes(),
+            ],
+            [],
+          )
         : unresolvedContract;
     },
     allowsCallableReference(node: Node): boolean {

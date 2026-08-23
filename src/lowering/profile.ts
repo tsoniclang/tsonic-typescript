@@ -1,7 +1,14 @@
 export type TypeScriptPointerFlowProfile = "location" | "closed-direct";
 export type TypeScriptScalarProjectionProfile = "preserve" | "closed-direct";
 export type TypeScriptRepresentationProjectionProfile = "preserve" | "closed-direct";
-export type TypeScriptCooperativeEffectProfile = "preserve" | "closed-direct";
+export type TypeScriptCooperativeEffectProfile =
+  | "preserve"
+  | "closed-direct"
+  | "closed-program";
+export type TypeScriptActiveCooperativeEffectProfile = Exclude<
+  TypeScriptCooperativeEffectProfile,
+  "preserve"
+>;
 export type TypeScriptInterfaceDispatchProfile =
   | "open-structural"
   | "declared-closed";
@@ -47,7 +54,7 @@ export function createTypeScriptOptimizationProfile(
     "representationProjections",
     "preserve",
   );
-  assertChoice(input.cooperativeEffects, "cooperativeEffects", "preserve");
+  assertCooperativeEffects(input.cooperativeEffects);
   const interfaceDispatch = input.interfaceDispatch ?? "open-structural";
   assertInterfaceDispatch(interfaceDispatch);
   const identity = [
@@ -80,6 +87,20 @@ function assertInterfaceDispatch(
   if (value !== "open-structural" && value !== "declared-closed") {
     throw new Error(
       "TypeScript target optimization 'interfaceDispatch' must be 'open-structural' or 'declared-closed'",
+    );
+  }
+}
+
+function assertCooperativeEffects(
+  value: unknown,
+): asserts value is TypeScriptCooperativeEffectProfile {
+  if (
+    value !== "preserve" &&
+    value !== "closed-direct" &&
+    value !== "closed-program"
+  ) {
+    throw new Error(
+      "TypeScript target optimization 'cooperativeEffects' must be 'preserve', 'closed-direct', or 'closed-program'",
     );
   }
 }

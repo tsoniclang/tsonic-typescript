@@ -14,6 +14,7 @@ import {
 } from "../../../model/callable-contract/resolution.js";
 import {
   referenceHasExactSemantics,
+  resolveProjectInvocation,
 } from "../../../model/project-invocation.js";
 import {
   exactCallExpression,
@@ -32,21 +33,41 @@ import type {
   CallableReturnContractSourceKind,
 } from "./return-contracts.js";
 
+export type CallableExpressionResolution = (
+  expression: Node,
+) => CallableValueResolution | undefined;
+
 export interface CallableContractSourceRequirement {
   readonly resolvable: boolean;
   readonly candidateDependencies: readonly Node[];
   readonly contractDependencies: readonly Node[];
 }
 
-export interface CallableCallContractRequirement {
-  readonly resolvable: boolean;
-  readonly contractDependencies: readonly Node[];
-}
+export type CallableCallContractRequirement = CallableContractSourceRequirement;
 
 export function callableCallContractRequirement(
-  source: TargetSourceProgram,
   call: Node,
+  context: CallableContext,
+  callResolutions: ReadonlyMap<Node, CallableValueResolution>,
+  expressionResolution: CallableExpressionResolution,
 ): CallableCallContractRequirement {
+  return collectCallRequirement(
+    call,
+    context,
+    callResolutions,
+    expressionResolution,
+    new Set(),
+  );
+}
+
+function collectCallRequirement(
+  call: Node,
+  context: CallableContext,
+  callResolutions: ReadonlyMap<Node, CallableValueResolution>,
+  expressionResolution: CallableExpressionResolution,
+  pending: Set<Node>,
+): CallableCallContractRequirement {
+  const { source } = context;
   const semantics = source.semantics.forNode(call);
   const result = semantics.types.expressionType(call);
   if (result !== undefined && !typeMaySuspend(semantics, result)) {
@@ -62,13 +83,43 @@ export function callableCallContractRequirement(
   const rewrite = returnType === undefined
     ? undefined
     : callableReturnRewrite(source, returnType);
-  return rewrite !== undefined &&
-      callableReturnRewriteAdmitsDirectValue(source, rewrite)
-    ? Object.freeze({
-        resolvable: true,
-        contractDependencies: Object.freeze([rewrite.target]),
-      })
-    : unresolvedCallRequirement;
+  if (
+    rewrite !== undefined &&
+    callableReturnRewriteAdmitsDirectValue(source, rewrite)
+  ) {
+    return Object.freeze({
+      resolvable: true,
+      candidateDependencies: emptyNodes,
+      contractDependencies: Object.freeze([rewrite.target]),
+    });
+  }
+  const implementation = resolveProjectInvocation(source, call)?.implementation;
+  const projected = context.results.sourceFor(call);
+  if (
+    implementation === undefined ||
+    declaration !== implementation ||
+    projected?.declaration !== implementation ||
+    source.ast.body(implementation) === undefined ||
+    source.ast.typeNode(implementation) !== undefined ||
+    pending.has(implementation)
+  ) {
+    return unresolvedCallRequirement;
+  }
+  pending.add(implementation);
+  const requirement = mergeRequirements(projected.expressions.map((expression) =>
+    expression === undefined
+      ? unresolvedRequirement
+      : collectRequirement(
+          expression,
+          "call-result",
+          context,
+          callResolutions,
+          expressionResolution,
+          pending,
+        )
+  ));
+  pending.delete(implementation);
+  return requirement;
 }
 
 export function callableContractSourceRequirement(
@@ -76,12 +127,14 @@ export function callableContractSourceRequirement(
   sourceKind: CallableReturnContractSourceKind,
   context: CallableContext,
   callResolutions: ReadonlyMap<Node, CallableValueResolution>,
+  expressionResolution: CallableExpressionResolution,
 ): CallableContractSourceRequirement {
   return collectRequirement(
     expression,
     sourceKind,
     context,
     callResolutions,
+    expressionResolution,
     new Set(),
   );
 }
@@ -91,6 +144,7 @@ function collectRequirement(
   sourceKind: CallableReturnContractSourceKind,
   context: CallableContext,
   callResolutions: ReadonlyMap<Node, CallableValueResolution>,
+  expressionResolution: CallableExpressionResolution,
   pending: Set<Node>,
 ): CallableContractSourceRequirement {
   const root = transparentExpression(context.source, expression);
@@ -119,6 +173,7 @@ function collectRequirement(
           sourceKind,
           context,
           callResolutions,
+          expressionResolution,
           pending,
         )
       ),
@@ -155,7 +210,23 @@ function collectRequirement(
         );
     return call === undefined
       ? unresolvedRequirement
-      : callSourceRequirement(call, context, callResolutions);
+      : callSourceRequirement(
+          call,
+          context,
+          callResolutions,
+          expressionResolution,
+          pending,
+        );
+  }
+  const resolution = expressionResolution(root);
+  if (resolution?.closed === true) {
+    return Object.freeze({
+      resolvable: true,
+      candidateDependencies: Object.freeze([
+        ...resolution.dependencyNodes(),
+      ]),
+      contractDependencies: emptyNodes,
+    });
   }
   const reference = context.source.navigation.sourceReferenceFor(root);
   if (!referenceHasExactSemantics(context.source, reference)) {
@@ -177,9 +248,17 @@ function callSourceRequirement(
   call: Node,
   context: CallableContext,
   callResolutions: ReadonlyMap<Node, CallableValueResolution>,
+  expressionResolution: CallableExpressionResolution,
+  pending: Set<Node>,
 ): CallableContractSourceRequirement {
   const resolution = callResolutions.get(call);
-  const contract = callableCallContractRequirement(context.source, call);
+  const contract = collectCallRequirement(
+    call,
+    context,
+    callResolutions,
+    expressionResolution,
+    pending,
+  );
   const target = exactCallableTarget(
     context.source,
     context.source.ast.as.AsCallExpression(call)?.Expression,
@@ -194,9 +273,14 @@ function callSourceRequirement(
   return Object.freeze({
     resolvable: resolution?.closed === true &&
       (contract.resolvable || sourceContractIsResolvable),
-    candidateDependencies: Object.freeze(
-      resolution === undefined ? [] : [...resolution.dependencyNodes()],
-    ),
+    candidateDependencies: Object.freeze(resolution === undefined
+      ? contract.candidateDependencies
+      : [
+          ...new Set([
+            ...resolution.dependencyNodes(),
+            ...contract.candidateDependencies,
+          ]),
+        ]),
     contractDependencies: contract.contractDependencies,
   });
 }
@@ -313,9 +397,11 @@ const unresolvedRequirement: CallableContractSourceRequirement = Object.freeze({
 });
 const resolvedCallRequirement: CallableCallContractRequirement = Object.freeze({
   resolvable: true,
+  candidateDependencies: emptyNodes,
   contractDependencies: emptyNodes,
 });
 const unresolvedCallRequirement: CallableCallContractRequirement = Object.freeze({
   resolvable: false,
+  candidateDependencies: emptyNodes,
   contractDependencies: emptyNodes,
 });

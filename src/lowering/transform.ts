@@ -116,8 +116,8 @@ export function prepareTypeScriptLowering(
     bindingWrites: profile.pointerFlows === "closed-direct" ||
       profile.scalarProjections === "closed-direct" ||
       profile.representationProjections === "closed-direct" ||
-      profile.cooperativeEffects === "closed-direct",
-    memberDispatch: profile.cooperativeEffects === "closed-direct",
+      profile.cooperativeEffects !== "preserve",
+    memberDispatch: profile.cooperativeEffects !== "preserve",
   });
   planningObserver?.("program-index");
   const generatedNames = createProgramGeneratedNames(source, program);
@@ -140,7 +140,7 @@ export function prepareTypeScriptLowering(
   const ownerTransports = pointerFlowPlan === undefined
     ? undefined
     : createPointerInvocationTransport(source, pointerFlowPlan);
-  const effectPlan = profile.cooperativeEffects === "closed-direct"
+  const effectPlan = profile.cooperativeEffects !== "preserve"
     ? createClosedCooperativeEffectPlan(
         source,
         program,
@@ -148,6 +148,7 @@ export function prepareTypeScriptLowering(
         loweredValues,
         ownerTransports,
         profile.interfaceDispatch,
+        profile.cooperativeEffects,
         planningObserver,
       )
     : undefined;

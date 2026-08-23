@@ -364,6 +364,13 @@ selected implementation, create an originless cycle, or force a non-stable
 relation; each must retain the affected component without exposing a partial
 indirect implementation list. A gate also proves all downstream flow owners
 receive the final index rather than the preliminary pre-interface index.
+An invocation-input fixture selects `closed-program`, exports a callback and an
+exact forwarding owner, re-exports the callback through a second module,
+imports both into the root, and requires complete settlement. The same source
+under `closed-direct` retains both exported callables. Replacing the project
+call with an ambient consumer also retains the callback under `closed-program`.
+This proves linkage references are neutral only under the executable boundary
+and do not fabricate a call or erase an actual external ingress.
 The object and aggregate forms additionally route the implementation through a
 callable owner whose parameter carries another callback. The closed provenance
 path must admit that exact owner reference and settle the nested callback;
@@ -427,6 +434,12 @@ return-contract rewrite; each must retain the whole family. A provider-selected
 signature is a non-rewritable boundary and must be planned without querying it
 through project semantic evidence. Broad search must find no separate
 projection-only contract path.
+An inferred-return forwarder fixture routes an immutable callable alias through
+an exact project implementation and then through an async caller. Its body
+projection, callable contract, both candidates, both return contracts, and both
+awaits settle atomically. Passing the alias to an ambient consumer or replacing
+the projected result with an ambient or Promise-producing value retains the
+affected family.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as
@@ -561,7 +574,8 @@ private readonly `then?: never` is independent of `T`; all must settle. Paired
 callable-`then` type-parameter and public structural `then?: never` mutations
 must retain. A bare type parameter settles only when its complete invocation
 and return provenance is closed over non-thenable inputs; an exported call
-surface or one Promise-like input retains. This proves generic containment is
+surface under `closed-direct` or one Promise-like input retains. This proves
+generic containment is
 not a blanket boundary and that no generic member can forge nominal exclusion.
 The whole-product memory guard also distinguishes one canonical synchronous
 call closure from a dense contract-to-call reverse graph; retrying with a larger

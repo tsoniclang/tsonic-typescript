@@ -3,7 +3,10 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { SourceIdentityResolver } from "../../occurrence.js";
 import type { TargetProgramIndex } from "../../program-index.js";
-import type { TypeScriptInterfaceDispatchProfile } from "../../profile.js";
+import type {
+  TypeScriptActiveCooperativeEffectProfile,
+  TypeScriptInterfaceDispatchProfile,
+} from "../../profile.js";
 import {
   composeInvocationTransportContracts,
   type InvocationTransportContract,
@@ -78,6 +81,7 @@ export function createClosedCooperativeEffectPlan(
   loweredValues?: LoweredValueContract,
   transports?: InvocationTransportContract,
   interfaceDispatch: TypeScriptInterfaceDispatchProfile = "open-structural",
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
   planningObserver?: TypeScriptPlanningObserver,
 ): CooperativeEffectPlan {
   const candidates = collectCooperativeEffectCandidates(source, program);
@@ -102,6 +106,7 @@ export function createClosedCooperativeEffectPlan(
     source,
     program,
     aggregateProjections,
+    cooperativeEffects,
   );
   planningObserver?.("effect-invocation-inputs");
   const storageOwners = createClosedStorageOwnerAnalysis(source, program);
@@ -245,6 +250,7 @@ export function createClosedCooperativeEffectPlan(
     (call) => exactCallImplementations(call) ?? noDependencies,
     completeTransports,
     valueFlow.allowsCallableReference,
+    cooperativeEffects,
     planningObserver,
   );
   planningObserver?.("effect-return-flow");

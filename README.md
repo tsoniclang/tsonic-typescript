@@ -49,8 +49,10 @@ profile selects the canonical, open-world-safe result:
 }
 ```
 
-An executable assembled as one closed program may select `"closed-direct"`
-for each family. The backend builds every whole-program plan before changing
+An optimized product may select `"closed-direct"` for each representation
+family. Cooperative effects additionally distinguish library-safe
+`"closed-direct"` from executable-only `"closed-program"`. The backend builds
+every selected program plan before changing
 any source, then composes all selected rewrites in one post-order traversal of
 each original TS-Go-contract AST. Every planned source and semantic fact must
 be consumed exactly once before the transaction seals; otherwise printing is
@@ -76,7 +78,8 @@ ordinary checked TypeScript here; their names and shapes do not authorize a
 target optimization. New families require finalized exact-node facts and a
 closed profile field before they can enter this pipeline.
 
-`optimizations.cooperativeEffects: "closed-direct"` removes cooperative
+`optimizations.cooperativeEffects: "closed-direct"` or `"closed-program"`
+removes cooperative
 `Promise` transport only from a complete, exact call component with no
 provider, escaping-callable, promise-forwarding, thenable, or unresolved
 boundary. In addition to direct calls, the plan can close an indirect call
@@ -97,6 +100,16 @@ declaration, return contract, and dependent `await` in one transaction. For exam
 `function answer(): number { return 42 }`, and an exact `await answer()` use
 becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`
 return, or provider call remains unchanged.
+An inferred project forwarder is eligible only when its exact body-result
+projection and every callable alias on that path are closed by the same graph.
+
+Under `"closed-direct"`, an exported callable remains open to an external
+library consumer. Under the explicitly selected `"closed-program"` profile,
+an ordinary project `export` does not by itself create an unknown caller and
+exact import/re-export references are linkage rather than invocations. The
+source-owned reverse-reference graph must still account for every actual
+project call. Ambient declarations, unresolved references, or calls outside
+selected source membership remain open in both profiles.
 
 `optimizations.interfaceDispatch: "declared-closed"` is a separate producer
 contract used by cooperative-effect lowering. It asserts that every runtime
@@ -135,9 +148,11 @@ open-dispatch forms that must be retained. A closed callback may also settle
 through a private synchronous forwarder such as
 `invoke(callback) { return callback(); }` when every invocation result is
 awaited or continues through another certified return edge. Exporting the
-forwarder, escaping it through an alias, or observing one returned Promise
-retains the original callable contract. Multiple blocking facts still produce
-one retained row under the canonical reason-catalog order.
+forwarder under `"closed-direct"`, escaping it through an alias, or observing
+one returned Promise retains the original callable contract. An export under
+`"closed-program"` is neutral only when the exact selected-source reference
+graph closes every invocation and forwarding edge. Multiple blocking facts
+still produce one retained row under the canonical reason-catalog order.
 
 A checked direct scalar return and a freshly constructed array or object may
 also settle without requiring identical source and result type identities. The

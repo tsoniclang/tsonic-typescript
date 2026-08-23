@@ -53,7 +53,10 @@ export function classifyReturnedExpression(
         returnFlow.callResultIsDefinitelyNonThenable(
           returnedCall,
           resolution.synchronousDeclarationNodes(),
-          conditionalSettlements(resolution.dependencyNodes()),
+          conditionalSettlements([
+            ...resolution.dependencyNodes(),
+            ...(contract?.dependencyNodes() ?? noDependencies),
+          ]),
         );
       if (
         (contract === undefined || !contract.closed) &&

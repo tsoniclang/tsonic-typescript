@@ -119,6 +119,25 @@ test("validates and freezes explicit closed-flow optimizations", () => {
   assert.ok(Object.isFrozen(result.optimizations));
 });
 
+test("selects the explicit closed-program effect boundary", () => {
+  const result = readTypeScriptTargetOptions({
+    id: "typescript",
+    options: {
+      printer: { executable: "/tools/tsgo-ast-printer" },
+      optimizations: {
+        cooperativeEffects: "closed-program",
+      },
+    },
+  });
+
+  assert.equal(result.optimizations.cooperativeEffects, "closed-program");
+  assert.equal(
+    result.optimizations.identity,
+    "typescript-optimization-v3/pointer=location/scalar=preserve/representations=preserve/effects=closed-program/interfaces=open-structural",
+  );
+  assert.ok(Object.isFrozen(result.optimizations));
+});
+
 test("fails closed on absent, unknown, and malformed target options", () => {
   assert.throws(
     () => readTypeScriptTargetOptions({ id: "typescript" }),
@@ -176,6 +195,16 @@ test("fails closed on absent, unknown, and malformed target options", () => {
       },
     }),
     /'pointerFlows' must be 'location' or 'closed-direct'/,
+  );
+  assert.throws(
+    () => readTypeScriptTargetOptions({
+      id: "typescript",
+      options: {
+        printer: { executable: "tsgo-ast-printer" },
+        optimizations: { cooperativeEffects: "whole-program" },
+      },
+    }),
+    /'cooperativeEffects' must be 'preserve', 'closed-direct', or 'closed-program'/,
   );
   assert.throws(
     () => readTypeScriptTargetOptions({

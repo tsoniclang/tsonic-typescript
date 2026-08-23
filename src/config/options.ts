@@ -161,11 +161,7 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
       "representationProjections",
       "preserve",
     ),
-    cooperativeEffects: readClosedChoice(
-      value["cooperativeEffects"],
-      "cooperativeEffects",
-      "preserve",
-    ),
+    cooperativeEffects: readCooperativeEffects(value["cooperativeEffects"]),
     interfaceDispatch: readInterfaceDispatch(value["interfaceDispatch"]),
   });
 }
@@ -181,6 +177,20 @@ function readInterfaceDispatch(
   }
   throw new Error(
     "TypeScript target optimization 'interfaceDispatch' must be 'open-structural' or 'declared-closed'",
+  );
+}
+
+function readCooperativeEffects(
+  value: unknown,
+): "preserve" | "closed-direct" | "closed-program" {
+  if (value === undefined || value === "preserve") {
+    return "preserve";
+  }
+  if (value === "closed-direct" || value === "closed-program") {
+    return value;
+  }
+  throw new Error(
+    "TypeScript target optimization 'cooperativeEffects' must be 'preserve', 'closed-direct', or 'closed-program'",
   );
 }
 
