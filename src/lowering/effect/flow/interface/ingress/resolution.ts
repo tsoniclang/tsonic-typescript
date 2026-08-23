@@ -42,15 +42,16 @@ export interface InterfaceOriginResolution {
   readonly opaque: boolean;
 }
 
-export interface InterfaceOriginResolutionIndex {
-  readonly measurements: InterfaceOriginResolutionMeasurements;
-  resolutionFor(value: Node, contract: Node): InterfaceOriginResolution;
-}
-
 export interface InterfaceOriginResolutionRequest {
   readonly contract: Node;
   readonly values: Iterable<Node>;
 }
+
+export type InterfaceOriginResolutionConsumer = (
+  value: Node,
+  contract: Node,
+  resolution: InterfaceOriginResolution,
+) => void;
 
 export interface InterfaceOriginResolutionMeasurements
   extends InterfaceOriginContractGraphMeasurements {
@@ -104,7 +105,8 @@ const expansion: InterfaceOriginExpansion = Object.freeze({
 export function resolveInterfaceOrigins(
   requests: readonly InterfaceOriginResolutionRequest[],
   ingress: InterfaceContractIngress,
-): InterfaceOriginResolutionIndex {
+  consume: InterfaceOriginResolutionConsumer,
+): InterfaceOriginResolutionMeasurements {
   const contracts = Object.freeze(requests.map((request) => request.contract));
   if (new Set(contracts).size !== contracts.length) {
     throw new Error("interface origin resolution received duplicate contracts");
@@ -139,25 +141,22 @@ export function resolveInterfaceOrigins(
   }
   drainOriginExpansions(shared);
   const resolutions = shared.builder.seal();
-  const resolved = new Map<Node, Map<Node, InterfaceOriginResolution>>();
   let closed = 0;
   for (let contractIndex = 0; contractIndex < contracts.length; contractIndex += 1) {
     const contract = contracts[contractIndex];
     if (contract === undefined) {
       throw new Error("interface origin resolution lost a contract");
     }
-    const contractResolutions = new Map<Node, InterfaceOriginResolution>();
-    resolved.set(contract, contractResolutions);
     for (const [value, root] of roots.get(contract) ?? []) {
       const result = resolutions.resolutionFor(root.vertex, contractIndex);
       if (result.closed) {
         closed += 1;
       }
-      contractResolutions.set(value, Object.freeze(result));
+      consume(value, contract, result);
     }
   }
   const factMeasurements = shared.facts.measurements();
-  const measurements = Object.freeze({
+  return Object.freeze({
     ...resolutions.measurements,
     closed,
     contractExpansions: factMeasurements.contractExpansions,
@@ -165,16 +164,6 @@ export function resolveInterfaceOrigins(
     roots: rootCount,
     valueExpansions: factMeasurements.valueExpansions,
     valueQueries: factMeasurements.valueQueries,
-  });
-  return Object.freeze({
-    measurements,
-    resolutionFor(value: Node, contract: Node): InterfaceOriginResolution {
-      const result = resolved.get(contract)?.get(value);
-      if (result === undefined) {
-        throw new Error("interface origin resolution received an unknown root");
-      }
-      return result;
-    },
   });
 }
 

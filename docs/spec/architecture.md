@@ -487,6 +487,10 @@ Rebuilding and condensing the same topology once per contract is forbidden.
 Root requirements are accumulated before expansion, and every state is
 inspected once for its complete newly active contract set; looping over
 contracts and re-running the state visitor is equally forbidden.
+Root decisions are consumed inside that same resolution transaction. The
+resolver publishes only scalar measurements after consumption; materializing a
+second contract-to-root result map and retaining it beyond the transaction is
+forbidden.
 Exact successful-value and checked type/contract decisions are cached for the
 transaction by checked source-file identity, checker type identity, and exact
 contract node. A source spelling, type string, or cross-checker identity is
@@ -664,6 +668,11 @@ The public capability exposes only the component count and exact vertex lookup,
 not mutable arrays or one retained vertex array per component. Dense empty
 adjacency/evidence tables are forbidden because source-sized mostly-acyclic
 graphs would otherwise consume object memory proportional to several full ASTs.
+The resolver owns one deduplicated compressed component adjacency, including
+both dependency directions. Origin projection consumes that exact read-only
+capability; it must not rebuild the same component topology in maps, sets, or a
+second typed-array graph. Duplicate authored edges between the same component
+pair collapse without changing reachability or evidence.
 
 Semantic origin classes are projected from that sealed component graph through
 one provenance-owned persistent-set index. Callable candidate,

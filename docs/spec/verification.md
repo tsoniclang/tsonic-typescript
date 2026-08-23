@@ -72,6 +72,10 @@ flatten transitive origin arrays, duplicate vertex-to-component identity, or
 allocate empty origin/dependency rows for every component.
 The condensation mutation gate rejects one empty array/set per vertex or
 component and requires compact typed adjacency plus sparse component evidence.
+A duplicate-component-edge fixture exact-checks both dependency directions and
+proves one canonical edge survives. Structural inspection rejects a second
+component adjacency in the origin index and object-heavy
+`Map<number, Set<number>>` component topology in either resolution path.
 A mostly-isolated graph fixture preserves exact component counts and a bounded
 work ratio while querying only selected roots.
 A shared-tail boundary fixture exact-checks independent reason reachability and
@@ -408,6 +412,9 @@ dropping the contract mask from an edge, keying a fact by spelling, or sharing
 evidence without its contract bit must fail. Whole-product origin-phase
 evidence reports contract, root, structural vertex/edge, activated pair,
 origin, boundary, closed-root, and fact query/expansion counts.
+The same gate requires root results to flow directly to the requirements
+consumer before the transaction returns. Restoring a contract-to-root result
+map or publishing a queryable resolution index fails the lifecycle gate.
 The object and aggregate forms additionally route the implementation through a
 callable owner whose parameter carries another callback. The closed provenance
 path must admit that exact owner reference and settle the nested callback;

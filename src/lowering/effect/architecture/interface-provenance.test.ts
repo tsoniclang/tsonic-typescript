@@ -58,10 +58,37 @@ test("interface origins share one exact contract-labelled graph", () => {
   assert.match(graph, /propagateUnsent/u);
   assert.match(graph, /reason === "opaque-call-transport"/u);
   assert.doesNotMatch(graph, /Map<Node, Map<Node/u);
+  assert.doesNotMatch(resolution, /const resolved = new Map/u);
+  assert.match(resolution, /consume\(value, contract, result\)/u);
   assert.equal(
     requirements.match(/resolveInterfaceOrigins\(/gu)?.length,
     1,
   );
+});
+
+test("provenance resolution owns one compact component topology", () => {
+  const adjacency = readFileSync(
+    join(effectRoot, "provenance", "component-adjacency.ts"),
+    "utf8",
+  );
+  const resolution = readFileSync(
+    join(effectRoot, "provenance", "resolution.ts"),
+    "utf8",
+  );
+  const origins = readFileSync(
+    join(effectRoot, "provenance", "origin-index.ts"),
+    "utf8",
+  );
+
+  assert.match(adjacency, /Uint32Array/u);
+  assert.match(adjacency, /compactSorted/u);
+  assert.match(resolution, /createEffectProvenanceComponentAdjacency/u);
+  assert.match(origins, /componentDependencyCount/u);
+  assert.match(origins, /componentDependency/u);
+  assert.match(origins, /componentDependent/u);
+  assert.doesNotMatch(origins, /createEffectProvenanceComponentAdjacency/u);
+  assert.doesNotMatch(resolution, /Map<number, Set<number>>/u);
+  assert.doesNotMatch(origins, /Map<number, Set<number>>/u);
 });
 
 test("interface origin facts cache exact checked type-contract queries", () => {

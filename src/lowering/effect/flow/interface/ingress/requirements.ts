@@ -63,25 +63,30 @@ export function createInterfaceOriginRequirements():
         throw new Error("interface origin requirements were sealed twice");
       }
       finished = true;
-      const resolutions = resolveInterfaceOrigins(
+      return resolveInterfaceOrigins(
         [...requests].map(([contract, values]) => Object.freeze({
           contract,
           values: Object.freeze([...values.keys()]),
         })),
         ingress,
+        (value, contract, resolution) => {
+          const kinds = requests.get(contract)?.get(value);
+          if (kinds === undefined) {
+            throw new Error("interface origin resolution returned an unknown root");
+          }
+          if (!resolution.closed) {
+            for (const kind of kinds) {
+              markOpenOrigin(
+                contract,
+                value,
+                kind,
+                resolution.opaque,
+                ingress,
+              );
+            }
+          }
+        },
       );
-      for (const [contract, values] of requests) {
-        for (const [value, kinds] of values) {
-          const resolution = resolutions.resolutionFor(value, contract);
-          if (resolution.closed) {
-            continue;
-          }
-          for (const kind of kinds) {
-            markOpenOrigin(contract, value, kind, resolution.opaque, ingress);
-          }
-        }
-      }
-      return resolutions.measurements;
     },
   });
 }

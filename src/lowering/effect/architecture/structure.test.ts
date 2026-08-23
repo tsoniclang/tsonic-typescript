@@ -157,9 +157,9 @@ test("origin selection consumes the resolver-owned component graph", () => {
     "utf8",
   );
 
-  assert.match(source, /resolutions\.forEachComponentDependency/u);
+  assert.match(source, /resolutions\.componentDependency/u);
   assert.match(source, /resolutions\.componentFor/u);
-  assert.match(source, /new Map<number, Set<number>>\(\)/u);
+  assert.doesNotMatch(source, /new Map<number, Set<number>>\(\)/u);
   assert.doesNotMatch(source, /graph\.edges|condenseEffectProvenance/u);
   assert.doesNotMatch(source, /emptyComponentSets/u);
   assert.doesNotMatch(source, /graph\.vertices\.map/u);
@@ -198,12 +198,12 @@ test("provenance condensation uses compact sparse storage", () => {
     join(effectRoot, "provenance", "resolution.ts"),
     "utf8",
   );
-
   assert.match(condensation, /new Uint32Array\(vertices\.length\)/u);
   assert.match(condensation, /componentCount/u);
   assert.doesNotMatch(condensation, /number\[\]\s*=>\s*\[\]/u);
   assert.doesNotMatch(condensation, /readonly \(readonly EffectProvenanceVertex\[\]\)\[\]/u);
-  assert.match(resolution, /new Map<number, Set<number>>\(\)/u);
+  assert.match(resolution, /createEffectProvenanceComponentAdjacency/u);
+  assert.doesNotMatch(resolution, /new Map<number, Set<number>>\(\)/u);
   assert.doesNotMatch(resolution, /emptySets\(componentCount\)/u);
   assert.doesNotMatch(resolution, /emptyLists/u);
 });

@@ -8,18 +8,32 @@ import type {
   EffectProvenanceResolutionIndex,
   EffectProvenanceVertex,
 } from "./model.js";
+import {
+  createEffectProvenanceComponentAdjacency,
+  type EffectProvenanceComponentAdjacency,
+  requiredComponentIndex,
+} from "./component-adjacency.js";
 import { condenseEffectProvenance } from "./scc.js";
 
 const noEvidence: readonly never[] = Object.freeze([]);
-const noComponents: ReadonlySet<number> = Object.freeze(new Set<number>());
 
 export function resolveEffectProvenance<Reason extends string>(
   graph: EffectProvenanceGraph<Reason>,
 ): EffectProvenanceResolutionIndex<Reason> {
   const condensation = condenseEffectProvenance(graph.vertices, graph.edges);
   const componentCount = condensation.componentCount;
-  const dependencies = new Map<number, Set<number>>();
-  const dependents = new Map<number, Set<number>>();
+  const adjacency = createEffectProvenanceComponentAdjacency(
+    componentCount,
+    (consume) => {
+      for (const edge of graph.edges) {
+        const source = condensation.componentFor(edge.source);
+        const destination = condensation.componentFor(edge.destination);
+        if (source !== destination) {
+          consume(destination, source);
+        }
+      }
+    },
+  );
   const directOrigins = new Map<number, EffectProvenanceOrigin[]>();
   const directBoundaries = new Map<
     number,
@@ -27,19 +41,7 @@ export function resolveEffectProvenance<Reason extends string>(
   >();
   const hasOrigin = new Uint8Array(componentCount);
   const hasBoundary = new Uint8Array(componentCount);
-  let work = condensation.work;
-
-  for (const edge of graph.edges) {
-    const source = condensation.componentFor(edge.source);
-    const destination = condensation.componentFor(edge.destination);
-    if (
-      source !== destination &&
-      appendComponent(dependencies, destination, source)
-    ) {
-      appendComponent(dependents, source, destination);
-      work += 1;
-    }
-  }
+  let work = condensation.work + adjacency.dependencies.length;
   for (const origin of graph.origins) {
     const component = condensation.componentFor(origin.vertex);
     appendEvidence(directOrigins, component, origin);
@@ -55,7 +57,10 @@ export function resolveEffectProvenance<Reason extends string>(
   const pending = new Uint32Array(componentCount);
   let pendingCount = 0;
   for (let component = 0; component < componentCount; component += 1) {
-    const remaining = componentsFor(dependencies, component).size;
+    const remaining = requiredComponentIndex(
+      adjacency.dependencyOffsets,
+      component + 1,
+    ) - requiredComponentIndex(adjacency.dependencyOffsets, component);
     remainingDependencies[component] = remaining;
     if (remaining === 0) {
       pending[pendingCount] = component;
@@ -68,7 +73,16 @@ export function resolveEffectProvenance<Reason extends string>(
     const component = requiredIndex(pending, pendingCount);
     resolvedCount += 1;
     work += 1;
-    for (const dependent of componentsFor(dependents, component)) {
+    const dependentStart = requiredComponentIndex(
+      adjacency.dependentOffsets,
+      component,
+    );
+    const dependentEnd = requiredComponentIndex(
+      adjacency.dependentOffsets,
+      component + 1,
+    );
+    for (let edge = dependentStart; edge < dependentEnd; edge += 1) {
+      const dependent = requiredComponentIndex(adjacency.dependents, edge);
       if (hasOrigin[component] === 1) {
         hasOrigin[dependent] = 1;
       }
@@ -103,23 +117,14 @@ export function resolveEffectProvenance<Reason extends string>(
   >();
   const boundaryReasonReachability = new Map<Reason, Uint8Array>();
   const originOccurrences = new WeakMap<object, readonly Node[]>();
-  const dependencyLists = new Map<number, readonly number[]>();
   const resolutions = new WeakMap<
     EffectProvenanceVertex,
     EffectProvenanceResolution<Reason>
   >();
-  const dependenciesFor = (component: number): readonly number[] => {
-    let selected = dependencyLists.get(component);
-    if (selected === undefined) {
-      selected = Object.freeze([...componentsFor(dependencies, component)]);
-      dependencyLists.set(component, selected);
-    }
-    return selected;
-  };
   const originsFor = (component: number): readonly Node[] => {
     const evidence = evidenceFor(
       component,
-      dependenciesFor,
+      adjacency,
       directOrigins,
       originEvidence,
     );
@@ -134,7 +139,7 @@ export function resolveEffectProvenance<Reason extends string>(
     component: number,
   ): readonly EffectProvenanceBoundary<Reason>[] => evidenceFor(
     component,
-    dependenciesFor,
+    adjacency,
     directBoundaries,
     boundaryEvidence,
   );
@@ -145,7 +150,7 @@ export function resolveEffectProvenance<Reason extends string>(
         reason,
         componentCount,
         directBoundaries,
-        dependents,
+        adjacency,
       );
       boundaryReasonReachability.set(reason, reachable);
     }
@@ -159,14 +164,51 @@ export function resolveEffectProvenance<Reason extends string>(
     componentFor(vertex: EffectProvenanceVertex): number {
       return condensation.componentFor(vertex);
     },
-    forEachComponentDependency(
-      visitor: (destination: number, source: number) => void,
-    ): void {
-      for (let destination = 0; destination < componentCount; destination += 1) {
-        for (const source of componentsFor(dependencies, destination)) {
-          visitor(destination, source);
-        }
+    componentDependencyCount(component: number): number {
+      return requiredComponentIndex(
+        adjacency.dependencyOffsets,
+        component + 1,
+      ) - requiredComponentIndex(adjacency.dependencyOffsets, component);
+    },
+    componentDependency(
+      component: number,
+      index: number,
+    ): number {
+      const start = requiredComponentIndex(
+        adjacency.dependencyOffsets,
+        component,
+      );
+      const end = requiredComponentIndex(
+        adjacency.dependencyOffsets,
+        component + 1,
+      );
+      if (!Number.isSafeInteger(index) || index < 0 || start + index >= end) {
+        throw new Error("effect provenance component dependency is missing");
       }
+      return requiredComponentIndex(adjacency.dependencies, start + index);
+    },
+    componentDependentCount(component: number): number {
+      return requiredComponentIndex(
+        adjacency.dependentOffsets,
+        component + 1,
+      ) - requiredComponentIndex(adjacency.dependentOffsets, component);
+    },
+    componentDependent(
+      component: number,
+      index: number,
+    ): number {
+      const start = requiredComponentIndex(
+        adjacency.dependentOffsets,
+        component,
+      );
+      const end = requiredComponentIndex(
+        adjacency.dependentOffsets,
+        component + 1,
+      );
+      if (!Number.isSafeInteger(index) || index < 0 || start + index >= end) {
+        throw new Error("effect provenance component dependent is missing");
+      }
+      return requiredComponentIndex(adjacency.dependents, start + index);
     },
     resolutionFor(vertex: EffectProvenanceVertex) {
       const component = condensation.componentFor(vertex);
@@ -183,7 +225,7 @@ export function resolveEffectProvenance<Reason extends string>(
           get originEvidence(): readonly EffectProvenanceOrigin[] {
             return evidenceFor(
               component,
-              dependenciesFor,
+              adjacency,
               directOrigins,
               originEvidence,
             );
@@ -209,7 +251,7 @@ function boundaryReasonComponents<Reason extends string>(
     number,
     readonly EffectProvenanceBoundary<Reason>[]
   >,
-  dependents: ReadonlyMap<number, ReadonlySet<number>>,
+  adjacency: EffectProvenanceComponentAdjacency,
 ): Uint8Array {
   const reachable = new Uint8Array(componentCount);
   const pending = new Uint32Array(componentCount);
@@ -228,7 +270,16 @@ function boundaryReasonComponents<Reason extends string>(
   while (next < pendingCount) {
     const component = requiredIndex(pending, next);
     next += 1;
-    for (const dependent of componentsFor(dependents, component)) {
+    const start = requiredComponentIndex(
+      adjacency.dependentOffsets,
+      component,
+    );
+    const end = requiredComponentIndex(
+      adjacency.dependentOffsets,
+      component + 1,
+    );
+    for (let edge = start; edge < end; edge += 1) {
+      const dependent = requiredComponentIndex(adjacency.dependents, edge);
       if (reachable[dependent] === 1) {
         continue;
       }
@@ -242,7 +293,7 @@ function boundaryReasonComponents<Reason extends string>(
 
 function evidenceFor<Evidence>(
   root: number,
-  dependenciesFor: (component: number) => readonly number[],
+  adjacency: EffectProvenanceComponentAdjacency,
   directEvidence: ReadonlyMap<number, readonly Evidence[]>,
   cache: Map<number, readonly Evidence[]>,
 ): readonly Evidence[] {
@@ -251,27 +302,30 @@ function evidenceFor<Evidence>(
     return existing;
   }
   const visiting = new Set<number>([root]);
-  const pending: Array<{ readonly component: number; next: number }> = [
-    { component: root, next: 0 },
+  const pending: Array<{
+    readonly component: number;
+    readonly end: number;
+    next: number;
+  }> = [
+    evidenceFrame(root, adjacency),
   ];
   while (pending.length !== 0) {
     const frame = pending[pending.length - 1];
     if (frame === undefined) {
       throw new Error("effect provenance evidence traversal lost its frame");
     }
-    const selectedDependencies = dependenciesFor(frame.component);
-    const dependency = selectedDependencies[frame.next];
-    if (dependency !== undefined) {
-      pending[pending.length - 1] = {
-        component: frame.component,
-        next: frame.next + 1,
-      };
+    if (frame.next < frame.end) {
+      const dependency = requiredComponentIndex(
+        adjacency.dependencies,
+        frame.next,
+      );
+      frame.next += 1;
       if (cache.get(dependency) === undefined) {
         if (visiting.has(dependency)) {
           throw new Error("effect provenance component evidence remained cyclic");
         }
         visiting.add(dependency);
-        pending.push({ component: dependency, next: 0 });
+        pending.push(evidenceFrame(dependency, adjacency));
       }
       continue;
     }
@@ -279,13 +333,7 @@ function evidenceFor<Evidence>(
       frame.component,
       mergeEvidence(
         directEvidence.get(frame.component) ?? noEvidence,
-        selectedDependencies.map((selected) => {
-          const evidence = cache.get(selected);
-          if (evidence === undefined) {
-            throw new Error("effect provenance dependency evidence is missing");
-          }
-          return evidence;
-        }),
+        dependencyEvidence(frame.component, adjacency, cache),
       ),
     );
     visiting.delete(frame.component);
@@ -296,6 +344,42 @@ function evidenceFor<Evidence>(
     throw new Error("effect provenance evidence was not resolved");
   }
   return resolved;
+}
+
+function evidenceFrame(
+  component: number,
+  adjacency: EffectProvenanceComponentAdjacency,
+): { readonly component: number; readonly end: number; next: number } {
+  return {
+    component,
+    next: requiredComponentIndex(adjacency.dependencyOffsets, component),
+    end: requiredComponentIndex(adjacency.dependencyOffsets, component + 1),
+  };
+}
+
+function dependencyEvidence<Evidence>(
+  component: number,
+  adjacency: EffectProvenanceComponentAdjacency,
+  cache: ReadonlyMap<number, readonly Evidence[]>,
+): readonly (readonly Evidence[])[] {
+  const result: (readonly Evidence[])[] = [];
+  const start = requiredComponentIndex(
+    adjacency.dependencyOffsets,
+    component,
+  );
+  const end = requiredComponentIndex(
+    adjacency.dependencyOffsets,
+    component + 1,
+  );
+  for (let edge = start; edge < end; edge += 1) {
+    const dependency = requiredComponentIndex(adjacency.dependencies, edge);
+    const evidence = cache.get(dependency);
+    if (evidence === undefined) {
+      throw new Error("effect provenance dependency evidence is missing");
+    }
+    result.push(evidence);
+  }
+  return result;
 }
 
 function mergeEvidence<Evidence>(
@@ -319,28 +403,6 @@ function mergeEvidence<Evidence>(
       ...dependencies.flatMap((selected) => selected),
     ]),
   ]);
-}
-
-function appendComponent(
-  values: Map<number, Set<number>>,
-  owner: number,
-  selected: number,
-): boolean {
-  let entries = values.get(owner);
-  if (entries === undefined) {
-    entries = new Set();
-    values.set(owner, entries);
-  }
-  const previousSize = entries.size;
-  entries.add(selected);
-  return entries.size !== previousSize;
-}
-
-function componentsFor(
-  values: ReadonlyMap<number, ReadonlySet<number>>,
-  component: number,
-): ReadonlySet<number> {
-  return values.get(component) ?? noComponents;
 }
 
 function appendEvidence<Evidence>(

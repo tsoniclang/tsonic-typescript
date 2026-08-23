@@ -84,15 +84,7 @@ export function createEffectProvenanceOriginIndex<
       propagated: new Map(),
     };
   });
-  const dependencies = new Map<number, Set<number>>();
-  const dependents = new Map<number, Set<number>>();
   let work = graph.vertices.length;
-  resolutions.forEachComponentDependency((destination, source) => {
-    if (appendComponent(dependencies, destination, source)) {
-      appendComponent(dependents, source, destination);
-    }
-    work += 1;
-  });
 
   for (const origin of graph.origins) {
     const component = resolutions.componentFor(origin.vertex);
@@ -119,7 +111,8 @@ export function createEffectProvenanceOriginIndex<
   const pending = new Uint32Array(componentCount);
   let pendingCount = 0;
   for (let component = 0; component < componentCount; component += 1) {
-    const remaining = componentsFor(dependencies, component).size;
+    const remaining = resolutions.componentDependencyCount(component);
+    work += remaining;
     remainingDependencies[component] = remaining;
     if (remaining === 0) {
       pending[pendingCount] = component;
@@ -133,7 +126,9 @@ export function createEffectProvenanceOriginIndex<
     resolvedCount += 1;
     for (const state of classes) {
       let selected = state.direct.get(component);
-      for (const dependency of componentsFor(dependencies, component)) {
+      const dependencyCount = resolutions.componentDependencyCount(component);
+      for (let index = 0; index < dependencyCount; index += 1) {
+        const dependency = resolutions.componentDependency(component, index);
         selected = state.sets.union(
           selected,
           state.propagated.get(dependency),
@@ -143,7 +138,9 @@ export function createEffectProvenanceOriginIndex<
         state.propagated.set(component, selected);
       }
     }
-    for (const dependent of componentsFor(dependents, component)) {
+    const dependentCount = resolutions.componentDependentCount(component);
+    for (let index = 0; index < dependentCount; index += 1) {
+      const dependent = resolutions.componentDependent(component, index);
       const remaining = requiredIndex(remainingDependencies, dependent);
       if (remaining === 0) {
         throw new Error("effect provenance origin dependency count underflowed");
@@ -353,30 +350,6 @@ function appendOriginIndex<Value>(
   }
   indexes.set(occurrence, values.length);
   values.push(occurrence);
-}
-
-function appendComponent(
-  values: Map<number, Set<number>>,
-  component: number,
-  selected: number,
-): boolean {
-  let entries = values.get(component);
-  if (entries === undefined) {
-    entries = new Set();
-    values.set(component, entries);
-  }
-  const previousSize = entries.size;
-  entries.add(selected);
-  return entries.size !== previousSize;
-}
-
-const noComponents: ReadonlySet<number> = Object.freeze(new Set<number>());
-
-function componentsFor(
-  values: ReadonlyMap<number, ReadonlySet<number>>,
-  component: number,
-): ReadonlySet<number> {
-  return values.get(component) ?? noComponents;
 }
 
 function requiredIndex(values: Uint32Array, index: number): number {
