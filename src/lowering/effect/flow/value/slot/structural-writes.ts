@@ -450,13 +450,15 @@ function collectWritablePropertySignatures(
     if (sourceProperty === undefined) {
       continue;
     }
-    if (!targetProperty.readonly) {
+    const projectSlot = !targetProperty.readonly &&
       addPropertySignatureDeclarations(
         source,
         semantics,
         sourceProperty.symbol,
         result,
       );
+    if (projectSlot) {
+      continue;
     }
     collectWritablePropertySignatures(
       source,
@@ -475,7 +477,8 @@ function addPropertySignatureDeclarations(
   semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
   symbol: Symbol,
   result: Set<Node>,
-): void {
+): boolean {
+  let added = false;
   for (const declaration of semantics.declarations.symbolDeclarations(symbol)) {
     if (
       declaration !== undefined &&
@@ -483,8 +486,10 @@ function addPropertySignatureDeclarations(
       source.ast.is.IsPropertySignatureDeclaration(declaration)
     ) {
       result.add(declaration);
+      added = true;
     }
   }
+  return added;
 }
 
 function collectPropertySignatures(
@@ -512,7 +517,7 @@ function collectPropertySignatures(
         projectSlot = true;
       }
     }
-    if (projectSlot) {
+    if (!projectSlot) {
       collectPropertySignatures(source, semantics, property.type, result, expanded);
     }
   }
