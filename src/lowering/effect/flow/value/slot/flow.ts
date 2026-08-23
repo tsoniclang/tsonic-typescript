@@ -118,6 +118,7 @@ export function createExactValueSlotFlow(
       storageOwners.owners,
       exactCallImplementations,
       boundaryDependencies,
+      planningObserver,
     ),
   };
   const roots = new Map<Node, EffectProvenanceVertex>();

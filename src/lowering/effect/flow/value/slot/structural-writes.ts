@@ -8,6 +8,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../../planning-observer.js";
 import { resolveProjectInvocation } from "../../../model/project-invocation.js";
 import { transparentExpression } from "../../../model/syntax.js";
 import { exactCallableReturnExpressions } from "../../invocation/results.js";
@@ -54,6 +55,7 @@ export function createExactStructuralSlotWriteIndex(
   closedStorageOwners: ReadonlySet<Node>,
   exactCallImplementations?: ExactCallImplementations,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  planningObserver?: TypeScriptPlanningObserver,
 ): ExactStructuralSlotWriteIndex {
   const openDeclarations = collectOpaqueCallEscapes(
     source,
@@ -61,6 +63,9 @@ export function createExactStructuralSlotWriteIndex(
     exactCallImplementations,
     boundaryDependencies,
   );
+  planningObserver?.("effect-value-slot-structural-escapes", {
+    declarations: openDeclarations.size,
+  });
   const mutations = new Map<Node, ExactStorageMutation[]>();
   for (const node of program.nodesOfKinds([
     KindPropertyAccessExpression,
@@ -105,6 +110,13 @@ export function createExactStructuralSlotWriteIndex(
       selected.push(mutation);
     }
   }
+  planningObserver?.("effect-value-slot-structural-mutations", {
+    declarations: mutations.size,
+    values: [...mutations.values()].reduce(
+      (total, entries) => total + entries.length,
+      0,
+    ),
+  });
   return Object.freeze({
     mutationsFor(
       storageDeclaration: Node,

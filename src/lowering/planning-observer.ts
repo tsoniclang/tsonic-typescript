@@ -13,6 +13,8 @@ export const typeScriptPlanningPhases = Object.freeze([
   "effect-projection-candidate-order",
   "effect-value-slot-bindings",
   "effect-value-slot-binding-projections",
+  "effect-value-slot-structural-escapes",
+  "effect-value-slot-structural-mutations",
   "effect-value-slot-roots",
   "effect-value-slot-graph",
   "effect-value-slot-components",
