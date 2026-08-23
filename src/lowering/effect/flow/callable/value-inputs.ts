@@ -36,6 +36,7 @@ export interface CallableValueInputs {
   readonly storageContracts: readonly CallableStorageContract[];
   valuesFor(declaration: Node): readonly Node[] | undefined;
   isClosed(declaration: Node): boolean;
+  referenceConsumerIsClosed(reference: Node): boolean;
   projectionConsumersAreClosed(consumers: readonly Node[]): boolean;
 }
 
@@ -143,6 +144,28 @@ function finalizeCallableValueInputs(
     inputUses,
     callableReferenceIsClosed,
   } = evidence;
+  const consumersAreClosed = (consumers: readonly Node[]): boolean =>
+    consumers.every((consumer) =>
+      directContainingCall(source, consumer) !== undefined ||
+      callableReferenceIsClosed?.(consumer) === true ||
+      isCallableNonEscapingObservation(source, consumer) ||
+      invocationInputs.parametersFor(consumer)?.some((parameter) =>
+        storage.closed.has(parameter)
+      ) === true ||
+      transportedCallableDestinations(
+          source,
+          consumer,
+          storage.closed,
+          closedStorageSymbols,
+          inputUses,
+        ) !== undefined ||
+      trackedInputDestination(
+          source,
+          consumer,
+          storage.closed,
+          closedStorageSymbols,
+        ) !== undefined
+    );
   return Object.freeze({
     contracts: collections.contracts,
     storageContracts: storage.contracts,
@@ -154,28 +177,11 @@ function finalizeCallableValueInputs(
       return storage.closed.has(declaration) ||
         collections.closed.has(declaration);
     },
+    referenceConsumerIsClosed(reference: Node): boolean {
+      return consumersAreClosed([reference]);
+    },
     projectionConsumersAreClosed(consumers: readonly Node[]): boolean {
-      return consumers.every((consumer) =>
-        directContainingCall(source, consumer) !== undefined ||
-        callableReferenceIsClosed?.(consumer) === true ||
-        isCallableNonEscapingObservation(source, consumer) ||
-        invocationInputs.parametersFor(consumer)?.some((parameter) =>
-          storage.closed.has(parameter)
-        ) === true ||
-        transportedCallableDestinations(
-          source,
-          consumer,
-          storage.closed,
-          closedStorageSymbols,
-          inputUses,
-        ) !== undefined ||
-        trackedInputDestination(
-          source,
-          consumer,
-          storage.closed,
-          closedStorageSymbols,
-        ) !== undefined
-      );
+      return consumersAreClosed(consumers);
     },
   });
 }

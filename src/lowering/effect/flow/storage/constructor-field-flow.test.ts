@@ -142,11 +142,6 @@ test("retains public field flow across every open owner boundary", () => {
       setup: "const slot = new Slot(undefined); const open: unknown = slot; expose(open);",
     },
     {
-      name: "provider callable write",
-      prefix: "declare function remote(): () => Awaitable<number>;",
-      setup: "const slot = new Slot(undefined); slot.value = remote();",
-    },
-    {
       name: "field value escape",
       setup: "const slot = new Slot(async () => 42); export const escaped = slot.value;",
     },
@@ -179,4 +174,30 @@ export const result = await invoke();
       selected.name,
     );
   }
+});
+
+test("settles a known field callback beside an opaque callable value", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+class Slot {
+  declare private readonly brand: void;
+  public constructor(public value: (() => Awaitable<number>) | undefined) {}
+}
+declare function remote(): () => Awaitable<number>;
+const slot = new Slot(undefined);
+slot.value = remote();
+if (slot.value === undefined) slot.value = async (): Promise<number> => 42;
+async function invoke(): Promise<number> { return await slot.value!(); }
+export const result = await invoke();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(plan.summary.candidateCount, 2);
+  assert.equal(plan.summary.settledCallableCount, 1);
+  assert.equal(plan.summary.retainedCallableCount, 1);
+  assert.equal(result.callableCount, 1);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
 });

@@ -444,6 +444,14 @@ alias; each must retain. Storage ingress and reverse-caller fixtures route one
 exact function alias to a closed indirect call and mutate that alias to an
 unaccounted use, proving those owners consume the finalized callable-reference
 fact instead of a local syntax rule.
+A mixed-origin callable-storage fixture supplies one known project callback and
+one ambient callback to the same closed storage contract, then invokes the
+selected value under an exact await. The project callback must settle while the
+indirect call and its caller remain cooperative for the ambient alternative.
+Observing the invocation with `instanceof Promise`, exposing the storage owner,
+or routing the project callback to an ambient parameter must retain it. These
+mutations prove reference-consumer closure is directional and does not treat an
+open sibling origin as either universal permission or universal rejection.
 
 Return-provenance fixtures include uninitialized locals and class fields,
 plain writes, cyclic aliases with and without a terminal origin, closed

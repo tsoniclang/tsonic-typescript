@@ -166,7 +166,7 @@ export function classifyCooperativeEffectCallUses(
       return;
     }
     const use = cooperativeCallUse(source, candidates, call);
-    if (resolution.closed && use === "awaited") {
+    if (use === "awaited") {
       return;
     }
     if (use === "discarded") {

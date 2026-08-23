@@ -352,7 +352,10 @@ export function createGraphCallableValueFlow(
   }));
   const closedCallableReferences = new Set(
     [...context.callableReferences].flatMap(([reference, state]) =>
-      unsafeCallableUses.has(state) ? [] : [reference]
+      unsafeCallableUses.has(state) &&
+        !inputs.referenceConsumerIsClosed(reference)
+        ? []
+        : [reference]
     ),
   );
   const settledReturnContracts: readonly SettledCallableReturnContract[] = Object.freeze(

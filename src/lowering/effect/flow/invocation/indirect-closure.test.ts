@@ -240,6 +240,62 @@ export const result = await top();
   assert.ok(countAsyncCallables(fixture.source, result.sourceFile) > 0);
 });
 
+test("settles a closed callback origin inside mixed awaitable storage", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+type Callback = () => Awaitable<number>;
+declare const external: Callback;
+class Slot {
+  constructor(public readonly value: Callback) {}
+}
+async function closed(): Promise<number> { return 42; }
+const local = new Slot(closed);
+const remote = new Slot(external);
+async function invoke(slot: Slot): Promise<number> {
+  const selected = slot.value;
+  return await selected();
+}
+export const result = [await invoke(local), await invoke(remote)];
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(plan.summary.candidateCount, 2);
+  assert.equal(plan.summary.settledCallableCount, 1);
+  assert.equal(plan.summary.retainedCallableCount, 1);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
+test("retains a mixed-storage callback whose Promise identity is observed", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+type Callback = () => Awaitable<number>;
+declare const external: Callback;
+class Slot {
+  constructor(public readonly value: Callback) {}
+}
+async function closed(): Promise<number> { return 42; }
+const local = new Slot(closed);
+const remote = new Slot(external);
+function observe(slot: Slot): boolean {
+  const selected = slot.value;
+  return selected() instanceof Promise;
+}
+export const result = [observe(local), observe(remote)];
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(plan.summary.candidateCount, 1);
+  assert.equal(plan.summary.settledCallableCount, 0);
+  assert.equal(plan.summary.retainedCallableCount, 1);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+});
+
 test("retains an extracted interface method without receiver evidence", () => {
   const fixture = checkedEffectFixture(`
 type Awaitable<T> = T | PromiseLike<T>;

@@ -4,7 +4,9 @@ import type { TargetProgramIndex } from "../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
-import { callableDeclarationAllowsSynchronousValue } from "../../model/callable-contract.js";
+import {
+  callableDeclarationHasResolvableType,
+} from "../../model/callable-contract/resolution.js";
 import {
   auditStorageOwnerBoundaries,
   type StorageOwnerBinding,
@@ -127,7 +129,7 @@ function fieldCanCarryCallable(
 ): boolean {
   return source.ast.is.IsPropertyDeclaration(node) &&
     storageDeclarationCanBeTracked(source, node) &&
-    callableDeclarationAllowsSynchronousValue(source, node);
+    callableDeclarationHasResolvableType(source, node);
 }
 
 function parameterPropertyCanCarryCallable(
@@ -135,7 +137,7 @@ function parameterPropertyCanCarryCallable(
   node: Node,
 ): boolean {
   return storageDeclarationCanBeTracked(source, node) &&
-    callableDeclarationAllowsSynchronousValue(source, node);
+    callableDeclarationHasResolvableType(source, node);
 }
 
 function selectedField(

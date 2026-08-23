@@ -924,6 +924,19 @@ observation remain open. Storage ingress and reverse-caller analysis may
 consume the finalized callable-reference fact; they may not re-walk aliases or
 admit a reference merely because it occurs near a call.
 
+Reference-consumer closure is directional and remains distinct from pooled
+value-origin closure. An open sibling origin in the same callable storage may
+keep an indirect invocation and its caller cooperative, but it may not poison a
+known project callback whose own reference reaches only an exact invocation
+target, closed invocation parameter, certified transport, closed storage
+destination, or non-escaping observation. An exact await accepts either the
+settled direct value or the still-open sibling Promise, so the known callback
+may settle while the indirect call remains awaited. Promise identity
+observation, an ambient consumer, an open storage owner, or any other open use
+retains that callback. The canonical invocation-input, storage, and transport
+owners supply this consumer proof; callable provenance may not infer it from
+shared type, member, or source spelling.
+
 Return-value provenance follows exact direct, interface, and closed indirect
 implementations, final invocation inputs, local writes, closed nominal
 storage, projections, and certified result origins through the finite
