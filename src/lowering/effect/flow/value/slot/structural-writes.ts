@@ -357,6 +357,8 @@ function collectOpaqueCallEscapes(
   boundaryDependencies: StorageOwnerBoundaryDependencies | undefined,
 ): Set<Node> {
   const escaped = new Set<Node>();
+  const expandedTypes = new Set<Type>();
+  const expandedTypePairs = new Map<Type, Set<Type>>();
   for (const call of program.nodesOfKinds([
     KindCallExpression,
     KindNewExpression,
@@ -378,7 +380,7 @@ function collectOpaqueCallEscapes(
         semantics,
         receiver.type,
         escaped,
-        new Set(),
+        expandedTypes,
       );
     }
     for (const [sourceArgumentIndex, argument] of (
@@ -395,7 +397,7 @@ function collectOpaqueCallEscapes(
           semantics,
           argument.type,
           escaped,
-          new Set(),
+          expandedTypes,
         );
         continue;
       }
@@ -406,7 +408,8 @@ function collectOpaqueCallEscapes(
           argument.type,
           target,
           escaped,
-          new Map(),
+          expandedTypePairs,
+          expandedTypes,
         );
       }
     }
@@ -421,6 +424,7 @@ function collectWritablePropertySignatures(
   targetType: Type,
   result: Set<Node>,
   seen: Map<Type, Set<Type>>,
+  expandedTypes: Set<Type>,
 ): void {
   let targets = seen.get(sourceType);
   if (targets?.has(targetType) === true) {
@@ -432,7 +436,7 @@ function collectWritablePropertySignatures(
   }
   targets.add(targetType);
   if (semantics.types.isAny(targetType) || semantics.types.isUnknown(targetType)) {
-    collectPropertySignatures(source, semantics, sourceType, result, new Set());
+    collectPropertySignatures(source, semantics, sourceType, result, expandedTypes);
     return;
   }
   const sourceProperties = new Map(
@@ -461,6 +465,7 @@ function collectWritablePropertySignatures(
       targetProperty.type,
       result,
       seen,
+      expandedTypes,
     );
   }
 }
@@ -487,12 +492,12 @@ function collectPropertySignatures(
   semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
   type: Type,
   result: Set<Node>,
-  pending: Set<Type>,
+  expanded: Set<Type>,
 ): void {
-  if (pending.has(type)) {
+  if (expanded.has(type)) {
     return;
   }
-  pending.add(type);
+  expanded.add(type);
   for (const property of semantics.types.propertyInfos(type)) {
     let projectSlot = false;
     for (const declaration of semantics.declarations.symbolDeclarations(
@@ -508,7 +513,7 @@ function collectPropertySignatures(
       }
     }
     if (projectSlot) {
-      collectPropertySignatures(source, semantics, property.type, result, pending);
+      collectPropertySignatures(source, semantics, property.type, result, expanded);
     }
   }
   for (const member of [
@@ -521,8 +526,7 @@ function collectPropertySignatures(
     ...semantics.types.indexInfos(type).map((index) => index.valueType),
   ]) {
     if (member !== undefined) {
-      collectPropertySignatures(source, semantics, member, result, pending);
+      collectPropertySignatures(source, semantics, member, result, expanded);
     }
   }
-  pending.delete(type);
 }

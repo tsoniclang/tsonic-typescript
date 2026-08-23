@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { Node } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
+
+import { createTargetProgramIndex } from "../../../program-index.js";
 import {
   countAsyncCallables,
   createFixtureEffectPlan,
   checkedEffectFixture,
 } from "../../test-support/fixture.test-support.js";
 import { lowerCooperativeEffects } from "../../rewrite/transform.js";
+import { createExactStructuralSlotWriteIndex } from "../value/slot/structural-writes.js";
 
 const generatedStorageFixture = `
 type Awaitable<T> = T | PromiseLike<T>;
@@ -175,6 +180,12 @@ export const inspectResult = inspect;
   assert.ok(rewriteFixture(source).asyncCount > 0);
 });
 
+test("expands each opaque structural type pair once", () => {
+  const single = countOpaqueStructuralTypeQueries(1);
+  const repeated = countOpaqueStructuralTypeQueries(64);
+  assert.equal(repeated, single);
+});
+
 function rewriteFixture(sourceText: string) {
   const fixture = checkedEffectFixture(sourceText);
   const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
@@ -190,4 +201,50 @@ function rewriteFixture(sourceText: string) {
     ),
     interfaceDispatch: plan.summary.interfaceDispatch,
   });
+}
+
+function countOpaqueStructuralTypeQueries(callCount: number): number {
+  const calls = Array.from({ length: callCount }, () => "mutate(value);").join(
+    "\n",
+  );
+  const fixture = checkedEffectFixture(`
+interface RecursiveStorage {
+  next: RecursiveStorage | undefined;
+  callback: (() => number) | undefined;
+}
+declare function mutate(value: RecursiveStorage): void;
+const value = {} as RecursiveStorage;
+${calls}
+`);
+  let queries = 0;
+  const source: TargetSourceProgram = Object.freeze({
+    ...fixture.source,
+    semantics: Object.freeze({
+      ...fixture.source.semantics,
+      forNode(node: Node) {
+        const semantics = fixture.source.semantics.forNode(node);
+        return Object.freeze({
+          ...semantics,
+          types: Object.freeze({
+            ...semantics.types,
+            propertyInfos(
+              type: Parameters<typeof semantics.types.propertyInfos>[0],
+            ) {
+              queries += 1;
+              return semantics.types.propertyInfos(type);
+            },
+          }),
+        });
+      },
+    }),
+  });
+  createExactStructuralSlotWriteIndex(
+    source,
+    createTargetProgramIndex(source, {
+      bindingWrites: true,
+      memberDispatch: true,
+    }),
+    new Set(),
+  );
+  return queries;
 }
