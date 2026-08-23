@@ -19,6 +19,10 @@ test("value-slot result identity stays separate from callable contracts", () => 
     join(effectRoot, "flow", "value", "slot", "flow.ts"),
     "utf8",
   );
+  const engine = readFileSync(
+    join(effectRoot, "flow", "value", "slot", "engine.ts"),
+    "utf8",
+  );
   const callableResults = readFileSync(
     join(effectRoot, "flow", "callable", "result-inputs.ts"),
     "utf8",
@@ -30,9 +34,10 @@ test("value-slot result identity stays separate from callable contracts", () => 
 
   assert.match(model, /readonly resultOwner: Node/u);
   assert.match(model, /readonly contracts: readonly Node\[\]/u);
-  assert.match(flow, /resultSources\.get\(source\.resultOwner\)/u);
-  assert.match(flow, /contracts: source\.contracts/u);
+  assert.match(engine, /resultSources\.get\(source\.resultOwner\)/u);
+  assert.match(engine, /contracts: source\.contracts/u);
   assert.doesNotMatch(flow, /source\.contracts \?\? \[source\.declaration\]/u);
+  assert.doesNotMatch(engine, /source\.contracts \?\? \[source\.declaration\]/u);
   assert.match(callableResults, /resultOwner: call/u);
   assert.match(
     returnProjection,

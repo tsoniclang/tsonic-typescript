@@ -32,9 +32,9 @@ test("reads one sealed immutable provider invocation manifest", () => {
 
   assert.equal(result.contracts.length, 2);
   assert.equal(result.declarationRoot, scratch);
-  assert.equal(result.contracts[0]?.member, "forward");
+  assert.equal(result.contracts[0]?.target.member, "forward");
   assert.equal(
-    result.contracts[0]?.declarationFileName,
+    result.contracts[0]?.target.declarationFileName,
     resolve(scratch, "provider.d.ts"),
   );
   assert.deepEqual(result.contracts[1]?.state, {
@@ -91,6 +91,34 @@ test("rejects malformed state and unordered contracts", () => {
   );
 });
 
+test("reads and validates conditional synchronous replacements", () => {
+  const path = writeManifest(
+    "conditional.json",
+    manifest([conditionalTransport()]),
+  );
+
+  const selected = readProviderInvocationManifest(path).contracts[0];
+
+  assert.deepEqual(selected?.conditional?.callableParameters, [1]);
+  assert.equal(
+    selected?.conditional?.replacement.exportName,
+    "synchronousInvoke",
+  );
+  assert.ok(Object.isFrozen(selected?.conditional));
+  assert.ok(Object.isFrozen(selected?.conditional?.callableParameters));
+  assert.ok(Object.isFrozen(selected?.conditional?.replacement));
+
+  const invalid = conditionalTransport();
+  invalid["inputParameters"] = [0];
+  assert.throws(
+    () => readProviderInvocationManifest(writeManifest(
+      "conditional-noninput.json",
+      manifest([invalid]),
+    )),
+    /certified input parameters/u,
+  );
+});
+
 test("versions the invocation section independently", () => {
   const value = manifest([transport("forward")]);
   value["schemaVersion"] = 999;
@@ -102,7 +130,7 @@ test("versions the invocation section independently", () => {
 
   const stale = manifest([transport("forward")]);
   const section = stale["invocationTransportContract"] as Record<string, unknown>;
-  section["schemaVersion"] = 2;
+  section["schemaVersion"] = 3;
   assert.throws(
     () => readProviderInvocationManifest(writeManifest(
       "stale-section-schema.json",
@@ -120,7 +148,8 @@ test("rejects declaration paths outside the certified root", () => {
     ["nontype.json", "provider.ts"],
   ] as const) {
     const selected = transport("forward");
-    selected["declarationPath"] = declarationPath;
+    const target = selected["target"] as Record<string, unknown>;
+    target["declarationPath"] = declarationPath;
     assert.throws(
       () => readProviderInvocationManifest(writeManifest(
         fileName,
@@ -157,13 +186,16 @@ function transport(
 ): Record<string, unknown> {
   return {
     sourceIdentity: `source::${member}`,
-    specifier: "@provider/runtime.js",
-    sourcePath: "src/runtime.ts",
-    declarationPath: "provider.d.ts",
-    export: "Operations",
-    member,
-    targetType: "(value: () => Promise<void>) => () => Promise<void>",
-    targetFingerprint: "1".repeat(64),
+    target: {
+      specifier: "@provider/runtime.js",
+      sourcePath: "src/runtime.ts",
+      declarationPath: "provider.d.ts",
+      access: "static-method",
+      export: "Operations",
+      member,
+      targetType: "(value: () => Promise<void>) => () => Promise<void>",
+      targetFingerprint: "1".repeat(64),
+    },
     ...(options.inputParameters === undefined
       ? {}
       : { inputParameters: [...options.inputParameters] }),
@@ -171,6 +203,34 @@ function transport(
       ? {}
       : { resultOriginParameters: [...options.resultOriginParameters] }),
     ...(options.state === undefined ? {} : { state: { ...options.state } }),
+  };
+}
+
+function conditionalTransport(): Record<string, unknown> {
+  return {
+    sourceIdentity: "source::conditionalInvoke",
+    target: {
+      specifier: "@provider/runtime.js",
+      sourcePath: "src/runtime.ts",
+      declarationPath: "provider.d.ts",
+      access: "export",
+      export: "conditionalInvoke",
+      targetType: "(value: string, callback: () => Promise<void>) => Promise<void>",
+      targetFingerprint: "2".repeat(64),
+    },
+    inputParameters: [1],
+    conditional: {
+      callableParameters: [1],
+      replacement: {
+        specifier: "@provider/runtime.js",
+        sourcePath: "src/runtime.ts",
+        declarationPath: "provider.d.ts",
+        access: "export",
+        export: "synchronousInvoke",
+        targetType: "(value: string, callback: () => void) => void",
+        targetFingerprint: "3".repeat(64),
+      },
+    },
   };
 }
 
@@ -182,7 +242,7 @@ function manifest(
     packageName: "@provider/runtime",
     packageVersion: "1.0.0",
     invocationTransportContract: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       declarationRoot: ".",
       transports: transports.map((entry) => ({ ...entry })),
     },

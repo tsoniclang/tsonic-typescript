@@ -16,7 +16,9 @@ import {
 import { callableDispatchIsClosed } from "../model/syntax.js";
 import { resolveProjectInvocation } from "../model/project-invocation.js";
 import { sameSelectedType } from "../model/synchronous.js";
+import { callableHasOpenInvocationSurface } from "../model/declaration-surface.js";
 import type { EffectProvenanceEdgeKind } from "../provenance/model.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../profile.js";
 
 export interface CooperativeEffectCandidate {
   readonly declaration: Node;
@@ -37,6 +39,7 @@ export interface CooperativeEffectCandidate {
 export function collectCooperativeEffectCandidates(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): Map<Node, CooperativeEffectCandidate> {
   const candidates = new Map<Node, CooperativeEffectCandidate>();
   for (const node of program.nodesOfKinds([
@@ -77,6 +80,12 @@ export function collectCooperativeEffectCandidates(
       !callableDispatchIsClosed(source, program, node)
     ) {
       blockCooperativeEffect(candidate, "open-dispatch", node);
+    }
+    if (
+      cooperativeEffects === "closed-direct" &&
+      callableHasOpenInvocationSurface(source, node)
+    ) {
+      blockCooperativeEffect(candidate, "escaping-callable", node);
     }
   }
   return candidates;

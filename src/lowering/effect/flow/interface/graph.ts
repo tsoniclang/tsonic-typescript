@@ -5,14 +5,12 @@ import {
   KindClassExpression,
   KindCallExpression,
   KindMethodDeclaration,
-  KindMethodSignature,
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { SourceIdentityResolver } from "../../../occurrence.js";
 import {
-  callableReturnRewrite,
   type CallableReturnRewrite,
 } from "../../model/callable-contract.js";
 import { isExactInterfaceProjectDeclaration } from "./declarations.js";
@@ -46,6 +44,8 @@ import {
   createExactObjectPropertyProjectionIndex,
   type ExactObjectPropertyProjectionIndex,
 } from "../object/projection.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
+import { collectInterfaceEffectContracts } from "./contracts.js";
 
 export interface InterfaceContractFlowIndexes {
   readonly invocationInputs: ExactInvocationInputIndex;
@@ -53,6 +53,7 @@ export interface InterfaceContractFlowIndexes {
   readonly callableReferenceIsClosed?: (reference: Node) => boolean;
   readonly aggregateProjections: ExactAggregateProjectionIndex;
   readonly objectProjections?: ExactObjectPropertyProjectionIndex;
+  readonly storageOwners?: ClosedStorageOwnerAnalysis;
 }
 
 export interface InterfaceContractEntry {
@@ -147,6 +148,7 @@ export function createInterfaceContractGraph(
       indirectInvocations?.allowsCallableReference,
     cooperativeEffects,
     planningObserver,
+    indexes?.storageOwners,
   );
   const seeds = [...contracts.entries.values()].filter((entry) =>
     entry.returnRewrite !== undefined && entry.calls.length !== 0
@@ -211,10 +213,16 @@ function collectContracts(
 ): InterfaceContractIndex {
   const entries = new Map<Node, MutableInterfaceContractEntry>();
   const links = new Map<Node, Set<Node>>();
-  for (const declaration of program.nodesOfKinds([
-    KindMethodSignature,
-    KindMethodDeclaration,
-  ])) {
+  for (const contract of collectInterfaceEffectContracts(source, program)) {
+    entries.set(contract.declaration, {
+      declaration: contract.declaration,
+      calls: [],
+      returnRewrite: contract.returnRewrite,
+      abstractTransport: false,
+    });
+    links.set(contract.declaration, new Set());
+  }
+  for (const declaration of program.nodesOfKind(KindMethodDeclaration)) {
     const owner = source.ast.parent(declaration);
     const typeNode = source.ast.typeNode(declaration);
     const abstractTransport = source.ast.is.IsMethodDeclaration(declaration) &&
@@ -223,26 +231,18 @@ function collectContracts(
       source.ast.hasModifierKind(owner, "abstract") &&
       source.ast.hasModifierKind(declaration, "abstract") &&
       source.ast.body(declaration) === undefined;
-    const effectContract = source.ast.is.IsMethodSignatureDeclaration(
-      declaration,
-    ) && owner !== undefined && source.ast.is.IsInterfaceDeclaration(owner);
     if (
       owner === undefined ||
-      (!effectContract && !abstractTransport) ||
+      !abstractTransport ||
       !isExactInterfaceProjectDeclaration(source, owner) ||
       !isExactInterfaceProjectDeclaration(source, declaration) ||
       typeNode === undefined
     ) {
       continue;
     }
-    const returnRewrite = callableReturnRewrite(source, typeNode);
-    if (returnRewrite === undefined && !abstractTransport) {
-      continue;
-    }
     entries.set(declaration, {
       declaration,
       calls: [],
-      ...(returnRewrite === undefined ? {} : { returnRewrite }),
       abstractTransport,
     });
     links.set(declaration, new Set());

@@ -348,6 +348,16 @@ the manifest digest, section schema, declaration path, or target type; duplicate
 an owner; use an unrecognized carrier operation; reassign or escape the carrier;
 or substitute an ambient carrier. Each mutation must retain or fail before
 rewriting, with no partial output.
+A conditional direct-export fixture supplies one exact synchronous callback,
+requires the enclosing callable, callback, provider call, and await to settle,
+and inspects the rewritten AST for the certified synchronous export. An
+unresolved callback and a named-import call retain the canonical export. A
+re-exported declaration must exact-join through checker-owned alias/root
+identity, while a same-spelled local declaration remains ordinary. Mutations
+change the replacement type or declaration, omit or duplicate a callback
+index, move the replacement to another module, make it equal the canonical
+target, or expose a call shape the rewriter cannot own; each must fail closed
+or retain before output rather than partially rewriting a file.
 A provider-boundary mutation removes the selected declaration file from the
 semantic program while preserving the exact checked call and an incomplete
 provider record. The generic callable owner must retain the flow without ever
@@ -382,6 +392,25 @@ and do not fabricate a call or erase an actual external ingress.
 Structural inspection proves interface implementation-input closure consumes
 that same selected profile and rejects restoration of an unconditional module-
 forwarding boundary.
+The recursive stored-callback fixture runs under both profiles: exact exported
+linkage settles under `closed-program` and the same callback/storage component
+retains under `closed-direct`. This gate must fail if callable-storage ingress
+skips all module-forwarding references or lets an interface bootstrap permission
+escape into final closure.
+A joint interface/storage fixture forms a closed cycle through a structural
+slot, an implicitly implementing class, an interface call, a stored recursive
+callback, and its owner class. Under `declared-closed` plus `closed-program`,
+the provisional pass must discover the complete exact component and the final
+pass must reproduce it without provisional permissions before all callables
+and awaits settle. Mutations add an explicit callback `this` parameter, export
+the callback under `closed-direct`, route the same owner through an unrelated
+interface, mediate the write through an opaque helper, expose the storage,
+write an opaque value, or introduce an independent alias; each retains the
+component. A structural mutation that restores a separate opaque-call escape
+decision for slot flow must fail the positive cycle, while removal of final
+post-validation must fail the negative matrix. The focused test also proves
+`closed-direct` retains an exported callable signature and `closed-program`
+settles the otherwise identical closed product flow.
 The same gate requires source-file-keyed relevance caches and rejects the
 single-current-file cache that recomputes identical type closures across
 kind-major passes. A recursive shared-tail fixture exact-checks positive and

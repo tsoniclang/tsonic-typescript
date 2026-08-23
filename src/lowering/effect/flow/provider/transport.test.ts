@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { SourceFile } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import { KindCallExpression } from "@tsonic/tsts/target-ast";
+import {
+  AsCallExpression,
+  AsPropertyAccessExpression,
+  KindCallExpression,
+} from "@tsonic/tsts/target-ast";
 
 import { createTargetProgramIndex } from "../../../program-index.js";
 import {
@@ -14,10 +18,13 @@ import { lowerCooperativeEffects } from "../../rewrite/transform.js";
 import { providerInvocationFactKey } from "./fact.js";
 import {
   checkedProviderFixture,
+  conditionalProviderContract,
   providerContract,
   providerSession,
   testProviderSpecifier,
 } from "./provider.test-support.js";
+
+const conditional = conditionalProviderContract();
 
 const zero = providerContract(
   "zero",
@@ -91,6 +98,75 @@ await run();
 `, [forward]);
 
   assert.equal(rewrittenAsyncCount(source), 0);
+});
+
+test("selects a certified synchronous provider export for settled callbacks", () => {
+  const source = checkedProviderFixture(`
+import * as provider from "${testProviderSpecifier}";
+const callback = async (): Promise<void> => {};
+async function run(): Promise<void> {
+  await provider.conditionalInvoke(callback);
+}
+await run();
+`, [conditional]);
+
+  const rewritten = rewrittenProviderFixture(source, "open-structural");
+
+  assert.equal(rewritten.asyncCount, 0);
+  assert.deepEqual(propertyCallNames(source, rewritten.sourceFile), [
+    "synchronousInvoke",
+  ]);
+});
+
+test("retains a conditional provider export for an unresolved callback", () => {
+  const source = checkedProviderFixture(`
+import * as provider from "${testProviderSpecifier}";
+declare const callback: () => Promise<void>;
+async function run(): Promise<void> {
+  await provider.conditionalInvoke(callback);
+}
+run();
+`, [conditional]);
+
+  const rewritten = rewrittenProviderFixture(source, "open-structural");
+
+  assert.equal(rewritten.asyncCount, 1);
+  assert.ok(
+    propertyCallNames(source, rewritten.sourceFile).includes("conditionalInvoke"),
+  );
+});
+
+test("retains a conditional provider call whose import shape is not rewritable", () => {
+  const source = checkedProviderFixture(`
+import { conditionalInvoke } from "${testProviderSpecifier}";
+const callback = async (): Promise<void> => {};
+async function run(): Promise<void> {
+  await conditionalInvoke(callback);
+}
+run();
+`, [conditional]);
+
+  const rewritten = rewrittenProviderFixture(source, "open-structural");
+
+  assert.equal(rewritten.asyncCount, 1);
+});
+
+test("rejects a stale conditional provider replacement", () => {
+  const session = providerSession(`
+import * as provider from "${testProviderSpecifier}";
+export const result = provider.conditionalInvoke(async () => {});
+`, [{
+    ...conditional,
+    conditional: Object.freeze({
+      ...conditional.conditional!,
+      replacement: Object.freeze({
+        ...conditional.conditional!.replacement,
+        targetType: "(value: number) => number",
+      }),
+    }),
+  }]);
+
+  assert.throws(() => session.checkSource(), /expected type/u);
 });
 
 test("settles a callable projected from one transported provider result", () => {
@@ -315,8 +391,11 @@ async function run(): Promise<void> { await forwarded(); }
 run();
 `, [{
     ...forward,
-    declarationPath: "other.d.ts",
-    declarationFileName: "/src/node_modules/@test/provider/other.d.ts",
+    target: Object.freeze({
+      ...forward.target,
+      declarationPath: "other.d.ts",
+      declarationFileName: "/src/node_modules/@test/provider/other.d.ts",
+    }),
   }]);
 
   assert.equal(rewrittenAsyncCount(source), 2);
@@ -326,7 +405,13 @@ test("rejects a stale provider target type before lowering", () => {
   const session = providerSession(`
 import { Operations } from "${testProviderSpecifier}";
 export const callback = Operations.forward(async () => {});
-`, [{ ...forward, targetType: "(value: number) => number" }]);
+`, [{
+    ...forward,
+    target: Object.freeze({
+      ...forward.target,
+      targetType: "(value: number) => number",
+    }),
+  }]);
   assert.throws(
     () => session.checkSource(),
     /expected type/u,
@@ -361,8 +446,40 @@ function rewrittenProviderFixture(
   plan.finish();
   return Object.freeze({
     asyncCount: countAsyncCallables(source, rewritten.sourceFile),
+    sourceFile: rewritten.sourceFile,
     summary: plan.summary,
   });
+}
+
+function propertyCallNames(
+  source: TargetSourceProgram,
+  sourceFile: SourceFile,
+): readonly string[] {
+  const names: string[] = [];
+  const pending: Node[] = [sourceFile];
+  while (pending.length !== 0) {
+    const node = pending.pop();
+    if (node === undefined) {
+      continue;
+    }
+    const call = source.ast.is.IsCallExpression(node)
+      ? AsCallExpression(node)
+      : undefined;
+    const access = call?.Expression !== undefined &&
+        source.ast.is.IsPropertyAccessExpression(call.Expression)
+      ? AsPropertyAccessExpression(call.Expression)
+      : undefined;
+    const name = source.ast.text(access?.name);
+    if (name !== undefined && name !== "") {
+      names.push(name);
+    }
+    for (const child of source.ast.children(node)) {
+      if (child !== undefined) {
+        pending.push(child);
+      }
+    }
+  }
+  return Object.freeze(names.sort());
 }
 
 function createProgram(

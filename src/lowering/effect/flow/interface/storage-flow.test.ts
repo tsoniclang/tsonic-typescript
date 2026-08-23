@@ -67,7 +67,12 @@ export class Adapter extends GoInterfaceValue implements TypeData {
 }
 `,
   });
-  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const plan = createFixtureEffectPlan(
+    fixture.source,
+    "declared-closed",
+    undefined,
+    "closed-program",
+  );
   const rewritten = fixture.source.navigation.sourceFiles.map((sourceFile) =>
     lowerCooperativeEffects(sourceFile, plan)
   );

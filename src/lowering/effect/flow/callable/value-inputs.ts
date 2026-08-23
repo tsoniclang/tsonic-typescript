@@ -19,6 +19,7 @@ import {
 } from "../storage/inputs.js";
 import type { CallableStorageContract } from "../storage/contracts.js";
 import type { CallableFields } from "../storage/fields.js";
+import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
 import {
   directContainingCall,
 } from "../../model/syntax.js";
@@ -60,6 +61,7 @@ export function collectCallableValueInputs(
   callableReferenceIsClosed?: (reference: Node) => boolean,
   planningObserver?: TypeScriptPlanningObserver,
   callableFields?: CallableFields,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
 ): CallableValueInputs {
   const evidence = collectCallableValueInputEvidence(
     source,
@@ -70,6 +72,7 @@ export function collectCallableValueInputs(
     callableReferenceIsClosed,
     planningObserver,
     callableFields,
+    boundaryDependencies,
   );
   return finalizeCallableValueInputs(evidence);
 }
@@ -83,6 +86,7 @@ function collectCallableValueInputEvidence(
   callableReferenceIsClosed: ((reference: Node) => boolean) | undefined,
   planningObserver: TypeScriptPlanningObserver | undefined,
   callableFields: CallableFields | undefined,
+  boundaryDependencies: StorageOwnerBoundaryDependencies | undefined,
 ): CallableValueInputEvidence {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
@@ -102,6 +106,7 @@ function collectCallableValueInputEvidence(
     callableReferenceIsClosed,
     planningObserver,
     callableFields,
+    boundaryDependencies,
   );
   planningObserver?.("effect-indirect-value-storage");
   const closedStorageSymbols = indexDeclarationSymbols(

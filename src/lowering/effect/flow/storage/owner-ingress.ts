@@ -18,13 +18,12 @@ import {
   exactSourceCallInputsForDeclaration,
 } from "../invocation/call-binding.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
-import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
+import type { StorageOwnerBoundaryDependencies } from "./owner-boundaries.js";
 import {
   declarationForSymbols,
   indexDeclarationSymbols,
 } from "../callable/input-reference.js";
 import {
-  callableDispatchIsClosed,
   directContainingCall,
   isModuleForwardingReference,
 } from "../../model/syntax.js";
@@ -48,16 +47,15 @@ export function auditStorageOwnerIngress(
   selectedOwners: ReadonlySet<Node>,
   invalid: Set<Node>,
   transports?: InvocationTransportContract,
-  invocationInputs?: ExactInvocationInputIndex,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
 ): void {
   const ingress = collectOwnerIngress(
     source,
     program,
     ownersFor,
     selectedOwners,
-    invocationInputs,
   );
   if (ingress.size === 0) {
     return;
@@ -75,6 +73,7 @@ export function auditStorageOwnerIngress(
     transports,
     exactCallImplementations,
     callableReferenceIsClosed,
+    boundaryDependencies,
   );
   for (const entry of ingress.values()) {
     if (entry.open) {
@@ -90,7 +89,6 @@ function collectOwnerIngress(
   program: TargetProgramIndex,
   ownersFor: (node: Node) => StorageOwnerMembership,
   selectedOwners: ReadonlySet<Node>,
-  invocationInputs: ExactInvocationInputIndex | undefined,
 ): Map<Node, OwnerIngress> {
   const result = new Map<Node, OwnerIngress>();
   for (const parameter of program.nodesOfKind(KindParameter)) {
@@ -101,7 +99,9 @@ function collectOwnerIngress(
     if (
       owners.size === 0 ||
       declaration === undefined ||
-      source.ast.is.IsConstructorDeclaration(declaration)
+      source.ast.is.IsConstructorDeclaration(declaration) ||
+      !source.navigation.isProjectDeclaration(declaration) ||
+      source.ast.body(declaration) === undefined
     ) {
       continue;
     }
@@ -115,8 +115,7 @@ function collectOwnerIngress(
         ...existing,
         owners: merged,
         parameters: new Set([...existing.parameters, parameter]),
-        open: existing.open || invocationInputs !== undefined &&
-          !invocationInputs.isClosed(parameter),
+        open: existing.open,
       });
       continue;
     }
@@ -124,12 +123,7 @@ function collectOwnerIngress(
       declaration,
       owners: new Set(owners),
       parameters: new Set([parameter]),
-      open: !source.navigation.isProjectDeclaration(declaration) ||
-        source.ast.body(declaration) === undefined ||
-        program.hasBindingWrite(declaration) ||
-        !callableDispatchIsClosed(source, program, declaration) ||
-        invocationInputs !== undefined &&
-          !invocationInputs.isClosed(parameter),
+      open: program.hasBindingWrite(declaration),
     });
   }
   return result;
@@ -175,6 +169,7 @@ function auditCallableReferences(
   transports?: InvocationTransportContract,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
 ): void {
   const symbols = indexDeclarationSymbols(source, ingress.keys());
   for (const node of program.nodesOfKinds([
@@ -188,9 +183,16 @@ function auditCallableReferences(
       declaration === undefined ||
       entry === undefined ||
       node === source.ast.name(declaration) ||
-      isModuleForwardingReference(source, node) ||
       isTypeOnlyReference(source, node)
     ) {
+      continue;
+    }
+    if (isModuleForwardingReference(source, node)) {
+      if (
+        boundaryDependencies?.allowsModuleForwardingReference(node) !== true
+      ) {
+        entry.open = true;
+      }
       continue;
     }
     const call = directContainingCall(source, node);

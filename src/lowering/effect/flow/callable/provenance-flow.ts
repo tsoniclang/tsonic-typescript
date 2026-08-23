@@ -69,6 +69,8 @@ import { transparentExpression } from "../../model/syntax.js";
 import {
   collectCallReturnContractStates,
 } from "./provenance/call-contracts.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
+import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
 
 export type CallableBoundaryReason =
   | "inexact-reference"
@@ -129,6 +131,8 @@ export function createGraphCallableValueFlow(
   objectProjections?: ExactObjectPropertyProjectionIndex,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   callableFields?: CallableFields,
+  storageOwners?: ClosedStorageOwnerAnalysis,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
   planningObserver?: TypeScriptPlanningObserver,
 ): GraphCallableValueFlow {
   const projectionCandidates = collectCallableProjectionCandidates(
@@ -146,6 +150,9 @@ export function createGraphCallableValueFlow(
     projectionCandidates,
     (call) => invocationTransportResultOrigins(call, transports),
     planningObserver,
+    storageOwners,
+    callableReferenceIsClosed,
+    boundaryDependencies,
   );
   const inputUses = createCallableInputUseContract(source, results, transports);
   const inputs = collectCallableValueInputs(
@@ -157,6 +164,7 @@ export function createGraphCallableValueFlow(
     callableReferenceIsClosed,
     planningObserver,
     callableFields,
+    boundaryDependencies,
   );
   const context: CallableContext = {
     source,
@@ -399,6 +407,7 @@ export function createGraphCallableValueFlow(
     closedCallableReferences,
     settledReturnContracts,
     callContractRequirements,
+    expressionResolution,
     callableReferenceIsClosed,
   );
 }

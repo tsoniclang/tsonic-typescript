@@ -14,6 +14,8 @@ import type { CallableValueResolution } from "./value-resolution.js";
 import type { ExactCallImplementations } from "./result-inputs.js";
 import type { CallableFields } from "../storage/fields.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
+import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
 
 export type { CallableValueResolution } from "./value-resolution.js";
 
@@ -23,6 +25,9 @@ export interface CallableValueFlow {
     visitor: (call: Node, resolution: CallableValueResolution) => void,
   ): void;
   resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
+  resolutionForExpression(
+    expression: Node | undefined,
+  ): CallableValueResolution | undefined;
   contractForCall(call: Node): CallableValueResolution | undefined;
   allowsCallableReference(node: Node): boolean;
   settledReturnTypes(
@@ -42,6 +47,8 @@ export function createCallableValueFlow(
   objectProjections?: ExactObjectPropertyProjectionIndex,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   callableFields?: CallableFields,
+  storageOwners?: ClosedStorageOwnerAnalysis,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
   planningObserver?: TypeScriptPlanningObserver,
 ): CallableValueFlow {
   return createGraphCallableValueFlow(
@@ -56,6 +63,8 @@ export function createCallableValueFlow(
     objectProjections,
     callableReferenceIsClosed,
     callableFields,
+    storageOwners,
+    boundaryDependencies,
     planningObserver,
   );
 }

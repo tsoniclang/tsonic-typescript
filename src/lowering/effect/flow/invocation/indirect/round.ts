@@ -27,6 +27,8 @@ import { sameValueAlternatives } from "../../value/alternatives.js";
 import type { CallableFields } from "../../storage/fields.js";
 import type { ExactAggregateProjectionIndex } from "../../aggregate/projection.js";
 import type { ExactInvocationInputIndex } from "../inputs.js";
+import type { ClosedStorageOwnerAnalysis } from "../../storage/analysis.js";
+import type { StorageOwnerBoundaryDependencies } from "../../storage/owner-boundaries.js";
 import { collectClosedIndirectCallableReferences } from "./reference-closure.js";
 import { selectClosedIndirectCallableOrigins } from "./origin-selection.js";
 import type {
@@ -71,6 +73,8 @@ export function collectExactIndirectInvocationRound(
   projectionCandidates: readonly Node[] = Object.freeze([]),
   planningObserver?: TypeScriptPlanningObserver,
   callableFields?: CallableFields,
+  storageOwners?: ClosedStorageOwnerAnalysis,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
 ): ExactIndirectInvocationRound {
   const results = createCallableResultInputs(
     source,
@@ -82,6 +86,9 @@ export function collectExactIndirectInvocationRound(
     projectionCandidates,
     (call) => invocationTransportResultOrigins(call, transports),
     planningObserver,
+    storageOwners,
+    callableReferenceIsClosed,
+    boundaryDependencies,
   );
   planningObserver?.("effect-indirect-results");
   const inputUses = createCallableInputUseContract(
@@ -98,6 +105,7 @@ export function collectExactIndirectInvocationRound(
     callableReferenceIsClosed,
     planningObserver,
     callableFields,
+    boundaryDependencies,
   );
   planningObserver?.("effect-indirect-value-inputs");
   const context: CallableOriginContext = {

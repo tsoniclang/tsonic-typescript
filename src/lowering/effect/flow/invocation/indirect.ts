@@ -10,7 +10,11 @@ import {
   type ExactCallImplementations,
 } from "../callable/result-inputs.js";
 import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
-import { collectCallableFields, type CallableFields } from "../storage/fields.js";
+import {
+  collectCallableFields,
+  createCallableFieldBoundaryDependencies,
+  type CallableFields,
+} from "../storage/fields.js";
 import { extendExactInvocationInputIndex } from "./implementation-inputs.js";
 import type { ExactInvocationInputIndex } from "./inputs.js";
 import { collectCallableProjectionCandidates } from "../callable/projection-candidates.js";
@@ -21,12 +25,21 @@ import type {
   ExactIndirectInvocationRound,
 } from "./indirect/model.js";
 import { finalizeExactIndirectInvocationFacts } from "./indirect/finalization.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
+import {
+  composeStorageOwnerBoundaryDependencies,
+  type StorageOwnerBoundaryDependencies,
+} from "../storage/owner-boundaries.js";
 
 export type {
   ExactIndirectCallableInvocation,
   ExactIndirectInvocationAnalysis,
   ExactIndirectInvocationFacts,
 } from "./indirect/model.js";
+
+export type ExactIndirectInvocationBootstrap =
+  | "none"
+  | "declared-interface";
 interface ExactIndirectInvocationDomain {
   readonly source: TargetSourceProgram;
   readonly program: TargetProgramIndex;
@@ -34,6 +47,8 @@ interface ExactIndirectInvocationDomain {
   readonly objectProjections: ExactObjectPropertyProjectionIndex;
   readonly projectionCandidates: readonly Node[];
   readonly callableFields: CallableFields;
+  readonly storageOwners?: ClosedStorageOwnerAnalysis;
+  readonly boundaryDependencies?: StorageOwnerBoundaryDependencies;
 }
 
 function emptyRound(): ExactIndirectInvocationRound {
@@ -53,6 +68,10 @@ export function createExactIndirectInvocationAnalysis(
   initialCallImplementations?: ExactCallImplementations,
   planningObserver?: TypeScriptPlanningObserver,
   callableFields?: CallableFields,
+  storageOwners?: ClosedStorageOwnerAnalysis,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  bootstrap: ExactIndirectInvocationBootstrap = "none",
+  bootstrapStorageDependencies?: StorageOwnerBoundaryDependencies,
 ): ExactIndirectInvocationAnalysis {
   const domain: ExactIndirectInvocationDomain = Object.freeze({
     source,
@@ -65,7 +84,36 @@ export function createExactIndirectInvocationAnalysis(
       planningObserver,
     ),
     callableFields: callableFields ?? collectCallableFields(source, program),
+    ...(storageOwners === undefined ? {} : { storageOwners }),
+    ...(boundaryDependencies === undefined ? {} : { boundaryDependencies }),
   });
+  if (bootstrap === "declared-interface") {
+    const boundaryDependencies = composeStorageOwnerBoundaryDependencies([
+      domain.boundaryDependencies,
+      bootstrapStorageDependencies,
+      createCallableFieldBoundaryDependencies(source, domain.callableFields),
+    ]);
+    const seed = collectExactIndirectInvocationRound(
+      source,
+      program,
+      direct,
+      projections,
+      objectProjections,
+      transports,
+      initialCallImplementations,
+      () => true,
+      domain.projectionCandidates,
+      planningObserver,
+      domain.callableFields,
+      domain.storageOwners,
+      boundaryDependencies,
+    );
+    return createAnalysis(
+      domain,
+      seed,
+      extendInputs(source, direct, seed.invocations, projections),
+    );
+  }
   return settleExactIndirectInvocationAnalysis(
     domain,
     direct,
@@ -85,7 +133,12 @@ function settleExactIndirectInvocationAnalysis(
   seed: ExactIndirectInvocationRound,
 ): ExactIndirectInvocationAnalysis {
   const { source, program, projections, objectProjections } = domain;
-  let invocationInputs = direct;
+  let invocationInputs = extendInputs(
+    source,
+    direct,
+    seed.invocations,
+    projections,
+  );
   let previous = seed;
   const states = new Set<string>();
   const identities = new Map<Node, number>();
@@ -107,6 +160,8 @@ function settleExactIndirectInvocationAnalysis(
       domain.projectionCandidates,
       planningObserver,
       domain.callableFields,
+      domain.storageOwners,
+      domain.boundaryDependencies,
     );
     planningObserver?.("effect-indirect-round");
     if (sameRound(previous, current)) {

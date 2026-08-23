@@ -8,6 +8,8 @@ import {
   callableDeclarationSynchronousReturnTypes,
   callableReturnRewrite,
   callableReturnRewriteAdmitsDirectValue,
+  selectedCallableReturnType,
+  type CallableReturnRewrite,
 } from "../../../model/callable-contract.js";
 import {
   callableDeclarationHasResolvableType,
@@ -22,6 +24,7 @@ import {
   transparentExpression,
 } from "../../../model/syntax.js";
 import {
+  sameSelectedType,
   typeMaySuspend,
 } from "../../../model/synchronous.js";
 import {
@@ -83,15 +86,27 @@ function collectCallRequirement(
   const rewrite = returnType === undefined
     ? undefined
     : callableReturnRewrite(source, returnType);
-  if (
-    rewrite !== undefined &&
-    callableReturnRewriteAdmitsDirectValue(source, rewrite)
-  ) {
-    return Object.freeze({
-      resolvable: true,
-      candidateDependencies: emptyNodes,
-      contractDependencies: Object.freeze([rewrite.target]),
-    });
+  if (rewrite !== undefined) {
+    const resolution = callResolutions.get(call);
+    if (
+      resolution !== undefined &&
+      exactCandidateResultsMatchContract(context, resolution, rewrite)
+    ) {
+      return Object.freeze({
+        resolvable: true,
+        candidateDependencies: Object.freeze([
+          ...resolution.dependencyNodes(),
+        ]),
+        contractDependencies: emptyNodes,
+      });
+    }
+    if (callableReturnRewriteAdmitsDirectValue(source, rewrite)) {
+      return Object.freeze({
+        resolvable: true,
+        candidateDependencies: emptyNodes,
+        contractDependencies: Object.freeze([rewrite.target]),
+      });
+    }
   }
   const implementation = resolveProjectInvocation(source, call)?.implementation;
   const projected = context.results.sourceFor(call);
@@ -120,6 +135,62 @@ function collectCallRequirement(
   ));
   pending.delete(implementation);
   return requirement;
+}
+
+function exactCandidateResultsMatchContract(
+  context: CallableContext,
+  resolution: CallableValueResolution,
+  selected: CallableReturnRewrite,
+): boolean {
+  if (
+    !resolution.closed ||
+    resolution.dependencyCount === 0 ||
+    resolution.synchronousDeclarationCount !== 0
+  ) {
+    return false;
+  }
+  const selectedNode = selectedCallableReturnType(
+    context.source,
+    selected.target,
+    selected.selection,
+  );
+  const selectedSemantics = selectedNode === undefined
+    ? undefined
+    : context.source.semantics.forNode(selectedNode);
+  const selectedType = selectedNode === undefined
+    ? undefined
+    : selectedSemantics?.types.authoredType(selectedNode);
+  if (selectedSemantics === undefined || selectedType === undefined) {
+    return false;
+  }
+  for (const declaration of resolution.dependencyNodes()) {
+    if (!context.candidates.has(declaration)) {
+      return false;
+    }
+    const returnType = context.source.ast.typeNode(declaration);
+    const rewrite = returnType === undefined
+      ? undefined
+      : callableReturnRewrite(context.source, returnType);
+    const directNode = rewrite === undefined
+      ? undefined
+      : selectedCallableReturnType(
+          context.source,
+          rewrite.target,
+          rewrite.selection,
+        );
+    const directType = directNode === undefined
+      ? undefined
+      : context.source.semantics.forNode(directNode).types.authoredType(
+          directNode,
+        );
+    if (
+      rewrite === undefined ||
+      !sameSelectedType(selectedSemantics, selectedType, directType)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function callableContractSourceRequirement(

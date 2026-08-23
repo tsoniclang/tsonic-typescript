@@ -4,16 +4,25 @@ import type { EffectProvenanceGraphBuilder } from "../../../provenance/graph.js"
 import type { EffectProvenanceVertex } from "../../../provenance/model.js";
 import type { ExactValueSlotPath } from "./model.js";
 import { exactValueSlotPathKey } from "./selectors.js";
+import type { ExactTrackedValueSlotInput } from "./tracked.js";
 
 export interface ValueSlotState {
   readonly vertex: EffectProvenanceVertex;
-  readonly kind: "expression" | "result";
+  readonly kind: "expression" | "result" | "tracked-slot";
   readonly occurrence: Node;
   readonly recursive: boolean;
   expanded: boolean;
 }
 
 export type ValueSlotWorkItem =
+  | {
+    readonly kind: "tracked-slot";
+    readonly state: ValueSlotState;
+    readonly inputs: readonly ExactTrackedValueSlotInput[];
+    readonly path: ExactValueSlotPath;
+    readonly occurrence: Node;
+    readonly closed: boolean;
+  }
   | {
     readonly kind: "expression";
     readonly state: ValueSlotState;
@@ -61,15 +70,24 @@ export function createValueSlotStateRegistry<Reason extends string>(
   active: ValueSlotActiveStates,
   builder: EffectProvenanceGraphBuilder<Reason>,
 ): ValueSlotStateRegistry {
-  const expressions = new Map<Node, Map<string, ValueSlotState>>();
-  const results = new Map<Node, Map<string, ValueSlotState>>();
+  const statesByKind = new Map<
+    ValueSlotState["kind"],
+    Map<Node, Map<string, ValueSlotState>>
+  >([
+    ["expression", new Map()],
+    ["result", new Map()],
+    ["tracked-slot", new Map()],
+  ]);
   return Object.freeze({
     select(
       kind: ValueSlotState["kind"],
       occurrence: Node,
       path: ExactValueSlotPath,
     ): ValueSlotState {
-      const states = kind === "expression" ? expressions : results;
+      const states = statesByKind.get(kind);
+      if (states === undefined) {
+        throw new Error(`value-slot state kind '${kind}' is not registered`);
+      }
       let selected = states.get(occurrence);
       if (selected === undefined) {
         selected = new Map();

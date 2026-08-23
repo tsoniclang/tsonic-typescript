@@ -14,21 +14,34 @@ export interface ProviderInvocationStateContract {
   readonly writeParameters: readonly number[];
 }
 
-export interface ProviderInvocationContract {
-  readonly identity: string;
-  readonly semanticKey: string;
-  readonly sourceIdentity: string;
+export type ProviderInvocationTargetAccess = "export" | "static-method";
+
+export interface ProviderInvocationTargetContract {
   readonly specifier: string;
   readonly sourcePath: string;
   readonly declarationPath: string;
   readonly declarationFileName: string;
+  readonly access: ProviderInvocationTargetAccess;
   readonly exportName: string;
-  readonly member: string;
+  readonly member?: string;
   readonly targetType: string;
   readonly targetFingerprint: string;
+}
+
+export interface ProviderInvocationConditionalContract {
+  readonly callableParameters: readonly number[];
+  readonly replacement: ProviderInvocationTargetContract;
+}
+
+export interface ProviderInvocationContract {
+  readonly identity: string;
+  readonly semanticKey: string;
+  readonly sourceIdentity: string;
+  readonly target: ProviderInvocationTargetContract;
   readonly inputParameters: readonly number[];
   readonly resultOriginParameters: readonly number[];
   readonly state?: ProviderInvocationStateContract;
+  readonly conditional?: ProviderInvocationConditionalContract;
 }
 
 export interface ProviderInvocationManifest {
@@ -43,16 +56,27 @@ export interface ProviderInvocationManifest {
 
 const transportKeys = new Set([
   "sourceIdentity",
+  "target",
+  "inputParameters",
+  "resultOriginParameters",
+  "state",
+  "conditional",
+]);
+
+const targetKeys = new Set([
   "specifier",
   "sourcePath",
   "declarationPath",
+  "access",
   "export",
   "member",
   "targetType",
   "targetFingerprint",
-  "inputParameters",
-  "resultOriginParameters",
-  "state",
+]);
+
+const conditionalKeys = new Set([
+  "callableParameters",
+  "replacement",
 ]);
 
 const stateKeys = new Set([
@@ -127,7 +151,7 @@ export function readProviderInvocationManifest(
     "invocationTransportContract",
     contractKeys,
   );
-  if (integer(section["schemaVersion"], "invocationTransportContract.schemaVersion") !== 1) {
+  if (integer(section["schemaVersion"], "invocationTransportContract.schemaVersion") !== 2) {
     throw new Error(`Provider invocation manifest '${path}' has unsupported invocation-transport schema`);
   }
   const declarationRootValue = nonemptyString(
@@ -171,9 +195,66 @@ function readTransport(
 ): ProviderInvocationContract {
   const subject = `invocationTransportContract.transports[${index}]`;
   const source = exactRecord(value, subject, transportKeys);
-  const specifier = nonemptyString(source["specifier"], `${subject}.specifier`);
+  const target = readTarget(
+    source["target"],
+    declarationRoot,
+    `${subject}.target`,
+  );
+  const key = targetKey(target);
+  const state = source["state"] === undefined
+    ? undefined
+    : readState(source["state"], `${subject}.state`);
+  const inputParameters = indexes(
+    source["inputParameters"],
+    `${subject}.inputParameters`,
+  );
+  const conditional = source["conditional"] === undefined
+    ? undefined
+    : readConditional(
+        source["conditional"],
+        target,
+        inputParameters,
+        declarationRoot,
+        `${subject}.conditional`,
+      );
+  return Object.freeze({
+    identity: `${manifestDigest}:${key}`,
+    semanticKey: key,
+    sourceIdentity: nonemptyString(
+      source["sourceIdentity"],
+      `${subject}.sourceIdentity`,
+    ),
+    target,
+    inputParameters,
+    resultOriginParameters: indexes(
+      source["resultOriginParameters"],
+      `${subject}.resultOriginParameters`,
+    ),
+    ...(state === undefined ? {} : { state }),
+    ...(conditional === undefined ? {} : { conditional }),
+  });
+}
+
+function readTarget(
+  value: unknown,
+  declarationRoot: string,
+  subject: string,
+): ProviderInvocationTargetContract {
+  const source = exactRecord(value, subject, targetKeys);
+  const access = source["access"];
+  if (access !== "export" && access !== "static-method") {
+    throw new Error(`${subject}.access is invalid`);
+  }
   const exportName = nonemptyString(source["export"], `${subject}.export`);
-  const member = nonemptyString(source["member"], `${subject}.member`);
+  const member = source["member"] === undefined
+    ? undefined
+    : nonemptyString(source["member"], `${subject}.member`);
+  if (
+    (access === "export" && member !== undefined) ||
+    (access === "static-method" && member === undefined)
+  ) {
+    throw new Error(`${subject} has an invalid ${access} shape`);
+  }
   const declarationPath = providerDeclarationPath(
     source["declarationPath"],
     `${subject}.declarationPath`,
@@ -183,35 +264,65 @@ function readTransport(
   if (escaped === ".." || escaped.startsWith("../") || isAbsolute(escaped)) {
     throw new Error(`${subject}.declarationPath escapes the declaration root`);
   }
-  const key = `${specifier}\u0000${exportName}\u0000${member}`;
-  const state = source["state"] === undefined
-    ? undefined
-    : readState(source["state"], `${subject}.state`);
   return Object.freeze({
-    identity: `${manifestDigest}:${key}`,
-    semanticKey: key,
-    sourceIdentity: nonemptyString(
-      source["sourceIdentity"],
-      `${subject}.sourceIdentity`,
-    ),
-    specifier,
+    specifier: nonemptyString(source["specifier"], `${subject}.specifier`),
     sourcePath: nonemptyString(source["sourcePath"], `${subject}.sourcePath`),
     declarationPath,
     declarationFileName,
+    access,
     exportName,
-    member,
+    ...(member === undefined ? {} : { member }),
     targetType: nonemptyString(source["targetType"], `${subject}.targetType`),
     targetFingerprint: digest(
       source["targetFingerprint"],
       `${subject}.targetFingerprint`,
     ),
-    inputParameters: indexes(source["inputParameters"], `${subject}.inputParameters`),
-    resultOriginParameters: indexes(
-      source["resultOriginParameters"],
-      `${subject}.resultOriginParameters`,
-    ),
-    ...(state === undefined ? {} : { state }),
   });
+}
+
+function readConditional(
+  value: unknown,
+  target: ProviderInvocationTargetContract,
+  inputParameters: readonly number[],
+  declarationRoot: string,
+  subject: string,
+): ProviderInvocationConditionalContract {
+  const source = exactRecord(value, subject, conditionalKeys);
+  const callableParameters = indexes(
+    source["callableParameters"],
+    `${subject}.callableParameters`,
+  );
+  if (callableParameters.length === 0) {
+    throw new Error(`${subject}.callableParameters must be non-empty`);
+  }
+  if (callableParameters.some((parameter) => !inputParameters.includes(parameter))) {
+    throw new Error(
+      `${subject}.callableParameters must be certified input parameters`,
+    );
+  }
+  const replacement = readTarget(
+    source["replacement"],
+    declarationRoot,
+    `${subject}.replacement`,
+  );
+  if (
+    target.access !== "export" ||
+    replacement.access !== "export" ||
+    target.specifier !== replacement.specifier ||
+    targetKey(target) === targetKey(replacement)
+  ) {
+    throw new Error(`${subject} has an invalid replacement target`);
+  }
+  return Object.freeze({ callableParameters, replacement });
+}
+
+function targetKey(target: ProviderInvocationTargetContract): string {
+  return [
+    target.specifier,
+    target.access,
+    target.exportName,
+    target.member ?? "",
+  ].join("\u0000");
 }
 
 function providerDeclarationPath(value: unknown, subject: string): string {

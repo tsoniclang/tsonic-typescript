@@ -19,6 +19,7 @@ import {
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import { isTransparentParent } from "../callable/input-reference.js";
+import { storageDeclarationCanBeTracked } from "./owners.js";
 import {
   collectStorageOwnerCarriers,
   emptyStorageOwnerMembership,
@@ -272,11 +273,34 @@ function invocationReceiver(source: TargetSourceProgram, call: Node): Node | und
     return undefined;
   }
   if (source.ast.is.IsPropertyAccessExpression(expression)) {
+    if (storedCallableDoesNotObserveReceiver(source, call, expression)) {
+      return undefined;
+    }
     return source.ast.as.AsPropertyAccessExpression(expression)?.Expression;
   }
-  return source.ast.is.IsElementAccessExpression(expression)
-    ? source.ast.as.AsElementAccessExpression(expression)?.Expression
-    : undefined;
+  if (source.ast.is.IsElementAccessExpression(expression)) {
+    if (storedCallableDoesNotObserveReceiver(source, call, expression)) {
+      return undefined;
+    }
+    return source.ast.as.AsElementAccessExpression(expression)?.Expression;
+  }
+  return undefined;
+}
+
+function storedCallableDoesNotObserveReceiver(
+  source: TargetSourceProgram,
+  call: Node,
+  access: Node,
+): boolean {
+  const semantics = source.semantics.forNode(call);
+  const selected = source.ast.is.IsPropertyAccessExpression(access)
+    ? semantics.operations.propertyAccess(access)?.selectedDeclaration
+    : semantics.operations.elementAccess(access)?.selectedDeclaration;
+  const signature = semantics.operations.call(call)?.selectedSignature;
+  return selected !== undefined &&
+    storageDeclarationCanBeTracked(source, selected) &&
+    signature !== undefined &&
+    semantics.types.signatureThisParameterInfo(signature) === undefined;
 }
 
 function transparentChild(source: TargetSourceProgram, node: Node): Node | undefined {

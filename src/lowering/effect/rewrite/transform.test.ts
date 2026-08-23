@@ -25,7 +25,12 @@ export async function top(): Promise<number> { return await middle(); }
 export const result = await top();
 `);
 
-  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const plan = createClosedCooperativeEffectPlan(
+    fixture.source,
+    "open-structural",
+    undefined,
+    "closed-program",
+  );
   const result = lowerCooperativeEffects(fixture.sourceFile, plan);
   plan.finish();
 
@@ -258,7 +263,12 @@ export class MathOps {
 }
 `,
   });
-  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const plan = createClosedCooperativeEffectPlan(
+    fixture.source,
+    "open-structural",
+    undefined,
+    "closed-program",
+  );
   const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
     lowerCooperativeEffects(sourceFile, plan)
   );

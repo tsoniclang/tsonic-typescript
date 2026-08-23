@@ -80,7 +80,7 @@ test("forbids every superseded target-owned reference-index shape", () => {
 test("requires declaration-bounded reference consumers", () => {
   const consumers = [
     "src/lowering/effect/flow/callable/input-reference.ts",
-    "src/lowering/effect/flow/callable/value-inputs.ts",
+    "src/lowering/effect/flow/value/slot/storage.ts",
     "src/lowering/effect/flow/storage/owners.ts",
   ];
   for (const path of consumers) {

@@ -9,6 +9,7 @@ import {
 } from "../../model/callable-contract/resolution.js";
 import {
   auditStorageOwnerBoundaries,
+  type StorageOwnerBoundaryDependencies,
   type StorageOwnerBinding,
 } from "./owner-boundaries.js";
 import { storageDeclarationCanBeTracked } from "./owners.js";
@@ -26,7 +27,42 @@ export interface CallableFields {
     exactCallImplementations?: ExactCallImplementations,
     callableReferenceIsClosed?: (reference: Node) => boolean,
     planningObserver?: TypeScriptPlanningObserver,
+    boundaryDependencies?: StorageOwnerBoundaryDependencies,
   ): ReadonlySet<Node>;
+}
+
+export function createCallableFieldBoundaryDependencies(
+  source: TargetSourceProgram,
+  fields: CallableFields,
+): StorageOwnerBoundaryDependencies {
+  return Object.freeze({
+    allowsInvocation(invocation: Node): boolean {
+      if (!source.ast.is.IsCallExpression(invocation)) {
+        return false;
+      }
+      const expression = source.ast.as.AsCallExpression(invocation)?.Expression;
+      if (expression === undefined) {
+        return false;
+      }
+      const semantics = source.semantics.forNode(invocation);
+      const selected = source.ast.is.IsPropertyAccessExpression(expression)
+        ? semantics.operations.propertyAccess(expression)?.selectedDeclaration
+        : source.ast.is.IsElementAccessExpression(expression)
+        ? semantics.operations.elementAccess(expression)?.selectedDeclaration
+        : undefined;
+      const signature = semantics.operations.call(invocation)?.selectedSignature;
+      return selected !== undefined &&
+        fields.declarations.has(selected) &&
+        signature !== undefined &&
+        semantics.types.signatureThisParameterInfo(signature) === undefined;
+    },
+    allowsContextualValue(): boolean {
+      return false;
+    },
+    allowsModuleForwardingReference(): boolean {
+      return false;
+    },
+  });
 }
 
 export function collectCallableFields(
@@ -73,6 +109,7 @@ export function collectCallableFields(
       exactCallImplementations?: ExactCallImplementations,
       callableReferenceIsClosed?: (reference: Node) => boolean,
       planningObserver?: TypeScriptPlanningObserver,
+      boundaryDependencies?: StorageOwnerBoundaryDependencies,
     ): ReadonlySet<Node> {
       const bindings = new Map<Node, StorageOwnerBinding>();
       for (const field of declarations) {
@@ -94,11 +131,11 @@ export function collectCallableFields(
         (expression) => selectedField(source, expression, declarations),
         false,
         transports,
-        undefined,
         exactCallImplementations,
         callableReferenceIsClosed,
         planningObserver,
         owners.size === 0 ? undefined : storageOwners.topology(planningObserver),
+        boundaryDependencies,
       );
       return new Set([...bindings.values()]
         .filter((binding) => binding.valid)

@@ -61,7 +61,7 @@ export const result = await top();
 
   const plan = createFixtureEffectPlan(
     fixture.source,
-    "declared-closed",
+    "open-structural",
     (phase) => phases.push(phase),
   );
   lowerCooperativeEffects(fixture.sourceFile, plan);

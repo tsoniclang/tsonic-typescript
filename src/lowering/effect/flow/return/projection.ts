@@ -18,6 +18,7 @@ import {
   type ReturnProjectionFlow,
 } from "./projection/finalization.js";
 import type { ReturnStorageFlow } from "./storage.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 
 export type { ReturnProjectionFlow } from "./projection/finalization.js";
 
@@ -30,6 +31,7 @@ export function createReturnProjectionFlow(
   queryRoots: readonly Node[],
   locals: ReturnLocalFlow,
   storage: ReturnStorageFlow,
+  storageOwners: ClosedStorageOwnerAnalysis,
   objectProjections: ExactObjectPropertyProjectionIndex,
   transports?: InvocationTransportContract,
   planningObserver?: TypeScriptPlanningObserver,
@@ -99,6 +101,7 @@ export function createReturnProjectionFlow(
     invocationInputs,
     candidates,
     planningObserver,
+    storageOwners,
   );
   const closedInputs = new Map<Node, readonly Node[]>();
   for (const expression of candidates) {

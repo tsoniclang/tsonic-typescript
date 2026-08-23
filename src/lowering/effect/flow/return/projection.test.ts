@@ -120,7 +120,7 @@ export const result = await consume();
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
 });
 
-test("keeps polymorphic result owners separate from their shared contract", () => {
+test("settles separate polymorphic result owners through their exact shared contract", () => {
   const fixture = checkedEffectFixture(`
 class Failure { constructor(readonly message: string) {} }
 interface Producer {
@@ -146,10 +146,10 @@ export const result = await consume(true);
   const result = lowerCooperativeEffects(fixture.sourceFile, plan);
   plan.finish();
 
-  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
   assert.equal(
     countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
-    3,
+    0,
   );
 });
 

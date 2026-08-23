@@ -12,6 +12,11 @@ export interface ResolvedProjectInvocation {
   readonly implementation: Node;
 }
 
+export interface ResolvedProjectInvocationContract {
+  readonly call: ResolvedSourceCallInfo;
+  readonly contract: Node;
+}
+
 export function referenceHasExactSemantics(
   source: TargetSourceProgram,
   reference: SourceDeclarationReference | undefined,
@@ -24,6 +29,20 @@ export function resolveProjectInvocation(
   source: TargetSourceProgram,
   node: Node,
 ): ResolvedProjectInvocation | undefined {
+  const selected = resolveProjectInvocationContract(source, node);
+  if (selected === undefined) {
+    return undefined;
+  }
+  const implementation = projectCallableImplementation(source, selected.contract);
+  return implementation === undefined
+    ? undefined
+    : Object.freeze({ ...selected, implementation });
+}
+
+export function resolveProjectInvocationContract(
+  source: TargetSourceProgram,
+  node: Node,
+): ResolvedProjectInvocationContract | undefined {
   if (
     !source.ast.is.IsCallExpression(node) &&
     !source.ast.is.IsNewExpression(node)
@@ -39,14 +58,12 @@ export function resolveProjectInvocation(
     call === undefined ||
     call.outcome !== "applicable" ||
     call.sourceSelectedSignatureKind !== "resolved" ||
-    contract === undefined
+    contract === undefined ||
+    !nodeHasExactSourceSemantics(source, contract)
   ) {
     return undefined;
   }
-  const implementation = projectCallableImplementation(source, contract);
-  return implementation === undefined
-    ? undefined
-    : Object.freeze({ call, contract, implementation });
+  return Object.freeze({ call, contract });
 }
 
 export function projectCallableImplementation(

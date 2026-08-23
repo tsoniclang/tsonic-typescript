@@ -34,7 +34,12 @@ export async function invoke(): Promise<number> {
 export const result = await invoke();
 `);
 
-  const plan = createFixtureEffectPlan(fixture.source);
+  const plan = createFixtureEffectPlan(
+    fixture.source,
+    "open-structural",
+    undefined,
+    "closed-program",
+  );
   const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
     lowerCooperativeEffects(sourceFile, plan)
   );

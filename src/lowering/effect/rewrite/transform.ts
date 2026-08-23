@@ -5,9 +5,14 @@ import type {
 import {
   AsAwaitExpression,
   AsArrowFunction,
+  AsCallExpression,
   AsFunctionDeclaration,
   AsFunctionExpression,
   AsMethodDeclaration,
+  AsPropertyAccessExpression,
+  NewIdentifier,
+  NewPropertyAccessExpression,
+  NodeFactory_UpdateCallExpression,
   NodeFactory_UpdateArrowFunction,
   NodeFactory_UpdateFunctionDeclaration,
   NodeFactory_UpdateFunctionExpression,
@@ -19,11 +24,17 @@ import type {
   TargetAstRewrite,
 } from "@tsonic/tsts/target-ast";
 
-import type { CooperativeEffectPlan } from "../planning/plan.js";
+import type {
+  CooperativeEffectFilePlan,
+  CooperativeEffectPlan,
+} from "../planning/plan.js";
 import {
   selectedCallableReturnType,
   type CallableReturnRewrite,
 } from "../model/callable-contract.js";
+
+type ConditionalProviderInvocation =
+  CooperativeEffectFilePlan["providerCalls"][number];
 
 export interface CooperativeEffectRewriteResult {
   readonly sourceFile: SourceFile;
@@ -47,6 +58,9 @@ export function createCooperativeEffectRewriteSession(
   const returnTypes = new Map(
     file.returnTypes.map((rewrite) => [rewrite.target, rewrite] as const),
   );
+  const providerCalls = new Map(
+    file.providerCalls.map((provider) => [provider.call, provider] as const),
+  );
   if (returnTypes.size !== file.returnTypes.length) {
     throw new Error("cooperative-effect return contract was planned twice");
   }
@@ -54,6 +68,7 @@ export function createCooperativeEffectRewriteSession(
   const consumedAwaits = new Set<Node>();
   const consumedModifiers = new Set<Node>();
   const consumedReturnTypes = new Set<Node>();
+  const consumedProviderCalls = new Set<Node>();
   let finished = false;
   return Object.freeze({
     rewrite(original: Node, updated: Node, factory: NodeFactory): Node | undefined {
@@ -88,6 +103,14 @@ export function createCooperativeEffectRewriteSession(
         consumedAwaits.add(original);
         return expression;
       }
+      const provider = providerCalls.get(original);
+      if (provider !== undefined) {
+        if (consumedProviderCalls.has(original)) {
+          throw new Error("planned conditional provider call was visited twice");
+        }
+        consumedProviderCalls.add(original);
+        return settleProviderCall(plan, provider, updated, factory);
+      }
       if (!callables.has(original)) {
         return updated;
       }
@@ -110,6 +133,11 @@ export function createCooperativeEffectRewriteSession(
         new Set(returnTypes.keys()),
         consumedReturnTypes,
       );
+      assertExactConsumption(
+        "conditional provider call",
+        new Set(providerCalls.keys()),
+        consumedProviderCalls,
+      );
       plan.finishFile(sourceFile);
       return Object.freeze({
         sourceFile: transformed,
@@ -118,6 +146,55 @@ export function createCooperativeEffectRewriteSession(
       });
     },
   });
+}
+
+function settleProviderCall(
+  plan: CooperativeEffectPlan,
+  provider: ConditionalProviderInvocation,
+  updated: Node,
+  factory: NodeFactory,
+): Node {
+  const replacement = provider.fact.conditional?.replacement;
+  const call = plan.source.ast.is.IsCallExpression(updated)
+    ? AsCallExpression(updated)
+    : undefined;
+  const access = call?.Expression !== undefined &&
+      plan.source.ast.is.IsPropertyAccessExpression(call.Expression)
+    ? AsPropertyAccessExpression(call.Expression)
+    : undefined;
+  const receiver = access?.Expression;
+  if (
+    replacement === undefined ||
+    provider.fact.target.access !== "export" ||
+    replacement.access !== "export" ||
+    call === undefined ||
+    access === undefined ||
+    receiver === undefined ||
+    plan.source.ast.text(access.name) !== provider.fact.target.exportName
+  ) {
+    throw new Error(
+      `Conditional provider call '${provider.fact.semanticKey}' lost its exact namespace-export shape`,
+    );
+  }
+  const target = NewPropertyAccessExpression(
+    factory,
+    receiver,
+    access.QuestionDotToken,
+    NewIdentifier(factory, replacement.exportName),
+    access.Flags,
+  );
+  if (target === undefined) {
+    throw new Error("failed to construct conditional provider replacement");
+  }
+  return requiredNode(NodeFactory_UpdateCallExpression(
+    factory,
+    call,
+    target,
+    call.QuestionDotToken,
+    call.TypeArguments,
+    call.Arguments,
+    call.Flags,
+  ));
 }
 
 export function lowerCooperativeEffects(

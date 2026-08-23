@@ -199,6 +199,7 @@ function isPointerMarker(marker: SourceMarkerFact): boolean {
     case "field":
     case "attribute":
     case "default-value":
+    case "js-string":
       return false;
   }
 }

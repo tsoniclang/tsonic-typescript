@@ -17,7 +17,12 @@ export const testProviderSpecifier = "@test/provider";
 
 const providerRoot = "/src/node_modules/@test/provider";
 const providerDeclaration = `${providerRoot}/index.d.ts`;
+const providerKernelDeclaration = `${providerRoot}/kernels.d.ts`;
 const providerSource = `
+export {
+  conditionalInvoke,
+  synchronousInvoke,
+} from "./kernels.js";
 export declare class State {}
 export type Awaitable<T> = T | PromiseLike<T>;
 export declare class Operations {
@@ -32,6 +37,13 @@ export declare class Operations {
   ): [() => Promise<void>, boolean];
   static invoke<T>(callback: (value: T) => Awaitable<number>): void;
 }
+`;
+const providerKernelSource = `
+export type Awaitable<T> = T | PromiseLike<T>;
+export declare function conditionalInvoke(
+  callback: () => Awaitable<void>,
+): Promise<void>;
+export declare function synchronousInvoke(callback: () => void): void;
 `;
 
 export function providerContract(
@@ -54,17 +66,59 @@ export function providerContract(
     identity: `manifest:${semanticKey}`,
     semanticKey,
     sourceIdentity: `test::${member}`,
-    specifier: testProviderSpecifier,
-    sourcePath: "src/provider.ts",
-    declarationPath: "index.d.ts",
-    declarationFileName: providerDeclaration,
-    exportName: "Operations",
-    member,
-    targetType,
-    targetFingerprint: "0".repeat(64),
+    target: Object.freeze({
+      specifier: testProviderSpecifier,
+      sourcePath: "src/provider.ts",
+      declarationPath: "index.d.ts",
+      declarationFileName: providerDeclaration,
+      access: "static-method",
+      exportName: "Operations",
+      member,
+      targetType,
+      targetFingerprint: "0".repeat(64),
+    }),
     inputParameters: Object.freeze([...inputParameters]),
     resultOriginParameters: Object.freeze([...resultOriginParameters]),
     ...(state === undefined ? {} : { state }),
+  });
+}
+
+export function conditionalProviderContract(): ProviderInvocationContract {
+  const semanticKey = [
+    testProviderSpecifier,
+    "export",
+    "conditionalInvoke",
+    "",
+  ].join("\u0000");
+  return Object.freeze({
+    identity: `manifest:${semanticKey}`,
+    semanticKey,
+    sourceIdentity: "test::conditionalInvoke",
+    target: Object.freeze({
+      specifier: testProviderSpecifier,
+      sourcePath: "src/provider.ts",
+      declarationPath: "index.d.ts",
+      declarationFileName: providerDeclaration,
+      access: "export",
+      exportName: "conditionalInvoke",
+      targetType: "(callback: () => Awaitable<void>) => Promise<void>",
+      targetFingerprint: "1".repeat(64),
+    }),
+    inputParameters: Object.freeze([0]),
+    resultOriginParameters: Object.freeze([]),
+    conditional: Object.freeze({
+      callableParameters: Object.freeze([0]),
+      replacement: Object.freeze({
+        specifier: testProviderSpecifier,
+        sourcePath: "src/provider.ts",
+        declarationPath: "index.d.ts",
+        declarationFileName: providerDeclaration,
+        access: "export",
+        exportName: "synchronousInvoke",
+        targetType: "(callback: () => void) => void",
+        targetFingerprint: "2".repeat(64),
+      }),
+    }),
   });
 }
 
@@ -96,6 +150,7 @@ export function providerSession(
     files: {
       "/src/index.ts": sourceText,
       [providerDeclaration]: providerSource,
+      [providerKernelDeclaration]: providerKernelSource,
       [`${providerRoot}/package.json`]: JSON.stringify({
         name: "@test/provider",
         version: "1.0.0",

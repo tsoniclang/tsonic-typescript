@@ -18,6 +18,9 @@ import { transparentExpression } from "../../model/syntax.js";
 import type { CallableResultLookup } from "./result-inputs.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { exactValueSlotPathKey } from "../value/slot/selectors.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
+import type { ExactCallImplementations } from "./result-inputs.js";
+import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
 
 export interface CallableProjectionInput {
   readonly declaration: Node;
@@ -41,6 +44,10 @@ export function createCallableProjectionInputs(
   invocationInputs: ExactInvocationInputIndex | undefined,
   candidates: readonly Node[],
   planningObserver?: TypeScriptPlanningObserver,
+  storageOwners?: ClosedStorageOwnerAnalysis,
+  exactCallImplementations?: ExactCallImplementations,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
 ): CallableProjectionInputs {
   const slots = createExactValueSlotFlow(
     source,
@@ -50,6 +57,10 @@ export function createCallableProjectionInputs(
     invocationInputs,
     candidates,
     planningObserver,
+    storageOwners,
+    exactCallImplementations,
+    callableReferenceIsClosed,
+    boundaryDependencies,
   );
   const projectionResults = new Map<Node, CallableProjectionInput>();
   for (const expression of candidates) {

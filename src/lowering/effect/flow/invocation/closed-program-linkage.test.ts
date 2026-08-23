@@ -102,6 +102,20 @@ test("settles an exported recursive callback stored by an exact constructor", ()
   assert.equal(awaits, 0);
 });
 
+test("retains the recursive export under library-safe closure", () => {
+  const fixture = recursiveVisitorFixture();
+  const plan = createFixtureEffectPlan(fixture.source);
+
+  for (const sourceFile of fixture.source.navigation.sourceFiles) {
+    lowerCooperativeEffects(sourceFile, plan);
+  }
+  plan.finish();
+
+  assert.equal(plan.summary.candidateCount, 2);
+  assert.equal(plan.summary.settledCallableCount, 0);
+  assert.equal(plan.summary.retainedCallableCount, 2);
+});
+
 test("retains a constructor-stored callback exposed to an ambient consumer", () => {
   const fixture = checkedEffectFixture(`
 import { Visitor, visit } from "./visitor.js";

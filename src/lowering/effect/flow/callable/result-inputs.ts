@@ -16,6 +16,8 @@ import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import { createCallableProjectionInputs } from "./projection-inputs.js";
 import { exactCallableReturnExpressions } from "../invocation/results.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
+import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
+import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
 
 export interface CallableResultInput {
   readonly expressions: readonly (Node | undefined)[];
@@ -62,6 +64,9 @@ export function createCallableResultInputs(
   projectionCandidates: readonly Node[],
   resultOriginsForCall?: ExactCallResultOrigins,
   planningObserver?: TypeScriptPlanningObserver,
+  storageOwners?: ClosedStorageOwnerAnalysis,
+  callableReferenceIsClosed?: (reference: Node) => boolean,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
 ): CallableResultInputs {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
   const returnTypes = new Map<
@@ -196,6 +201,10 @@ export function createCallableResultInputs(
     invocationInputs,
     projectionCandidates,
     planningObserver,
+    storageOwners,
+    exactCallImplementations,
+    callableReferenceIsClosed,
+    boundaryDependencies,
   );
   return Object.freeze({
     sourceFor,

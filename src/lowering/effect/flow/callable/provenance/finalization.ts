@@ -23,6 +23,9 @@ export interface GraphCallableValueFlow {
     visitor: (call: Node, resolution: CallableValueResolution) => void,
   ): void;
   resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
+  resolutionForExpression(
+    expression: Node | undefined,
+  ): CallableValueResolution | undefined;
   contractForCall(call: Node): CallableValueResolution | undefined;
   allowsCallableReference(node: Node): boolean;
   settledReturnTypes(
@@ -36,6 +39,9 @@ export function finalizeGraphCallableValueFlow(
   closedCallableReferences: ReadonlySet<Node>,
   settledReturnContracts: readonly SettledCallableReturnContract[],
   callContractRequirements: ReadonlyMap<Node, CallableCallContractRequirement>,
+  expressionResolution: (
+    expression: Node,
+  ) => CallableValueResolution | undefined,
   inheritedCallableReferenceIsClosed:
     ((reference: Node) => boolean) | undefined,
 ): GraphCallableValueFlow {
@@ -51,6 +57,13 @@ export function finalizeGraphCallableValueFlow(
     },
     resolutionFor(call: Node | undefined): CallableValueResolution | undefined {
       return call === undefined ? undefined : callResolutions.get(call);
+    },
+    resolutionForExpression(
+      expression: Node | undefined,
+    ): CallableValueResolution | undefined {
+      return expression === undefined
+        ? undefined
+        : expressionResolution(expression);
     },
     contractForCall(call: Node): CallableValueResolution | undefined {
       const requirement = callContractRequirements.get(call);

@@ -37,6 +37,9 @@ export const result = loadPointer(await create());
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
+    undefined,
+    "open-structural",
+    "closed-program",
   );
   const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
     lowerCooperativeEffects(sourceFile, plan)
@@ -144,6 +147,9 @@ export async function selected(
     }),
     (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
     createPointerResultContract(fixture.source, pointerPlan),
+    undefined,
+    "open-structural",
+    "closed-program",
   );
   const results = fixture.source.navigation.sourceFiles.map((sourceFile) =>
     lowerCooperativeEffects(sourceFile, plan)

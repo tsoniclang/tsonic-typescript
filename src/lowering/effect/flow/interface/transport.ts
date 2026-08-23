@@ -45,7 +45,10 @@ import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import { createInterfaceOriginRequirements } from "./ingress/requirements.js";
 import { createInterfaceImplementationInputIndex } from "./ingress/implementation-inputs.js";
-import { collectClosedStorageOwners } from "../storage/owners.js";
+import {
+  createClosedStorageOwnerAnalysis,
+  type ClosedStorageOwnerAnalysis,
+} from "../storage/analysis.js";
 import {
   drainInterfaceContractTypePairs,
   enqueueInterfaceContractTypePair,
@@ -57,6 +60,7 @@ import {
 import {
   createCheckedInterfaceParameterInputs,
 } from "./ingress/checked-parameters.js";
+import { createInterfaceStorageBoundaryDependencies } from "./storage-dependencies.js";
 
 interface TypePairState extends InterfaceContractTypePairState {
   readonly roots: WeakMap<Node, Map<string, Map<Type, Set<Type>>>>;
@@ -75,6 +79,7 @@ export function collectInterfaceContractTransports(
   callableReferenceIsClosed?: (reference: Node) => boolean,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
   planningObserver?: TypeScriptPlanningObserver,
+  selectedStorageOwners?: ClosedStorageOwnerAnalysis,
 ): ExactInvocationInputIndex {
   const state: TypePairState = {
     source,
@@ -89,6 +94,17 @@ export function collectInterfaceContractTransports(
   const opaqueInputs = createOpaqueInterfaceInputLedger();
   const checkedParameterInputs = createCheckedInterfaceParameterInputs();
   const originRequirements = createInterfaceOriginRequirements();
+  const storageBoundaryDependencies = createInterfaceStorageBoundaryDependencies(
+    source,
+    new Set([...contracts.entries.keys()].flatMap((contract) => {
+      const owner = source.ast.parent(contract);
+      return owner === undefined || !source.ast.is.IsInterfaceDeclaration(owner)
+        ? []
+        : [owner];
+    })),
+  );
+  const storageOwners = selectedStorageOwners ??
+    createClosedStorageOwnerAnalysis(source, program);
   const ingress: InterfaceContractIngress = {
     source,
     program,
@@ -101,7 +117,7 @@ export function collectInterfaceContractTransports(
     checkedParameterInputs,
     aggregateProjections,
     objectProjections,
-    closedStorageOwners: collectClosedStorageOwners(source, program),
+    closedStorageOwners: storageOwners.owners,
     originRequirements,
     ...(transports === undefined ? {} : { transports }),
     ...(exactCallImplementations === undefined
@@ -249,6 +265,10 @@ export function collectInterfaceContractTransports(
     completeInvocationInputs,
     originRequirements.requiredValues(),
     planningObserver,
+    storageOwners,
+    exactCallImplementations,
+    callableReferenceIsClosed,
+    storageBoundaryDependencies,
   );
   planningObserver?.("effect-interface-value-slots");
   checkedParameterInputs.seal();

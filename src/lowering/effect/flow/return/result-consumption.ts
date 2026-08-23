@@ -43,7 +43,7 @@ export function createCooperativeResultConsumption(
     invocationInputs,
     projections,
     objectProjections,
-    storageOwners.owners,
+    storageOwners,
     exactCallImplementations,
     transports,
     callableReferenceIsClosed,

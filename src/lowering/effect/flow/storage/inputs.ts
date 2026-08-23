@@ -42,6 +42,7 @@ import {
   auditFieldUse,
   type StorageReferenceCounts,
 } from "./reference-audit.js";
+import type { StorageOwnerBoundaryDependencies } from "./owner-boundaries.js";
 
 export interface CallableStorageInputs {
   readonly values: ReadonlyMap<Node, readonly Node[]>;
@@ -65,6 +66,7 @@ export function collectCallableStorageInputs(
   callableReferenceIsClosed?: (reference: Node) => boolean,
   planningObserver?: TypeScriptPlanningObserver,
   fieldsIndex?: CallableFields,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
 ): CallableStorageInputs {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
@@ -177,6 +179,7 @@ export function collectCallableStorageInputs(
     exactCallImplementations,
     callableReferenceIsClosed,
     planningObserver,
+    boundaryDependencies,
   );
   planningObserver?.("effect-indirect-storage-boundaries");
 

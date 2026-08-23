@@ -322,7 +322,8 @@ test("callable, return, and consumer flows share one storage-owner analysis", ()
   assert.match(fields, /storageOwners\.topology\(planningObserver\)/u);
   assert.match(returns, /storageOwners\.topology\(planningObserver\)/u);
   assert.match(plan, /storageOwners,/u);
-  assert.match(consumer, /closedStorageOwners: ReadonlySet<Node>/u);
+  assert.match(consumer, /storageOwners: ClosedStorageOwnerAnalysis/u);
+  assert.match(consumer, /closedStorageOwners: storageOwners\.owners/u);
   assert.doesNotMatch(fields, /createStorageOwnerTopology/u);
   assert.doesNotMatch(returns, /createStorageOwnerTopology/u);
   assert.doesNotMatch(consumerFacts, /collectClosedStorageOwners/u);

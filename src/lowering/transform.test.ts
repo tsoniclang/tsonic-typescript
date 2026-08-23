@@ -306,7 +306,7 @@ export const result = await invoke(true);
     {
       pointerFlows: "closed-direct",
       scalarProjections: "closed-direct",
-      cooperativeEffects: "closed-direct",
+      cooperativeEffects: "closed-program",
     },
     sourceIdentity(fixture),
   ));

@@ -15,6 +15,7 @@ import { createExactValueSlotFlow } from "../../value/slot/flow.js";
 import type { ExactValueSlotCallSource } from "../../value/slot/model.js";
 import { exactCallableReturnExpressions } from "../../invocation/results.js";
 import type { ExactInvocationInputIndex } from "../../invocation/inputs.js";
+import type { ClosedStorageOwnerAnalysis } from "../../storage/analysis.js";
 import {
   callableDispatchIsClosed,
   isFunctionLike,
@@ -302,6 +303,7 @@ export function indexResultProjectionReads(
   invocationInputs: ExactInvocationInputIndex,
   exactCallImplementations?: (call: Node) => readonly Node[] | undefined,
   transports?: InvocationTransportContract,
+  storageOwners?: ClosedStorageOwnerAnalysis,
 ): ExactResultProjectionReads {
   const mutable = new Map<Node, Node[]>();
   const invocations = new Map<Node, Node[]>();
@@ -319,6 +321,8 @@ export function indexResultProjectionReads(
     ),
     invocationInputs,
     projections.roots,
+    undefined,
+    storageOwners,
   );
   for (const read of program.nodesOfKinds([
     KindElementAccessExpression,

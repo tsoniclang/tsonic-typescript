@@ -86,6 +86,24 @@ export declare const direct: () => number;
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
 });
 
+test("retains an indirect call when exact candidate result contracts differ", () => {
+  const fixture = checkedEffectFixture(`
+const numberValue = async (): Promise<number> => 42;
+const stringValue = async (): Promise<string> => "value";
+const selected: () => Promise<number | string> = Math.random() > 0.5
+  ? numberValue
+  : stringValue;
+async function value(): Promise<number | string> { return await selected(); }
+export const result = await value();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.ok(countAsyncCallables(fixture.source, result.sourceFile) > 0);
+});
+
 test("changing a bodyless result to Promise restores cooperative transport", () => {
   const direct = lower(`export declare function selected(): number;`, `
 import { selected } from "./provider.js";

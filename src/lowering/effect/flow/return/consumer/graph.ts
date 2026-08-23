@@ -38,6 +38,7 @@ import type {
   ResultConsumerBoundary,
   ResultConsumerGraph,
 } from "./model.js";
+import type { ClosedStorageOwnerAnalysis } from "../../storage/analysis.js";
 
 export type { ResultConsumerGraph } from "./model.js";
 
@@ -49,7 +50,7 @@ export function createResultConsumerGraph(
   invocationInputs: ExactInvocationInputIndex,
   projections: ExactAggregateProjectionIndex,
   objectProjections: ExactObjectPropertyProjectionIndex,
-  closedStorageOwners: ReadonlySet<Node>,
+  storageOwners: ClosedStorageOwnerAnalysis,
   exactCallImplementations?: (call: Node) => readonly Node[] | undefined,
   transports?: InvocationTransportContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
@@ -61,6 +62,7 @@ export function createResultConsumerGraph(
     invocationInputs,
     exactCallImplementations,
     transports,
+    storageOwners,
   );
   const context: ConsumerContext = {
     source,
@@ -70,7 +72,7 @@ export function createResultConsumerGraph(
     invocationInputs,
     projections,
     objectProjections,
-    closedStorageOwners,
+    closedStorageOwners: storageOwners.owners,
     callsByDeclaration: indexResultConsumerCalls(
       source,
       program,

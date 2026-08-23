@@ -60,7 +60,6 @@ export function createReturnStorageFlow(
     (expression) => selectedStorageDeclaration(source, expression),
     true,
     transports,
-    invocationInputs,
     exactCallImplementations,
     callableReferenceIsClosed,
     planningObserver,

@@ -24,6 +24,7 @@ import type { CallableValueFlow } from "../flow/callable/value-flow.js";
 import { isCallableNonEscapingObservation } from "../flow/callable/input-reference.js";
 import { connectCooperativeEffectDependency } from "../closure/dependency.js";
 import { classifyReturnedExpression } from "./classification/returned-expression.js";
+import type { ConditionalProviderEffectFlow } from "../flow/provider/conditional.js";
 
 const noDependencies: readonly Node[] = Object.freeze([]);
 
@@ -35,6 +36,7 @@ export function classifyCooperativeEffectProgram(
   interfaces: DeclaredInterfaceDispatch,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
+  providers: ConditionalProviderEffectFlow,
   conditionalSettlements: (dependencies: Iterable<Node>) =>
     ReadonlySet<Node> | undefined,
 ): void {
@@ -47,6 +49,7 @@ export function classifyCooperativeEffectProgram(
       interfaces,
       valueFlow,
       returnFlow,
+      providers,
       conditionalSettlements,
       node,
     );
@@ -256,6 +259,7 @@ export function collectSettledCooperativeAwaits(
   interfaces: DeclaredInterfaceDispatch,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
+  providers: ConditionalProviderEffectFlow,
   optimized: ReadonlySet<Node>,
 ): ReadonlySet<Node> {
   const awaits = new Set<Node>();
@@ -273,6 +277,21 @@ export function collectSettledCooperativeAwaits(
       if (
         returned.closed &&
         !hasRetainedDependency(returned.dependencyNodes(), candidates, optimized)
+      ) {
+        awaits.add(node);
+      }
+      continue;
+    }
+    const provider = providers.forCall(call);
+    if (provider !== undefined) {
+      const resolution = providers.resolutionFor(call);
+      if (
+        resolution !== undefined &&
+        !hasRetainedDependency(
+          resolution.dependencyNodes(),
+          candidates,
+          optimized,
+        )
       ) {
         awaits.add(node);
       }
@@ -325,6 +344,7 @@ function classifyAwaitDependencies(
   interfaces: DeclaredInterfaceDispatch,
   valueFlow: CallableValueFlow,
   returnFlow: ReturnValueFlow,
+  providers: ConditionalProviderEffectFlow,
   conditionalSettlements: (dependencies: Iterable<Node>) =>
     ReadonlySet<Node> | undefined,
   node: Node,
@@ -356,6 +376,28 @@ function classifyAwaitDependencies(
       "callable-invocation",
       call,
     );
+    return;
+  }
+  const provider = providers.forCall(call);
+  if (provider !== undefined && call !== undefined) {
+    const resolution = providers.resolutionFor(call);
+    if (resolution === undefined) {
+      blockCooperativeEffect(owner, "unresolved-call", call);
+      return;
+    }
+    for (const declaration of resolution.dependencyNodes()) {
+      const candidate = candidates.get(declaration);
+      if (candidate === undefined) {
+        blockCooperativeEffect(owner, "unresolved-call", call);
+        return;
+      }
+      connectCooperativeEffectDependency(
+        owner,
+        candidate,
+        "callable-invocation",
+        call,
+      );
+    }
     return;
   }
   if (call === undefined) {

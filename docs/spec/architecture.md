@@ -808,6 +808,23 @@ closure, interface-seeded closure, and final callable flow consume the same
 topology. Rebuilding its whole-program type and invocation scan per closure
 round or per consumer is forbidden.
 
+`declared-closed` interface and indirect-call discovery form one bounded
+greatest-fixed-point problem when an exact interface value is stored behind a
+project-owned structural slot and its implementation closes through a stored
+callback. The bootstrap may provisionally depend only on three checked facts:
+the exact interface declarations selected for the current contract family, an
+exact contextual conversion to one of those declarations, and an exact tracked
+callable field whose selected signature has no explicit `this` parameter. The
+same provisional capability must govern invocation admission, contextual slot
+flow, and structural-slot escape classification; a sibling opaque-call
+decision is forbidden. It is transaction-local seed evidence, never a
+finalized semantic fact. After interface origins resolve, indirect and storage
+closure rerun without that capability and must reproduce the component from
+exact project implementation identities. Only this post-validation result may
+reach callable flow or rewriting. `open-structural`, unrelated interfaces,
+explicit-`this` callables, exports under `closed-direct`, ambient ingress,
+opaque writes, aliases, and exposed storage never receive the seed permission.
+
 All effect flows share one exact project-invocation owner. It validates the
 checker-selected call, selected signature declaration, sole project
 implementation, authored arguments, and every effective argument binding
@@ -827,6 +844,10 @@ actual project invocation must still exact-join through source navigation.
 Interface-implementation input closure consumes this same selected profile;
 it may not restore an unconditional forwarding boundary behind the executable
 profile.
+Callable-storage owner ingress consumes that same profile fact through its
+boundary-capability owner: an exact module-forwarding reference is neutral only
+for `closed-program`, remains an open ingress for `closed-direct`, and is never
+made neutral by an interface bootstrap permission.
 Ambient or declaration-file callables, references outside selected source
 membership, unresolved calls, and corrupt linkage remain open. This permission
 does not independently close callable storage, result observation, or another
@@ -991,13 +1012,27 @@ selects sealed provider manifests relative to the project root. A source
 extension validates each manifest digest and its independently versioned
 invocation-transport section. That section names one declaration root and the
 exact normalized `.d.ts` path certified from the provider package's
-`exports.types` target. The extension selects exactly one exported class and
-one static method in that file, verifies its checked callable type, indexes its
-declaration-node identity, and attaches the immutable transport record only
-when a call's selected declaration is that exact node. Lowering never matches
-provider or member spelling in authored source. A local same-shaped API,
-another declaration file, overload ambiguity, stale callable type, duplicate
-semantic owner, absent declaration, or unresolved call receives no fact.
+`exports.types` target. A target descriptor selects either one direct export or
+one static method of one exported class, verifies its checked callable type,
+follows only the checker's exact re-export alias/root declarations, indexes
+their declaration-node identities, and attaches the immutable transport record
+only when a call's selected declaration is one of those exact nodes. Lowering
+never matches provider or member spelling in authored source. A local
+same-shaped API, another declaration file, overload ambiguity, stale callable
+type, duplicate semantic owner, absent declaration, or unresolved call receives
+no fact.
+
+A direct-export transport may carry one certified conditional synchronous
+replacement. The effect owner resolves every named callback argument through
+the finalized callable-provenance graph and connects the enclosing callable to
+all cooperative callback implementations. Only after every callback origin is
+closed and every cooperative dependency settles may the file plan replace the
+canonical export and remove its exact await. The replacement is an atomic AST
+rewrite of an exact fact-owned namespace-export call; a named, element-access,
+or otherwise unsupported import shape retains the canonical cooperative call.
+The rewriter does not recognize either export by spelling to establish
+semantics, synthesize another import, inspect a Promise at runtime, or recover
+provider meaning from target declarations.
 Generic callable flow may query a referenced declaration only when the checked
 semantic program contains that exact source-file object. Resolving a project
 implementation additionally requires navigation-owned project identity; an

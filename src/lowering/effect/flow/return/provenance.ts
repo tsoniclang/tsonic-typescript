@@ -139,6 +139,7 @@ export function createReturnProvenanceFlow(
     queries.roots,
     locals,
     storage,
+    storageOwners,
     objectProjections,
     transports,
     planningObserver,

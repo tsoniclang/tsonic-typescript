@@ -5,9 +5,10 @@ import type { TargetProgramIndex } from "../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
-import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { isTransparentParent } from "../callable/input-reference.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { isModuleForwardingReference } from "../../model/syntax.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import {
   storageValueTypeIsClosed,
 } from "./owner-types.js";
@@ -24,6 +25,58 @@ export interface StorageOwnerBinding {
   valid: boolean;
 }
 
+export interface StorageOwnerBoundaryDependencies {
+  allowsInvocation(invocation: Node): boolean;
+  allowsContextualValue(value: Node): boolean;
+  allowsModuleForwardingReference(reference: Node): boolean;
+}
+
+export function createStorageOwnerProfileBoundaryDependencies(
+  source: TargetSourceProgram,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
+): StorageOwnerBoundaryDependencies {
+  return Object.freeze({
+    allowsInvocation(): boolean {
+      return false;
+    },
+    allowsContextualValue(): boolean {
+      return false;
+    },
+    allowsModuleForwardingReference(reference: Node): boolean {
+      return cooperativeEffects === "closed-program" &&
+        isModuleForwardingReference(source, reference);
+    },
+  });
+}
+
+export function composeStorageOwnerBoundaryDependencies(
+  dependencies: readonly (StorageOwnerBoundaryDependencies | undefined)[],
+): StorageOwnerBoundaryDependencies | undefined {
+  const selected = dependencies.filter(
+    (dependency): dependency is StorageOwnerBoundaryDependencies =>
+      dependency !== undefined,
+  );
+  return selected.length === 0
+    ? undefined
+    : Object.freeze({
+        allowsInvocation(invocation: Node): boolean {
+          return selected.some((dependency) =>
+            dependency.allowsInvocation(invocation)
+          );
+        },
+        allowsContextualValue(value: Node): boolean {
+          return selected.some((dependency) =>
+            dependency.allowsContextualValue(value)
+          );
+        },
+        allowsModuleForwardingReference(reference: Node): boolean {
+          return selected.some((dependency) =>
+            dependency.allowsModuleForwardingReference(reference)
+          );
+        },
+      });
+}
+
 type StorageDestination =
   | { readonly kind: "closed"; readonly owner: Node }
   | { readonly kind: "open" };
@@ -36,11 +89,11 @@ export function auditStorageOwnerBoundaries(
   storageDeclarationFor: (expression: Node) => Node | undefined,
   validateStoredValues: boolean,
   transports?: InvocationTransportContract,
-  invocationInputs?: ExactInvocationInputIndex,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   planningObserver?: TypeScriptPlanningObserver,
   topology?: StorageOwnerTopology,
+  boundaryDependencies?: StorageOwnerBoundaryDependencies,
 ): void {
   if (owners.size === 0) {
     return;
@@ -66,9 +119,9 @@ export function auditStorageOwnerBoundaries(
     owners,
     invalid,
     transports,
-    invocationInputs,
     exactCallImplementations,
     callableReferenceIsClosed,
+    boundaryDependencies,
   );
   planningObserver?.("effect-indirect-storage-ingress");
   auditInvocations(
@@ -79,6 +132,7 @@ export function auditStorageOwnerBoundaries(
     dependencies,
     transports,
     exactCallImplementations,
+    boundaryDependencies,
   );
   planningObserver?.("effect-indirect-storage-invocations");
   auditValueFlows(
@@ -89,6 +143,7 @@ export function auditStorageOwnerBoundaries(
     storageDeclarationFor,
     invalid,
     dependencies,
+    boundaryDependencies,
   );
   planningObserver?.("effect-indirect-storage-value-flows");
   closeInvalidOwners(invalid, dependencies);
@@ -107,13 +162,15 @@ function auditInvocations(
   dependencies: Map<Node, Set<Node>>,
   transports: InvocationTransportContract | undefined,
   exactCallImplementations: ExactCallImplementations | undefined,
+  boundaryDependencies: StorageOwnerBoundaryDependencies | undefined,
 ): void {
   for (const invocation of topology.invocations) {
     const { node, resultOwners } = invocation;
-    const projectInvocation = invocationHasProjectImplementation(
+    const projectInvocation = storageInvocationHasProjectImplementation(
       source,
       node,
       exactCallImplementations,
+      boundaryDependencies,
     );
     const transport = transports?.transportFor(node);
     if (!projectInvocation && transport === undefined) {
@@ -146,7 +203,12 @@ function auditInvocations(
         if (transport?.inputExpressions.includes(argument.expression)) {
           continue;
         }
-        if (!projectInvocation || !argument.contextualOwners.includes(owner)) {
+        if (
+          !projectInvocation ||
+          (!argument.contextualOwners.includes(owner) &&
+            boundaryDependencies?.allowsContextualValue(argument.expression) !==
+              true)
+        ) {
           invalid.add(owner);
         } else {
           for (const resultOwner of resultOwners) {
@@ -175,6 +237,7 @@ function auditValueFlows(
   storageDeclarationFor: (expression: Node) => Node | undefined,
   invalid: Set<Node>,
   dependencies: Map<Node, Set<Node>>,
+  boundaryDependencies: StorageOwnerBoundaryDependencies | undefined,
 ): void {
   for (const flow of topology.valueFlows) {
     const { node, owners } = flow;
@@ -232,7 +295,10 @@ function auditValueFlows(
         if (!selectedOwners.has(owner)) {
           continue;
         }
-        if (!flow.contextualOwners.includes(owner)) {
+        if (
+          !flow.contextualOwners.includes(owner) &&
+          boundaryDependencies?.allowsContextualValue(node) !== true
+        ) {
           invalid.add(owner);
         }
       }
@@ -323,16 +389,22 @@ function declarationHasProjectBody(
     source.ast.body(declaration) !== undefined;
 }
 
-function invocationHasProjectImplementation(
+export function storageInvocationHasProjectImplementation(
   source: TargetSourceProgram,
   invocation: Node,
   exactCallImplementations: ExactCallImplementations | undefined,
+  boundaryDependencies: StorageOwnerBoundaryDependencies | undefined,
 ): boolean {
   if (
     declarationHasProjectBody(
       source,
       resolveProjectInvocation(source, invocation)?.implementation,
     )
+  ) {
+    return true;
+  }
+  if (
+    boundaryDependencies?.allowsInvocation(invocation) === true
   ) {
     return true;
   }

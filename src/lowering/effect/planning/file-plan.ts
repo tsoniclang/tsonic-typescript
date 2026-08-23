@@ -5,12 +5,14 @@ import type {
 import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { CallableReturnRewrite } from "../model/callable-contract.js";
+import type { ConditionalProviderInvocation } from "../flow/provider/flow.js";
 
 export interface CooperativeEffectFilePlan {
   readonly callables: readonly Node[];
   readonly awaits: readonly Node[];
   readonly asyncModifiers: readonly Node[];
   readonly returnTypes: readonly CallableReturnRewrite[];
+  readonly providerCalls: readonly ConditionalProviderInvocation[];
 }
 
 export interface CooperativeEffectFileCandidate {
@@ -23,6 +25,7 @@ interface MutableCooperativeEffectFilePlan {
   readonly awaits: Node[];
   readonly asyncModifiers: Node[];
   readonly returnTypes: Map<Node, CallableReturnRewrite>;
+  readonly providerCalls: Map<Node, ConditionalProviderInvocation>;
 }
 
 export function createCooperativeEffectFilePlans(
@@ -31,6 +34,7 @@ export function createCooperativeEffectFilePlans(
   optimized: ReadonlySet<Node>,
   awaits: Iterable<Node>,
   returnTypes: Iterable<CallableReturnRewrite>,
+  providerCalls: Iterable<ConditionalProviderInvocation>,
 ): ReadonlyMap<SourceFile, CooperativeEffectFilePlan> {
   const mutable = new Map<SourceFile, MutableCooperativeEffectFilePlan>();
   for (const sourceFile of source.navigation.sourceFiles) {
@@ -39,6 +43,7 @@ export function createCooperativeEffectFilePlans(
       awaits: [],
       asyncModifiers: [],
       returnTypes: new Map(),
+      providerCalls: new Map(),
     });
   }
   for (const candidate of candidates) {
@@ -70,6 +75,13 @@ export function createCooperativeEffectFilePlans(
     }
     file.returnTypes.set(rewrite.target, rewrite);
   }
+  for (const provider of providerCalls) {
+    const file = filePlanForNode(source, mutable, provider.call);
+    if (file.providerCalls.has(provider.call)) {
+      throw new Error("conditional provider call was planned twice");
+    }
+    file.providerCalls.set(provider.call, provider);
+  }
   return new Map(
     [...mutable].map(([sourceFile, file]) => [
       sourceFile,
@@ -78,6 +90,7 @@ export function createCooperativeEffectFilePlans(
         awaits: Object.freeze(file.awaits),
         asyncModifiers: Object.freeze(file.asyncModifiers),
         returnTypes: Object.freeze([...file.returnTypes.values()]),
+        providerCalls: Object.freeze([...file.providerCalls.values()]),
       }),
     ]),
   );

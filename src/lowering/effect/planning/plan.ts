@@ -43,7 +43,8 @@ import { createReturnValueFlow } from "../flow/return/value.js";
 import { collectReturnFlowQueries } from "../flow/return/queries.js";
 import { createCallableValueFlow } from "../flow/callable/value-flow.js";
 import { createExactAggregateProjectionIndex } from "../flow/aggregate/projection.js";
-import { createProviderInvocationTransport } from "../flow/provider/transport.js";
+import { createProviderInvocationFlow } from "../flow/provider/flow.js";
+import { createConditionalProviderEffectFlow } from "../flow/provider/conditional.js";
 import { createExactInvocationInputIndex } from "../flow/invocation/inputs.js";
 import {
   createExactIndirectInvocationAnalysis,
@@ -57,6 +58,9 @@ import {
 import { connectCooperativeEffectDependency } from "../closure/dependency.js";
 import { collectCallableFields } from "../flow/storage/fields.js";
 import { createClosedStorageOwnerAnalysis } from "../flow/storage/analysis.js";
+import { createStorageOwnerProfileBoundaryDependencies } from "../flow/storage/owner-boundaries.js";
+import { collectInterfaceEffectContracts } from "../flow/interface/contracts.js";
+import { createInterfaceStorageBoundaryDependencies } from "../flow/interface/storage-dependencies.js";
 
 export type { CooperativeEffectFilePlan } from "./file-plan.js";
 
@@ -84,13 +88,18 @@ export function createClosedCooperativeEffectPlan(
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
   planningObserver?: TypeScriptPlanningObserver,
 ): CooperativeEffectPlan {
-  const candidates = collectCooperativeEffectCandidates(source, program);
+  const candidates = collectCooperativeEffectCandidates(
+    source,
+    program,
+    cooperativeEffects,
+  );
   const candidateDeclarations = new Set(candidates.keys());
   planningObserver?.("effect-candidates");
   const calls = collectCooperativeEffectCalls(source, program, candidates);
+  const providerInvocations = createProviderInvocationFlow(source, program);
   const factOwnedTransports = composeInvocationTransportContracts([
     transports,
-    createProviderInvocationTransport(source, program),
+    providerInvocations.transport,
   ]);
   planningObserver?.("effect-calls");
   const aggregateProjections = createExactAggregateProjectionIndex(
@@ -111,6 +120,16 @@ export function createClosedCooperativeEffectPlan(
   planningObserver?.("effect-invocation-inputs");
   const storageOwners = createClosedStorageOwnerAnalysis(source, program);
   const callableFields = collectCallableFields(source, program, storageOwners);
+  const profileStorageDependencies =
+    createStorageOwnerProfileBoundaryDependencies(source, cooperativeEffects);
+  const interfaceStorageDependencies = interfaceDispatch === "declared-closed"
+    ? createInterfaceStorageBoundaryDependencies(
+        source,
+        new Set(collectInterfaceEffectContracts(source, program).map(
+          (contract) => contract.owner,
+        )),
+      )
+    : undefined;
   let interfaces: ReturnType<typeof createDeclaredInterfaceDispatch>;
   let completeTransports: InvocationTransportContract | undefined;
   let indirectInvocations: ExactIndirectInvocationFacts;
@@ -125,6 +144,12 @@ export function createClosedCooperativeEffectPlan(
       undefined,
       planningObserver,
       callableFields,
+      storageOwners,
+      profileStorageDependencies,
+      interfaceDispatch === "declared-closed"
+        ? "declared-interface"
+        : "none",
+      interfaceStorageDependencies,
     );
     const preliminaryFacts = preliminaryAnalysis.finalize();
     planningObserver?.("effect-indirect-invocations");
@@ -141,6 +166,7 @@ export function createClosedCooperativeEffectPlan(
         callableReferenceIsClosed: preliminaryFacts.allowsCallableReference,
         aggregateProjections,
         objectProjections,
+        storageOwners,
       }),
       cooperativeEffects,
       planningObserver,
@@ -182,9 +208,15 @@ export function createClosedCooperativeEffectPlan(
     objectProjections,
     indirectInvocations.allowsCallableReference,
     callableFields,
+    storageOwners,
+    profileStorageDependencies,
     planningObserver,
   );
   planningObserver?.("effect-callable-flow");
+  const conditionalProviders = createConditionalProviderEffectFlow(
+    providerInvocations,
+    valueFlow,
+  );
   connectSignatureFamilies(candidates, valueFlow.signatureFamilies);
   const exactCallImplementations = (call: Node): readonly Node[] | undefined => {
     const resolution = valueFlow.resolutionFor(call);
@@ -267,6 +299,7 @@ export function createClosedCooperativeEffectPlan(
     interfaces,
     valueFlow,
     returnFlow,
+    conditionalProviders,
     conditionalSettlements,
   );
   planningObserver?.("effect-classification");
@@ -287,6 +320,7 @@ export function createClosedCooperativeEffectPlan(
     interfaces,
     valueFlow,
     returnFlow,
+    conditionalProviders,
     optimized,
   );
   const awaitAttribution = attributeCooperativeAwaits(
@@ -307,6 +341,7 @@ export function createClosedCooperativeEffectPlan(
       ...valueFlow.settledReturnTypes(optimized),
       ...interfaces.settledReturnTypes(optimized),
     ],
+    conditionalProviders.settledCalls(optimized),
   );
   planningObserver?.("effect-file-plans");
   const summary = summarizeCooperativeEffects(
