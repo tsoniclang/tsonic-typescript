@@ -2,7 +2,9 @@ import type { Node, Symbol, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindCallExpression,
+  KindElementAccessExpression,
   KindNewExpression,
+  KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
@@ -60,7 +62,10 @@ export function createExactStructuralSlotWriteIndex(
     boundaryDependencies,
   );
   const mutations = new Map<Node, ExactStorageMutation[]>();
-  for (const node of program.nodes) {
+  for (const node of program.nodesOfKinds([
+    KindPropertyAccessExpression,
+    KindElementAccessExpression,
+  ])) {
     const access = selectedStructuralAccess(source, node);
     if (access === undefined || access.accessMode === "read") {
       continue;
@@ -136,10 +141,15 @@ function selectedStructuralAccess(
   readonly receiver: Node;
   readonly declarations: readonly Node[];
 } | undefined {
+  const propertyAccess = source.ast.is.IsPropertyAccessExpression(node);
+  const elementAccess = source.ast.is.IsElementAccessExpression(node);
+  if (!propertyAccess && !elementAccess) {
+    return undefined;
+  }
   const semantics = source.semantics.forNode(node);
-  const access = source.ast.is.IsPropertyAccessExpression(node)
+  const access = propertyAccess
     ? semantics.operations.propertyAccess(node)
-    : source.ast.is.IsElementAccessExpression(node)
+    : elementAccess
     ? semantics.operations.elementAccess(node)
     : undefined;
   if (access === undefined) {

@@ -186,6 +186,33 @@ test("expands each opaque structural type pair once", () => {
   assert.equal(repeated, single);
 });
 
+test("does not query semantics for irrelevant structural syntax", () => {
+  const fixture = checkedEffectFixture(`
+const values = [${Array.from({ length: 256 }, (_, index) => index).join(",")}];
+export const result = values;
+`);
+  let queries = 0;
+  const source: TargetSourceProgram = Object.freeze({
+    ...fixture.source,
+    semantics: Object.freeze({
+      ...fixture.source.semantics,
+      forNode(node: Node) {
+        queries += 1;
+        return fixture.source.semantics.forNode(node);
+      },
+    }),
+  });
+  createExactStructuralSlotWriteIndex(
+    source,
+    createTargetProgramIndex(source, {
+      bindingWrites: true,
+      memberDispatch: true,
+    }),
+    new Set(),
+  );
+  assert.equal(queries, 0);
+});
+
 function rewriteFixture(sourceText: string) {
   const fixture = checkedEffectFixture(sourceText);
   const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
