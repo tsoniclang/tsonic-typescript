@@ -53,5 +53,8 @@ test("interface type relevance is cached per checked source file", () => {
     /new WeakMap<Node, InterfaceContractRelevanceCache>\(\)/u,
   );
   assert.match(source, /caches\.get\(semantics\.sourceFile\)/u);
+  assert.match(source, /createTransitiveSetIndex/u);
+  assert.match(source, /\.contracts\.valuesFor\(type\)/u);
+  assert.doesNotMatch(source, /function collectContracts/u);
   assert.doesNotMatch(source, /sourceFile !== semantics\.sourceFile/u);
 });

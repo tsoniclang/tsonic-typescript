@@ -9,6 +9,11 @@ import {
   interfaceContractTypeDeclaration,
   isExactInterfaceProjectDeclaration,
 } from "./declarations.js";
+import {
+  createTransitiveSetIndex,
+  type TransitiveSetExpansion,
+  type TransitiveSetIndex,
+} from "./relevance/transitive-set.js";
 
 export interface InterfaceContractRelevance {
   contains(semantics: SourceFileSemantics, type: Type): boolean;
@@ -18,7 +23,7 @@ export interface InterfaceContractRelevance {
 }
 
 interface InterfaceContractRelevanceCache {
-  readonly contracts: WeakMap<Type, readonly Node[]>;
+  readonly contracts: TransitiveSetIndex<Type, Node>;
   readonly valueContracts: WeakMap<Type, readonly Node[]>;
 }
 
@@ -33,7 +38,9 @@ export function createInterfaceContractRelevance(
     let selected = caches.get(semantics.sourceFile);
     if (selected === undefined) {
       selected = {
-        contracts: new WeakMap(),
+        contracts: createTransitiveSetIndex((type) =>
+          contractExpansion(semantics, type, source, contracts)
+        ),
         valueContracts: new WeakMap(),
       };
       caches.set(semantics.sourceFile, selected);
@@ -43,16 +50,7 @@ export function createInterfaceContractRelevance(
   const selectedContracts = (
     semantics: SourceFileSemantics,
     type: Type,
-  ): readonly Node[] => {
-    const selected = cacheFor(semantics).contracts;
-    const cached = selected.get(type);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const result = collectContracts(semantics, type, source, contracts);
-    selected.set(type, result);
-    return result;
-  };
+  ): readonly Node[] => cacheFor(semantics).contracts.valuesFor(type);
   const selectedValueContracts = (
     semantics: SourceFileSemantics,
     type: Type,
@@ -93,59 +91,46 @@ export function createInterfaceContractRelevance(
 }
 
 const noContracts = Object.freeze([]) as readonly Node[];
+const noTypes = Object.freeze([]) as readonly Type[];
 const maximumValueContractTypeCount = 4_096;
 
-function collectContracts(
+function contractExpansion(
   semantics: SourceFileSemantics,
-  root: Type,
+  type: Type,
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
-): readonly Node[] {
-  const result = new Set<Node>();
-  const pending = [root];
-  const seen = new Set<Type>();
-  while (pending.length !== 0) {
-    const type = pending.pop();
-    if (type === undefined || seen.has(type)) {
-      continue;
-    }
-    seen.add(type);
-    const selected = semantics.types.withoutMissingOrUndefined(type);
-    if (selected === undefined || isPrimitiveType(semantics, selected)) {
-      continue;
-    }
-    for (const contract of directTypeContracts(
-      semantics,
-      selected,
-      source,
-      contracts,
-    )) {
-      result.add(contract);
-    }
-    for (const signature of semantics.types.callSignatures(selected)) {
-      const declaration = semantics.declarations.signatureDeclaration(signature);
-      if (
-        declaration === undefined ||
-        !isExactInterfaceProjectDeclaration(source, declaration)
-      ) {
-        continue;
-      }
-      for (const parameter of semantics.declarations.signatureParameters(signature)) {
-        const parameterType = semantics.types.typeOfSymbol(parameter);
-        if (parameterType !== undefined) {
-          pending.push(parameterType);
-        }
-      }
-      const returnType = semantics.types.returnType(signature);
-      if (returnType !== undefined) {
-        pending.push(returnType);
-      }
-    }
-    appendStructuralTypes(semantics, selected, pending);
+): TransitiveSetExpansion<Type, Node> {
+  const selected = semantics.types.withoutMissingOrUndefined(type);
+  if (selected === undefined || isPrimitiveType(semantics, selected)) {
+    return { values: noContracts, dependencies: noTypes };
   }
-  return result.size === 0
-    ? noContracts
-    : Object.freeze([...result]);
+  const dependencies: Type[] = [];
+  for (const signature of semantics.types.callSignatures(selected)) {
+    const declaration = semantics.declarations.signatureDeclaration(signature);
+    if (
+      declaration === undefined ||
+      !isExactInterfaceProjectDeclaration(source, declaration)
+    ) {
+      continue;
+    }
+    for (const parameter of semantics.declarations.signatureParameters(signature)) {
+      const parameterType = semantics.types.typeOfSymbol(parameter);
+      if (parameterType !== undefined) {
+        dependencies.push(parameterType);
+      }
+    }
+    const returnType = semantics.types.returnType(signature);
+    if (returnType !== undefined) {
+      dependencies.push(returnType);
+    }
+  }
+  appendStructuralTypes(semantics, selected, dependencies);
+  return {
+    values: directTypeContracts(semantics, selected, source, contracts),
+    dependencies: dependencies.length === 0
+      ? noTypes
+      : Object.freeze(dependencies),
+  };
 }
 
 function directTypeContracts(
