@@ -17,26 +17,34 @@ export interface InterfaceContractRelevance {
   directContracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
 }
 
+interface InterfaceContractRelevanceCache {
+  readonly contracts: WeakMap<Type, readonly Node[]>;
+  readonly valueContracts: WeakMap<Type, readonly Node[]>;
+}
+
 export function createInterfaceContractRelevance(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
 ): InterfaceContractRelevance {
-  let sourceFile: Node | undefined;
-  let cache = new WeakMap<Type, readonly Node[]>();
-  let valueCache = new WeakMap<Type, readonly Node[]>();
-  const selectCache = (semantics: SourceFileSemantics) => {
-    if (sourceFile !== semantics.sourceFile) {
-      sourceFile = semantics.sourceFile;
-      cache = new WeakMap<Type, readonly Node[]>();
-      valueCache = new WeakMap<Type, readonly Node[]>();
+  const caches = new WeakMap<Node, InterfaceContractRelevanceCache>();
+  const cacheFor = (
+    semantics: SourceFileSemantics,
+  ): InterfaceContractRelevanceCache => {
+    let selected = caches.get(semantics.sourceFile);
+    if (selected === undefined) {
+      selected = {
+        contracts: new WeakMap(),
+        valueContracts: new WeakMap(),
+      };
+      caches.set(semantics.sourceFile, selected);
     }
-    return cache;
+    return selected;
   };
   const selectedContracts = (
     semantics: SourceFileSemantics,
     type: Type,
   ): readonly Node[] => {
-    const selected = selectCache(semantics);
+    const selected = cacheFor(semantics).contracts;
     const cached = selected.get(type);
     if (cached !== undefined) {
       return cached;
@@ -49,8 +57,8 @@ export function createInterfaceContractRelevance(
     semantics: SourceFileSemantics,
     type: Type,
   ): readonly Node[] => {
-    selectCache(semantics);
-    const cached = valueCache.get(type);
+    const selected = cacheFor(semantics).valueContracts;
+    const cached = selected.get(type);
     if (cached !== undefined) {
       return cached;
     }
@@ -61,7 +69,7 @@ export function createInterfaceContractRelevance(
       contracts,
       selectedContracts(semantics, type),
     );
-    valueCache.set(type, result);
+    selected.set(type, result);
     return result;
   };
   return Object.freeze({

@@ -6,6 +6,7 @@ import type {
   TypeScriptActiveCooperativeEffectProfile,
   TypeScriptInterfaceDispatchProfile,
 } from "../../../profile.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import {
   compareOptimizationOccurrences,
   optimizationOccurrence,
@@ -112,6 +113,7 @@ export function createDeclaredInterfaceDispatch(
     source.documents.forFile(sourceFile).identity,
   indexes?: InterfaceContractFlowIndexes,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  planningObserver?: TypeScriptPlanningObserver,
 ): DeclaredInterfaceDispatch {
   if (profile === "open-structural") {
     const aggregateProjections = indexes?.aggregateProjections ??
@@ -136,6 +138,7 @@ export function createDeclaredInterfaceDispatch(
     sourceIdentityFor,
     indexes,
     cooperativeEffects,
+    planningObserver,
   );
   const families: DeclaredInterfaceDispatchFamily[] = [];
   const rejected: RejectedInterfaceDispatchFamily[] = [];

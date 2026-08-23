@@ -41,3 +41,17 @@ test("interface implementation forwarding consumes the selected closure profile"
     /isModuleForwardingReference\(source, reference\)[\s\S]{0,80}return false/u,
   );
 });
+
+test("interface type relevance is cached per checked source file", () => {
+  const source = readFileSync(
+    join(effectRoot, "flow", "interface", "relevance.ts"),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /new WeakMap<Node, InterfaceContractRelevanceCache>\(\)/u,
+  );
+  assert.match(source, /caches\.get\(semantics\.sourceFile\)/u);
+  assert.doesNotMatch(source, /sourceFile !== semantics\.sourceFile/u);
+});

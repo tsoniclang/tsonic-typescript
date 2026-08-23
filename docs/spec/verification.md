@@ -378,6 +378,11 @@ and do not fabricate a call or erase an actual external ingress.
 Structural inspection proves interface implementation-input closure consumes
 that same selected profile and rejects restoration of an unconditional module-
 forwarding boundary.
+The same gate requires source-file-keyed relevance caches and rejects the
+single-current-file cache that recomputes identical type closures across
+kind-major passes. Whole-product phase evidence reports contracts, calls,
+transport scans, implementation inputs, value slots, origins, and components
+separately before the interface transaction seals.
 The object and aggregate forms additionally route the implementation through a
 callable owner whose parameter carries another callback. The closed provenance
 path must admit that exact owner reference and settle the nested callback;

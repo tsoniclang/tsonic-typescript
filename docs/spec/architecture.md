@@ -798,6 +798,12 @@ membership, unresolved calls, and corrupt linkage remain open. This permission
 does not independently close callable storage, result observation, or another
 effect-flow family.
 
+Interface type relevance is one transaction-bounded cache per exact checked
+source file. Kind-major and call/context passes reuse that file's exact type
+answers; switching to another file may not discard answers that a later pass
+will request again. The complete cache family dies with interface planning and
+is never published in the finalized plan.
+
 Indirect project invocation is a separate exact extension of that owner. The
 callable target is resolved from one node-identity provenance graph over local
 bindings, closed project storage, object and aggregate projections, exact

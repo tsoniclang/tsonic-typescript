@@ -37,6 +37,7 @@ import {
 } from "../invocation/indirect.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import {
   createExactAggregateProjectionIndex,
   type ExactAggregateProjectionIndex,
@@ -98,6 +99,7 @@ export function createInterfaceContractGraph(
     source.documents.forFile(sourceFile).identity,
   indexes?: InterfaceContractFlowIndexes,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  planningObserver?: TypeScriptPlanningObserver,
 ): InterfaceContractGraph {
   const aggregateProjections = indexes?.aggregateProjections ??
     createExactAggregateProjectionIndex(source, program);
@@ -122,7 +124,16 @@ export function createInterfaceContractGraph(
   const exactCallImplementations = indexes?.exactCallImplementations ??
     indirectInvocations?.implementationsFor;
   const contracts = collectContracts(source, program, sourceIdentityFor);
+  planningObserver?.("effect-interface-contracts", {
+    contracts: contracts.entries.size,
+  });
   collectCalls(source, program, contracts.entries);
+  planningObserver?.("effect-interface-calls", {
+    values: [...contracts.entries.values()].reduce(
+      (total, entry) => total + entry.calls.length,
+      0,
+    ),
+  });
   const completeInvocationInputs = collectInterfaceContractTransports(
     source,
     program,
@@ -135,6 +146,7 @@ export function createInterfaceContractGraph(
     indexes?.callableReferenceIsClosed ??
       indirectInvocations?.allowsCallableReference,
     cooperativeEffects,
+    planningObserver,
   );
   const seeds = [...contracts.entries.values()].filter((entry) =>
     entry.returnRewrite !== undefined && entry.calls.length !== 0
@@ -177,10 +189,16 @@ export function createInterfaceContractGraph(
     source,
     contracts,
   );
+  const boundaryCauses = contracts.boundaries.causesFor(consideredDeclarations);
+  planningObserver?.("effect-interface-components", {
+    boundaries: boundaryCauses.length,
+    components: components.length,
+    contracts: consideredDeclarations.length,
+  });
   return Object.freeze({
     consideredCount: seeds.length,
     components: Object.freeze(components),
-    boundaryCauses: contracts.boundaries.causesFor(consideredDeclarations),
+    boundaryCauses,
     invocationInputs: completeInvocationInputs,
     ...(invocationTransports === undefined ? {} : { invocationTransports }),
   });

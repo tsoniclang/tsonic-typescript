@@ -42,6 +42,7 @@ import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import { exactCallableReturnExpressions } from "../invocation/results.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import { createInterfaceOriginRequirements } from "./ingress/requirements.js";
 import { createInterfaceImplementationInputIndex } from "./ingress/implementation-inputs.js";
 import { collectClosedStorageOwners } from "../storage/owners.js";
@@ -74,6 +75,7 @@ export function collectInterfaceContractTransports(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  planningObserver?: TypeScriptPlanningObserver,
 ): ExactInvocationInputIndex {
   const state: TypePairState = {
     source,
@@ -144,6 +146,7 @@ export function collectInterfaceContractTransports(
     },
     transports,
   );
+  planningObserver?.("effect-interface-call-transports");
   for (const kind of [
     KindVariableDeclaration,
     KindPropertyDeclaration,
@@ -215,6 +218,7 @@ export function collectInterfaceContractTransports(
       );
     }
   }
+  planningObserver?.("effect-interface-context-transports");
   const completeInvocationInputs = createInterfaceImplementationInputIndex(
     source,
     program,
@@ -230,6 +234,7 @@ export function collectInterfaceContractTransports(
     callableReferenceIsClosed,
     cooperativeEffects,
   );
+  planningObserver?.("effect-interface-implementation-inputs");
   const slots = createExactValueSlotFlow(
     source,
     program,
@@ -244,13 +249,16 @@ export function collectInterfaceContractTransports(
     ),
     completeInvocationInputs,
     originRequirements.requiredValues(),
+    planningObserver,
   );
+  planningObserver?.("effect-interface-value-slots");
   checkedParameterInputs.seal();
   originRequirements.finish({
     ...ingress,
     slots,
     invocationInputs: completeInvocationInputs,
   });
+  planningObserver?.("effect-interface-origins");
   return completeInvocationInputs;
 }
 
