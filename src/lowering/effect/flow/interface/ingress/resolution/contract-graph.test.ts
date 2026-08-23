@@ -3,27 +3,52 @@ import { test } from "node:test";
 import type { Node } from "@tsonic/tsts";
 
 import { createInterfaceOriginContractGraph } from "./contract-graph.js";
+import { createInterfaceOriginContractDomain } from "./contract-set.js";
 
 test("resolves shared cyclic topology independently for each contract", () => {
   const contracts = [node(), node()];
+  const domain = createInterfaceOriginContractDomain(contracts);
   const occurrence = node();
-  const builder = createInterfaceOriginContractGraph(contracts);
+  const builder = createInterfaceOriginContractGraph(domain);
   const origin = builder.vertex();
   const opaque = builder.vertex();
   const shared = builder.vertex();
   const root = builder.vertex();
 
   for (let contract = 0; contract < contracts.length; contract += 1) {
-    assert.equal(builder.activate(root, contract), true);
-    assert.equal(builder.activate(root, contract), false);
-    builder.addDependency(root, shared, "projection", occurrence, contract);
-    builder.addDependency(shared, root, "alias", occurrence, contract);
+    const selected = domain.single(contract);
+    assert.equal(domain.count(builder.activate(root, selected)), 1);
+    assert.equal(domain.count(builder.activate(root, selected)), 0);
+    builder.addDependency(root, shared, "projection", occurrence, selected);
+    builder.addDependency(shared, root, "alias", occurrence, selected);
   }
-  builder.addDependency(shared, origin, "assignment", occurrence, 0);
-  builder.addDependency(shared, origin, "assignment", occurrence, 0);
-  builder.addDependency(shared, opaque, "assignment", occurrence, 1);
-  builder.addOrigin(origin, 0);
-  builder.addBoundary(opaque, "opaque-call-transport", 1);
+  builder.addDependency(
+    shared,
+    origin,
+    "assignment",
+    occurrence,
+    domain.single(0),
+  );
+  builder.addDependency(
+    shared,
+    origin,
+    "assignment",
+    occurrence,
+    domain.single(0),
+  );
+  builder.addDependency(
+    shared,
+    opaque,
+    "assignment",
+    occurrence,
+    domain.single(1),
+  );
+  builder.addOrigin(origin, domain.single(0));
+  builder.addBoundary(
+    opaque,
+    "opaque-call-transport",
+    domain.single(1),
+  );
 
   const resolutions = builder.seal();
 
@@ -43,11 +68,12 @@ test("resolves shared cyclic topology independently for each contract", () => {
 });
 
 test("keeps an originless contract cycle open", () => {
-  const builder = createInterfaceOriginContractGraph([node()]);
+  const domain = createInterfaceOriginContractDomain([node()]);
+  const builder = createInterfaceOriginContractGraph(domain);
   const first = builder.vertex();
   const second = builder.vertex();
-  builder.addDependency(first, second, "alias", node(), 0);
-  builder.addDependency(second, first, "assignment", node(), 0);
+  builder.addDependency(first, second, "alias", node(), domain.single(0));
+  builder.addDependency(second, first, "assignment", node(), domain.single(0));
 
   const resolutions = builder.seal();
 

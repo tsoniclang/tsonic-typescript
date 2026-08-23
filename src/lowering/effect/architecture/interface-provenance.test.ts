@@ -26,18 +26,35 @@ test("interface origins share one exact contract-labelled graph", () => {
     ),
     "utf8",
   );
+  const contractSet = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "interface",
+      "ingress",
+      "resolution",
+      "contract-set.ts",
+    ),
+    "utf8",
+  );
   const requirements = readFileSync(
     join(effectRoot, "flow", "interface", "ingress", "requirements.ts"),
     "utf8",
   );
 
-  assert.match(resolution, /createInterfaceOriginContractGraph\(contracts\)/u);
-  assert.match(resolution, /builder\.activate\(state\.vertex, context\.contractIndex\)/u);
+  assert.match(resolution, /createInterfaceOriginContractDomain\(contracts\)/u);
+  assert.match(resolution, /createInterfaceOriginContractGraph\(domain\)/u);
+  assert.match(resolution, /builder\.activate\(state\.vertex, contracts\)/u);
+  assert.match(resolution, /drainOriginExpansions\(shared\)/u);
   assert.doesNotMatch(
     resolution,
     /createEffectProvenanceGraphBuilder|resolveEffectProvenance/u,
   );
-  assert.match(graph, /type ContractMasks = Array<Uint32Array \| undefined>/u);
+  assert.match(
+    contractSet,
+    /type InterfaceOriginContractSet = Uint32Array/u,
+  );
+  assert.match(contractSet, /select\([\s\S]*predicate/u);
   assert.match(graph, /propagateUnsent/u);
   assert.match(graph, /reason === "opaque-call-transport"/u);
   assert.doesNotMatch(graph, /Map<Node, Map<Node/u);

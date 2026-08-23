@@ -27,6 +27,11 @@ import {
   type InterfaceOriginContractGraphMeasurements,
   type InterfaceOriginVertex,
 } from "./resolution/contract-graph.js";
+import {
+  createInterfaceOriginContractDomain,
+  type InterfaceOriginContractDomain,
+  type InterfaceOriginContractSet,
+} from "./resolution/contract-set.js";
 
 export type InterfaceOriginBoundaryReason =
   | "opaque-call-transport"
@@ -61,16 +66,26 @@ export type OriginRole = "value" | "container";
 
 export interface OriginState {
   readonly vertex: InterfaceOriginVertex;
+  readonly expansion: "declaration" | "expression";
+  readonly occurrence: Node;
+  readonly expression?: Node;
+  readonly role: OriginRole;
+  pending: InterfaceOriginContractSet | undefined;
+  queued: boolean;
 }
 
-export interface OriginGraphContext {
+interface OriginGraphSharedContext {
   readonly ingress: InterfaceContractIngress;
-  readonly contract: Node;
-  readonly contractIndex: number;
+  readonly domain: InterfaceOriginContractDomain;
   readonly builder: InterfaceOriginContractGraphBuilder;
   readonly facts: InterfaceOriginFacts;
   readonly values: Map<Node, OriginState>;
   readonly containers: Map<Node, OriginState>;
+  readonly pending: OriginState[];
+}
+
+export interface OriginGraphContext extends OriginGraphSharedContext {
+  readonly active: InterfaceOriginContractSet;
 }
 
 const expansion: InterfaceOriginExpansion = Object.freeze({
@@ -81,6 +96,7 @@ const expansion: InterfaceOriginExpansion = Object.freeze({
   expandDeclaration,
   storageDeclarationIsClosed,
   terminal,
+  terminalForContracts,
   origin,
   boundary,
 });
@@ -93,10 +109,16 @@ export function resolveInterfaceOrigins(
   if (new Set(contracts).size !== contracts.length) {
     throw new Error("interface origin resolution received duplicate contracts");
   }
-  const builder = createInterfaceOriginContractGraph(contracts);
-  const facts = createInterfaceOriginFacts(ingress);
-  const values = new Map<Node, OriginState>();
-  const containers = new Map<Node, OriginState>();
+  const domain = createInterfaceOriginContractDomain(contracts);
+  const shared: OriginGraphSharedContext = {
+    ingress,
+    domain,
+    builder: createInterfaceOriginContractGraph(domain),
+    facts: createInterfaceOriginFacts(ingress),
+    values: new Map(),
+    containers: new Map(),
+    pending: [],
+  };
   const roots = new Map<Node, Map<Node, OriginState>>();
   let rootCount = 0;
   for (let contractIndex = 0; contractIndex < requests.length; contractIndex += 1) {
@@ -104,25 +126,19 @@ export function resolveInterfaceOrigins(
     if (request === undefined) {
       throw new Error("interface origin resolution lost a contract request");
     }
-    const context: OriginGraphContext = {
-      ingress,
-      contract: request.contract,
-      contractIndex,
-      builder,
-      facts,
-      values,
-      containers,
-    };
     const contractRoots = new Map<Node, OriginState>();
     roots.set(request.contract, contractRoots);
     for (const value of request.values) {
       if (!contractRoots.has(value)) {
         rootCount += 1;
-        contractRoots.set(value, stateFor(value, "value", context));
+        const root = stateFor(value, "value", shared);
+        contractRoots.set(value, root);
+        schedule(root, domain.single(contractIndex), shared);
       }
     }
   }
-  const resolutions = builder.seal();
+  drainOriginExpansions(shared);
+  const resolutions = shared.builder.seal();
   const resolved = new Map<Node, Map<Node, InterfaceOriginResolution>>();
   let closed = 0;
   for (let contractIndex = 0; contractIndex < contracts.length; contractIndex += 1) {
@@ -140,7 +156,7 @@ export function resolveInterfaceOrigins(
       contractResolutions.set(value, Object.freeze(result));
     }
   }
-  const factMeasurements = facts.measurements();
+  const factMeasurements = shared.facts.measurements();
   const measurements = Object.freeze({
     ...resolutions.measurements,
     closed,
@@ -165,7 +181,7 @@ export function resolveInterfaceOrigins(
 function stateFor(
   value: Node,
   role: OriginRole,
-  context: OriginGraphContext,
+  context: OriginGraphSharedContext,
 ): OriginState {
   const expression = context.facts.successfulExpression(value);
   const selected = expression ?? value;
@@ -174,20 +190,62 @@ function stateFor(
   if (state === undefined) {
     state = {
       vertex: context.builder.vertex(),
+      expansion: "expression",
+      occurrence: value,
+      ...(expression === undefined ? {} : { expression }),
+      role,
+      pending: undefined,
+      queued: false,
     };
     states.set(selected, state);
   }
-  if (!context.builder.activate(state.vertex, context.contractIndex)) {
-    return state;
-  }
-  if (expression === undefined) {
-    boundary(state, "unproven-value-origin", value, context);
-  } else if (role === "value") {
-    expandInterfaceOriginValue(state, expression, context, expansion);
-  } else {
-    expandInterfaceOriginContainer(state, expression, context, expansion);
-  }
   return state;
+}
+
+function schedule(
+  state: OriginState,
+  contracts: InterfaceOriginContractSet,
+  context: OriginGraphSharedContext,
+): void {
+  const added = context.builder.activate(state.vertex, contracts);
+  if (context.domain.isEmpty(added)) {
+    return;
+  }
+  state.pending = state.pending === undefined
+    ? added
+    : context.domain.union(state.pending, added);
+  if (!state.queued) {
+    state.queued = true;
+    context.pending.push(state);
+  }
+}
+
+function drainOriginExpansions(context: OriginGraphSharedContext): void {
+  for (let next = 0; next < context.pending.length; next += 1) {
+    const state = context.pending[next];
+    if (state === undefined || state.pending === undefined) {
+      throw new Error("interface origin expansion lost a pending state");
+    }
+    const active = state.pending;
+    state.pending = undefined;
+    state.queued = false;
+    const frame: OriginGraphContext = { ...context, active };
+    if (state.expansion === "declaration") {
+      expandDeclaration(
+        state,
+        state.occurrence,
+        state.role,
+        state.occurrence,
+        frame,
+      );
+    } else if (state.expression === undefined) {
+      boundary(state, "unproven-value-origin", state.occurrence, frame);
+    } else if (state.role === "value") {
+      expandInterfaceOriginValue(state, state.expression, frame, expansion);
+    } else {
+      expandInterfaceOriginContainer(state, state.expression, frame, expansion);
+    }
+  }
 }
 
 function expandDeclaration(
@@ -225,20 +283,22 @@ function expandDeclaration(
     }
     for (const input of checkedInputs) {
       inputCount += 1;
-      if (context.facts.typeProvidesContract(
-        input.semantics,
-        input.type,
-        context.contract,
-      )) {
-        origin(state, input.occurrence, context);
-      } else {
-        boundary(
-          state,
-          "unproven-value-origin",
-          input.occurrence,
-          context,
-        );
-      }
+      const provided = context.domain.select(
+        context.active,
+        (contract) => context.facts.typeProvidesContract(
+          input.semantics,
+          input.type,
+          contract,
+        ),
+      );
+      origin(state, input.occurrence, context, provided);
+      boundary(
+        state,
+        "unproven-value-origin",
+        input.occurrence,
+        context,
+        context.domain.subtract(context.active, provided),
+      );
     }
     if (directInputsAreClosed && inputs.length === 0) {
       origin(state, declaration, context);
@@ -289,13 +349,30 @@ function expandAlternatives(
         alternative.expression,
       );
       const type = semantics.types.expressionType(alternative.expression);
-      if (
-        type !== undefined &&
-        !context.ingress.relevance.valueContracts(semantics, type).includes(
-          context.contract,
-        )
-      ) {
-        origin(state, alternative.expression, context);
+      if (type !== undefined) {
+        const relevantContracts = context.ingress.relevance.valueContracts(
+          semantics,
+          type,
+        );
+        const relevant = context.domain.select(
+          context.active,
+          (contract) => relevantContracts.includes(contract),
+        );
+        origin(
+          state,
+          alternative.expression,
+          context,
+          context.domain.subtract(context.active, relevant),
+        );
+        dependency(
+          state,
+          alternative.expression,
+          role,
+          "conditional",
+          occurrence,
+          context,
+          relevant,
+        );
         continue;
       }
     }
@@ -371,14 +448,20 @@ function dependency(
   kind: EffectProvenanceEdgeKind,
   occurrence: Node,
   context: OriginGraphContext,
+  contracts: InterfaceOriginContractSet = context.active,
 ): void {
+  if (context.domain.isEmpty(contracts)) {
+    return;
+  }
+  const sourceState = stateFor(source, role, context);
   context.builder.addDependency(
     destination.vertex,
-    stateFor(source, role, context).vertex,
+    sourceState.vertex,
     kind,
     occurrence,
-    context.contractIndex,
+    contracts,
   );
+  schedule(sourceState, contracts, context);
 }
 
 function declarationDependency(
@@ -388,31 +471,39 @@ function declarationDependency(
   kind: EffectProvenanceEdgeKind,
   occurrence: Node,
   context: OriginGraphContext,
+  contracts: InterfaceOriginContractSet = context.active,
 ): void {
+  if (context.domain.isEmpty(contracts)) {
+    return;
+  }
+  const sourceState = stateForDeclaration(declaration, role, context);
   context.builder.addDependency(
     destination.vertex,
-    stateForDeclaration(declaration, role, context).vertex,
+    sourceState.vertex,
     kind,
     occurrence,
-    context.contractIndex,
+    contracts,
   );
+  schedule(sourceState, contracts, context);
 }
 
 function stateForDeclaration(
   declaration: Node,
   role: OriginRole,
-  context: OriginGraphContext,
+  context: OriginGraphSharedContext,
 ): OriginState {
   const states = role === "value" ? context.values : context.containers;
   let state = states.get(declaration);
   if (state === undefined) {
     state = {
       vertex: context.builder.vertex(),
+      expansion: "declaration",
+      occurrence: declaration,
+      role,
+      pending: undefined,
+      queued: false,
     };
     states.set(declaration, state);
-  }
-  if (context.builder.activate(state.vertex, context.contractIndex)) {
-    expandDeclaration(state, declaration, role, declaration, context);
   }
   return state;
 }
@@ -450,12 +541,32 @@ function terminal(
   }
 }
 
+function terminalForContracts(
+  state: OriginState,
+  closedContracts: InterfaceOriginContractSet,
+  occurrence: Node,
+  context: OriginGraphContext,
+  reason: InterfaceOriginBoundaryReason = "unproven-value-origin",
+): void {
+  origin(state, occurrence, context, closedContracts);
+  boundary(
+    state,
+    reason,
+    occurrence,
+    context,
+    context.domain.subtract(context.active, closedContracts),
+  );
+}
+
 function origin(
   state: OriginState,
   _occurrence: Node,
   context: OriginGraphContext,
+  contracts: InterfaceOriginContractSet = context.active,
 ): void {
-  context.builder.addOrigin(state.vertex, context.contractIndex);
+  if (!context.domain.isEmpty(contracts)) {
+    context.builder.addOrigin(state.vertex, contracts);
+  }
 }
 
 function boundary(
@@ -463,10 +574,9 @@ function boundary(
   reason: InterfaceOriginBoundaryReason,
   _occurrence: Node,
   context: OriginGraphContext,
+  contracts: InterfaceOriginContractSet = context.active,
 ): void {
-  context.builder.addBoundary(
-    state.vertex,
-    reason,
-    context.contractIndex,
-  );
+  if (!context.domain.isEmpty(contracts)) {
+    context.builder.addBoundary(state.vertex, reason, contracts);
+  }
 }

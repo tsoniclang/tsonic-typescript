@@ -2,6 +2,11 @@ import type { Node } from "@tsonic/tsts";
 
 import type { EffectProvenanceEdgeKind } from "../../../../provenance/model.js";
 import type { InterfaceOriginBoundaryReason } from "../resolution.js";
+import {
+  type InterfaceOriginContractDomain,
+  type InterfaceOriginContractSet,
+  contractSet,
+} from "./contract-set.js";
 
 export interface InterfaceOriginVertex {
   readonly index: number;
@@ -26,39 +31,47 @@ export interface InterfaceOriginContractGraphResolution {
 
 export interface InterfaceOriginContractGraphBuilder {
   vertex(): InterfaceOriginVertex;
-  activate(vertex: InterfaceOriginVertex, contract: number): boolean;
+  activate(
+    vertex: InterfaceOriginVertex,
+    contracts: InterfaceOriginContractSet,
+  ): InterfaceOriginContractSet;
   addDependency(
     destination: InterfaceOriginVertex,
     source: InterfaceOriginVertex,
     kind: EffectProvenanceEdgeKind,
     occurrence: Node,
-    contract: number,
+    contracts: InterfaceOriginContractSet,
   ): void;
-  addOrigin(vertex: InterfaceOriginVertex, contract: number): void;
+  addOrigin(
+    vertex: InterfaceOriginVertex,
+    contracts: InterfaceOriginContractSet,
+  ): void;
   addBoundary(
     vertex: InterfaceOriginVertex,
     reason: InterfaceOriginBoundaryReason,
-    contract: number,
+    contracts: InterfaceOriginContractSet,
   ): void;
   seal(): InterfaceOriginContractGraphResolution;
 }
 
-type ContractMasks = Array<Uint32Array | undefined>;
+type ContractMasks = Array<InterfaceOriginContractSet | undefined>;
 
 const originFlag = 1;
 const boundaryFlag = 2;
 const opaqueFlag = 4;
 
 export function createInterfaceOriginContractGraph(
-  contracts: readonly Node[],
+  domain: InterfaceOriginContractDomain,
 ): InterfaceOriginContractGraphBuilder {
-  const wordCount = Math.ceil(contracts.length / 32);
   const vertices: InterfaceOriginVertex[] = [];
   const active: ContractMasks = [];
   const origins: ContractMasks = [];
   const boundaries: ContractMasks = [];
   const opaqueBoundaries: ContractMasks = [];
-  const dependents = new Map<number, Map<number, Uint32Array>>();
+  const dependents = new Map<
+    number,
+    Map<number, InterfaceOriginContractSet>
+  >();
   let edgeCount = 0;
   let originCount = 0;
   let boundaryCount = 0;
@@ -75,26 +88,6 @@ export function createInterfaceOriginContractGraph(
       throw new Error("interface origin vertex belongs to another graph");
     }
   };
-  const assertContract = (contract: number): void => {
-    if (!Number.isInteger(contract) || contract < 0 || contract >= contracts.length) {
-      throw new Error("interface origin contract index is outside its domain");
-    }
-  };
-  const mark = (masks: ContractMasks, vertex: number, contract: number): boolean => {
-    let mask = masks[vertex];
-    if (mask === undefined) {
-      mask = new Uint32Array(wordCount);
-      masks[vertex] = mask;
-    }
-    const word = contract >>> 5;
-    const bit = 1 << (contract & 31);
-    const previous = mask[word] ?? 0;
-    if ((previous & bit) !== 0) {
-      return false;
-    }
-    mask[word] = previous | bit;
-    return true;
-  };
 
   return Object.freeze({
     vertex(): InterfaceOriginVertex {
@@ -103,14 +96,14 @@ export function createInterfaceOriginContractGraph(
       vertices.push(vertex);
       return vertex;
     },
-    activate(vertex: InterfaceOriginVertex, contract: number): boolean {
+    activate(
+      vertex: InterfaceOriginVertex,
+      contracts: InterfaceOriginContractSet,
+    ): InterfaceOriginContractSet {
       assertMutable();
       assertVertex(vertex);
-      assertContract(contract);
-      const added = mark(active, vertex.index, contract);
-      if (added) {
-        stepCount += 1;
-      }
+      const added = addMask(active, vertex.index, contracts, domain);
+      stepCount += domain.count(added);
       return added;
     },
     addDependency(
@@ -118,46 +111,47 @@ export function createInterfaceOriginContractGraph(
       source: InterfaceOriginVertex,
       _kind: EffectProvenanceEdgeKind,
       _occurrence: Node,
-      contract: number,
+      contracts: InterfaceOriginContractSet,
     ): void {
       assertMutable();
       assertVertex(destination);
       assertVertex(source);
-      assertContract(contract);
+      if (domain.isEmpty(contracts)) {
+        return;
+      }
       let destinations = dependents.get(source.index);
       if (destinations === undefined) {
         destinations = new Map();
         dependents.set(source.index, destinations);
       }
-      let mask = destinations.get(destination.index);
-      if (mask === undefined) {
-        mask = new Uint32Array(wordCount);
-        destinations.set(destination.index, mask);
+      const existing = destinations.get(destination.index);
+      if (existing === undefined) {
+        destinations.set(destination.index, contracts.slice() as InterfaceOriginContractSet);
         edgeCount += 1;
+      } else {
+        destinations.set(destination.index, domain.union(existing, contracts));
       }
-      setBit(mask, contract);
     },
-    addOrigin(vertex: InterfaceOriginVertex, contract: number): void {
+    addOrigin(
+      vertex: InterfaceOriginVertex,
+      contracts: InterfaceOriginContractSet,
+    ): void {
       assertMutable();
       assertVertex(vertex);
-      assertContract(contract);
-      if (mark(origins, vertex.index, contract)) {
-        originCount += 1;
-      }
+      originCount += domain.count(addMask(origins, vertex.index, contracts, domain));
     },
     addBoundary(
       vertex: InterfaceOriginVertex,
       reason: InterfaceOriginBoundaryReason,
-      contract: number,
+      contracts: InterfaceOriginContractSet,
     ): void {
       assertMutable();
       assertVertex(vertex);
-      assertContract(contract);
-      if (mark(boundaries, vertex.index, contract)) {
-        boundaryCount += 1;
-      }
+      boundaryCount += domain.count(
+        addMask(boundaries, vertex.index, contracts, domain),
+      );
       if (reason === "opaque-call-transport") {
-        mark(opaqueBoundaries, vertex.index, contract);
+        addMask(opaqueBoundaries, vertex.index, contracts, domain);
       }
     },
     seal(): InterfaceOriginContractGraphResolution {
@@ -165,7 +159,7 @@ export function createInterfaceOriginContractGraph(
       sealed = true;
       const resolved = resolveContractEvidence(
         vertices.length,
-        wordCount,
+        domain,
         dependents,
         origins,
         boundaries,
@@ -173,7 +167,7 @@ export function createInterfaceOriginContractGraph(
       );
       const measurements = Object.freeze({
         boundaries: boundaryCount,
-        contracts: contracts.length,
+        contracts: domain.contracts.length,
         edges: edgeCount,
         origins: originCount,
         steps: stepCount,
@@ -186,7 +180,6 @@ export function createInterfaceOriginContractGraph(
           contract: number,
         ): { readonly closed: boolean; readonly opaque: boolean } {
           assertVertex(vertex);
-          assertContract(contract);
           const flags = resolved.flagsFor(vertex.index, contract);
           return Object.freeze({
             closed: (flags & originFlag) !== 0 && (flags & boundaryFlag) === 0,
@@ -200,8 +193,11 @@ export function createInterfaceOriginContractGraph(
 
 function resolveContractEvidence(
   vertexCount: number,
-  wordCount: number,
-  dependents: ReadonlyMap<number, ReadonlyMap<number, Uint32Array>>,
+  domain: InterfaceOriginContractDomain,
+  dependents: ReadonlyMap<
+    number,
+    ReadonlyMap<number, InterfaceOriginContractSet>
+  >,
   origins: ContractMasks,
   boundaries: ContractMasks,
   opaqueBoundaries: ContractMasks,
@@ -237,7 +233,7 @@ function resolveContractEvidence(
           source,
           destination,
           contracts,
-          wordCount,
+          domain.wordCount,
         ) |
         propagateUnsent(
           reachableBoundaries,
@@ -245,7 +241,7 @@ function resolveContractEvidence(
           source,
           destination,
           contracts,
-          wordCount,
+          domain.wordCount,
         ) |
         propagateUnsent(
           reachableOpaqueBoundaries,
@@ -253,32 +249,34 @@ function resolveContractEvidence(
           source,
           destination,
           contracts,
-          wordCount,
+          domain.wordCount,
         );
       if (changed !== 0 && queued[destination] === 0) {
         queued[destination] = 1;
         pending.push(destination);
       }
     }
-    copyMask(sentOrigins, reachableOrigins, source, wordCount);
-    copyMask(sentBoundaries, reachableBoundaries, source, wordCount);
+    copyMask(sentOrigins, reachableOrigins, source, domain.wordCount);
+    copyMask(sentBoundaries, reachableBoundaries, source, domain.wordCount);
     copyMask(
       sentOpaqueBoundaries,
       reachableOpaqueBoundaries,
       source,
-      wordCount,
+      domain.wordCount,
     );
   }
   return Object.freeze({
     flagsFor(vertex: number, contract: number): number {
       let flags = 0;
-      if (hasBit(reachableOrigins[vertex], contract)) {
+      if (domain.has(reachableOrigins[vertex] ?? domain.empty(), contract)) {
         flags |= originFlag;
       }
-      if (hasBit(reachableBoundaries[vertex], contract)) {
+      if (domain.has(reachableBoundaries[vertex] ?? domain.empty(), contract)) {
         flags |= boundaryFlag;
       }
-      if (hasBit(reachableOpaqueBoundaries[vertex], contract)) {
+      if (
+        domain.has(reachableOpaqueBoundaries[vertex] ?? domain.empty(), contract)
+      ) {
         flags |= opaqueFlag;
       }
       return flags;
@@ -286,12 +284,26 @@ function resolveContractEvidence(
   });
 }
 
+function addMask(
+  masks: ContractMasks,
+  vertex: number,
+  contracts: InterfaceOriginContractSet,
+  domain: InterfaceOriginContractDomain,
+): InterfaceOriginContractSet {
+  const existing = masks[vertex] ?? domain.empty();
+  const added = domain.subtract(contracts, existing);
+  if (!domain.isEmpty(added)) {
+    masks[vertex] = domain.union(existing, added);
+  }
+  return added;
+}
+
 function propagateUnsent(
   reachable: ContractMasks,
   sent: ContractMasks,
   source: number,
   destination: number,
-  contracts: Uint32Array,
+  contracts: InterfaceOriginContractSet,
   wordCount: number,
 ): number {
   const sourceMask = reachable[source];
@@ -309,13 +321,13 @@ function propagateUnsent(
       continue;
     }
     if (destinationMask === undefined) {
-      destinationMask = new Uint32Array(wordCount);
+      destinationMask = contractSet(wordCount);
       reachable[destination] = destinationMask;
     }
     const previous = destinationMask[word] ?? 0;
-    const next = previous | additions;
-    destinationMask[word] = next;
-    changed |= previous ^ next;
+    const selected = previous | additions;
+    destinationMask[word] = selected;
+    changed |= previous ^ selected;
   }
   return changed;
 }
@@ -325,7 +337,7 @@ function cloneMasks(source: ContractMasks, length: number): ContractMasks {
   for (let index = 0; index < length; index += 1) {
     const mask = source[index];
     if (mask !== undefined) {
-      result[index] = mask.slice();
+      result[index] = mask.slice() as InterfaceOriginContractSet;
     }
   }
   return result;
@@ -343,18 +355,8 @@ function copyMask(
   }
   let destinationMask = destination[vertex];
   if (destinationMask === undefined) {
-    destinationMask = new Uint32Array(wordCount);
+    destinationMask = contractSet(wordCount);
     destination[vertex] = destinationMask;
   }
   destinationMask.set(sourceMask);
-}
-
-function setBit(mask: Uint32Array, contract: number): void {
-  const word = contract >>> 5;
-  mask[word] = (mask[word] ?? 0) | (1 << (contract & 31));
-}
-
-function hasBit(mask: Uint32Array | undefined, contract: number): boolean {
-  return mask !== undefined &&
-    ((mask[contract >>> 5] ?? 0) & (1 << (contract & 31))) !== 0;
 }

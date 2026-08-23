@@ -402,7 +402,8 @@ opaque boundary, and requires independent closed/opaque answers. It exact-
 checks originless cycles, duplicate-edge coalescing, graph ownership, and
 sealing. Structural inspection requires one contract-labelled graph, compact
 bit-set propagation, source-file/type/contract fact caches, and one aggregate
-resolver invocation. Restoring a graph or SCC resolution per contract,
+resolver invocation with a contract-batched state worklist. Restoring a graph
+or SCC resolution per contract, re-running a state visitor per contract,
 dropping the contract mask from an edge, keying a fact by spelling, or sharing
 evidence without its contract bit must fail. Whole-product origin-phase
 evidence reports contract, root, structural vertex/edge, activated pair,

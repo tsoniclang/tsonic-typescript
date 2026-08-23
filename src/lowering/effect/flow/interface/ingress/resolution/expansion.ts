@@ -7,6 +7,7 @@ import type {
   OriginRole,
   OriginState,
 } from "../resolution.js";
+import type { InterfaceOriginContractSet } from "./contract-set.js";
 
 export interface InterfaceOriginExpansion {
   dependency(
@@ -16,6 +17,7 @@ export interface InterfaceOriginExpansion {
     kind: EffectProvenanceEdgeKind,
     occurrence: Node,
     context: OriginGraphContext,
+    contracts?: InterfaceOriginContractSet,
   ): void;
   declarationDependency(
     destination: OriginState,
@@ -24,6 +26,7 @@ export interface InterfaceOriginExpansion {
     kind: EffectProvenanceEdgeKind,
     occurrence: Node,
     context: OriginGraphContext,
+    contracts?: InterfaceOriginContractSet,
   ): void;
   expandCompositeAlternatives(
     state: OriginState,
@@ -56,15 +59,24 @@ export interface InterfaceOriginExpansion {
     context: OriginGraphContext,
     reason?: InterfaceOriginBoundaryReason,
   ): void;
+  terminalForContracts(
+    state: OriginState,
+    closedContracts: InterfaceOriginContractSet,
+    occurrence: Node,
+    context: OriginGraphContext,
+    reason?: InterfaceOriginBoundaryReason,
+  ): void;
   origin(
     state: OriginState,
     occurrence: Node,
     context: OriginGraphContext,
+    contracts?: InterfaceOriginContractSet,
   ): void;
   boundary(
     state: OriginState,
     reason: InterfaceOriginBoundaryReason,
     occurrence: Node,
     context: OriginGraphContext,
+    contracts?: InterfaceOriginContractSet,
   ): void;
 }

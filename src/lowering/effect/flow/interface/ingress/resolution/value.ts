@@ -19,20 +19,25 @@ export function expandInterfaceOriginValue(
   context: OriginGraphContext,
   flow: InterfaceOriginExpansion,
 ): void {
-  const { ingress, contract } = context;
+  const { ingress } = context;
   if (context.facts.expressionCannotSupplyImplementation(expression)) {
     flow.origin(state, expression, context);
     return;
   }
   if (ingress.source.ast.kind(expression) === KindThisKeyword) {
-    flow.terminal(
+    const closed = context.domain.select(
+      context.active,
+      (contract) => context.facts.thisValueIsClosed(expression, contract),
+    );
+    flow.terminalForContracts(
       state,
-      context.facts.thisValueIsClosed(expression, contract),
+      closed,
       expression,
       context,
     );
     return;
   }
+  let activeContext = context;
   if (
     ingress.source.ast.is.IsObjectLiteralExpression(expression) ||
     ingress.source.ast.is.IsArrayLiteralExpression(expression) ||
@@ -40,22 +45,31 @@ export function expandInterfaceOriginValue(
   ) {
     const semantics = ingress.source.semantics.forNode(expression);
     const type = semantics.types.expressionType(expression);
-    if (
-      type !== undefined &&
-      context.facts.typeProvidesContract(semantics, type, contract)
-    ) {
-      flow.origin(state, expression, context);
-      return;
+    if (type !== undefined) {
+      const provided = context.domain.select(
+        context.active,
+        (contract) => context.facts.typeProvidesContract(
+          semantics,
+          type,
+          contract,
+        ),
+      );
+      flow.origin(state, expression, context, provided);
+      const remaining = context.domain.subtract(context.active, provided);
+      if (context.domain.isEmpty(remaining)) {
+        return;
+      }
+      activeContext = { ...context, active: remaining };
     }
   }
   if (
-    flow.expandSlotProjection(state, expression, "value", context) ||
+    flow.expandSlotProjection(state, expression, "value", activeContext) ||
     flow.expandCompositeAlternatives(
       state,
       expression,
       "value",
       expression,
-      context,
+      activeContext,
     )
   ) {
     return;
@@ -69,17 +83,17 @@ export function expandInterfaceOriginValue(
         "value",
         "field",
         expression,
-        context,
+        activeContext,
       );
     }
     return;
   }
   if (ingress.source.ast.is.IsPropertyAccessExpression(expression)) {
-    expandPropertyRead(state, expression, context, flow);
+    expandPropertyRead(state, expression, activeContext, flow);
     return;
   }
   if (ingress.source.ast.is.IsElementAccessExpression(expression)) {
-    expandElementRead(state, expression, context, flow);
+    expandElementRead(state, expression, activeContext, flow);
     return;
   }
   if (ingress.source.ast.is.IsNewExpression(expression)) {
@@ -90,18 +104,30 @@ export function expandInterfaceOriginValue(
       : semantics.declarations.signatureDeclaration(call.selectedSignature) ??
         ingress.source.navigation.declarationFor(expression);
     const type = semantics.types.expressionType(expression);
-    flow.terminal(
-      state,
+    let closed = activeContext.domain.empty();
+    if (
       originDeclarationIsClosed(ingress.source, declaration) &&
-        type !== undefined &&
-        context.facts.typeProvidesContract(semantics, type, contract),
+      type !== undefined
+    ) {
+      closed = activeContext.domain.select(
+        activeContext.active,
+        (contract) => activeContext.facts.typeProvidesContract(
+          semantics,
+          type,
+          contract,
+        ),
+      );
+    }
+    flow.terminalForContracts(
+      state,
+      closed,
       expression,
-      context,
+      activeContext,
     );
     return;
   }
   if (ingress.source.ast.is.IsCallExpression(expression)) {
-    expandValueCall(state, expression, context, flow);
+    expandValueCall(state, expression, activeContext, flow);
     return;
   }
   if (
@@ -112,15 +138,20 @@ export function expandInterfaceOriginValue(
       state,
       nodeHasExactSourceSemantics(ingress.source, expression),
       expression,
-      context,
+      activeContext,
     );
     return;
   }
   if (!ingress.source.ast.is.IsIdentifier(expression)) {
-    flow.boundary(state, "unproven-value-origin", expression, context);
+    flow.boundary(
+      state,
+      "unproven-value-origin",
+      expression,
+      activeContext,
+    );
     return;
   }
-  expandValueIdentifier(state, expression, context, flow);
+  expandValueIdentifier(state, expression, activeContext, flow);
 }
 
 function expandPropertyRead(
@@ -129,7 +160,7 @@ function expandPropertyRead(
   context: OriginGraphContext,
   flow: InterfaceOriginExpansion,
 ): void {
-  const { ingress, contract } = context;
+  const { ingress } = context;
   const access = ingress.source.ast.as.AsPropertyAccessExpression(expression);
   const semantics = ingress.source.semantics.forNode(expression);
   const declaration = semantics.operations.propertyAccess(expression)
@@ -145,10 +176,27 @@ function expandPropertyRead(
       ? !flow.storageDeclarationIsClosed(declaration, context)
       : !originDeclarationIsClosed(ingress.source, declaration)) ||
     type === undefined ||
-    !context.facts.typeProvidesContract(semantics, type, contract) ||
     access?.Expression === undefined
   ) {
     flow.boundary(state, "unproven-value-origin", expression, context);
+    return;
+  }
+  const provided = context.domain.select(
+    context.active,
+    (contract) => context.facts.typeProvidesContract(
+      semantics,
+      type,
+      contract,
+    ),
+  );
+  flow.boundary(
+    state,
+    "unproven-value-origin",
+    expression,
+    context,
+    context.domain.subtract(context.active, provided),
+  );
+  if (context.domain.isEmpty(provided)) {
     return;
   }
   if (trackedStorage) {
@@ -159,6 +207,7 @@ function expandPropertyRead(
       "field",
       expression,
       context,
+      provided,
     );
     flow.dependency(
       state,
@@ -167,6 +216,7 @@ function expandPropertyRead(
       "field",
       expression,
       context,
+      provided,
     );
   } else {
     flow.dependency(
@@ -176,6 +226,7 @@ function expandPropertyRead(
       "field",
       expression,
       context,
+      provided,
     );
   }
 }
@@ -186,7 +237,7 @@ function expandElementRead(
   context: OriginGraphContext,
   flow: InterfaceOriginExpansion,
 ): void {
-  const { ingress, contract } = context;
+  const { ingress } = context;
   const semantics = ingress.source.semantics.forNode(expression);
   const access = semantics.operations.elementAccess(expression);
   const owner = ingress.source.ast.as.AsElementAccessExpression(expression)
@@ -201,10 +252,27 @@ function expandElementRead(
     access.accessMode !== "read" ||
     owner === undefined ||
     access.receiver.expression !== owner ||
-    type === undefined ||
-    !context.facts.typeProvidesContract(semantics, type, contract)
+    type === undefined
   ) {
     flow.boundary(state, "unproven-value-origin", expression, context);
+    return;
+  }
+  const provided = context.domain.select(
+    context.active,
+    (contract) => context.facts.typeProvidesContract(
+      semantics,
+      type,
+      contract,
+    ),
+  );
+  flow.boundary(
+    state,
+    "unproven-value-origin",
+    expression,
+    context,
+    context.domain.subtract(context.active, provided),
+  );
+  if (context.domain.isEmpty(provided)) {
     return;
   }
   const aggregateRead = exactAggregateRead(ingress.source, expression);
@@ -224,7 +292,7 @@ function expandElementRead(
     : undefined;
   if (restInputs !== undefined) {
     if (restInputs.length === 0) {
-      flow.origin(state, expression, context);
+      flow.origin(state, expression, context, provided);
     } else {
       for (const input of restInputs) {
         flow.dependency(
@@ -234,13 +302,20 @@ function expandElementRead(
           "element",
           expression,
           context,
+          provided,
         );
       }
     }
     return;
   }
   if (!trackedStorage && slot !== undefined && !slot.closed) {
-    flow.boundary(state, "unproven-value-origin", expression, context);
+    flow.boundary(
+      state,
+      "unproven-value-origin",
+      expression,
+      context,
+      provided,
+    );
     return;
   }
   if (trackedStorage && flow.storageDeclarationIsClosed(declaration, context)) {
@@ -251,6 +326,7 @@ function expandElementRead(
       "element",
       expression,
       context,
+      provided,
     );
   } else {
     flow.dependency(
@@ -260,6 +336,7 @@ function expandElementRead(
       "element",
       expression,
       context,
+      provided,
     );
   }
 }
@@ -270,7 +347,7 @@ function expandValueCall(
   context: OriginGraphContext,
   flow: InterfaceOriginExpansion,
 ): void {
-  const { ingress, contract } = context;
+  const { ingress } = context;
   const transport = ingress.transports?.transportFor(expression);
   if (transport !== undefined) {
     const origins = transport.resultOriginExpressions;
@@ -313,20 +390,28 @@ function expandValueCall(
   const declaration = call === undefined
     ? undefined
     : semantics.declarations.signatureDeclaration(call.selectedSignature);
-  flow.terminal(
-    state,
-    call !== undefined && declaration !== undefined &&
-      (
-        !callCrossesOpaqueInterfaceBoundary(
-          ingress.source,
-          declaration,
-          ingress.entries,
-        ) || context.facts.typeHasCertifiedImplementation(
+  let closed = context.domain.empty();
+  if (call !== undefined && declaration !== undefined) {
+    if (!callCrossesOpaqueInterfaceBoundary(
+      ingress.source,
+      declaration,
+      ingress.entries,
+    )) {
+      closed = context.active;
+    } else {
+      closed = context.domain.select(
+        context.active,
+        (contract) => context.facts.typeHasCertifiedImplementation(
           semantics,
           call.sourceResultType,
           contract,
-        )
-      ),
+        ),
+      );
+    }
+  }
+  flow.terminalForContracts(
+    state,
+    closed,
     expression,
     context,
     "opaque-call-transport",
@@ -339,7 +424,7 @@ function expandValueIdentifier(
   context: OriginGraphContext,
   flow: InterfaceOriginExpansion,
 ): void {
-  const { ingress, contract } = context;
+  const { ingress } = context;
   const refinement = ingress.source.semantics.selectValueTypeRefinement(
     expression,
   );
@@ -350,17 +435,25 @@ function expandValueIdentifier(
     const sourceFile = reference === undefined
       ? undefined
       : ingress.source.ast.getSourceFile(reference.declaration);
-    flow.terminal(
-      state,
+    let closed = context.domain.empty();
+    if (
       reference !== undefined &&
-        sourceFile !== undefined &&
-        ingress.source.ast.isDeclarationFile(sourceFile) &&
-        type !== undefined &&
-        context.facts.typeHasCertifiedImplementation(
+      sourceFile !== undefined &&
+      ingress.source.ast.isDeclarationFile(sourceFile) &&
+      type !== undefined
+    ) {
+      closed = context.domain.select(
+        context.active,
+        (contract) => context.facts.typeHasCertifiedImplementation(
           semantics,
           type,
           contract,
         ),
+      );
+    }
+    flow.terminalForContracts(
+      state,
+      closed,
       expression,
       context,
     );
@@ -382,24 +475,38 @@ function expandValueIdentifier(
     ingress.source.ast.is.IsClassDeclaration(refinement.reference.declaration) ||
     ingress.source.ast.is.IsClassExpression(refinement.reference.declaration)
   ) {
-    flow.terminal(
-      state,
-      context.facts.classValueIsClosed(
+    const closed = context.domain.select(
+      context.active,
+      (contract) => context.facts.classValueIsClosed(
         semantics,
         refinement.declaredType,
         contract,
       ),
+    );
+    flow.terminalForContracts(
+      state,
+      closed,
       expression,
       context,
     );
     return;
   }
-  if (!context.facts.typeProvidesContract(
-    semantics,
-    refinement.declaredType,
-    contract,
-  )) {
-    flow.boundary(state, "unproven-value-origin", expression, context);
+  const provided = context.domain.select(
+    context.active,
+    (contract) => context.facts.typeProvidesContract(
+      semantics,
+      refinement.declaredType,
+      contract,
+    ),
+  );
+  flow.boundary(
+    state,
+    "unproven-value-origin",
+    expression,
+    context,
+    context.domain.subtract(context.active, provided),
+  );
+  if (context.domain.isEmpty(provided)) {
     return;
   }
   flow.expandDeclaration(
@@ -407,6 +514,6 @@ function expandValueIdentifier(
     refinement.reference.declaration,
     "value",
     expression,
-    context,
+    { ...context, active: provided },
   );
 }

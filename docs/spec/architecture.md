@@ -484,6 +484,9 @@ boundary cannot contaminate its sibling. Duplicate structural edges may be
 coalesced because this consumer asks only whether an exact origin or one of its
 two closed boundary classes is reachable; it does not publish edge evidence.
 Rebuilding and condensing the same topology once per contract is forbidden.
+Root requirements are accumulated before expansion, and every state is
+inspected once for its complete newly active contract set; looping over
+contracts and re-running the state visitor is equally forbidden.
 Exact successful-value and checked type/contract decisions are cached for the
 transaction by checked source-file identity, checker type identity, and exact
 contract node. A source spelling, type string, or cross-checker identity is
