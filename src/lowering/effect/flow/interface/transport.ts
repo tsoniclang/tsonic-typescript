@@ -59,8 +59,7 @@ import {
 } from "./ingress/checked-parameters.js";
 
 interface TypePairState extends InterfaceContractTypePairState {
-  rootFile: Node | undefined;
-  readonly roots: Map<string, Map<Type, Set<Type>>>;
+  readonly roots: WeakMap<Node, Map<string, Map<Type, Set<Type>>>>;
   readonly relevance: InterfaceContractRelevance;
 }
 
@@ -80,9 +79,8 @@ export function collectInterfaceContractTransports(
   const state: TypePairState = {
     source,
     contracts,
-    rootFile: undefined,
     rootOccurrence: undefined,
-    roots: new Map(),
+    roots: new WeakMap(),
     relevance: createInterfaceContractRelevance(source, contracts),
     seen: new Map(),
     pending: [],
@@ -145,6 +143,7 @@ export function collectInterfaceContractTransports(
       },
     },
     transports,
+    planningObserver,
   );
   planningObserver?.("effect-interface-call-transports");
   for (const kind of [
@@ -322,19 +321,20 @@ function processTypePair(
   state: TypePairState,
   sourceExpression: Node,
 ): void {
-  if (state.rootFile !== semantics.sourceFile) {
-    state.rootFile = semantics.sourceFile;
-    state.roots.clear();
+  let fileRoots = state.roots.get(semantics.sourceFile);
+  if (fileRoots === undefined) {
+    fileRoots = new Map();
+    state.roots.set(semantics.sourceFile, fileRoots);
   }
   const sourceIsFresh = isFreshInterfaceTransportAggregate(
     state.source,
     sourceExpression,
   );
   const rootKey = sourceIsFresh ? "fresh" : "shared";
-  let roots = state.roots.get(rootKey);
+  let roots = fileRoots.get(rootKey);
   if (roots === undefined) {
     roots = new Map();
-    state.roots.set(rootKey, roots);
+    fileRoots.set(rootKey, roots);
   }
   if (interfaceContractTypePairWasSeen(source, target, roots)) {
     return;

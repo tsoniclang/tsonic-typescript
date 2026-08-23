@@ -43,6 +43,9 @@ export const typeScriptPlanningPhases = Object.freeze([
   "effect-indirect-invocations",
   "effect-interface-contracts",
   "effect-interface-calls",
+  "effect-interface-call-analysis",
+  "effect-interface-call-inputs",
+  "effect-interface-call-processing",
   "effect-interface-call-transports",
   "effect-interface-context-transports",
   "effect-interface-implementation-inputs",
@@ -88,9 +91,14 @@ export type TypeScriptPlanningPhase = typeof typeScriptPlanningPhases[number];
 
 export const typeScriptPlanningMeasurementNames = Object.freeze([
   "boundaries",
+  "calls",
   "candidates",
   "closed",
   "components",
+  "containsExpansions",
+  "containsQueries",
+  "contractExpansions",
+  "contractQueries",
   "contracts",
   "declarations",
   "edges",
@@ -99,6 +107,8 @@ export const typeScriptPlanningMeasurementNames = Object.freeze([
   "roots",
   "steps",
   "values",
+  "valueExpansions",
+  "valueQueries",
   "vertices",
 ] as const);
 

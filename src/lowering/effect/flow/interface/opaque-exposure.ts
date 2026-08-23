@@ -33,12 +33,13 @@ export function opaqueInterfaceSourceContainsContracts(
   semantics: SourceFileSemantics,
   source: Type,
   relevance: InterfaceContractRelevance,
+  relevanceCache: Map<Type, boolean>,
 ): boolean {
   return sourceContainsRelevantContracts(
     semantics,
     source,
     relevance,
-    new Map(),
+    relevanceCache,
   );
 }
 
@@ -49,6 +50,7 @@ export function retainOpaqueInterfaceInputs(
   target: Type,
   sourceIsFresh: boolean,
   relevance: InterfaceContractRelevance,
+  relevanceCache: Map<Type, boolean>,
   sink: OpaqueInterfaceExposureSink,
 ): void {
   analyzeOpaquePair(
@@ -62,7 +64,7 @@ export function retainOpaqueInterfaceInputs(
       sink,
       freshSeen: new Map(),
       sharedSeen: new Map(),
-      relevanceCache: new Map(),
+      relevanceCache,
     },
   );
 }

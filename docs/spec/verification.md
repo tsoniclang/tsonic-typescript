@@ -387,6 +387,11 @@ membership walk and eager full contract-set retention on every intermediate
 type. Whole-product phase evidence reports contracts, calls,
 transport scans, implementation inputs, value slots, origins, and components
 separately before the interface transaction seals.
+That structural gate also requires transaction-lifetime, source-file-keyed
+opaque-relevance and root type-pair caches. It rejects per-call relevance maps,
+single-current-file roots, and cache clearing on a kind or file switch.
+Bounded whole-product counters separate call analysis, opaque-input processing,
+and call-pair processing and report relevance query and expansion denominators.
 The object and aggregate forms additionally route the implementation through a
 callable owner whose parameter carries another callback. The closed provenance
 path must admit that exact owner reference and settle the nested callback;

@@ -57,11 +57,38 @@ test("interface type relevance is cached per checked source file", () => {
   assert.match(source, /\.contains\.matches\(type\)/u);
   assert.match(
     source,
-    /contains\(semantics: SourceFileSemantics, type: Type\): boolean \{\s*return cacheFor\(semantics\)\.contains\.matches\(type\)/u,
+    /contains\(semantics: SourceFileSemantics, type: Type\): boolean \{\s*containsQueries \+= 1;\s*return cacheFor\(semantics\)\.contains\.matches\(type\)/u,
   );
   assert.doesNotMatch(
     source,
     /return selectedContracts\(semantics, type\)\.length/u,
   );
   assert.doesNotMatch(source, /sourceFile !== semantics\.sourceFile/u);
+});
+
+test("interface call transport caches exact file-local queries for the transaction", () => {
+  const callTransport = readFileSync(
+    join(effectRoot, "flow", "interface", "call-transport.ts"),
+    "utf8",
+  );
+  const transport = readFileSync(
+    join(effectRoot, "flow", "interface", "transport.ts"),
+    "utf8",
+  );
+
+  assert.match(
+    callTransport,
+    /new WeakMap<Node, Map<Type, boolean>>\(\)/u,
+  );
+  assert.match(callTransport, /opaqueRelevanceCacheFor/u);
+  assert.doesNotMatch(
+    callTransport,
+    /opaqueInterfaceSourceContainsContracts\([\s\S]{0,160}new Map\(\)/u,
+  );
+  assert.match(transport, /roots: new WeakMap\(\)/u);
+  assert.match(
+    transport,
+    /state\.roots\.get\(semantics\.sourceFile\)/u,
+  );
+  assert.doesNotMatch(transport, /state\.roots\.clear\(\)/u);
 });

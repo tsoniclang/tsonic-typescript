@@ -20,6 +20,16 @@ export interface InterfaceContractRelevance {
   contracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
   valueContracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
   directContracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
+  measurements(): InterfaceContractRelevanceMeasurements;
+}
+
+export interface InterfaceContractRelevanceMeasurements {
+  readonly containsQueries: number;
+  readonly containsExpansions: number;
+  readonly contractQueries: number;
+  readonly contractExpansions: number;
+  readonly valueQueries: number;
+  readonly valueExpansions: number;
 }
 
 interface InterfaceContractRelevanceCache {
@@ -33,6 +43,12 @@ export function createInterfaceContractRelevance(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
 ): InterfaceContractRelevance {
+  let containsQueries = 0;
+  let containsExpansions = 0;
+  let contractQueries = 0;
+  let contractExpansions = 0;
+  let valueQueries = 0;
+  let valueExpansions = 0;
   const caches = new WeakMap<Node, InterfaceContractRelevanceCache>();
   const cacheFor = (
     semantics: SourceFileSemantics,
@@ -41,15 +57,16 @@ export function createInterfaceContractRelevance(
     if (selected === undefined) {
       const directContracts = new WeakMap<Type, readonly Node[]>();
       selected = {
-        contains: createTransitivePredicateIndex((type) =>
-          contractPredicateExpansion(
+        contains: createTransitivePredicateIndex((type) => {
+          containsExpansions += 1;
+          return contractPredicateExpansion(
             semantics,
             type,
             source,
             contracts,
             directContracts,
-          )
-        ),
+          );
+        }),
         contracts: new WeakMap<Type, readonly Node[]>(),
         directContracts,
         valueContracts: new WeakMap<Type, readonly Node[]>(),
@@ -62,11 +79,13 @@ export function createInterfaceContractRelevance(
     semantics: SourceFileSemantics,
     type: Type,
   ): readonly Node[] => {
+    contractQueries += 1;
     const cache = cacheFor(semantics);
     const existing = cache.contracts.get(type);
     if (existing !== undefined) {
       return existing;
     }
+    contractExpansions += 1;
     const result = collectContracts(
       semantics,
       type,
@@ -81,11 +100,13 @@ export function createInterfaceContractRelevance(
     semantics: SourceFileSemantics,
     type: Type,
   ): readonly Node[] => {
+    valueQueries += 1;
     const selected = cacheFor(semantics).valueContracts;
     const cached = selected.get(type);
     if (cached !== undefined) {
       return cached;
     }
+    valueExpansions += 1;
     const result = collectValueContracts(
       semantics,
       type,
@@ -99,6 +120,7 @@ export function createInterfaceContractRelevance(
   };
   return Object.freeze({
     contains(semantics: SourceFileSemantics, type: Type): boolean {
+      containsQueries += 1;
       return cacheFor(semantics).contains.matches(type);
     },
     contracts: selectedContracts,
@@ -116,6 +138,16 @@ export function createInterfaceContractRelevance(
         contracts,
         cacheFor(semantics).directContracts,
       );
+    },
+    measurements(): InterfaceContractRelevanceMeasurements {
+      return Object.freeze({
+        containsQueries,
+        containsExpansions,
+        contractQueries,
+        contractExpansions,
+        valueQueries,
+        valueExpansions,
+      });
     },
   });
 }

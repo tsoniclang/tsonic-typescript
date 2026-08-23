@@ -811,6 +811,11 @@ few consumers that enumerate them. Attaching a flattened transitive contract
 array to every intermediate type, or rewalking a shared callable, union,
 reference, or tuple tail for every membership query, is forbidden
 source-multiplied work.
+Opaque-interface relevance and root type-pair decisions obey the same lexical
+lifecycle. Their exact answers are cached per checked source file for the
+complete interface-planning transaction; kind switches and later call passes
+may not discard them. A cache may retain only typed decisions and type
+identities, never checker reconstruction or source-independent guesses.
 
 Indirect project invocation is a separate exact extension of that owner. The
 callable target is resolved from one node-identity provenance graph over local

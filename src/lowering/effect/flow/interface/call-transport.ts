@@ -10,6 +10,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type {
   InvocationTransport,
   InvocationTransportContract,
@@ -80,8 +81,10 @@ export function collectInterfaceCallTransports(
   ingress: InterfaceContractIngress,
   sink: InterfaceCallTransportSink,
   transports?: InvocationTransportContract,
+  planningObserver?: TypeScriptPlanningObserver,
 ): void {
   const calls: InterfaceCallTransportAnalysis[] = [];
+  const opaqueRelevanceCaches = new WeakMap<Node, Map<Type, boolean>>();
   for (const kind of [KindCallExpression, KindNewExpression]) {
     for (const node of program.nodesOfKind(kind)) {
       const semantics = source.semantics.forNode(node);
@@ -110,6 +113,10 @@ export function collectInterfaceCallTransports(
       });
     }
   }
+  planningObserver?.("effect-interface-call-analysis", {
+    calls: calls.length,
+    boundaries: calls.filter((analysis) => analysis.opaqueBoundary).length,
+  });
   for (const analysis of calls) {
     collectCheckedProviderParameters(source, ingress, analysis);
     retainOpaqueCallInputs(
@@ -118,8 +125,10 @@ export function collectInterfaceCallTransports(
       ingress,
       sink,
       analysis,
+      opaqueRelevanceCacheFor(analysis.semantics, opaqueRelevanceCaches),
     );
   }
+  planningObserver?.("effect-interface-call-inputs");
   for (const analysis of calls) {
     const { node, semantics, call } = analysis;
     retainOpenInterfaceReceiver(semantics, node, call, ingress);
@@ -129,8 +138,13 @@ export function collectInterfaceCallTransports(
       ingress,
       sink,
       analysis,
+      opaqueRelevanceCacheFor(analysis.semantics, opaqueRelevanceCaches),
     );
   }
+  planningObserver?.(
+    "effect-interface-call-processing",
+    relevance.measurements(),
+  );
 }
 
 function collectCheckedProviderParameters(
@@ -199,6 +213,7 @@ function processCallTransports(
   ingress: InterfaceContractIngress,
   sink: InterfaceCallTransportSink,
   analysis: InterfaceCallTransportAnalysis,
+  opaqueRelevanceCache: Map<Type, boolean>,
 ): void {
   const { node, semantics, call, opaqueBoundary, exactBindings } = analysis;
   if (call === undefined) {
@@ -283,6 +298,7 @@ function processCallTransports(
         semantics,
         argument.type,
         relevance,
+        opaqueRelevanceCache,
       )
     )
   ) {
@@ -292,6 +308,7 @@ function processCallTransports(
           semantics,
           argument.type,
           relevance,
+          opaqueRelevanceCache,
         )
       ) {
         continue;
@@ -327,6 +344,7 @@ function retainOpaqueCallInputs(
   ingress: InterfaceContractIngress,
   sink: InterfaceCallTransportSink,
   analysis: InterfaceCallTransportAnalysis,
+  opaqueRelevanceCache: Map<Type, boolean>,
 ): void {
   const { call, opaqueBoundary, exactBindings, semantics, transport } = analysis;
   if (call === undefined || !opaqueBoundary || !exactBindings) {
@@ -352,6 +370,7 @@ function retainOpaqueCallInputs(
         sourceArgument.expression,
       ),
       relevance,
+      opaqueRelevanceCache,
       {
         markOpaqueInput(declaration) {
           ingress.opaqueInputs.mark(declaration);
@@ -375,6 +394,18 @@ function retainOpaqueCallInputs(
       },
     );
   }
+}
+
+function opaqueRelevanceCacheFor(
+  semantics: SourceFileSemantics,
+  caches: WeakMap<Node, Map<Type, boolean>>,
+): Map<Type, boolean> {
+  let cache = caches.get(semantics.sourceFile);
+  if (cache === undefined) {
+    cache = new Map();
+    caches.set(semantics.sourceFile, cache);
+  }
+  return cache;
 }
 
 function retainUnresolvedCallTransports(
