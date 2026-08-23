@@ -200,6 +200,9 @@ function expandExpression(
     context.returnedContracts.set(root, {
       returnTypes: returned.returnTypes,
       state,
+      sources: Object.freeze(returned.expressions.flatMap((expression) =>
+        expression === undefined ? [] : [expression]
+      )),
     });
     return;
   }

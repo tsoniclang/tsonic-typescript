@@ -188,6 +188,122 @@ export const result = await invoke();
   );
 });
 
+test("retains a local callable contract fed by an unrewritten generic carrier", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+declare function remote(): Promise<boolean>;
+
+class Carrier<T> {
+  public constructor(private readonly value: T) {}
+  public get(): T { return this.value; }
+}
+
+function any<T>(
+  callbacks: Carrier<((value: T) => Awaitable<boolean>) | undefined>,
+): ((value: T) => Awaitable<boolean>) | undefined {
+  return async (value: T): Promise<boolean> => {
+    const extracted = callbacks.get();
+    const callback: ((value: T) => Awaitable<boolean>) | undefined = extracted;
+    if (await callback!(value)) {
+      return true;
+    }
+    return false;
+  };
+}
+
+const selected = any(new Carrier(async (): Promise<boolean> => await remote()));
+export const result = await selected!(0);
+`);
+
+  const originalAsyncCallables = countAsyncCallables(
+    fixture.source,
+    fixture.sourceFile,
+  );
+  const originalAwaitableReferences = countNamedTypeReferences(
+    fixture.source,
+    fixture.sourceFile,
+    "Awaitable",
+  );
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(
+    countAsyncCallables(fixture.source, result.sourceFile),
+    originalAsyncCallables,
+  );
+  assert.equal(
+    countNamedTypeReferences(fixture.source, result.sourceFile, "Awaitable"),
+    originalAwaitableReferences,
+  );
+});
+
+test("retains a wrapper contract fed by an unresolved generic result", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+declare function remote(): Promise<number>;
+
+function choose<T>(condition: boolean, left: T, right: T): T {
+  return condition ? left : right;
+}
+
+function select(
+  condition: boolean,
+  left: () => Awaitable<number>,
+  right: () => Awaitable<number>,
+): () => Awaitable<number> {
+  return choose(condition, left, right);
+}
+
+const selected = select(
+  true,
+  async (): Promise<number> => await remote(),
+  async (): Promise<number> => 42,
+);
+export const result = await selected();
+`);
+
+  const originalAwaitableReferences = countNamedTypeReferences(
+    fixture.source,
+    fixture.sourceFile,
+    "Awaitable",
+  );
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(
+    countNamedTypeReferences(fixture.source, result.sourceFile, "Awaitable"),
+    originalAwaitableReferences,
+  );
+});
+
+test("settles a closed cycle of callable contract dependencies", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+
+let first: (() => Awaitable<number>) | undefined = (): number => 40;
+let second: (() => Awaitable<number>) | undefined = first;
+first = second;
+
+async function invoke(): Promise<number> {
+  return await first!();
+}
+
+export const result = await invoke();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNamedTypeReferences(fixture.source, result.sourceFile, "Awaitable"),
+    0,
+  );
+});
+
 for (const [name, assignment] of [
   ["compound write", "create ??= async () => zero();"],
   ["provider assignment", "create = remote;"],

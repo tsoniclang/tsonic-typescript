@@ -61,6 +61,9 @@ import {
   type GraphCallableValueFlow,
   type SettledCallableReturnContract,
 } from "./provenance/finalization.js";
+import {
+  callableContractSourceRequirement,
+} from "./provenance/contract-settlement.js";
 
 export type CallableBoundaryReason =
   | "inexact-reference"
@@ -78,6 +81,7 @@ export interface CallableState {
 interface ReturnContractState {
   readonly returnTypes: readonly CallableReturnRewrite[];
   readonly state: CallableState;
+  readonly sources: readonly Node[];
 }
 
 export interface CallableContext {
@@ -211,6 +215,9 @@ export function createGraphCallableValueFlow(
       context,
       (declaration) => callableDeclarationState(declaration, context),
     ),
+    sources: Object.freeze(contract.extractedDeclarations.flatMap(
+      (declaration) => inputs.valuesFor(declaration) ?? [],
+    )),
   }));
   const storageContractStates = inputs.storageContracts.flatMap((contract) => {
     const occurrence = contract.returnTypes[0]?.target ?? contract.declarations[0];
@@ -223,7 +230,10 @@ export function createGraphCallableValueFlow(
       context,
       (declaration) => callableDeclarationState(declaration, context),
     );
-    return contract.returnTypes.map((rewrite) => ({ rewrite, state }));
+    const sources = Object.freeze(contract.declarations.flatMap(
+      (declaration) => inputs.valuesFor(declaration) ?? [],
+    ));
+    return contract.returnTypes.map((rewrite) => ({ rewrite, state, sources }));
   });
   planningObserver?.("effect-callable-contracts");
   const graph = context.builder.seal();
@@ -275,14 +285,18 @@ export function createGraphCallableValueFlow(
   }
   planningObserver?.("effect-callable-call-resolutions");
   const returnTypes = new Map<Node, MutableCallableReturnContract>();
-  for (const { rewrite, state } of [
+  for (const { rewrite, state, sources } of [
     ...contractStates,
     ...storageContractStates,
-    ...[...context.returnedContracts.values()].flatMap(({ returnTypes, state }) =>
-      returnTypes.map((rewrite) => ({ rewrite, state }))
+    ...[...context.returnedContracts.values()].flatMap(({
+      returnTypes,
+      state,
+      sources,
+    }) =>
+      returnTypes.map((rewrite) => ({ rewrite, state, sources }))
     ),
   ]) {
-    appendReturnTypeContract(returnTypes, rewrite, state);
+    appendReturnTypeContract(returnTypes, rewrite, state, sources);
   }
   const signatureFamilies = Object.freeze(contractStates.flatMap(({ state }) => {
     const resolution = resolutionForState(state);
@@ -296,9 +310,12 @@ export function createGraphCallableValueFlow(
     ),
   );
   const settledReturnContracts: readonly SettledCallableReturnContract[] = Object.freeze(
-    [...returnTypes.values()].map(({ rewrite, states }) => Object.freeze({
+    [...returnTypes.values()].map(({ rewrite, states, sources }) => Object.freeze({
       rewrite,
       resolutions: Object.freeze(states.map(resolutionForState)),
+      sourceRequirements: Object.freeze(sources.map((source) =>
+        callableContractSourceRequirement(source, context)
+      )),
     })),
   );
   planningObserver?.("effect-callable-finalization");

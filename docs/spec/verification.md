@@ -467,6 +467,16 @@ contracts to be consumed exactly once, and strict product typechecking proves
 the rewritten producer remains assignable to every rewritten consumer. A
 mutation that omits only the producer's nested return rewrite must fail that
 proof rather than ship a partially settled flow.
+Callable-contract atomicity also has two fail-closed carrier fixtures. One
+reads an awaitable callable through an unresolved generic carrier before
+assigning it to a local callable contract; the other returns an awaitable
+callable through a generic identity result. In both cases runtime origins may
+be exact, but the carrier's checked static type remains awaitable, so every
+dependent annotation must remain unchanged. Paired positive fixtures use a
+direct synchronous value and an exact producer contract that settles in the
+same plan. Mutations that ignore source-contract requirements, accept a
+missing dependency target, or compute a one-pass rather than cyclic fixed
+point must either fail AST inspection or strict output typechecking.
 Fixed-slot callable projection fixtures cover a direct tuple literal, an
 awaited tuple-producing call, conditional and checked-call forwarding, and two
 different callable slots where only the selected slot can settle. The paired

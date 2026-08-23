@@ -578,6 +578,19 @@ that identity, and rewrites it only when the combined dependency closure
 settles. It may not settle a returned implementation while leaving its
 producer or consumer signature awaitable.
 
+That atomicity includes the checked static type of every value crossing into a
+narrowed callable contract. A destination may change from
+`() => Awaitable<T>` to `() => T` only when each exact source expression is
+already typed synchronously, is a cooperative callable that settles in the
+same plan, or depends on another callable-contract rewrite in the same closed
+family. A value read through an unresolved generic result, aggregate element,
+or other carrier whose authored type remains awaitable retains the destination
+contract even when runtime-origin provenance happens to identify only
+synchronous values. Contract dependencies settle as one greatest fixed point,
+so a closed cycle may settle but one unrewritten source contract retains every
+dependent rewrite. The finalized query carries only candidate and type-node
+dependencies; source expressions and checker state end with construction.
+
 Every cyclic effect-flow problem uses one finite provenance algebra. A semantic
 owner creates exact node-identity vertices, typed dependency edges carrying the
 authored occurrence that established each edge, explicit origins, and explicit
