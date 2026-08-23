@@ -189,17 +189,7 @@ function isPointerMarker(marker: SourceMarkerFact): boolean {
     case "equal-raw-pointer":
     case "hash-raw-pointer":
       return true;
-    case "write-only-reference":
-    case "read-write-reference":
-    case "read-only-reference":
-    case "shared-borrow":
-    case "mutable-borrow":
-    case "move":
-    case "struct":
-    case "field":
-    case "attribute":
-    case "default-value":
-    case "js-string":
+    default:
       return false;
   }
 }
