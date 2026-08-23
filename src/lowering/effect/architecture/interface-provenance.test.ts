@@ -76,15 +76,26 @@ test("interface call transport caches exact file-local queries for the transacti
     "utf8",
   );
 
-  assert.match(
-    callTransport,
-    /new WeakMap<Node, Map<Type, boolean>>\(\)/u,
+  const opaqueIndex = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "interface",
+      "opaque-exposure",
+      "index.ts",
+    ),
+    "utf8",
   );
-  assert.match(callTransport, /opaqueRelevanceCacheFor/u);
+
+  assert.match(callTransport, /createOpaqueInterfaceExposureIndex/u);
+  assert.match(callTransport, /opaqueExposure\.retainInputs/u);
   assert.doesNotMatch(
     callTransport,
-    /opaqueInterfaceSourceContainsContracts\([\s\S]{0,160}new Map\(\)/u,
+    /analyzeOpaqueInterfaceInputs|new Map<Type, boolean>/u,
   );
+  assert.match(opaqueIndex, /new WeakMap<Node, OpaqueInterfaceExposureFileCache>/u);
+  assert.match(opaqueIndex, /targets\.get\(selectedTarget\)/u);
+  assert.match(opaqueIndex, /replayPlan/u);
   assert.match(transport, /roots: new WeakMap\(\)/u);
   assert.match(
     transport,

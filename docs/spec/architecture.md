@@ -816,6 +816,12 @@ lifecycle. Their exact answers are cached per checked source file for the
 complete interface-planning transaction; kind switches and later call passes
 may not discard them. A cache may retain only typed decisions and type
 identities, never checker reconstruction or source-independent guesses.
+Opaque structural exposure is separated from occurrence application. The
+owner computes one immutable exact plan per checked source type, target type,
+freshness, and source file, then replays that plan at every distinct call
+occurrence so diagnostics retain their authored location. Rewalking the same
+source/target structure for each call is forbidden; omitting occurrence replay
+is equally forbidden.
 
 Indirect project invocation is a separate exact extension of that owner. The
 callable target is resolved from one node-identity provenance graph over local

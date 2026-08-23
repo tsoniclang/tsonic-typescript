@@ -392,6 +392,10 @@ opaque-relevance and root type-pair caches. It rejects per-call relevance maps,
 single-current-file roots, and cache clearing on a kind or file switch.
 Bounded whole-product counters separate call analysis, opaque-input processing,
 and call-pair processing and report relevance query and expansion denominators.
+The opaque-input gate requires exact plan reuse for repeated source/target
+pairs and separate replay at two authored calls. Mutations that key only on a
+type spelling, omit freshness or source-file identity, reuse one call's
+occurrence, or restore per-occurrence structural analysis must fail.
 The object and aggregate forms additionally route the implementation through a
 callable owner whose parameter carries another callback. The closed provenance
 path must admit that exact owner reference and settle the nested callback;

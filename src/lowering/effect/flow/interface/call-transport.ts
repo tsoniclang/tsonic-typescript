@@ -32,9 +32,9 @@ import {
   isFreshInterfaceTransportAggregate,
 } from "./transport-context.js";
 import {
-  opaqueInterfaceSourceContainsContracts,
-  retainOpaqueInterfaceInputs,
-} from "./opaque-exposure.js";
+  createOpaqueInterfaceExposureIndex,
+  type OpaqueInterfaceExposureIndex,
+} from "./opaque-exposure/index.js";
 import {
   callHasExactBindings,
   exactSourceCallBindingInputs,
@@ -84,7 +84,7 @@ export function collectInterfaceCallTransports(
   planningObserver?: TypeScriptPlanningObserver,
 ): void {
   const calls: InterfaceCallTransportAnalysis[] = [];
-  const opaqueRelevanceCaches = new WeakMap<Node, Map<Type, boolean>>();
+  const opaqueExposure = createOpaqueInterfaceExposureIndex(source, relevance);
   for (const kind of [KindCallExpression, KindNewExpression]) {
     for (const node of program.nodesOfKind(kind)) {
       const semantics = source.semantics.forNode(node);
@@ -125,10 +125,13 @@ export function collectInterfaceCallTransports(
       ingress,
       sink,
       analysis,
-      opaqueRelevanceCacheFor(analysis.semantics, opaqueRelevanceCaches),
+      opaqueExposure,
     );
   }
-  planningObserver?.("effect-interface-call-inputs");
+  planningObserver?.(
+    "effect-interface-call-inputs",
+    opaqueExposure.measurements(),
+  );
   for (const analysis of calls) {
     const { node, semantics, call } = analysis;
     retainOpenInterfaceReceiver(semantics, node, call, ingress);
@@ -138,7 +141,7 @@ export function collectInterfaceCallTransports(
       ingress,
       sink,
       analysis,
-      opaqueRelevanceCacheFor(analysis.semantics, opaqueRelevanceCaches),
+      opaqueExposure,
     );
   }
   planningObserver?.(
@@ -213,7 +216,7 @@ function processCallTransports(
   ingress: InterfaceContractIngress,
   sink: InterfaceCallTransportSink,
   analysis: InterfaceCallTransportAnalysis,
-  opaqueRelevanceCache: Map<Type, boolean>,
+  opaqueExposure: OpaqueInterfaceExposureIndex,
 ): void {
   const { node, semantics, call, opaqueBoundary, exactBindings } = analysis;
   if (call === undefined) {
@@ -294,22 +297,12 @@ function processCallTransports(
     opaqueBoundary &&
     !exactBindings &&
     call.sourceArguments.some((argument) =>
-      opaqueInterfaceSourceContainsContracts(
-        semantics,
-        argument.type,
-        relevance,
-        opaqueRelevanceCache,
-      )
+      opaqueExposure.sourceContains(semantics, argument.type)
     )
   ) {
     for (const argument of call.sourceArguments) {
       if (
-        !opaqueInterfaceSourceContainsContracts(
-          semantics,
-          argument.type,
-          relevance,
-          opaqueRelevanceCache,
-        )
+        !opaqueExposure.sourceContains(semantics, argument.type)
       ) {
         continue;
       }
@@ -344,7 +337,7 @@ function retainOpaqueCallInputs(
   ingress: InterfaceContractIngress,
   sink: InterfaceCallTransportSink,
   analysis: InterfaceCallTransportAnalysis,
-  opaqueRelevanceCache: Map<Type, boolean>,
+  opaqueExposure: OpaqueInterfaceExposureIndex,
 ): void {
   const { call, opaqueBoundary, exactBindings, semantics, transport } = analysis;
   if (call === undefined || !opaqueBoundary || !exactBindings) {
@@ -358,8 +351,7 @@ function retainOpaqueCallInputs(
     if (transport?.inputExpressions.includes(sourceArgument.expression) === true) {
       continue;
     }
-    retainOpaqueInterfaceInputs(
-      source,
+    opaqueExposure.retainInputs(
       semantics,
       binding.sourceForm === "value"
         ? sourceArgument.type
@@ -369,8 +361,6 @@ function retainOpaqueCallInputs(
         source,
         sourceArgument.expression,
       ),
-      relevance,
-      opaqueRelevanceCache,
       {
         markOpaqueInput(declaration) {
           ingress.opaqueInputs.mark(declaration);
@@ -394,18 +384,6 @@ function retainOpaqueCallInputs(
       },
     );
   }
-}
-
-function opaqueRelevanceCacheFor(
-  semantics: SourceFileSemantics,
-  caches: WeakMap<Node, Map<Type, boolean>>,
-): Map<Type, boolean> {
-  let cache = caches.get(semantics.sourceFile);
-  if (cache === undefined) {
-    cache = new Map();
-    caches.set(semantics.sourceFile, cache);
-  }
-  return cache;
 }
 
 function retainUnresolvedCallTransports(

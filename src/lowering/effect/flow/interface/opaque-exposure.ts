@@ -29,21 +29,7 @@ interface OpaqueInterfaceExposureState {
   readonly relevanceCache: Map<Type, boolean>;
 }
 
-export function opaqueInterfaceSourceContainsContracts(
-  semantics: SourceFileSemantics,
-  source: Type,
-  relevance: InterfaceContractRelevance,
-  relevanceCache: Map<Type, boolean>,
-): boolean {
-  return sourceContainsRelevantContracts(
-    semantics,
-    source,
-    relevance,
-    relevanceCache,
-  );
-}
-
-export function retainOpaqueInterfaceInputs(
+export function analyzeOpaqueInterfaceInputs(
   sourceProgram: TargetSourceProgram,
   semantics: SourceFileSemantics,
   source: Type,
