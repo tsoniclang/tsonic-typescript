@@ -149,6 +149,45 @@ test("mostly isolated provenance stays sparse and query-bounded", () => {
   assert.equal(resolutions.resolutionFor(selected).closed, true);
 });
 
+test("boundary reasons use exact compact reachability over shared tails", () => {
+  type Reason = "opaque" | "unproven";
+  const builder = createEffectProvenanceGraphBuilder<Reason>();
+  const opaque = builder.vertex("provider", node());
+  const unproven = builder.vertex("provider", node());
+  const shared = builder.vertex("storage", node());
+  const first = builder.vertex("interface-value", node());
+  const second = builder.vertex("interface-value", node());
+  const clear = builder.vertex("interface-value", node());
+  builder.addBoundary(opaque, "opaque", node());
+  builder.addBoundary(unproven, "unproven", node());
+  builder.addDependency(shared, opaque, "provider-transport", node());
+  builder.addDependency(shared, unproven, "assignment", node());
+  builder.addDependency(first, shared, "projection", node());
+  builder.addDependency(second, shared, "projection", node());
+  builder.addOrigin(clear, node());
+
+  const resolutions = resolveEffectProvenance(builder.seal());
+
+  for (const selected of [shared, first, second]) {
+    const resolution = resolutions.resolutionFor(selected);
+    assert.equal(resolution.hasBoundaryReason("opaque"), true);
+    assert.equal(resolution.hasBoundaryReason("unproven"), true);
+  }
+  assert.equal(
+    resolutions.resolutionFor(opaque).hasBoundaryReason("unproven"),
+    false,
+  );
+  assert.equal(
+    resolutions.resolutionFor(unproven).hasBoundaryReason("opaque"),
+    false,
+  );
+  assert.equal(
+    resolutions.resolutionFor(clear).hasBoundaryReason("opaque"),
+    false,
+  );
+  assert.equal(resolutions.resolutionFor(first).boundaries.length, 2);
+});
+
 function node(): Node {
   return Object.freeze({}) as Node;
 }

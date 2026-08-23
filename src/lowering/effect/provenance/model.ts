@@ -75,6 +75,7 @@ export interface EffectProvenanceResolution<Reason extends string> {
   readonly origins: readonly Node[];
   readonly originEvidence: readonly EffectProvenanceOrigin[];
   readonly boundaries: readonly EffectProvenanceBoundary<Reason>[];
+  hasBoundaryReason(reason: Reason): boolean;
 }
 
 export interface EffectProvenanceResolutionIndex<Reason extends string> {

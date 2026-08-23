@@ -101,6 +101,7 @@ export function resolveEffectProvenance<Reason extends string>(
     number,
     readonly EffectProvenanceBoundary<Reason>[]
   >();
+  const boundaryReasonReachability = new Map<Reason, Uint8Array>();
   const originOccurrences = new WeakMap<object, readonly Node[]>();
   const dependencyLists = new Map<number, readonly number[]>();
   const resolutions = new WeakMap<
@@ -137,6 +138,19 @@ export function resolveEffectProvenance<Reason extends string>(
     directBoundaries,
     boundaryEvidence,
   );
+  const hasBoundaryReason = (component: number, reason: Reason): boolean => {
+    let reachable = boundaryReasonReachability.get(reason);
+    if (reachable === undefined) {
+      reachable = boundaryReasonComponents(
+        reason,
+        componentCount,
+        directBoundaries,
+        dependents,
+      );
+      boundaryReasonReachability.set(reason, reachable);
+    }
+    return reachable[component] === 1;
+  };
 
   return Object.freeze({
     componentCount,
@@ -177,12 +191,53 @@ export function resolveEffectProvenance<Reason extends string>(
           get boundaries(): readonly EffectProvenanceBoundary<Reason>[] {
             return boundariesFor(component);
           },
+          hasBoundaryReason(reason: Reason): boolean {
+            return hasBoundaryReason(component, reason);
+          },
         });
         resolutions.set(vertex, resolution);
       }
       return resolution;
     },
   });
+}
+
+function boundaryReasonComponents<Reason extends string>(
+  reason: Reason,
+  componentCount: number,
+  directBoundaries: ReadonlyMap<
+    number,
+    readonly EffectProvenanceBoundary<Reason>[]
+  >,
+  dependents: ReadonlyMap<number, ReadonlySet<number>>,
+): Uint8Array {
+  const reachable = new Uint8Array(componentCount);
+  const pending = new Uint32Array(componentCount);
+  let pendingCount = 0;
+  for (const [component, boundaries] of directBoundaries) {
+    if (
+      reachable[component] === 0 &&
+      boundaries.some((boundary) => boundary.reason === reason)
+    ) {
+      reachable[component] = 1;
+      pending[pendingCount] = component;
+      pendingCount += 1;
+    }
+  }
+  let next = 0;
+  while (next < pendingCount) {
+    const component = requiredIndex(pending, next);
+    next += 1;
+    for (const dependent of componentsFor(dependents, component)) {
+      if (reachable[dependent] === 1) {
+        continue;
+      }
+      reachable[dependent] = 1;
+      pending[pendingCount] = dependent;
+      pendingCount += 1;
+    }
+  }
+  return reachable;
 }
 
 function evidenceFor<Evidence>(

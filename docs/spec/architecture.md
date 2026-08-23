@@ -629,6 +629,11 @@ Resolution condenses strongly connected components once, then propagates
 origins and boundaries over the acyclic component graph. A value is closed only
 when its complete dependency closure contains at least one exact origin and no
 boundary. Cycles therefore neither recurse nor become proof by themselves.
+When a semantic decision needs only the presence of one boundary reason, it
+queries resolver-owned compact reason reachability. Materializing every
+transitive boundary record per queried root for that boolean decision is
+forbidden; complete boundary evidence remains lazy and is reserved for
+diagnostics and certification.
 Callable, return, result-consumer, selected-value-slot, and blocker flows share
 this algebra but remain separate semantic graphs with separate owners and
 reason catalogs; there is no universal effect IR and no flow may read another
@@ -785,6 +790,9 @@ For this invocation-input owner, `closed-direct` treats an ordinary project
 profile treats exact import/re-export occurrences as neutral linkage rather
 than calls and does not fabricate an unknown caller from export alone. Every
 actual project invocation must still exact-join through source navigation.
+Interface-implementation input closure consumes this same selected profile;
+it may not restore an unconditional forwarding boundary behind the executable
+profile.
 Ambient or declaration-file callables, references outside selected source
 membership, unresolved calls, and corrupt linkage remain open. This permission
 does not independently close callable storage, result observation, or another

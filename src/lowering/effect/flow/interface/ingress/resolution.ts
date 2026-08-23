@@ -93,9 +93,7 @@ export function resolveInterfaceOrigins(
       const result = resolutions.resolutionFor(root.vertex);
       return [value, Object.freeze({
         closed: result.closed,
-        opaque: result.boundaries.some((boundary) =>
-          boundary.reason === "opaque-call-transport"
-        ),
+        opaque: result.hasBoundaryReason("opaque-call-transport"),
       })] as const;
     }),
   );

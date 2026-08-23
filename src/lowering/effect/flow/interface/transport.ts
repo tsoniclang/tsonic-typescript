@@ -41,6 +41,7 @@ import { callableDispatchIsClosed } from "../../model/syntax.js";
 import { resolveProjectInvocation } from "../../model/project-invocation.js";
 import { exactCallableReturnExpressions } from "../invocation/results.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import { createInterfaceOriginRequirements } from "./ingress/requirements.js";
 import { createInterfaceImplementationInputIndex } from "./ingress/implementation-inputs.js";
 import { collectClosedStorageOwners } from "../storage/owners.js";
@@ -72,6 +73,7 @@ export function collectInterfaceContractTransports(
   transports?: InvocationTransportContract,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ExactInvocationInputIndex {
   const state: TypePairState = {
     source,
@@ -226,6 +228,7 @@ export function collectInterfaceContractTransports(
     aggregateProjections,
     exactCallImplementations,
     callableReferenceIsClosed,
+    cooperativeEffects,
   );
   const slots = createExactValueSlotFlow(
     source,

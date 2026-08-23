@@ -14,6 +14,7 @@ import {
 } from "../../invocation/implementation-inputs.js";
 import type { ExactInvocationInputIndex } from "../../invocation/inputs.js";
 import type { ExactCallImplementations } from "../../callable/result-inputs.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../../profile.js";
 
 export type InterfaceImplementationInputSource = ExactImplementationInputSource;
 
@@ -25,6 +26,7 @@ export function createInterfaceImplementationInputIndex(
   projections?: ExactAggregateProjectionIndex,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ExactInvocationInputIndex {
   const entries = [...sources];
   const invalidImplementations = new Set<Node>();
@@ -36,6 +38,7 @@ export function createInterfaceImplementationInputIndex(
         implementation,
         exactCallImplementations,
         callableReferenceIsClosed,
+        cooperativeEffects,
       )) {
         invalidImplementations.add(implementation);
       }
@@ -56,10 +59,11 @@ function implementationReferencesAreClosed(
   implementation: Node,
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): boolean {
   return source.navigation.referencesToDeclaration(implementation).every((reference) => {
     if (isModuleForwardingReference(source, reference)) {
-      return false;
+      return cooperativeEffects === "closed-program";
     }
     const invocation = directContainingInvocation(source, reference);
     return callableReferenceIsClosed?.(reference) === true ||

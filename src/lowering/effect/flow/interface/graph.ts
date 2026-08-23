@@ -36,6 +36,7 @@ import {
   createExactIndirectInvocationAnalysis,
 } from "../invocation/indirect.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import {
   createExactAggregateProjectionIndex,
   type ExactAggregateProjectionIndex,
@@ -96,6 +97,7 @@ export function createInterfaceContractGraph(
   sourceIdentityFor: SourceIdentityResolver = (sourceFile) =>
     source.documents.forFile(sourceFile).identity,
   indexes?: InterfaceContractFlowIndexes,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): InterfaceContractGraph {
   const aggregateProjections = indexes?.aggregateProjections ??
     createExactAggregateProjectionIndex(source, program);
@@ -132,6 +134,7 @@ export function createInterfaceContractGraph(
     exactCallImplementations,
     indexes?.callableReferenceIsClosed ??
       indirectInvocations?.allowsCallableReference,
+    cooperativeEffects,
   );
   const seeds = [...contracts.entries.values()].filter((entry) =>
     entry.returnRewrite !== undefined && entry.calls.length !== 0

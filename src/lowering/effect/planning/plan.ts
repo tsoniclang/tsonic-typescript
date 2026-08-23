@@ -142,6 +142,7 @@ export function createClosedCooperativeEffectPlan(
         aggregateProjections,
         objectProjections,
       }),
+      cooperativeEffects,
     );
     planningObserver?.("effect-interface-dispatch");
     completeTransports = composeInvocationTransportContracts([

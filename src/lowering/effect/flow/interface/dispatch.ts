@@ -2,7 +2,10 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
-import type { TypeScriptInterfaceDispatchProfile } from "../../../profile.js";
+import type {
+  TypeScriptActiveCooperativeEffectProfile,
+  TypeScriptInterfaceDispatchProfile,
+} from "../../../profile.js";
 import {
   compareOptimizationOccurrences,
   optimizationOccurrence,
@@ -108,6 +111,7 @@ export function createDeclaredInterfaceDispatch(
   sourceIdentityFor: SourceIdentityResolver = (sourceFile) =>
     source.documents.forFile(sourceFile).identity,
   indexes?: InterfaceContractFlowIndexes,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): DeclaredInterfaceDispatch {
   if (profile === "open-structural") {
     const aggregateProjections = indexes?.aggregateProjections ??
@@ -131,6 +135,7 @@ export function createDeclaredInterfaceDispatch(
     transports,
     sourceIdentityFor,
     indexes,
+    cooperativeEffects,
   );
   const families: DeclaredInterfaceDispatchFamily[] = [];
   const rejected: RejectedInterfaceDispatchFamily[] = [];

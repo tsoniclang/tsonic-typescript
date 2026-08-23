@@ -74,6 +74,10 @@ The condensation mutation gate rejects one empty array/set per vertex or
 component and requires compact typed adjacency plus sparse component evidence.
 A mostly-isolated graph fixture preserves exact component counts and a bounded
 work ratio while querying only selected roots.
+A shared-tail boundary fixture exact-checks independent reason reachability and
+the full diagnostic evidence. Structural inspection requires interface-origin
+decisions to use the compact reason query and rejects restoration of
+transitive-boundary array filtering at that owner.
 The return-local fixture proves both directions of an exact alias component and
 contrasts awaited, returned, captured, and escaped reads. A structural gate
 requires demand-driven source-reference traversal and rejects restoration of a
@@ -371,6 +375,9 @@ under `closed-direct` retains both exported callables. Replacing the project
 call with an ambient consumer also retains the callback under `closed-program`.
 This proves linkage references are neutral only under the executable boundary
 and do not fabricate a call or erase an actual external ingress.
+Structural inspection proves interface implementation-input closure consumes
+that same selected profile and rejects restoration of an unconditional module-
+forwarding boundary.
 The object and aggregate forms additionally route the implementation through a
 callable owner whose parameter carries another callback. The closed provenance
 path must admit that exact owner reference and settle the nested callback;
