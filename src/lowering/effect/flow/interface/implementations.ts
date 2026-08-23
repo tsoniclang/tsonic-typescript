@@ -47,6 +47,7 @@ export function createInterfaceContractImplementationLedger(
   const typeContracts = new Map<Type, Set<Node>>();
   const declarationContracts = new Map<Node, Set<Node>>();
   const implementationContracts = new Map<Node, Set<Node>>();
+  const attemptedTypeContracts = new Map<Type, Map<Node, boolean>>();
 
   const commit = (resolved: readonly ResolvedImplementation[]): void => {
     for (const entry of resolved) {
@@ -82,6 +83,13 @@ export function createInterfaceContractImplementationLedger(
   ): readonly Node[] => {
     const unresolved: Node[] = [];
     for (const contract of contracts) {
+      const attempted = attemptedTypeContracts.get(sourceType)?.get(contract);
+      if (attempted !== undefined) {
+        if (!attempted) {
+          unresolved.push(contract);
+        }
+        continue;
+      }
       const resolved = resolveContractImplementations(
         source,
         semantics,
@@ -89,9 +97,11 @@ export function createInterfaceContractImplementationLedger(
         contract,
       );
       if (resolved === undefined) {
+        recordAttempt(attemptedTypeContracts, sourceType, contract, false);
         unresolved.push(contract);
       } else {
         commit(resolved);
+        recordAttempt(attemptedTypeContracts, sourceType, contract, true);
       }
     }
     return Object.freeze(unresolved);
@@ -342,4 +352,18 @@ function addToSet<Key, Value>(
   } else {
     selected.add(value);
   }
+}
+
+function recordAttempt(
+  attempts: Map<Type, Map<Node, boolean>>,
+  type: Type,
+  contract: Node,
+  resolved: boolean,
+): void {
+  let contracts = attempts.get(type);
+  if (contracts === undefined) {
+    contracts = new Map();
+    attempts.set(type, contracts);
+  }
+  contracts.set(contract, resolved);
 }

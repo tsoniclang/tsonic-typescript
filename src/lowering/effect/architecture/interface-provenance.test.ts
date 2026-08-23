@@ -10,14 +10,65 @@ const repositoryRoot = resolve(
 );
 const effectRoot = join(repositoryRoot, "src", "lowering", "effect");
 
-test("interface origin decisions query compact boundary reasons", () => {
-  const source = readFileSync(
+test("interface origins share one exact contract-labelled graph", () => {
+  const resolution = readFileSync(
     join(effectRoot, "flow", "interface", "ingress", "resolution.ts"),
     "utf8",
   );
+  const graph = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "interface",
+      "ingress",
+      "resolution",
+      "contract-graph.ts",
+    ),
+    "utf8",
+  );
+  const requirements = readFileSync(
+    join(effectRoot, "flow", "interface", "ingress", "requirements.ts"),
+    "utf8",
+  );
 
-  assert.match(source, /hasBoundaryReason\("opaque-call-transport"\)/u);
-  assert.doesNotMatch(source, /\.boundaries\.(some|find|filter)/u);
+  assert.match(resolution, /createInterfaceOriginContractGraph\(contracts\)/u);
+  assert.match(resolution, /builder\.activate\(state\.vertex, context\.contractIndex\)/u);
+  assert.doesNotMatch(
+    resolution,
+    /createEffectProvenanceGraphBuilder|resolveEffectProvenance/u,
+  );
+  assert.match(graph, /type ContractMasks = Array<Uint32Array \| undefined>/u);
+  assert.match(graph, /propagateUnsent/u);
+  assert.match(graph, /reason === "opaque-call-transport"/u);
+  assert.doesNotMatch(graph, /Map<Node, Map<Node/u);
+  assert.equal(
+    requirements.match(/resolveInterfaceOrigins\(/gu)?.length,
+    1,
+  );
+});
+
+test("interface origin facts cache exact checked type-contract queries", () => {
+  const facts = readFileSync(
+    join(effectRoot, "flow", "interface", "ingress", "origin-facts.ts"),
+    "utf8",
+  );
+  const implementations = readFileSync(
+    join(effectRoot, "flow", "interface", "implementations.ts"),
+    "utf8",
+  );
+
+  assert.match(facts, /new WeakMap<Node, TypeResults>\(\)/u);
+  assert.match(facts, /cache\.get\(semantics\.sourceFile\)/u);
+  assert.match(facts, /contracts\.get\(contract\)/u);
+  assert.match(facts, /expressions\.get\(value\)/u);
+  assert.match(
+    implementations,
+    /attemptedTypeContracts\.get\(sourceType\)\?\.get\(contract\)/u,
+  );
+  assert.match(
+    implementations,
+    /recordAttempt\(attemptedTypeContracts, sourceType, contract, false\)/u,
+  );
 });
 
 test("interface implementation forwarding consumes the selected closure profile", () => {

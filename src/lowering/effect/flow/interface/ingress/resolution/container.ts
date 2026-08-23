@@ -3,9 +3,6 @@ import { KindThisKeyword } from "@tsonic/tsts/target-ast";
 
 import { callCrossesOpaqueInterfaceBoundary } from "../../transport-context.js";
 import { exactInterfaceCallResultOrigins } from "../call-results.js";
-import {
-  thisContainerOriginIsClosed,
-} from "../origin-facts.js";
 import { originDeclarationIsClosed } from "../../origin-declaration.js";
 import { storageDeclarationCanBeTracked } from "../../../storage/owners.js";
 import type {
@@ -25,7 +22,7 @@ export function expandInterfaceOriginContainer(
   if (ingress.source.ast.kind(expression) === KindThisKeyword) {
     flow.terminal(
       state,
-      thisContainerOriginIsClosed(expression, ingress),
+      context.facts.thisContainerIsClosed(expression),
       expression,
       context,
     );

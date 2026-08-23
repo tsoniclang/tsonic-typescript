@@ -2,13 +2,6 @@ import type { Node } from "@tsonic/tsts";
 import { KindThisKeyword } from "@tsonic/tsts/target-ast";
 
 import { callCrossesOpaqueInterfaceBoundary } from "../../transport-context.js";
-import {
-  classValueOriginIsClosed,
-  expressionCannotSupplyImplementation,
-  thisValueOriginIsClosed,
-  typeHasCertifiedImplementation,
-  typeProvidesContract,
-} from "../origin-facts.js";
 import { exactInterfaceCallResultOrigins } from "../call-results.js";
 import { originDeclarationIsClosed } from "../../origin-declaration.js";
 import { storageDeclarationCanBeTracked } from "../../../storage/owners.js";
@@ -27,14 +20,14 @@ export function expandInterfaceOriginValue(
   flow: InterfaceOriginExpansion,
 ): void {
   const { ingress, contract } = context;
-  if (expressionCannotSupplyImplementation(expression, ingress)) {
+  if (context.facts.expressionCannotSupplyImplementation(expression)) {
     flow.origin(state, expression, context);
     return;
   }
   if (ingress.source.ast.kind(expression) === KindThisKeyword) {
     flow.terminal(
       state,
-      thisValueOriginIsClosed(expression, contract, ingress),
+      context.facts.thisValueIsClosed(expression, contract),
       expression,
       context,
     );
@@ -49,7 +42,7 @@ export function expandInterfaceOriginValue(
     const type = semantics.types.expressionType(expression);
     if (
       type !== undefined &&
-      typeProvidesContract(semantics, type, contract, ingress)
+      context.facts.typeProvidesContract(semantics, type, contract)
     ) {
       flow.origin(state, expression, context);
       return;
@@ -101,7 +94,7 @@ export function expandInterfaceOriginValue(
       state,
       originDeclarationIsClosed(ingress.source, declaration) &&
         type !== undefined &&
-        typeProvidesContract(semantics, type, contract, ingress),
+        context.facts.typeProvidesContract(semantics, type, contract),
       expression,
       context,
     );
@@ -152,7 +145,7 @@ function expandPropertyRead(
       ? !flow.storageDeclarationIsClosed(declaration, context)
       : !originDeclarationIsClosed(ingress.source, declaration)) ||
     type === undefined ||
-    !typeProvidesContract(semantics, type, contract, ingress) ||
+    !context.facts.typeProvidesContract(semantics, type, contract) ||
     access?.Expression === undefined
   ) {
     flow.boundary(state, "unproven-value-origin", expression, context);
@@ -209,7 +202,7 @@ function expandElementRead(
     owner === undefined ||
     access.receiver.expression !== owner ||
     type === undefined ||
-    !typeProvidesContract(semantics, type, contract, ingress)
+    !context.facts.typeProvidesContract(semantics, type, contract)
   ) {
     flow.boundary(state, "unproven-value-origin", expression, context);
     return;
@@ -328,11 +321,10 @@ function expandValueCall(
           ingress.source,
           declaration,
           ingress.entries,
-        ) || typeHasCertifiedImplementation(
+        ) || context.facts.typeHasCertifiedImplementation(
           semantics,
           call.sourceResultType,
           contract,
-          ingress,
         )
       ),
     expression,
@@ -364,11 +356,10 @@ function expandValueIdentifier(
         sourceFile !== undefined &&
         ingress.source.ast.isDeclarationFile(sourceFile) &&
         type !== undefined &&
-        typeHasCertifiedImplementation(
+        context.facts.typeHasCertifiedImplementation(
           semantics,
           type,
           contract,
-          ingress,
         ),
       expression,
       context,
@@ -393,22 +384,20 @@ function expandValueIdentifier(
   ) {
     flow.terminal(
       state,
-      classValueOriginIsClosed(
+      context.facts.classValueIsClosed(
         semantics,
         refinement.declaredType,
         contract,
-        ingress,
       ),
       expression,
       context,
     );
     return;
   }
-  if (!typeProvidesContract(
+  if (!context.facts.typeProvidesContract(
     semantics,
     refinement.declaredType,
     contract,
-    ingress,
   )) {
     flow.boundary(state, "unproven-value-origin", expression, context);
     return;

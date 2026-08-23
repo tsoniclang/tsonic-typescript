@@ -473,6 +473,21 @@ suspend, an unresolved type variable, `any`, `unknown`, or an implementation-
 file ambient declaration keeps the boundary open. Member spelling is used only
 to join properties inside that exact checker-proven transport, never to
 discover a transport or select semantics.
+
+Interface-origin settlement owns one transaction-wide contract-labelled
+provenance graph. A value/container vertex and a structural dependency are
+represented once; compact bit sets record exactly which reached contracts
+activate that vertex, edge, origin, or boundary. Evidence propagates to a
+dependent only through the matching contract bit, including through cycles, so
+one contract's origin cannot close another contract and one contract's opaque
+boundary cannot contaminate its sibling. Duplicate structural edges may be
+coalesced because this consumer asks only whether an exact origin or one of its
+two closed boundary classes is reachable; it does not publish edge evidence.
+Rebuilding and condensing the same topology once per contract is forbidden.
+Exact successful-value and checked type/contract decisions are cached for the
+transaction by checked source-file identity, checker type identity, and exact
+contract node. A source spelling, type string, or cross-checker identity is
+never a cache key.
 The component's return annotations and interface-call awaits settle only when
 every cooperative implementation settles and every other implementation has an
 exact synchronous body contract. A

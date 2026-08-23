@@ -252,12 +252,12 @@ export function collectInterfaceContractTransports(
   );
   planningObserver?.("effect-interface-value-slots");
   checkedParameterInputs.seal();
-  originRequirements.finish({
+  const originMeasurements = originRequirements.finish({
     ...ingress,
     slots,
     invocationInputs: completeInvocationInputs,
   });
-  planningObserver?.("effect-interface-origins");
+  planningObserver?.("effect-interface-origins", originMeasurements);
   return completeInvocationInputs;
 }
 

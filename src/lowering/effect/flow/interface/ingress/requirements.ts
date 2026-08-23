@@ -1,7 +1,10 @@
 import type { Node } from "@tsonic/tsts";
 
 import type { InterfaceContractIngress } from "../ingress.js";
-import { resolveInterfaceOrigins } from "./resolution.js";
+import {
+  type InterfaceOriginResolutionMeasurements,
+  resolveInterfaceOrigins,
+} from "./resolution.js";
 
 export type InterfaceOriginRequirementKind =
   | "ingress"
@@ -15,7 +18,9 @@ export interface InterfaceOriginRequirements {
     kind: InterfaceOriginRequirementKind,
   ): void;
   requiredValues(): readonly Node[];
-  finish(ingress: InterfaceContractIngress): void;
+  finish(
+    ingress: InterfaceContractIngress,
+  ): InterfaceOriginResolutionMeasurements;
 }
 
 export function createInterfaceOriginRequirements():
@@ -51,19 +56,23 @@ export function createInterfaceOriginRequirements():
         ...new Set([...requests.values()].flatMap((values) => [...values.keys()])),
       ]);
     },
-    finish(ingress: InterfaceContractIngress): void {
+    finish(
+      ingress: InterfaceContractIngress,
+    ): InterfaceOriginResolutionMeasurements {
       if (finished) {
         throw new Error("interface origin requirements were sealed twice");
       }
       finished = true;
-      for (const [contract, values] of requests) {
-        const resolutions = resolveInterfaceOrigins(
-          values.keys(),
+      const resolutions = resolveInterfaceOrigins(
+        [...requests].map(([contract, values]) => Object.freeze({
           contract,
-          ingress,
-        );
+          values: Object.freeze([...values.keys()]),
+        })),
+        ingress,
+      );
+      for (const [contract, values] of requests) {
         for (const [value, kinds] of values) {
-          const resolution = resolutions.resolutionFor(value);
+          const resolution = resolutions.resolutionFor(value, contract);
           if (resolution.closed) {
             continue;
           }
@@ -72,6 +81,7 @@ export function createInterfaceOriginRequirements():
           }
         }
       }
+      return resolutions.measurements;
     },
   });
 }

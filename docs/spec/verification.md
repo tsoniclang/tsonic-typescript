@@ -396,6 +396,17 @@ The opaque-input gate requires exact plan reuse for repeated source/target
 pairs and separate replay at two authored calls. Mutations that key only on a
 type spelling, omit freshness or source-file identity, reuse one call's
 occurrence, or restore per-occurrence structural analysis must fail.
+The interface-origin gate builds a shared cyclic topology reached by two
+contracts, gives only the first contract an exact origin and only the second an
+opaque boundary, and requires independent closed/opaque answers. It exact-
+checks originless cycles, duplicate-edge coalescing, graph ownership, and
+sealing. Structural inspection requires one contract-labelled graph, compact
+bit-set propagation, source-file/type/contract fact caches, and one aggregate
+resolver invocation. Restoring a graph or SCC resolution per contract,
+dropping the contract mask from an edge, keying a fact by spelling, or sharing
+evidence without its contract bit must fail. Whole-product origin-phase
+evidence reports contract, root, structural vertex/edge, activated pair,
+origin, boundary, closed-root, and fact query/expansion counts.
 The object and aggregate forms additionally route the implementation through a
 callable owner whose parameter carries another callback. The closed provenance
 path must admit that exact owner reference and settle the nested callback;

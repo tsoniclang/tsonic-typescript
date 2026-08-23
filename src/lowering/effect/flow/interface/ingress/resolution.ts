@@ -1,13 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 
-import {
-  createEffectProvenanceGraphBuilder,
-} from "../../../provenance/graph.js";
 import type {
   EffectProvenanceEdgeKind,
-  EffectProvenanceVertex,
 } from "../../../provenance/model.js";
-import { resolveEffectProvenance } from "../../../provenance/resolution.js";
 import type { InterfaceContractIngress } from "../ingress.js";
 import {
   type CompositeValueAlternative,
@@ -18,14 +13,20 @@ import {
   originDeclarationInitializer,
 } from "../origin-declaration.js";
 import {
-  successfulInterfaceValueExpression,
-  typeProvidesContract,
+  createInterfaceOriginFacts,
+  type InterfaceOriginFacts,
 } from "./origin-facts.js";
 import { exactBindingWriteInput } from "../../storage/assignment.js";
 import { storageDeclarationCanBeTracked } from "../../storage/owners.js";
 import type { InterfaceOriginExpansion } from "./resolution/expansion.js";
 import { expandInterfaceOriginContainer } from "./resolution/container.js";
 import { expandInterfaceOriginValue } from "./resolution/value.js";
+import {
+  createInterfaceOriginContractGraph,
+  type InterfaceOriginContractGraphBuilder,
+  type InterfaceOriginContractGraphMeasurements,
+  type InterfaceOriginVertex,
+} from "./resolution/contract-graph.js";
 
 export type InterfaceOriginBoundaryReason =
   | "opaque-call-transport"
@@ -37,22 +38,37 @@ export interface InterfaceOriginResolution {
 }
 
 export interface InterfaceOriginResolutionIndex {
-  resolutionFor(value: Node): InterfaceOriginResolution;
+  readonly measurements: InterfaceOriginResolutionMeasurements;
+  resolutionFor(value: Node, contract: Node): InterfaceOriginResolution;
+}
+
+export interface InterfaceOriginResolutionRequest {
+  readonly contract: Node;
+  readonly values: Iterable<Node>;
+}
+
+export interface InterfaceOriginResolutionMeasurements
+  extends InterfaceOriginContractGraphMeasurements {
+  readonly closed: number;
+  readonly contractExpansions: number;
+  readonly contractQueries: number;
+  readonly roots: number;
+  readonly valueExpansions: number;
+  readonly valueQueries: number;
 }
 
 export type OriginRole = "value" | "container";
 
 export interface OriginState {
-  readonly vertex: EffectProvenanceVertex;
-  expanded: boolean;
+  readonly vertex: InterfaceOriginVertex;
 }
 
 export interface OriginGraphContext {
   readonly ingress: InterfaceContractIngress;
   readonly contract: Node;
-  readonly builder: ReturnType<
-    typeof createEffectProvenanceGraphBuilder<InterfaceOriginBoundaryReason>
-  >;
+  readonly contractIndex: number;
+  readonly builder: InterfaceOriginContractGraphBuilder;
+  readonly facts: InterfaceOriginFacts;
   readonly values: Map<Node, OriginState>;
   readonly containers: Map<Node, OriginState>;
 }
@@ -70,36 +86,74 @@ const expansion: InterfaceOriginExpansion = Object.freeze({
 });
 
 export function resolveInterfaceOrigins(
-  values: Iterable<Node>,
-  contract: Node,
+  requests: readonly InterfaceOriginResolutionRequest[],
   ingress: InterfaceContractIngress,
 ): InterfaceOriginResolutionIndex {
-  const context: OriginGraphContext = {
-    ingress,
-    contract,
-    builder: createEffectProvenanceGraphBuilder<
-      InterfaceOriginBoundaryReason
-    >(),
-    values: new Map(),
-    containers: new Map(),
-  };
-  const roots = new Map<Node, OriginState>();
-  for (const value of values) {
-    roots.set(value, stateFor(value, "value", context));
+  const contracts = Object.freeze(requests.map((request) => request.contract));
+  if (new Set(contracts).size !== contracts.length) {
+    throw new Error("interface origin resolution received duplicate contracts");
   }
-  const resolutions = resolveEffectProvenance(context.builder.seal());
-  const resolved = new Map<Node, InterfaceOriginResolution>(
-    [...roots].map(([value, root]) => {
-      const result = resolutions.resolutionFor(root.vertex);
-      return [value, Object.freeze({
-        closed: result.closed,
-        opaque: result.hasBoundaryReason("opaque-call-transport"),
-      })] as const;
-    }),
-  );
+  const builder = createInterfaceOriginContractGraph(contracts);
+  const facts = createInterfaceOriginFacts(ingress);
+  const values = new Map<Node, OriginState>();
+  const containers = new Map<Node, OriginState>();
+  const roots = new Map<Node, Map<Node, OriginState>>();
+  let rootCount = 0;
+  for (let contractIndex = 0; contractIndex < requests.length; contractIndex += 1) {
+    const request = requests[contractIndex];
+    if (request === undefined) {
+      throw new Error("interface origin resolution lost a contract request");
+    }
+    const context: OriginGraphContext = {
+      ingress,
+      contract: request.contract,
+      contractIndex,
+      builder,
+      facts,
+      values,
+      containers,
+    };
+    const contractRoots = new Map<Node, OriginState>();
+    roots.set(request.contract, contractRoots);
+    for (const value of request.values) {
+      if (!contractRoots.has(value)) {
+        rootCount += 1;
+        contractRoots.set(value, stateFor(value, "value", context));
+      }
+    }
+  }
+  const resolutions = builder.seal();
+  const resolved = new Map<Node, Map<Node, InterfaceOriginResolution>>();
+  let closed = 0;
+  for (let contractIndex = 0; contractIndex < contracts.length; contractIndex += 1) {
+    const contract = contracts[contractIndex];
+    if (contract === undefined) {
+      throw new Error("interface origin resolution lost a contract");
+    }
+    const contractResolutions = new Map<Node, InterfaceOriginResolution>();
+    resolved.set(contract, contractResolutions);
+    for (const [value, root] of roots.get(contract) ?? []) {
+      const result = resolutions.resolutionFor(root.vertex, contractIndex);
+      if (result.closed) {
+        closed += 1;
+      }
+      contractResolutions.set(value, Object.freeze(result));
+    }
+  }
+  const factMeasurements = facts.measurements();
+  const measurements = Object.freeze({
+    ...resolutions.measurements,
+    closed,
+    contractExpansions: factMeasurements.contractExpansions,
+    contractQueries: factMeasurements.contractQueries,
+    roots: rootCount,
+    valueExpansions: factMeasurements.valueExpansions,
+    valueQueries: factMeasurements.valueQueries,
+  });
   return Object.freeze({
-    resolutionFor(value: Node): InterfaceOriginResolution {
-      const result = resolved.get(value);
+    measurements,
+    resolutionFor(value: Node, contract: Node): InterfaceOriginResolution {
+      const result = resolved.get(contract)?.get(value);
       if (result === undefined) {
         throw new Error("interface origin resolution received an unknown root");
       }
@@ -113,27 +167,19 @@ function stateFor(
   role: OriginRole,
   context: OriginGraphContext,
 ): OriginState {
-  const expression = successfulInterfaceValueExpression(
-    context.ingress.source,
-    value,
-  );
+  const expression = context.facts.successfulExpression(value);
   const selected = expression ?? value;
   const states = role === "value" ? context.values : context.containers;
   let state = states.get(selected);
   if (state === undefined) {
     state = {
-      vertex: context.builder.vertex(
-        role === "value" ? "interface-value" : "interface-container",
-        selected,
-      ),
-      expanded: false,
+      vertex: context.builder.vertex(),
     };
     states.set(selected, state);
   }
-  if (state.expanded) {
+  if (!context.builder.activate(state.vertex, context.contractIndex)) {
     return state;
   }
-  state.expanded = true;
   if (expression === undefined) {
     boundary(state, "unproven-value-origin", value, context);
   } else if (role === "value") {
@@ -179,11 +225,10 @@ function expandDeclaration(
     }
     for (const input of checkedInputs) {
       inputCount += 1;
-      if (typeProvidesContract(
+      if (context.facts.typeProvidesContract(
         input.semantics,
         input.type,
         context.contract,
-        ingress,
       )) {
         origin(state, input.occurrence, context);
       } else {
@@ -332,6 +377,7 @@ function dependency(
     stateFor(source, role, context).vertex,
     kind,
     occurrence,
+    context.contractIndex,
   );
 }
 
@@ -348,6 +394,7 @@ function declarationDependency(
     stateForDeclaration(declaration, role, context).vertex,
     kind,
     occurrence,
+    context.contractIndex,
   );
 }
 
@@ -360,16 +407,11 @@ function stateForDeclaration(
   let state = states.get(declaration);
   if (state === undefined) {
     state = {
-      vertex: context.builder.vertex(
-        role === "value" ? "interface-value" : "interface-container",
-        declaration,
-      ),
-      expanded: false,
+      vertex: context.builder.vertex(),
     };
     states.set(declaration, state);
   }
-  if (!state.expanded) {
-    state.expanded = true;
+  if (context.builder.activate(state.vertex, context.contractIndex)) {
     expandDeclaration(state, declaration, role, declaration, context);
   }
   return state;
@@ -413,14 +455,18 @@ function origin(
   _occurrence: Node,
   context: OriginGraphContext,
 ): void {
-  context.builder.addOrigin(state.vertex, context.contract);
+  context.builder.addOrigin(state.vertex, context.contractIndex);
 }
 
 function boundary(
   state: OriginState,
   reason: InterfaceOriginBoundaryReason,
-  occurrence: Node,
+  _occurrence: Node,
   context: OriginGraphContext,
 ): void {
-  context.builder.addBoundary(state.vertex, reason, occurrence);
+  context.builder.addBoundary(
+    state.vertex,
+    reason,
+    context.contractIndex,
+  );
 }
