@@ -380,10 +380,11 @@ that same selected profile and rejects restoration of an unconditional module-
 forwarding boundary.
 The same gate requires source-file-keyed relevance caches and rejects the
 single-current-file cache that recomputes identical type closures across
-kind-major passes. A recursive shared-tail fixture exact-checks every contract,
-expands every intermediate type once, and proves a later root reuses its
-already-settled dependency; the gate rejects restoration of a per-root type
-walk. Whole-product phase evidence reports contracts, calls,
+kind-major passes. A recursive shared-tail fixture exact-checks positive and
+negative membership, expands every intermediate type once, and proves a later
+root reuses its already-settled dependency. The gate rejects both a per-root
+membership walk and eager full contract-set retention on every intermediate
+type. Whole-product phase evidence reports contracts, calls,
 transport scans, implementation inputs, value slots, origins, and components
 separately before the interface transaction seals.
 The object and aggregate forms additionally route the implementation through a

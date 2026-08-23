@@ -1,17 +1,17 @@
-export interface TransitiveSetExpansion<Key, Value> {
-  readonly values: readonly Value[];
+export interface TransitivePredicateExpansion<Key> {
+  readonly matches: boolean;
   readonly dependencies: readonly Key[];
 }
 
-export interface TransitiveSetIndex<Key extends object, Value> {
-  valuesFor(key: Key): readonly Value[];
+export interface TransitivePredicateIndex<Key extends object> {
+  matches(key: Key): boolean;
 }
 
-interface PendingVertex<Key extends object, Value> {
+interface PendingVertex<Key extends object> {
   readonly key: Key;
-  readonly values: readonly Value[];
+  readonly matches: boolean;
   readonly dependencies: readonly number[];
-  readonly settledDependencies: readonly (readonly Value[])[];
+  readonly settledMatch: boolean;
 }
 
 interface CondensedGraph {
@@ -20,20 +20,19 @@ interface CondensedGraph {
   readonly members: readonly (readonly number[])[];
 }
 
-const noValues = Object.freeze([]) as readonly never[];
 const noIndexes = Object.freeze([]) as readonly number[];
 
-export function createTransitiveSetIndex<Key extends object, Value>(
-  expand: (key: Key) => TransitiveSetExpansion<Key, Value>,
-): TransitiveSetIndex<Key, Value> {
-  const settled = new WeakMap<Key, readonly Value[]>();
+export function createTransitivePredicateIndex<Key extends object>(
+  expand: (key: Key) => TransitivePredicateExpansion<Key>,
+): TransitivePredicateIndex<Key> {
+  const settled = new WeakMap<Key, boolean>();
   return Object.freeze({
-    valuesFor(key: Key): readonly Value[] {
+    matches(key: Key): boolean {
       const existing = settled.get(key);
       if (existing !== undefined) {
         return existing;
       }
-      settleReachableTypes(key, expand, settled);
+      settleReachableKeys(key, expand, settled);
       const result = settled.get(key);
       if (result === undefined) {
         throw new Error("interface relevance did not settle its requested type");
@@ -43,10 +42,10 @@ export function createTransitiveSetIndex<Key extends object, Value>(
   });
 }
 
-function settleReachableTypes<Key extends object, Value>(
+function settleReachableKeys<Key extends object>(
   root: Key,
-  expand: (key: Key) => TransitiveSetExpansion<Key, Value>,
-  settled: WeakMap<Key, readonly Value[]>,
+  expand: (key: Key) => TransitivePredicateExpansion<Key>,
+  settled: WeakMap<Key, boolean>,
 ): void {
   const keys: Key[] = [];
   const indexForKey = new Map<Key, number>();
@@ -62,27 +61,27 @@ function settleReachableTypes<Key extends object, Value>(
   };
   addKey(root);
 
-  const vertices: PendingVertex<Key, Value>[] = [];
+  const vertices: PendingVertex<Key>[] = [];
   for (let index = 0; index < keys.length; index += 1) {
     const key = requiredValue(keys, index, "interface relevance key");
     const expansion = expand(key);
     const dependencies = new Set<number>();
-    const settledDependencies: Array<readonly Value[]> = [];
+    let settledMatch = false;
     for (const dependency of expansion.dependencies) {
       const existing = settled.get(dependency);
       if (existing === undefined) {
         dependencies.add(addKey(dependency));
-      } else {
-        settledDependencies.push(existing);
+      } else if (existing) {
+        settledMatch = true;
       }
     }
     vertices.push({
       key,
-      values: expansion.values,
+      matches: expansion.matches,
       dependencies: dependencies.size === 0
         ? noIndexes
         : Object.freeze([...dependencies]),
-      settledDependencies: Object.freeze(settledDependencies),
+      settledMatch,
     });
   }
 
@@ -90,8 +89,8 @@ function settleReachableTypes<Key extends object, Value>(
   settleComponents(vertices, condensed, settled);
 }
 
-function condense<Key extends object, Value>(
-  vertices: readonly PendingVertex<Key, Value>[],
+function condense<Key extends object>(
+  vertices: readonly PendingVertex<Key>[],
 ): CondensedGraph {
   const reverse = Array.from(
     { length: vertices.length },
@@ -189,19 +188,12 @@ function condense<Key extends object, Value>(
   };
 }
 
-function settleComponents<Key extends object, Value>(
-  vertices: readonly PendingVertex<Key, Value>[],
+function settleComponents<Key extends object>(
+  vertices: readonly PendingVertex<Key>[],
   condensed: CondensedGraph,
-  settled: WeakMap<Key, readonly Value[]>,
+  settled: WeakMap<Key, boolean>,
 ): void {
-  const directValues = Array.from(
-    { length: condensed.componentCount },
-    (): Value[] => [],
-  );
-  const externalValues = Array.from(
-    { length: condensed.componentCount },
-    (): Array<readonly Value[]> => [],
-  );
+  const matches = new Uint8Array(condensed.componentCount);
   const dependencies = Array.from(
     { length: condensed.componentCount },
     (): Set<number> => new Set(),
@@ -214,16 +206,9 @@ function settleComponents<Key extends object, Value>(
   for (let vertex = 0; vertex < vertices.length; vertex += 1) {
     const selected = requiredVertex(vertices, vertex);
     const component = requiredIndex(condensed.componentForVertex, vertex);
-    requiredValue(
-      directValues,
-      component,
-      "interface relevance direct values",
-    ).push(...selected.values);
-    requiredValue(
-      externalValues,
-      component,
-      "interface relevance settled dependencies",
-    ).push(...selected.settledDependencies);
+    if (selected.matches || selected.settledMatch) {
+      matches[component] = 1;
+    }
     for (const dependencyVertex of selected.dependencies) {
       const dependency = requiredIndex(
         condensed.componentForVertex,
@@ -257,41 +242,23 @@ function settleComponents<Key extends object, Value>(
       pending.push(component);
     }
   }
-  const results: Array<readonly Value[] | undefined> = Array.from(
-    { length: condensed.componentCount },
-    () => undefined,
-  );
   let resolvedCount = 0;
   while (pending.length !== 0) {
     const component = pending.pop();
     if (component === undefined) {
       throw new Error("interface relevance component stack underflowed");
     }
-    const inherited = requiredValue(
-      externalValues,
-      component,
-      "interface relevance inherited values",
-    );
     for (const dependency of requiredValue(
       dependencies,
       component,
-      "interface relevance settled component dependencies",
+      "interface relevance settled dependencies",
     )) {
-      const selected = results[dependency];
-      if (selected === undefined) {
-        throw new Error("interface relevance dependency was not settled");
+      if (matches[dependency] === 1) {
+        matches[component] = 1;
+        break;
       }
-      inherited.push(selected);
     }
-    const result = mergeValues(
-      requiredValue(
-        directValues,
-        component,
-        "interface relevance component values",
-      ),
-      inherited,
-    );
-    results[component] = result;
+    const result = matches[component] === 1;
     for (const vertex of requiredValue(
       condensed.members,
       component,
@@ -320,32 +287,10 @@ function settleComponents<Key extends object, Value>(
   }
 }
 
-function mergeValues<Value>(
-  direct: readonly Value[],
-  dependencies: readonly (readonly Value[])[],
-): readonly Value[] {
-  const nonempty = dependencies.filter((selected) => selected.length !== 0);
-  if (direct.length === 0) {
-    if (nonempty.length === 0) {
-      return noValues;
-    }
-    if (nonempty.every((selected) => selected === nonempty[0])) {
-      return nonempty[0] ?? noValues;
-    }
-  }
-  const values = new Set<Value>(direct);
-  for (const dependency of nonempty) {
-    for (const value of dependency) {
-      values.add(value);
-    }
-  }
-  return values.size === 0 ? noValues : Object.freeze([...values]);
-}
-
-function requiredVertex<Key extends object, Value>(
-  vertices: readonly PendingVertex<Key, Value>[],
+function requiredVertex<Key extends object>(
+  vertices: readonly PendingVertex<Key>[],
   index: number,
-): PendingVertex<Key, Value> {
+): PendingVertex<Key> {
   return requiredValue(vertices, index, "interface relevance vertex");
 }
 

@@ -10,10 +10,10 @@ import {
   isExactInterfaceProjectDeclaration,
 } from "./declarations.js";
 import {
-  createTransitiveSetIndex,
-  type TransitiveSetExpansion,
-  type TransitiveSetIndex,
-} from "./relevance/transitive-set.js";
+  createTransitivePredicateIndex,
+  type TransitivePredicateExpansion,
+  type TransitivePredicateIndex,
+} from "./relevance/transitive-predicate.js";
 
 export interface InterfaceContractRelevance {
   contains(semantics: SourceFileSemantics, type: Type): boolean;
@@ -23,7 +23,9 @@ export interface InterfaceContractRelevance {
 }
 
 interface InterfaceContractRelevanceCache {
-  readonly contracts: TransitiveSetIndex<Type, Node>;
+  readonly contains: TransitivePredicateIndex<Type>;
+  readonly contracts: WeakMap<Type, readonly Node[]>;
+  readonly directContracts: WeakMap<Type, readonly Node[]>;
   readonly valueContracts: WeakMap<Type, readonly Node[]>;
 }
 
@@ -37,11 +39,20 @@ export function createInterfaceContractRelevance(
   ): InterfaceContractRelevanceCache => {
     let selected = caches.get(semantics.sourceFile);
     if (selected === undefined) {
+      const directContracts = new WeakMap<Type, readonly Node[]>();
       selected = {
-        contracts: createTransitiveSetIndex((type) =>
-          contractExpansion(semantics, type, source, contracts)
+        contains: createTransitivePredicateIndex((type) =>
+          contractPredicateExpansion(
+            semantics,
+            type,
+            source,
+            contracts,
+            directContracts,
+          )
         ),
-        valueContracts: new WeakMap(),
+        contracts: new WeakMap<Type, readonly Node[]>(),
+        directContracts,
+        valueContracts: new WeakMap<Type, readonly Node[]>(),
       };
       caches.set(semantics.sourceFile, selected);
     }
@@ -50,7 +61,22 @@ export function createInterfaceContractRelevance(
   const selectedContracts = (
     semantics: SourceFileSemantics,
     type: Type,
-  ): readonly Node[] => cacheFor(semantics).contracts.valuesFor(type);
+  ): readonly Node[] => {
+    const cache = cacheFor(semantics);
+    const existing = cache.contracts.get(type);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const result = collectContracts(
+      semantics,
+      type,
+      source,
+      contracts,
+      cache.directContracts,
+    );
+    cache.contracts.set(type, result);
+    return result;
+  };
   const selectedValueContracts = (
     semantics: SourceFileSemantics,
     type: Type,
@@ -66,13 +92,14 @@ export function createInterfaceContractRelevance(
       source,
       contracts,
       selectedContracts(semantics, type),
+      cacheFor(semantics).directContracts,
     );
     selected.set(type, result);
     return result;
   };
   return Object.freeze({
     contains(semantics: SourceFileSemantics, type: Type): boolean {
-      return selectedContracts(semantics, type).length !== 0;
+      return cacheFor(semantics).contains.matches(type);
     },
     contracts: selectedContracts,
     valueContracts(
@@ -82,10 +109,13 @@ export function createInterfaceContractRelevance(
       return selectedValueContracts(semantics, type);
     },
     directContracts(semantics: SourceFileSemantics, type: Type): readonly Node[] {
-      const selected = semantics.types.withoutMissingOrUndefined(type);
-      return selected === undefined
-        ? noContracts
-        : directTypeContracts(semantics, selected, source, contracts);
+      return cachedDirectTypeContracts(
+        semantics,
+        type,
+        source,
+        contracts,
+        cacheFor(semantics).directContracts,
+      );
     },
   });
 }
@@ -94,15 +124,27 @@ const noContracts = Object.freeze([]) as readonly Node[];
 const noTypes = Object.freeze([]) as readonly Type[];
 const maximumValueContractTypeCount = 4_096;
 
-function contractExpansion(
+function contractPredicateExpansion(
   semantics: SourceFileSemantics,
   type: Type,
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
-): TransitiveSetExpansion<Type, Node> {
+  directContracts: WeakMap<Type, readonly Node[]>,
+): TransitivePredicateExpansion<Type> {
   const selected = semantics.types.withoutMissingOrUndefined(type);
   if (selected === undefined || isPrimitiveType(semantics, selected)) {
-    return { values: noContracts, dependencies: noTypes };
+    return { matches: false, dependencies: noTypes };
+  }
+  if (
+    cachedDirectTypeContracts(
+      semantics,
+      selected,
+      source,
+      contracts,
+      directContracts,
+    ).length !== 0
+  ) {
+    return { matches: true, dependencies: noTypes };
   }
   const dependencies: Type[] = [];
   for (const signature of semantics.types.callSignatures(selected)) {
@@ -126,11 +168,86 @@ function contractExpansion(
   }
   appendStructuralTypes(semantics, selected, dependencies);
   return {
-    values: directTypeContracts(semantics, selected, source, contracts),
+    matches: false,
     dependencies: dependencies.length === 0
       ? noTypes
       : Object.freeze(dependencies),
   };
+}
+
+function collectContracts(
+  semantics: SourceFileSemantics,
+  root: Type,
+  source: TargetSourceProgram,
+  contracts: InterfaceContractIndex,
+  directContracts: WeakMap<Type, readonly Node[]>,
+): readonly Node[] {
+  const result = new Set<Node>();
+  const pending = [root];
+  const seen = new Set<Type>();
+  while (pending.length !== 0) {
+    const type = pending.pop();
+    if (type === undefined || seen.has(type)) {
+      continue;
+    }
+    seen.add(type);
+    const selected = semantics.types.withoutMissingOrUndefined(type);
+    if (selected === undefined || isPrimitiveType(semantics, selected)) {
+      continue;
+    }
+    for (const contract of cachedDirectTypeContracts(
+      semantics,
+      selected,
+      source,
+      contracts,
+      directContracts,
+    )) {
+      result.add(contract);
+    }
+    for (const signature of semantics.types.callSignatures(selected)) {
+      const declaration = semantics.declarations.signatureDeclaration(signature);
+      if (
+        declaration === undefined ||
+        !isExactInterfaceProjectDeclaration(source, declaration)
+      ) {
+        continue;
+      }
+      for (const parameter of semantics.declarations.signatureParameters(signature)) {
+        const parameterType = semantics.types.typeOfSymbol(parameter);
+        if (parameterType !== undefined) {
+          pending.push(parameterType);
+        }
+      }
+      const returnType = semantics.types.returnType(signature);
+      if (returnType !== undefined) {
+        pending.push(returnType);
+      }
+    }
+    appendStructuralTypes(semantics, selected, pending);
+  }
+  return result.size === 0
+    ? noContracts
+    : Object.freeze([...result]);
+}
+
+function cachedDirectTypeContracts(
+  semantics: SourceFileSemantics,
+  type: Type,
+  source: TargetSourceProgram,
+  contracts: InterfaceContractIndex,
+  cache: WeakMap<Type, readonly Node[]>,
+): readonly Node[] {
+  const selected = semantics.types.withoutMissingOrUndefined(type);
+  if (selected === undefined) {
+    return noContracts;
+  }
+  const existing = cache.get(selected);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const result = directTypeContracts(semantics, selected, source, contracts);
+  cache.set(selected, result);
+  return result;
 }
 
 function directTypeContracts(
@@ -176,6 +293,7 @@ function collectValueContracts(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
   fallback: readonly Node[],
+  directContracts: WeakMap<Type, readonly Node[]>,
 ): readonly Node[] {
   const result = new Set<Node>();
   const pending = [root];
@@ -193,11 +311,12 @@ function collectValueContracts(
     if (selected === undefined || isPrimitiveType(semantics, selected)) {
       continue;
     }
-    for (const contract of directTypeContracts(
+    for (const contract of cachedDirectTypeContracts(
       semantics,
       selected,
       source,
       contracts,
+      directContracts,
     )) {
       result.add(contract);
     }

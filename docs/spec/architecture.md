@@ -803,11 +803,14 @@ source file. Kind-major and call/context passes reuse that file's exact type
 answers; switching to another file may not discard answers that a later pass
 will request again. The complete cache family dies with interface planning and
 is never published in the finalized plan.
-Each file cache settles its reachable type graph through one exact transitive-
-set index. Recursive types are condensed, and every discovered intermediate
-type tail is expanded once; later roots reuse the settled exact contract set.
-Rewalking a shared callable, union, reference, or tuple tail independently for
-each queried root is forbidden source-multiplied work.
+Each file cache settles boolean relevance through one exact transitive-
+predicate index. Recursive types are condensed, and every discovered
+intermediate type tail is expanded once; later roots reuse that settled
+membership. Complete contract sets remain lazy, root-owned evidence for the
+few consumers that enumerate them. Attaching a flattened transitive contract
+array to every intermediate type, or rewalking a shared callable, union,
+reference, or tuple tail for every membership query, is forbidden
+source-multiplied work.
 
 Indirect project invocation is a separate exact extension of that owner. The
 callable target is resolved from one node-identity provenance graph over local
