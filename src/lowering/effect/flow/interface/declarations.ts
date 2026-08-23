@@ -3,6 +3,7 @@ import type {
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api/source";
+import { nodeHasExactSourceSemantics } from "../../model/source-membership.js";
 
 export interface InterfaceContractMembership {
   has(declaration: Node): boolean;
@@ -64,9 +65,7 @@ export function isExactInterfaceProjectDeclaration(
   source: TargetSourceProgram,
   declaration: Node,
 ): boolean {
-  const sourceFile = source.ast.getSourceFile(declaration);
-  return sourceFile !== undefined &&
-    source.semantics.includes(sourceFile) &&
+  return nodeHasExactSourceSemantics(source, declaration) &&
     source.navigation.isProjectDeclaration(declaration);
 }
 

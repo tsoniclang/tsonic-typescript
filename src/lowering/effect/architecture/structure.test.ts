@@ -382,6 +382,26 @@ test("effect flow finalizers retain only settled query capabilities", () => {
     ),
     "utf8",
   );
+  const callableCallContracts = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "callable",
+      "provenance",
+      "call-contracts.ts",
+    ),
+    "utf8",
+  );
+  const callableReturnContracts = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "callable",
+      "provenance",
+      "return-contracts.ts",
+    ),
+    "utf8",
+  );
   const callableExpression = readFileSync(
     join(
       effectRoot,
@@ -440,10 +460,15 @@ test("effect flow finalizers retain only settled query capabilities", () => {
   assert.match(callableFinalization, /!settled\.has\(dependency\)/u);
   assert.match(callableFinalization, /visited\.has\(current\)/u);
   assert.doesNotMatch(callableFinalization, /!visited\.add\(current\)/u);
-  assert.match(callableExpression, /projectedCallContract\(/u);
-  assert.match(callableExpression, /context\.results\.resultFor\(value\)/u);
-  assert.match(callableExpression, /context\.inputs\.isClosed/u);
-  assert.match(callableExpression, /projectedContract\.returnTypes/u);
+  assert.match(callableConstruction, /collectCallReturnContractStates\(context\)/u);
+  assert.match(callableExpression, /context\.callImplementations\.set/u);
+  assert.match(callableCallContracts, /exactCallableReturnExpressions/u);
+  assert.match(callableCallContracts, /callableReturnRewriteAdmitsDirectValue/u);
+  assert.match(callableCallContracts, /sources\.length !== 0/u);
+  assert.match(callableReturnContracts, /"call-result"/u);
+  assert.match(callableReturnContracts, /"callable-value"/u);
+  assert.match(callableContractSettlement, /callResolutions/u);
+  assert.doesNotMatch(callableExpression, /projectedCallContract/u);
   assert.doesNotMatch(
     callableExpression,
     /returnedContracts\.set\([\s\S]{0,240}sources:\s*Object\.freeze\(\[\]\)/u,

@@ -6,11 +6,6 @@ import {
   transparentExpression,
 } from "../../../model/syntax.js";
 import {
-  callableReturnRewrite,
-  callableReturnRewriteAdmitsDirectValue,
-  type CallableReturnRewrite,
-} from "../../../model/callable-contract.js";
-import {
   callableUsesSynchronousTransport,
   resolvedCallUsesSynchronousTransport,
 } from "../../../model/synchronous.js";
@@ -21,7 +16,6 @@ import {
 import { sameValueAlternatives } from "../../value/alternatives.js";
 import { invocationTransportResultOrigins } from "../invocation-transport.js";
 import { declarationForSymbols } from "../input-reference.js";
-import type { CallableResultInput } from "../result-inputs.js";
 import type {
   CallableContext,
   CallableState,
@@ -243,29 +237,25 @@ function callableCallState(
     source,
     source.ast.as.AsCallExpression(call)?.Expression,
   );
-  const returnType = contract === undefined
-    ? undefined
-    : source.ast.typeNode(contract);
-  const returnRewrite = returnType === undefined
-    ? undefined
-    : callableReturnRewrite(source, returnType);
-  const projectedContract = target === undefined || returnRewrite === undefined
-    ? undefined
-    : projectedCallContract(target, returnRewrite.target, context);
-  if (
-    returnRewrite !== undefined &&
-    callableReturnRewriteAdmitsDirectValue(source, returnRewrite) &&
-    projectedContract !== undefined
-  ) {
-    context.returnedContracts.set(call, {
-      returnTypes: projectedContract.returnTypes,
-      state,
-      sources: projectedContract.sources,
-    });
-  }
   const implementation = resolveProjectInvocation(source, call)?.implementation;
   const reference = source.navigation.sourceReferenceFor(target);
   const exactImplementations = context.exactCallImplementations?.(call);
+  const implementations = exactImplementations ??
+    (contract === undefined
+      ? undefined
+      : context.exactContractImplementations?.(contract));
+  const selectedImplementations = implementation === undefined
+    ? implementations
+    : Object.freeze([implementation]);
+  if (
+    selectedImplementations !== undefined &&
+    selectedImplementations.length !== 0
+  ) {
+    context.callImplementations.set(
+      call,
+      Object.freeze([...new Set(selectedImplementations)]),
+    );
+  }
   if (
     exactImplementations === undefined &&
     referenceHasExactSemantics(source, reference) &&
@@ -290,10 +280,6 @@ function callableCallState(
     );
     return state;
   }
-  const implementations = exactImplementations ??
-    (contract === undefined
-      ? undefined
-      : context.exactContractImplementations?.(contract));
   if (implementation === undefined && implementations !== undefined) {
     if (implementations.length === 0) {
       boundary(state, "open-callable", call, context);
@@ -340,88 +326,6 @@ function callableCallState(
     );
   }
   return state;
-}
-
-interface ProjectedCallContract {
-  readonly returnTypes: readonly CallableReturnRewrite[];
-  readonly sources: readonly Node[];
-}
-
-function projectedCallContract(
-  target: Node,
-  selectedReturnType: Node,
-  context: CallableContext,
-): ProjectedCallContract | undefined {
-  const direct = context.results.resultFor(target);
-  const projections = direct === undefined
-    ? projectedInputsForReference(target, context)
-    : Object.freeze([direct]);
-  if (projections === undefined || projections.length === 0) {
-    return undefined;
-  }
-  const returnTypes = new Map<Node, CallableReturnRewrite>();
-  const sources = new Set<Node>();
-  for (const projection of projections) {
-    if (
-      projection.projectionConsumers !== undefined &&
-      !context.inputs.projectionConsumersAreClosed(
-        projection.projectionConsumers,
-      )
-    ) {
-      return undefined;
-    }
-    if (!projection.returnTypes.some((rewrite) =>
-      rewrite.target === selectedReturnType
-    )) {
-      return undefined;
-    }
-    for (const rewrite of projection.returnTypes) {
-      const existing = returnTypes.get(rewrite.target);
-      if (
-        existing !== undefined &&
-        (existing.selection.kind !== rewrite.selection.kind ||
-          existing.selection.index !== rewrite.selection.index)
-      ) {
-        return undefined;
-      }
-      returnTypes.set(rewrite.target, rewrite);
-    }
-    for (const expression of projection.expressions) {
-      if (expression !== undefined) {
-        sources.add(expression);
-      }
-    }
-  }
-  return Object.freeze({
-    returnTypes: Object.freeze([...returnTypes.values()]),
-    sources: Object.freeze([...sources]),
-  });
-}
-
-function projectedInputsForReference(
-  target: Node,
-  context: CallableContext,
-): readonly CallableResultInput[] | undefined {
-  const reference = context.source.navigation.sourceReferenceFor(target);
-  if (
-    !referenceHasExactSemantics(context.source, reference) ||
-    !context.inputs.isClosed(reference.declaration)
-  ) {
-    return undefined;
-  }
-  const values = context.inputs.valuesFor(reference.declaration);
-  if (values === undefined || values.length === 0) {
-    return undefined;
-  }
-  const projections: CallableResultInput[] = [];
-  for (const value of values) {
-    const projection = context.results.resultFor(value);
-    if (projection === undefined) {
-      return undefined;
-    }
-    projections.push(projection);
-  }
-  return Object.freeze(projections);
 }
 
 function expandReference(

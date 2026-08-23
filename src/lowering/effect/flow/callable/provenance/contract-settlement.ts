@@ -10,9 +10,14 @@ import {
   callableReturnRewriteAdmitsDirectValue,
 } from "../../../model/callable-contract.js";
 import {
+  callableDeclarationHasResolvableType,
+} from "../../../model/callable-contract/resolution.js";
+import {
   referenceHasExactSemantics,
 } from "../../../model/project-invocation.js";
 import {
+  exactCallExpression,
+  exactCallableTarget,
   transparentExpression,
 } from "../../../model/syntax.js";
 import {
@@ -22,6 +27,10 @@ import {
   sameValueAlternatives,
 } from "../../value/alternatives.js";
 import type { CallableContext } from "../provenance-flow.js";
+import type { CallableValueResolution } from "../value-resolution.js";
+import type {
+  CallableReturnContractSourceKind,
+} from "./return-contracts.js";
 
 export interface CallableContractSourceRequirement {
   readonly resolvable: boolean;
@@ -64,19 +73,35 @@ export function callableCallContractRequirement(
 
 export function callableContractSourceRequirement(
   expression: Node,
+  sourceKind: CallableReturnContractSourceKind,
   context: CallableContext,
+  callResolutions: ReadonlyMap<Node, CallableValueResolution>,
 ): CallableContractSourceRequirement {
-  return collectRequirement(expression, context, new Set());
+  return collectRequirement(
+    expression,
+    sourceKind,
+    context,
+    callResolutions,
+    new Set(),
+  );
 }
 
 function collectRequirement(
   expression: Node,
+  sourceKind: CallableReturnContractSourceKind,
   context: CallableContext,
+  callResolutions: ReadonlyMap<Node, CallableValueResolution>,
   pending: Set<Node>,
 ): CallableContractSourceRequirement {
   const root = transparentExpression(context.source, expression);
   if (root === undefined || pending.has(root)) {
     return unresolvedRequirement;
+  }
+  if (
+    sourceKind === "call-result" &&
+    expressionResultIsDefinitelyNonThenable(context.source, root)
+  ) {
+    return resolvedRequirement;
   }
   if (callableValueTypeIsSynchronous(context.source, root)) {
     return resolvedRequirement;
@@ -89,7 +114,13 @@ function collectRequirement(
     pending.add(root);
     const result = mergeRequirements(
       alternatives.map((alternative) =>
-        collectRequirement(alternative, context, pending)
+        collectRequirement(
+          alternative,
+          sourceKind,
+          context,
+          callResolutions,
+          pending,
+        )
       ),
     );
     pending.delete(root);
@@ -111,15 +142,63 @@ function collectRequirement(
     context.source.ast.is.IsAwaitExpression(root)
   ) {
     const result = context.results.resultFor(root);
-    return result === undefined || result.returnTypes.length === 0
+    if (result !== undefined && result.returnTypes.length !== 0) {
+      return contractRequirement(
+        result.returnTypes.map((rewrite) => rewrite.target),
+      );
+    }
+    const call = context.source.ast.is.IsCallExpression(root)
+      ? root
+      : exactCallExpression(
+          context.source,
+          context.source.ast.as.AsAwaitExpression(root)?.Expression,
+        );
+    return call === undefined
       ? unresolvedRequirement
-      : contractRequirement(result.returnTypes.map((rewrite) => rewrite.target));
+      : callSourceRequirement(call, context, callResolutions);
   }
   const reference = context.source.navigation.sourceReferenceFor(root);
   if (!referenceHasExactSemantics(context.source, reference)) {
     return unresolvedRequirement;
   }
   return declarationRequirement(reference.declaration, context);
+}
+
+function expressionResultIsDefinitelyNonThenable(
+  source: TargetSourceProgram,
+  expression: Node,
+): boolean {
+  const semantics = source.semantics.forNode(expression);
+  const type = semantics.types.expressionType(expression);
+  return type !== undefined && !typeMaySuspend(semantics, type);
+}
+
+function callSourceRequirement(
+  call: Node,
+  context: CallableContext,
+  callResolutions: ReadonlyMap<Node, CallableValueResolution>,
+): CallableContractSourceRequirement {
+  const resolution = callResolutions.get(call);
+  const contract = callableCallContractRequirement(context.source, call);
+  const target = exactCallableTarget(
+    context.source,
+    context.source.ast.as.AsCallExpression(call)?.Expression,
+  );
+  const reference = context.source.navigation.sourceReferenceFor(target);
+  const sourceContractIsResolvable =
+    referenceHasExactSemantics(context.source, reference) &&
+    callableDeclarationHasResolvableType(
+      context.source,
+      reference.declaration,
+    );
+  return Object.freeze({
+    resolvable: resolution?.closed === true &&
+      (contract.resolvable || sourceContractIsResolvable),
+    candidateDependencies: Object.freeze(
+      resolution === undefined ? [] : [...resolution.dependencyNodes()],
+    ),
+    contractDependencies: contract.contractDependencies,
+  });
 }
 
 function declarationRequirement(

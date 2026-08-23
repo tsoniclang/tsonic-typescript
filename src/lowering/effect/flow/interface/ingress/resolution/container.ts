@@ -13,6 +13,7 @@ import type {
   OriginState,
 } from "../resolution.js";
 import type { InterfaceOriginExpansion } from "./expansion.js";
+import { nodeHasExactSourceSemantics } from "../../../../model/source-membership.js";
 
 export function expandInterfaceOriginContainer(
   state: OriginState,
@@ -151,10 +152,9 @@ export function expandInterfaceOriginContainer(
     ingress.source.ast.is.IsArrowFunction(expression) ||
     ingress.source.ast.is.IsFunctionExpression(expression)
   ) {
-    const sourceFile = ingress.source.ast.getSourceFile(expression);
     flow.terminal(
       state,
-      sourceFile !== undefined && ingress.source.semantics.includes(sourceFile),
+      nodeHasExactSourceSemantics(ingress.source, expression),
       expression,
       context,
     );

@@ -4,11 +4,7 @@ import type {
   SourceDeclarationReference,
   TargetSourceProgram,
 } from "@tsonic/target-api/source";
-
-const exactSemanticMembership = new WeakMap<
-  TargetSourceProgram,
-  WeakMap<Node, boolean>
->();
+import { nodeHasExactSourceSemantics } from "./source-membership.js";
 
 export interface ResolvedProjectInvocation {
   readonly call: ResolvedSourceCallInfo;
@@ -20,7 +16,8 @@ export function referenceHasExactSemantics(
   source: TargetSourceProgram,
   reference: SourceDeclarationReference | undefined,
 ): reference is SourceDeclarationReference {
-  return reference !== undefined && source.semantics.includes(reference.sourceFile);
+  return reference !== undefined &&
+    nodeHasExactSourceSemantics(source, reference.declaration);
 }
 
 export function resolveProjectInvocation(
@@ -58,7 +55,7 @@ export function projectCallableImplementation(
 ): Node | undefined {
   if (
     contract === undefined ||
-    !hasExactSemanticMembership(source, contract)
+    !nodeHasExactSourceSemantics(source, contract)
   ) {
     return undefined;
   }
@@ -70,23 +67,4 @@ export function projectCallableImplementation(
       source.ast.body(contract) !== undefined
     ? contract
     : undefined;
-}
-
-function hasExactSemanticMembership(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  let byNode = exactSemanticMembership.get(source);
-  if (byNode === undefined) {
-    byNode = new WeakMap<Node, boolean>();
-    exactSemanticMembership.set(source, byNode);
-  }
-  const existing = byNode.get(node);
-  if (existing !== undefined) {
-    return existing;
-  }
-  const sourceFile = source.ast.getSourceFile(node);
-  const included = sourceFile !== undefined && source.semantics.includes(sourceFile);
-  byNode.set(node, included);
-  return included;
 }

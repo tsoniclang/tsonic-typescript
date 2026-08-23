@@ -418,6 +418,15 @@ graph root or rebuilding the shared closed-storage-owner set.
 Direct and indirect discarded invocations retain their async producer so a
 rejected Promise cannot become a synchronous throw. Removing either retention
 edge must fail its owning fixture.
+Exact call-contract fixtures cover direct calls, immutable callable aliases,
+closed object-member projections, and declared-closed interface dispatch.
+Settlement must remove the selected direct-value union, every connected
+implementation return union, and the corresponding `async`/`await` syntax in
+one transaction. Mutations omit one implementation, return expression, or
+return-contract rewrite; each must retain the whole family. A provider-selected
+signature is a non-rewritable boundary and must be planned without querying it
+through project semantic evidence. Broad search must find no separate
+projection-only contract path.
 Generic-callable fixtures pass concrete callbacks through a generic kernel, a
 concrete wrapper, and nominal callable storage. The kernel includes callable
 parameters returning a type parameter and an exact reset assignment such as
@@ -500,6 +509,12 @@ exported projected callable beside an otherwise closed invocation; both must
 retain the shared origin rather than let one closed use hide an escape. The
 same shared projection owner must continue to pass the return-value projection
 matrix, proving that callable flow did not introduce a second binding audit.
+A provider-call fixture selects a signature from the standard declaration
+surface whose return type is absent from the checked project tree. Planning
+must retain its async modifier and awaits without asking project semantics to
+interpret that foreign type node. A mutation that removes exact-source
+membership admission must fail this focused fixture before a whole-product
+run can reach the same boundary.
 A candidate-domain gate adds hundreds of unrelated scalar bindings without
 changing the callable projection denominator. It also proves that a narrowed
 callable union and an invoked open target remain candidates, while an exact

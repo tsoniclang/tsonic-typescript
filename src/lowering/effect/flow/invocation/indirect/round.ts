@@ -14,6 +14,7 @@ import {
   transparentExpression,
 } from "../../../model/syntax.js";
 import { resolveProjectInvocation } from "../../../model/project-invocation.js";
+import { nodeHasExactSourceSemantics } from "../../../model/source-membership.js";
 import { collectCallableValueInputs } from "../../callable/value-inputs.js";
 import {
   createCallableResultInputs,
@@ -321,10 +322,8 @@ function callableOriginIsExact(
     source.ast.is.IsMethodDeclaration(declaration) ||
     source.ast.is.IsFunctionExpression(declaration) ||
     source.ast.is.IsArrowFunction(declaration);
-  const sourceFile = source.ast.getSourceFile(declaration);
   return callable &&
-    sourceFile !== undefined &&
-    source.semantics.includes(sourceFile) &&
+    nodeHasExactSourceSemantics(source, declaration) &&
     source.ast.body(declaration) !== undefined &&
     !program.hasBindingWrite(declaration) &&
     callableDispatchIsClosed(source, program, declaration);

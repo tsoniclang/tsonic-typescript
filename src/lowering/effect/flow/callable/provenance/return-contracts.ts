@@ -6,21 +6,30 @@ import type { CallableState } from "../provenance-flow.js";
 export interface MutableCallableReturnContract {
   readonly rewrite: CallableReturnRewrite;
   readonly states: CallableState[];
-  readonly sources: Node[];
+  readonly sources: CallableReturnContractSource[];
+}
+
+export type CallableReturnContractSourceKind =
+  | "call-result"
+  | "callable-value";
+
+export interface CallableReturnContractSource {
+  readonly expression: Node;
+  readonly kind: CallableReturnContractSourceKind;
 }
 
 export function appendReturnTypeContract(
   target: Map<Node, MutableCallableReturnContract>,
   rewrite: CallableReturnRewrite,
   state: CallableState,
-  sources: readonly Node[],
+  sources: readonly CallableReturnContractSource[],
 ): void {
   const existing = target.get(rewrite.target);
   if (existing === undefined) {
     target.set(rewrite.target, {
       rewrite,
       states: [state],
-      sources: [...new Set(sources)],
+      sources: [...sources],
     });
     return;
   }
@@ -34,7 +43,9 @@ export function appendReturnTypeContract(
     existing.states.push(state);
   }
   for (const source of sources) {
-    if (!existing.sources.includes(source)) {
+    if (!existing.sources.some(({ expression, kind }) =>
+      expression === source.expression && kind === source.kind
+    )) {
       existing.sources.push(source);
     }
   }

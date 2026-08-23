@@ -8,6 +8,7 @@ import type {
 } from "@tsonic/target-api/source";
 
 import { sameSelectedType, typeMaySuspend } from "./synchronous.js";
+import { nodeHasExactSourceSemantics } from "./source-membership.js";
 
 export function callableDeclarationAllowsSynchronousValue(
   source: TargetSourceProgram,
@@ -40,6 +41,9 @@ export function callableResultReturnRewrites(
   source: TargetSourceProgram,
   declaration: Node,
 ): readonly CallableReturnRewrite[] | undefined {
+  if (!nodeHasExactSourceSemantics(source, declaration)) {
+    return undefined;
+  }
   let resultType = source.ast.typeNode(declaration);
   if (resultType === undefined) {
     return undefined;
@@ -75,7 +79,10 @@ export function callableProjectedResultSlotReturnRewrites(
   declaration: Node,
   path: readonly CallableProjectedResultSlot[],
 ): readonly CallableReturnRewrite[] | undefined {
-  if (path.length === 0) {
+  if (
+    path.length === 0 ||
+    !nodeHasExactSourceSemantics(source, declaration)
+  ) {
     return undefined;
   }
   let resultType = source.ast.typeNode(declaration);
@@ -364,6 +371,9 @@ export function callableDeclarationSynchronousReturnTypes(
   source: TargetSourceProgram,
   declaration: Node,
 ): readonly CallableReturnRewrite[] | undefined {
+  if (!nodeHasExactSourceSemantics(source, declaration)) {
+    return undefined;
+  }
   const typeNode = source.ast.typeNode(declaration);
   const rewrites: CallableReturnRewrite[] = [];
   const callable = typeNode === undefined
@@ -378,6 +388,9 @@ export function callableReturnRewrite(
   source: TargetSourceProgram,
   node: Node,
 ): CallableReturnRewrite | undefined {
+  if (!nodeHasExactSourceSemantics(source, node)) {
+    return undefined;
+  }
   if (source.ast.is.IsParenthesizedTypeNode(node)) {
     const inner = source.ast.as.AsParenthesizedTypeNode(node)?.Type;
     return inner === undefined ? undefined : callableReturnRewrite(source, inner);

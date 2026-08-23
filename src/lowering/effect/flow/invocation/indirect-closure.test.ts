@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { IsAwaitExpression } from "@tsonic/tsts/target-ast";
+import {
+  AsTypeReferenceNode,
+  IsAwaitExpression,
+} from "@tsonic/tsts/target-ast";
 
 import {
   checkedEffectFixture,
@@ -37,6 +40,7 @@ export const result = await top();
     countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
     0,
   );
+  assert.equal(countTypeReferences(fixture, result.sourceFile, "PromiseLike"), 0);
 });
 
 test("constructs callable-storage topology once across closure rounds", () => {
@@ -94,6 +98,7 @@ export const result = await top();
     countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
     0,
   );
+  assert.equal(countTypeReferences(fixture, result.sourceFile, "Awaitable"), 0);
 });
 
 test("settles a callable reached through a closed object owner", () => {
@@ -254,3 +259,15 @@ export const result = await top();
 
   assert.ok(countAsyncCallables(fixture.source, result.sourceFile) > 0);
 });
+
+function countTypeReferences(
+  fixture: ReturnType<typeof checkedEffectFixture>,
+  root: Parameters<typeof countNodes>[1],
+  name: string,
+): number {
+  return countNodes(fixture.source, root, (node) => {
+    const reference = AsTypeReferenceNode(node);
+    return reference !== undefined &&
+      fixture.source.ast.text(reference.TypeName) === name;
+  });
+}

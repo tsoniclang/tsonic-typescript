@@ -65,6 +65,9 @@ import {
   callableCallContractRequirement,
   callableContractSourceRequirement,
 } from "./provenance/contract-settlement.js";
+import {
+  collectCallReturnContractStates,
+} from "./provenance/call-contracts.js";
 
 export type CallableBoundaryReason =
   | "inexact-reference"
@@ -102,6 +105,7 @@ export interface CallableContext {
   readonly expressions: Map<Node, CallableState>;
   readonly declarations: Map<Node, CallableState>;
   readonly calls: Map<Node, CallableState>;
+  readonly callImplementations: Map<Node, readonly Node[]>;
   readonly candidateOrigins: Set<Node>;
   readonly synchronousOrigins: Set<Node>;
   terminalOrigin: Node | undefined;
@@ -168,6 +172,7 @@ export function createGraphCallableValueFlow(
     expressions: new Map(),
     declarations: new Map(),
     calls: new Map(),
+    callImplementations: new Map(),
     candidateOrigins: new Set(),
     synchronousOrigins: new Set(),
     terminalOrigin: undefined,
@@ -208,6 +213,7 @@ export function createGraphCallableValueFlow(
     (declaration) => callableDeclarationState(declaration, context),
   );
   planningObserver?.("effect-callable-bodies");
+  const callContractStates = collectCallReturnContractStates(context);
   const contractStates = inputs.contracts.map((contract) => ({
     rewrite: contract.returnType,
     state: mergeDeclarations(
@@ -236,7 +242,10 @@ export function createGraphCallableValueFlow(
     ));
     return contract.returnTypes.map((rewrite) => ({ rewrite, state, sources }));
   });
-  planningObserver?.("effect-callable-contracts");
+  planningObserver?.("effect-callable-contracts", {
+    contracts: callContractStates.length + contractStates.length +
+      storageContractStates.length,
+  });
   const graph = context.builder.seal();
   planningObserver?.("effect-callable-graph", {
     boundaries: graph.boundaries.length,
@@ -287,14 +296,40 @@ export function createGraphCallableValueFlow(
   planningObserver?.("effect-callable-call-resolutions");
   const returnTypes = new Map<Node, MutableCallableReturnContract>();
   for (const { rewrite, state, sources } of [
-    ...contractStates,
-    ...storageContractStates,
+    ...contractStates.map((contract) => ({
+      ...contract,
+      sources: contract.sources.map((expression) => ({
+        expression,
+        kind: "callable-value" as const,
+      })),
+    })),
+    ...storageContractStates.map((contract) => ({
+      ...contract,
+      sources: contract.sources.map((expression) => ({
+        expression,
+        kind: "callable-value" as const,
+      })),
+    })),
+    ...callContractStates.flatMap(({ returnTypes, state, sources }) =>
+      returnTypes.map((rewrite) => ({
+        rewrite,
+        state,
+        sources,
+      }))
+    ),
     ...[...context.returnedContracts.values()].flatMap(({
       returnTypes,
       state,
       sources,
     }) =>
-      returnTypes.map((rewrite) => ({ rewrite, state, sources }))
+      returnTypes.map((rewrite) => ({
+        rewrite,
+        state,
+        sources: sources.map((expression) => ({
+          expression,
+          kind: "callable-value" as const,
+        })),
+      }))
     ),
   ]) {
     appendReturnTypeContract(returnTypes, rewrite, state, sources);
@@ -314,8 +349,13 @@ export function createGraphCallableValueFlow(
     [...returnTypes.values()].map(({ rewrite, states, sources }) => Object.freeze({
       rewrite,
       resolutions: Object.freeze(states.map(resolutionForState)),
-      sourceRequirements: Object.freeze(sources.map((source) =>
-        callableContractSourceRequirement(source, context)
+      sourceRequirements: Object.freeze(sources.map(({ expression, kind }) =>
+        callableContractSourceRequirement(
+          expression,
+          kind,
+          context,
+          callResolutions,
+        )
       )),
     })),
   );

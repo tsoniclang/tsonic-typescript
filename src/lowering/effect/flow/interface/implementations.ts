@@ -12,6 +12,7 @@ import {
   callableUsesSynchronousTransport,
   typeHasTrustedSynchronousCallSignatures,
 } from "../../model/synchronous.js";
+import { nodeHasExactSourceSemantics } from "../../model/source-membership.js";
 
 export interface InterfaceContractImplementationLedger {
   recordTypeImplementations(
@@ -140,7 +141,7 @@ export function createInterfaceContractImplementationLedger(
       if (
         name === undefined ||
         sourceFile === undefined ||
-        !source.semantics.includes(sourceFile)
+        !nodeHasExactSourceSemantics(source, classDeclaration)
       ) {
         return Object.freeze([...contracts]);
       }

@@ -610,6 +610,12 @@ through the closed input graph; an absent projected input, an open projection
 consumer, or one mismatched selected return target retains the complete
 contract and its await. No empty-source registration may manufacture a
 settled projected contract from the selected signature alone.
+Only a type node in an exact checked project source file can enter a return
+rewrite transaction. A selected library, ambient, or provider signature may
+still contribute exact transport evidence, but its foreign authored contract
+is not part of the target tree and cannot be rewritten. It therefore remains a
+contract boundary unless the checked call result is already non-suspending;
+the target never queries foreign nodes through project-source semantics.
 
 Every cyclic effect-flow problem uses one finite provenance algebra. A semantic
 owner creates exact node-identity vertices, typed dependency edges carrying the
@@ -717,6 +723,18 @@ Synchronous-call dependency closure is computed from those graph resolutions.
 Collection, storage, interface, and returned-callable contracts project from
 canonical resolutions and exact invocation/value projections; they do not
 reimplement recursive resolution or maintain a sibling compatibility graph.
+Every admitted project call records the exact implementation set selected by
+those owners. One call-contract owner then joins the selected call signature,
+every exact nested projection contract, every direct-value-capable
+implementation return contract, and every exact implementation return
+expression into one atomic settlement family. Direct, immutable-alias,
+object-projection, and declared-closed interface calls use this same route. A
+project generic callback result is admitted only through its exact callable
+value contract and closed implementation set. A missing implementation,
+foreign or provider signature, Promise-only contract, unresolved return
+expression, or open implementation retains the entire family; no
+projection-specific compatibility path or spelling fallback may remove only
+the call-site `await`.
 Finalized callable-value resolutions are immutable snapshots exposing only
 closed state, counts, and iterators over deduplicated exact origins. Changing an
 input collection after construction cannot change a resolution.
