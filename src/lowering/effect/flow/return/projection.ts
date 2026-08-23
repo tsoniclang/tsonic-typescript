@@ -41,7 +41,7 @@ export function createReturnProjectionFlow(
     const transport = transports?.transportFor(call);
     if (transport?.resultOriginExpressions !== undefined) {
       return Object.freeze({
-        declaration: call,
+        resultOwner: call,
         contracts: Object.freeze([]),
         expressions: Object.freeze([...transport.resultOriginExpressions]),
       });
@@ -72,7 +72,7 @@ export function createReturnProjectionFlow(
     return declaration === undefined
       ? undefined
       : Object.freeze({
-          declaration,
+          resultOwner: declarations.length === 1 ? declaration : call,
           contracts: Object.freeze(declarations),
           expressions: Object.freeze(expressions),
         });

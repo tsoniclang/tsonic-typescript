@@ -12,6 +12,7 @@ import type { InvocationTransportContract } from "../../../../invocation-transpo
 import type { EffectProvenanceVertexKind } from "../../../provenance/model.js";
 import type { ExactAggregateProjectionIndex } from "../../aggregate/projection.js";
 import { createExactValueSlotFlow } from "../../value/slot/flow.js";
+import type { ExactValueSlotCallSource } from "../../value/slot/model.js";
 import { exactCallableReturnExpressions } from "../../invocation/results.js";
 import type { ExactInvocationInputIndex } from "../../invocation/inputs.js";
 import {
@@ -369,11 +370,7 @@ function exactAggregateResultSource(
   exactCallImplementations: ((call: Node) => readonly Node[] | undefined) |
     undefined,
   transports: InvocationTransportContract | undefined,
-): {
-  readonly declaration: Node;
-  readonly contracts: readonly Node[];
-  readonly expressions: readonly (Node | undefined)[];
-} | undefined {
+): ExactValueSlotCallSource | undefined {
   const semantics = source.semantics.forNode(call);
   const signature = semantics.operations.call(call)?.selectedSignature;
   const contract = signature === undefined
@@ -382,7 +379,7 @@ function exactAggregateResultSource(
   const transported = transports?.transportFor(call)?.resultOriginExpressions;
   if (transported !== undefined) {
     return Object.freeze({
-      declaration: call,
+      resultOwner: call,
       contracts: Object.freeze([]),
       expressions: Object.freeze([...transported]),
     });
@@ -408,17 +405,14 @@ function exactAggregateResultSource(
     }
     expressions.push(...returned);
   }
-  const declaration = direct ?? contract ?? implementations[0];
-  return declaration === undefined
-    ? undefined
-    : Object.freeze({
-        declaration,
-        contracts: Object.freeze([
-          ...(contract === undefined ? [] : [contract]),
-          ...implementations.filter((entry) => entry !== contract),
-        ]),
-        expressions: Object.freeze(expressions),
-      });
+  return Object.freeze({
+    resultOwner: direct ?? call,
+    contracts: Object.freeze([
+      ...(contract === undefined ? [] : [contract]),
+      ...implementations.filter((entry) => entry !== contract),
+    ]),
+    expressions: Object.freeze(expressions),
+  });
 }
 
 function storageOwner(

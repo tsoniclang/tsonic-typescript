@@ -98,7 +98,7 @@ function collectCallRequirement(
   if (
     implementation === undefined ||
     declaration !== implementation ||
-    projected?.declaration !== implementation ||
+    projected?.resultOwner !== implementation ||
     source.ast.body(implementation) === undefined ||
     source.ast.typeNode(implementation) !== undefined ||
     pending.has(implementation)

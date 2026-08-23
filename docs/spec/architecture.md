@@ -632,6 +632,13 @@ through the closed input graph; an absent projected input, an open projection
 consumer, or one mismatched selected return target retains the complete
 contract and its await. No empty-source registration may manufacture a
 settled projected contract from the selected signature alone.
+Value-slot result identity is distinct from callable contract identity. A
+direct call may share its exact declaration-owned result source, but a
+polymorphic call owns its result source at the invocation because two calls can
+select the same signature contract and different exact implementations.
+Contracts remain a separate complete declaration set. Using the shared
+signature as the result owner, merging different return-expression sets, or
+using a result owner as a contract is forbidden.
 Only a type node in an exact checked project source file can enter a return
 rewrite transaction. A selected library, ambient, or provider signature may
 still contribute exact transport evidence, but its foreign authored contract

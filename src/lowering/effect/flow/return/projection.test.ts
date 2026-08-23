@@ -120,6 +120,39 @@ export const result = await consume();
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
 });
 
+test("keeps polymorphic result owners separate from their shared contract", () => {
+  const fixture = checkedEffectFixture(`
+class Failure { constructor(readonly message: string) {} }
+interface Producer {
+  (): Promise<[number, Failure | undefined]>;
+}
+async function left(): Promise<[number, Failure | undefined]> {
+  return [1, new Failure("left")];
+}
+async function right(): Promise<[number, Failure | undefined]> {
+  return [2, new Failure("right")];
+}
+const first: Producer = left;
+const second: Producer = right;
+async function consume(selected: boolean): Promise<Failure | undefined> {
+  const firstResult = await first();
+  const secondResult = await second();
+  return selected ? firstResult[1] : secondResult[1];
+}
+export const result = await consume(true);
+`);
+
+  const plan = createClosedCooperativeEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    3,
+  );
+});
+
 test("preserves a tuple slot produced by an open value call", () => {
   const fixture = checkedEffectFixture(`
 interface Failure { readonly message: string }

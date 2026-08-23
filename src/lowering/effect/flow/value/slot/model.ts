@@ -15,13 +15,13 @@ export type ExactValueSlotSelector =
 export type ExactValueSlotPath = readonly ExactValueSlotSelector[];
 
 export interface ExactValueSlotCallSource {
-  readonly declaration: Node;
-  readonly contracts?: readonly Node[];
+  readonly resultOwner: Node;
+  readonly contracts: readonly Node[];
   readonly expressions: readonly (Node | undefined)[];
 }
 
 export interface ExactValueSlotStep {
-  readonly declaration: Node;
+  readonly resultOwner: Node;
   readonly contracts: readonly Node[];
   readonly invocation: Node;
   readonly path: ExactValueSlotPath;

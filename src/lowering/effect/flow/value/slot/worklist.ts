@@ -30,7 +30,7 @@ export type ValueSlotWorkItem =
   | {
     readonly kind: "result";
     readonly state: ValueSlotState;
-    readonly declaration: Node;
+    readonly resultOwner: Node;
     readonly expressions: readonly (Node | undefined)[];
     readonly path: ExactValueSlotPath;
   }

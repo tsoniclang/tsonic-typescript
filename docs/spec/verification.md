@@ -642,10 +642,16 @@ slot from the same exact source and add an unrelated thenable-capable sibling.
 Only the queried thenable-capable slot may enter the value-slot root domain. An
 alias fixture reaches that slot through an exact local initializer so the domain
 proof is not a syntax-ancestor shortcut. A structural gate requires projection
-and return-provenance query
-methods to come from dedicated finalizers that contain no source program,
-value-slot flow, return construction context, or graph builder. Mutations that
-feed every aggregate root or every program call/return into return projection,
+and return-provenance query methods to come from dedicated finalizers that
+contain no source program,
+value-slot flow, return construction context, or graph builder.
+A polymorphic result fixture gives two calls the same checked callable
+signature but distinct exact implementations and return expressions. Both
+must remain independently represented without throwing or fabricating
+settlement. Mutations that key those results by signature contract, omit the
+invocation-owned result identity, or substitute a result owner for the complete
+contract set must fail. Mutations that feed every aggregate root or every
+program call/return into return projection,
 retain the slot flow, or publish return queries directly from construction must
 fail the candidate, structure, and guarded whole-product memory gates.
 Mutations that add a producer-binding write or a derived override retain the

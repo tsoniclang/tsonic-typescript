@@ -24,7 +24,7 @@ export interface CallableResultInput {
 }
 
 export interface CallableResultSourceInput {
-  readonly declaration: Node;
+  readonly resultOwner: Node;
   readonly contracts: readonly Node[];
   readonly expressions: readonly (Node | undefined)[];
 }
@@ -47,7 +47,7 @@ export type ExactCallResultOrigins = (
 ) => readonly Node[] | undefined;
 
 interface SelectedCallSource {
-  readonly declaration: Node;
+  readonly resultOwner: Node;
   readonly contracts: readonly Node[];
   readonly implementations: readonly Node[];
 }
@@ -85,7 +85,7 @@ export function createCallableResultInputs(
     const transported = resultOriginsForCall?.(selected.call);
     if (transported !== undefined) {
       const result = Object.freeze({
-        declaration: selected.call,
+        resultOwner: selected.call,
         contracts: Object.freeze([]),
         expressions: Object.freeze([...transported]),
       });
@@ -118,7 +118,7 @@ export function createCallableResultInputs(
       expressions.push(...returned);
     }
     const result = Object.freeze({
-      declaration: selectedSource.declaration,
+      resultOwner: selectedSource.resultOwner,
       contracts: selectedSource.contracts,
       expressions: Object.freeze(expressions),
     });
@@ -217,7 +217,7 @@ function selectedCallSource(
   const direct = resolveProjectInvocation(source, call)?.implementation;
   if (direct !== undefined) {
     return Object.freeze({
-      declaration: direct,
+      resultOwner: direct,
       contracts: Object.freeze([direct]),
       implementations: Object.freeze([direct]),
     });
@@ -233,7 +233,7 @@ function selectedCallSource(
   return contract === undefined || implementations.length === 0
     ? undefined
     : Object.freeze({
-        declaration: contract,
+        resultOwner: call,
         contracts: Object.freeze([
           contract,
           ...implementations.filter((value) => value !== contract),

@@ -277,7 +277,7 @@ function interfaceSlotSource(
   const transported = transports?.transportFor(call)?.resultOriginExpressions;
   if (transported !== undefined) {
     return Object.freeze({
-      declaration: call,
+      resultOwner: call,
       contracts: Object.freeze([]),
       expressions: Object.freeze([...transported]),
     });
@@ -309,7 +309,12 @@ function interfaceSlotSource(
     expressions.push(...returned);
   }
   return Object.freeze({
-    declaration: direct ?? contract ?? implementations[0]!,
+    resultOwner: direct ?? call,
+    contracts: Object.freeze(direct !== undefined
+      ? [direct]
+      : contract === undefined
+      ? [...implementations]
+      : [contract, ...implementations.filter((value) => value !== contract)]),
     expressions: Object.freeze(expressions),
   });
 }

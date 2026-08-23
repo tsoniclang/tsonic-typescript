@@ -56,8 +56,7 @@ interface ValueSlotContext {
     typeof createEffectProvenanceGraphBuilder<ValueSlotBoundaryReason>
   >;
   readonly states: ValueSlotStateRegistry;
-  readonly resultInputs: Map<Node, readonly (Node | undefined)[]>;
-  readonly resultContracts: Map<Node, readonly Node[]>;
+  readonly resultSources: Map<Node, ExactValueSlotCallSource>;
   readonly valueOrigins: Map<number, Set<Node>>;
   readonly steps: Map<number, ExactValueSlotStep>;
   readonly worklist: ValueSlotWorkItem[];
@@ -100,8 +99,7 @@ export function createExactValueSlotFlow(
     bindingProjections,
     builder,
     states: createValueSlotStateRegistry(active, builder),
-    resultInputs: new Map(),
-    resultContracts: new Map(),
+    resultSources: new Map(),
     valueOrigins: new Map(),
     steps: new Map(),
     worklist: [],
@@ -256,7 +254,7 @@ function drainValueSlotWorklist(context: ValueSlotContext): void {
     } else {
       expandResult(
         item.state,
-        item.declaration,
+        item.resultOwner,
         item.expressions,
         item.path,
         context,
@@ -467,44 +465,47 @@ function expandCall(
     boundary(state, call, context);
     return;
   }
-  const contracts = Object.freeze(source.contracts ?? [source.declaration]);
-  const previousInputs = context.resultInputs.get(source.declaration);
-  if (previousInputs === undefined) {
-    context.resultInputs.set(source.declaration, source.expressions);
-    context.resultContracts.set(source.declaration, contracts);
+  const previous = context.resultSources.get(source.resultOwner);
+  if (previous === undefined) {
+    context.resultSources.set(source.resultOwner, source);
   } else {
-    assertSameValues("inputs", source.declaration, previousInputs, source.expressions);
+    assertSameValues(
+      "inputs",
+      source.resultOwner,
+      previous.expressions,
+      source.expressions,
+    );
     assertSameValues(
       "contracts",
-      source.declaration,
-      context.resultContracts.get(source.declaration) ?? [],
-      contracts,
+      source.resultOwner,
+      previous.contracts,
+      source.contracts,
     );
   }
   context.steps.set(state.vertex.index, Object.freeze({
-    declaration: source.declaration,
-    contracts,
+    resultOwner: source.resultOwner,
+    contracts: source.contracts,
     invocation: call,
     path,
   }));
   context.builder.addOrigin(state.vertex, call);
   context.builder.addDependency(
     state.vertex,
-    stateForResult(source.declaration, source.expressions, path, context).vertex,
+    stateForResult(source.resultOwner, source.expressions, path, context).vertex,
     "return",
     call,
   );
 }
 
 function stateForResult(
-  declaration: Node,
+  resultOwner: Node,
   expressions: readonly (Node | undefined)[],
   path: ExactValueSlotPath,
   context: ValueSlotContext,
 ): ValueSlotState {
-  const state = context.states.select("result", declaration, path);
+  const state = context.states.select("result", resultOwner, path);
   if (state.recursive) {
-    boundary(state, declaration, context, "recursive-slot");
+    boundary(state, resultOwner, context, "recursive-slot");
   }
   if (state.expanded) {
     return state;
@@ -513,7 +514,7 @@ function stateForResult(
   context.worklist.push({
     kind: "result",
     state,
-    declaration,
+    resultOwner,
     expressions,
     path,
   });
@@ -522,16 +523,16 @@ function stateForResult(
 
 function expandResult(
   state: ValueSlotState,
-  declaration: Node,
+  resultOwner: Node,
   expressions: readonly (Node | undefined)[],
   path: ExactValueSlotPath,
   context: ValueSlotContext,
 ): void {
   for (const expression of expressions) {
     if (expression === undefined) {
-      boundary(state, declaration, context);
+      boundary(state, resultOwner, context);
     } else {
-      dependency(state, expression, path, declaration, context);
+      dependency(state, expression, path, resultOwner, context);
     }
   }
 }
@@ -576,7 +577,7 @@ function boundary(
 
 function assertSameValues(
   kind: string,
-  declaration: Node,
+  resultOwner: Node,
   left: readonly (Node | undefined)[],
   right: readonly (Node | undefined)[],
 ): void {
@@ -585,7 +586,7 @@ function assertSameValues(
     left.some((value, index) => value !== right[index])
   ) {
     throw new Error(
-      `value slot ${kind} disagreed for declaration ${String(declaration)}`,
+      `value slot ${kind} disagreed for result owner ${String(resultOwner)}`,
     );
   }
 }
