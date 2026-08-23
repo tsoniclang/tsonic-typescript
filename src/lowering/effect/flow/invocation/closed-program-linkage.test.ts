@@ -77,6 +77,59 @@ export const result = await getText();
   ));
 });
 
+test("settles an exported recursive callback stored by an exact constructor", () => {
+  const fixture = recursiveVisitorFixture();
+  const plan = createFixtureEffectPlan(
+    fixture.source,
+    "open-structural",
+    undefined,
+    "closed-program",
+  );
+  let asyncCallables = 0;
+  let awaits = 0;
+
+  for (const sourceFile of fixture.source.navigation.sourceFiles) {
+    const lowered = lowerCooperativeEffects(sourceFile, plan).sourceFile;
+    asyncCallables += countAsyncCallables(fixture.source, lowered);
+    awaits += countNodes(fixture.source, lowered, IsAwaitExpression);
+  }
+  plan.finish();
+
+  assert.equal(plan.summary.candidateCount, 2);
+  assert.equal(plan.summary.settledCallableCount, 2);
+  assert.equal(plan.summary.retainedCallableCount, 0);
+  assert.equal(asyncCallables, 0);
+  assert.equal(awaits, 0);
+});
+
+test("retains a constructor-stored callback exposed to an ambient consumer", () => {
+  const fixture = checkedEffectFixture(`
+import { Visitor, visit } from "./visitor.js";
+declare function expose(visitor: Visitor<number>): void;
+export async function mark(value: number): Promise<boolean> {
+  const visitor = new Visitor(mark);
+  expose(visitor);
+  await visit(value, visitor);
+  return false;
+}
+`, recursiveVisitorFiles);
+  const plan = createFixtureEffectPlan(
+    fixture.source,
+    "open-structural",
+    undefined,
+    "closed-program",
+  );
+
+  for (const sourceFile of fixture.source.navigation.sourceFiles) {
+    lowerCooperativeEffects(sourceFile, plan);
+  }
+  plan.finish();
+
+  assert.equal(plan.summary.candidateCount, 2);
+  assert.equal(plan.summary.settledCallableCount, 0);
+  assert.equal(plan.summary.retainedCallableCount, 2);
+});
+
 const callbackFiles = Object.freeze({
   "/src/bridge.ts": `export { getText } from "./utilities.js";`,
   "/src/utilities.ts": `
@@ -101,4 +154,33 @@ export async function format(
 }
 `,
   });
+}
+
+const recursiveVisitorFiles = Object.freeze({
+  "/src/visitor.ts": `
+export type Awaitable<T> = T | PromiseLike<T>;
+export class Visitor<T> {
+  constructor(
+    public readonly value: ((value: T) => Awaitable<boolean>) | undefined,
+  ) {}
+}
+function missingCallable(): never {
+  throw new Error("missing callable");
+}
+export async function visit<T>(value: T, visitor: Visitor<T>): Promise<void> {
+  const callable = visitor.value;
+  await (callable ?? missingCallable())(value);
+}
+`,
+});
+
+function recursiveVisitorFixture() {
+  return checkedEffectFixture(`
+import { Visitor, visit } from "./visitor.js";
+export async function mark(value: number): Promise<boolean> {
+  await visit(value, new Visitor(mark));
+  return false;
+}
+export const result = await mark(1);
+`, recursiveVisitorFiles);
 }
