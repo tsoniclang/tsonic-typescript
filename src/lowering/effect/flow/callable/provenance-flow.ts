@@ -62,6 +62,7 @@ import {
   type SettledCallableReturnContract,
 } from "./provenance/finalization.js";
 import {
+  callableCallContractRequirement,
   callableContractSourceRequirement,
 } from "./provenance/contract-settlement.js";
 
@@ -318,12 +319,24 @@ export function createGraphCallableValueFlow(
       )),
     })),
   );
-  planningObserver?.("effect-callable-finalization");
+  const callContractRequirements = new Map([...callResolutions.keys()].map(
+    (call) => [call, callableCallContractRequirement(source, call)] as const,
+  ));
+  planningObserver?.("effect-callable-finalization", {
+    boundaries: settledReturnContracts.filter((contract) =>
+      contract.sourceRequirements.some((requirement) => !requirement.resolvable)
+    ).length,
+    closed: settledReturnContracts.filter((contract) =>
+      contract.resolutions.every((resolution) => resolution.closed)
+    ).length,
+    contracts: settledReturnContracts.length,
+  });
   return finalizeGraphCallableValueFlow(
     signatureFamilies,
     callResolutions,
     closedCallableReferences,
     settledReturnContracts,
+    callContractRequirements,
     callableReferenceIsClosed,
   );
 }

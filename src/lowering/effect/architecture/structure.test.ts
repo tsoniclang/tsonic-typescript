@@ -382,6 +382,16 @@ test("effect flow finalizers retain only settled query capabilities", () => {
     ),
     "utf8",
   );
+  const callableExpression = readFileSync(
+    join(
+      effectRoot,
+      "flow",
+      "callable",
+      "provenance",
+      "expression.ts",
+    ),
+    "utf8",
+  );
   const indirectConstruction = readFileSync(
     join(effectRoot, "flow", "invocation", "indirect.ts"),
     "utf8",
@@ -400,6 +410,19 @@ test("effect flow finalizers retain only settled query capabilities", () => {
     join(effectRoot, "planning", "plan.ts"),
     "utf8",
   );
+  const classification = readFileSync(
+    join(effectRoot, "planning", "classification.ts"),
+    "utf8",
+  );
+  const returnedClassification = readFileSync(
+    join(
+      effectRoot,
+      "planning",
+      "classification",
+      "returned-expression.ts",
+    ),
+    "utf8",
+  );
 
   assert.match(callableConstruction, /finalizeGraphCallableValueFlow\(/u);
   assert.doesNotMatch(
@@ -408,8 +431,29 @@ test("effect flow finalizers retain only settled query capabilities", () => {
   );
   assert.match(callableContractSettlement, /candidateDependencies/u);
   assert.match(callableContractSettlement, /contractDependencies/u);
+  assert.match(
+    callableContractSettlement,
+    /callableCallContractRequirement/u,
+  );
+  assert.match(callableFinalization, /contractForCall/u);
   assert.match(callableFinalization, /while \(changed\)/u);
   assert.match(callableFinalization, /!settled\.has\(dependency\)/u);
+  assert.match(callableFinalization, /visited\.has\(current\)/u);
+  assert.doesNotMatch(callableFinalization, /!visited\.add\(current\)/u);
+  assert.match(callableExpression, /projectedCallContract\(/u);
+  assert.match(callableExpression, /context\.results\.resultFor\(value\)/u);
+  assert.match(callableExpression, /context\.inputs\.isClosed/u);
+  assert.match(callableExpression, /projectedContract\.returnTypes/u);
+  assert.doesNotMatch(
+    callableExpression,
+    /returnedContracts\.set\([\s\S]{0,240}sources:\s*Object\.freeze\(\[\]\)/u,
+  );
+  assert.match(classification, /classifyReturnedExpression/u);
+  assert.match(returnedClassification, /valueFlow\.contractForCall\(/u);
+  assert.match(
+    returnedClassification,
+    /callResultMatchesCandidateReturn\(/u,
+  );
   assert.match(indirectConstruction, /finalizeExactIndirectInvocationFacts\(/u);
   assert.doesNotMatch(
     indirectFinalization,

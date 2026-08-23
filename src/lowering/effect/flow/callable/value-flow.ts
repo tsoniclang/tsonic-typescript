@@ -23,6 +23,7 @@ export interface CallableValueFlow {
     visitor: (call: Node, resolution: CallableValueResolution) => void,
   ): void;
   resolutionFor(call: Node | undefined): CallableValueResolution | undefined;
+  contractForCall(call: Node): CallableValueResolution | undefined;
   allowsCallableReference(node: Node): boolean;
   settledReturnTypes(
     optimized: ReadonlySet<Node>,

@@ -16,7 +16,6 @@ import {
   containingReturn,
   directContainingCall,
   exactCallExpression,
-  exactReturnedCall,
   isFunctionLike,
   isDiscardedCall,
   isModuleForwardingReference,
@@ -24,6 +23,7 @@ import {
 import type { CallableValueFlow } from "../flow/callable/value-flow.js";
 import { isCallableNonEscapingObservation } from "../flow/callable/input-reference.js";
 import { connectCooperativeEffectDependency } from "../closure/dependency.js";
+import { classifyReturnedExpression } from "./classification/returned-expression.js";
 
 const noDependencies: readonly Node[] = Object.freeze([]);
 
@@ -283,15 +283,24 @@ export function collectSettledCooperativeAwaits(
     const resolution = direct === undefined
       ? valueFlow.resolutionFor(call)
       : undefined;
+    const contract = direct === undefined && family === undefined
+      ? valueFlow.contractForCall(call)
+      : undefined;
     const dependencies: Iterable<Node> = direct === undefined
       ? resolution?.dependencyNodes() ?? noDependencies
       : [direct.declaration];
     if (
       (direct === undefined &&
         family === undefined &&
-        (resolution === undefined || !resolution.closed)) ||
+        (resolution === undefined || !resolution.closed ||
+          contract === undefined || !contract.closed)) ||
       (family !== undefined && !interfaces.callIsSettled(call, optimized)) ||
       hasRetainedDependency(dependencies, candidates, optimized) ||
+      (contract !== undefined && hasRetainedDependency(
+        contract.dependencyNodes(),
+        candidates,
+        optimized,
+      )) ||
       (direct === undefined &&
         family === undefined &&
         resolution !== undefined &&
@@ -385,7 +394,25 @@ function classifyAwaitDependencies(
     );
     return;
   }
+  const contract = valueFlow.contractForCall(call);
+  if (contract === undefined || !contract.closed) {
+    blockCooperativeEffect(owner, "unresolved-call", call);
+    return;
+  }
   for (const declaration of resolution.dependencyNodes()) {
+    const candidate = candidates.get(declaration);
+    if (candidate === undefined) {
+      blockCooperativeEffect(owner, "unresolved-call", call);
+      return;
+    }
+    connectCooperativeEffectDependency(
+      owner,
+      candidate,
+      "callable-invocation",
+      call,
+    );
+  }
+  for (const declaration of contract.dependencyNodes()) {
     const candidate = candidates.get(declaration);
     if (candidate === undefined) {
       blockCooperativeEffect(owner, "unresolved-call", call);
@@ -449,86 +476,6 @@ function classifyReturnDependencies(
     owner,
     expression,
   );
-}
-
-function classifyReturnedExpression(
-  source: TargetSourceProgram,
-  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
-  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
-  interfaces: DeclaredInterfaceDispatch,
-  valueFlow: CallableValueFlow,
-  returnFlow: ReturnValueFlow,
-  conditionalSettlements: (dependencies: Iterable<Node>) =>
-    ReadonlySet<Node> | undefined,
-  owner: CooperativeEffectCandidate,
-  expression: Node,
-): void {
-  const returnedCall = exactReturnedCall(source, expression);
-  const dependency = returnedCall === undefined
-    ? undefined
-    : calls.get(returnedCall);
-  if (returnedCall !== undefined && dependency !== undefined) {
-    connectCooperativeEffectDependency(
-      owner,
-      dependency,
-      "return",
-      returnedCall,
-    );
-    return;
-  }
-  const family = returnedCall === undefined
-    ? undefined
-    : interfaces.calls.get(returnedCall);
-  if (returnedCall !== undefined && family !== undefined) {
-    interfaces.addDependencies(owner, family, "return", returnedCall);
-    return;
-  }
-  if (returnedCall !== undefined) {
-    const resolution = valueFlow.resolutionFor(returnedCall);
-    if (resolution !== undefined && resolution.closed) {
-      for (const declaration of resolution.dependencyNodes()) {
-        const candidate = candidates.get(declaration);
-        if (candidate === undefined) {
-          blockCooperativeEffect(owner, "unresolved-call", returnedCall);
-          return;
-        }
-        connectCooperativeEffectDependency(
-          owner,
-          candidate,
-          "return",
-          returnedCall,
-        );
-      }
-      if (
-        resolution.synchronousDeclarationCount === 0 ||
-        returnFlow.callResultIsDefinitelyNonThenable(
-          returnedCall,
-          resolution.synchronousDeclarationNodes(),
-          conditionalSettlements(resolution.dependencyNodes()),
-        )
-      ) {
-        return;
-      }
-    }
-  }
-  const returned = returnFlow.resolutionFor(expression);
-  if (!returned.closed) {
-    blockCooperativeEffect(owner, "promise-producing-return", expression);
-    return;
-  }
-  for (const declaration of returned.dependencyNodes()) {
-    const dependency = candidates.get(declaration);
-    if (dependency === undefined) {
-      blockCooperativeEffect(owner, "promise-producing-return", expression);
-      return;
-    }
-    connectCooperativeEffectDependency(
-      owner,
-      dependency,
-      "return",
-      expression,
-    );
-  }
 }
 
 function indexCandidateSymbols(

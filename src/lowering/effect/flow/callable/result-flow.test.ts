@@ -219,6 +219,11 @@ export const result = await selected!(0);
     fixture.source,
     fixture.sourceFile,
   );
+  const originalAwaits = countNodes(
+    fixture.source,
+    fixture.sourceFile,
+    fixture.source.ast.is.IsAwaitExpression,
+  );
   const originalAwaitableReferences = countNamedTypeReferences(
     fixture.source,
     fixture.sourceFile,
@@ -228,6 +233,8 @@ export const result = await selected!(0);
   const result = lowerCooperativeEffects(fixture.sourceFile, plan);
   plan.finish();
 
+  assert.equal(result.callableCount, 0);
+  assert.equal(result.awaitCount, 0);
   assert.equal(
     countAsyncCallables(fixture.source, result.sourceFile),
     originalAsyncCallables,
@@ -235,6 +242,14 @@ export const result = await selected!(0);
   assert.equal(
     countNamedTypeReferences(fixture.source, result.sourceFile, "Awaitable"),
     originalAwaitableReferences,
+  );
+  assert.equal(
+    countNodes(
+      fixture.source,
+      result.sourceFile,
+      fixture.source.ast.is.IsAwaitExpression,
+    ),
+    originalAwaits,
   );
 });
 
@@ -268,13 +283,36 @@ export const result = await selected();
     fixture.sourceFile,
     "Awaitable",
   );
+  const originalAsyncCallables = countAsyncCallables(
+    fixture.source,
+    fixture.sourceFile,
+  );
+  const originalAwaits = countNodes(
+    fixture.source,
+    fixture.sourceFile,
+    fixture.source.ast.is.IsAwaitExpression,
+  );
   const plan = createFixtureEffectPlan(fixture.source);
   const result = lowerCooperativeEffects(fixture.sourceFile, plan);
   plan.finish();
 
+  assert.equal(result.callableCount, 0);
+  assert.equal(result.awaitCount, 0);
   assert.equal(
     countNamedTypeReferences(fixture.source, result.sourceFile, "Awaitable"),
     originalAwaitableReferences,
+  );
+  assert.equal(
+    countAsyncCallables(fixture.source, result.sourceFile),
+    originalAsyncCallables,
+  );
+  assert.equal(
+    countNodes(
+      fixture.source,
+      result.sourceFile,
+      fixture.source.ast.is.IsAwaitExpression,
+    ),
+    originalAwaits,
   );
 });
 

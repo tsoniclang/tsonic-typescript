@@ -472,14 +472,26 @@ reads an awaitable callable through an unresolved generic carrier before
 assigning it to a local callable contract; the other returns an awaitable
 callable through a generic identity result. In both cases runtime origins may
 be exact, but the carrier's checked static type remains awaitable, so every
-dependent annotation must remain unchanged. Paired positive fixtures use a
-direct synchronous value and an exact producer contract that settles in the
-same plan. Mutations that ignore source-contract requirements, accept a
-missing dependency target, or compute a one-pass rather than cyclic fixed
-point must either fail AST inspection or strict output typechecking.
+dependent annotation, async modifier, and await must remain unchanged. Paired
+positive fixtures use a direct synchronous value and an exact producer
+contract that settles in the same plan. Mutations that ignore source-contract
+requirements, accept a missing dependency target, or compute a one-pass rather
+than cyclic fixed point must either fail AST inspection or strict output
+typechecking. The concrete generic-kernel fixture additionally returns
+`copy<T>(value): T` from a callable narrowed to `T`. It settles only when the
+checker-selected call result exactly matches that direct return and complete
+result provenance is non-thenable. Changing either type edge or introducing
+one suspending origin must retain the whole callable. A reverse-atomicity
+mutation that retains an awaitable call contract while removing its await must
+fail the focused AST count and strict output typecheck.
 Fixed-slot callable projection fixtures cover a direct tuple literal, an
 awaited tuple-producing call, conditional and checked-call forwarding, and two
-different callable slots where only the selected slot can settle. The paired
+different callable slots where only the selected slot can settle. A local-alias
+fixture proves that the invoked alias consumes its exact projected input,
+rewrites every return contract on that path, and leaves zero authored
+`Awaitable` references. A mutation that registers the selected signature with
+no projected sources must fail the authored-type count even if async and await
+counts happen to reach zero. The paired
 mutations expose the aggregate, write one element, use a dynamic index, replace
 one direct return with a spread slot, or leave one producer contract
 unrewritten; each must retain the complete affected callable component. The

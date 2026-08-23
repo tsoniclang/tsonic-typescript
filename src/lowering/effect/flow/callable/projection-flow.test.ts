@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { IsAwaitExpression } from "@tsonic/tsts/target-ast";
+import {
+  AsTypeReferenceNode,
+  IsAwaitExpression,
+} from "@tsonic/tsts/target-ast";
 
 import {
   checkedEffectFixture,
@@ -37,6 +40,7 @@ export const result = await invoke();
     countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
     0,
   );
+  assert.equal(countAwaitableReferences(fixture, result.sourceFile), 0);
 });
 
 test("settles a tuple callable through conditional checked forwarders", () => {
@@ -65,7 +69,19 @@ export const result = await invoke();
     countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
     0,
   );
+  assert.equal(countAwaitableReferences(fixture, result.sourceFile), 0);
 });
+
+function countAwaitableReferences(
+  fixture: ReturnType<typeof checkedEffectFixture>,
+  root: Parameters<typeof countNodes>[1],
+): number {
+  return countNodes(fixture.source, root, (node) => {
+    const reference = AsTypeReferenceNode(node);
+    return reference !== undefined &&
+      fixture.source.ast.text(reference.TypeName) === "Awaitable";
+  });
+}
 
 test("settles an awaited tuple producer and its selected callable", () => {
   const fixture = checkedEffectFixture(`

@@ -6,6 +6,8 @@ import type {
 
 import {
   callableDeclarationSynchronousReturnTypes,
+  callableReturnRewrite,
+  callableReturnRewriteAdmitsDirectValue,
 } from "../../../model/callable-contract.js";
 import {
   referenceHasExactSemantics,
@@ -25,6 +27,39 @@ export interface CallableContractSourceRequirement {
   readonly resolvable: boolean;
   readonly candidateDependencies: readonly Node[];
   readonly contractDependencies: readonly Node[];
+}
+
+export interface CallableCallContractRequirement {
+  readonly resolvable: boolean;
+  readonly contractDependencies: readonly Node[];
+}
+
+export function callableCallContractRequirement(
+  source: TargetSourceProgram,
+  call: Node,
+): CallableCallContractRequirement {
+  const semantics = source.semantics.forNode(call);
+  const result = semantics.types.expressionType(call);
+  if (result !== undefined && !typeMaySuspend(semantics, result)) {
+    return resolvedCallRequirement;
+  }
+  const signature = semantics.operations.call(call)?.selectedSignature;
+  const declaration = signature === undefined
+    ? undefined
+    : semantics.declarations.signatureDeclaration(signature);
+  const returnType = declaration === undefined
+    ? undefined
+    : source.ast.typeNode(declaration);
+  const rewrite = returnType === undefined
+    ? undefined
+    : callableReturnRewrite(source, returnType);
+  return rewrite !== undefined &&
+      callableReturnRewriteAdmitsDirectValue(source, rewrite)
+    ? Object.freeze({
+        resolvable: true,
+        contractDependencies: Object.freeze([rewrite.target]),
+      })
+    : unresolvedCallRequirement;
 }
 
 export function callableContractSourceRequirement(
@@ -195,5 +230,13 @@ const resolvedRequirement: CallableContractSourceRequirement = Object.freeze({
 const unresolvedRequirement: CallableContractSourceRequirement = Object.freeze({
   resolvable: false,
   candidateDependencies: emptyNodes,
+  contractDependencies: emptyNodes,
+});
+const resolvedCallRequirement: CallableCallContractRequirement = Object.freeze({
+  resolvable: true,
+  contractDependencies: emptyNodes,
+});
+const unresolvedCallRequirement: CallableCallContractRequirement = Object.freeze({
+  resolvable: false,
   contractDependencies: emptyNodes,
 });

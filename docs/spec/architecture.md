@@ -591,6 +591,26 @@ so a closed cycle may settle but one unrewritten source contract retains every
 dependent rewrite. The finalized query carries only candidate and type-node
 dependencies; source expressions and checker state end with construction.
 
+Consumer settlement is the reverse half of the same transaction. Removing an
+await or narrowing its enclosing callable requires the exact selected call
+contract to settle with the producer contract. Exact runtime origins alone may
+not erase an authored `Awaitable<T>` result, because the resulting expression
+would still have an awaitable checked type. The sole direct-result exception is
+a returned generic expression whose checked result type is exactly the
+enclosing callable's selected direct return type and whose complete runtime
+provenance proves non-thenable under that same settlement set. This admits a
+closed `copy<T>(value: T): T` instantiated only at `number`, without pretending
+that the generic declaration itself changed. Every other unresolved call
+contract retains the await, caller, and connected contract family together.
+An indirect call selected from an exact aggregate projection enters that
+transaction only through the projection owner's closed result evidence. The
+callable owner registers every return-contract rewrite on the selected path
+and every exact source expression as one unit. A local alias is followed only
+through the closed input graph; an absent projected input, an open projection
+consumer, or one mismatched selected return target retains the complete
+contract and its await. No empty-source registration may manufacture a
+settled projected contract from the selected signature alone.
+
 Every cyclic effect-flow problem uses one finite provenance algebra. A semantic
 owner creates exact node-identity vertices, typed dependency edges carrying the
 authored occurrence that established each edge, explicit origins, and explicit
