@@ -430,6 +430,10 @@ An exact structural-call fixture must require its provisionally discovered
 call-to-implementation facts in the final interface graph: removing the
 monotonic seed loses the positive closure, while replacing one implementation
 with an ambient, open-dispatch, or duplicate origin fails post-validation.
+The fixture must include at least two indirect result hops after the interface
+call. A single discovery pass cannot certify the contracting upper bound; the
+permissive relation must first saturate, and restoring the one-pass bound must
+fail at the monotonicity gate.
 The same gate requires source-file-keyed relevance caches and rejects the
 single-current-file cache that recomputes identical type closures across
 kind-major passes. A recursive shared-tail fixture exact-checks positive and

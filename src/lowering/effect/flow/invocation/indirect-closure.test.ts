@@ -172,6 +172,46 @@ export const result = await top();
   );
 });
 
+test("saturates nested interface-returned callables before contraction", () => {
+  const fixture = checkedEffectFixture(`
+type Awaitable<T> = T | PromiseLike<T>;
+type Callback = () => Awaitable<number>;
+type CallbackFactory = () => Awaitable<Callback>;
+interface Factory { Create(): Awaitable<CallbackFactory>; }
+class ProjectFactory implements Factory {
+  async Create(): Promise<CallbackFactory> {
+    return async (): Promise<Callback> => {
+      return async (): Promise<number> => 42;
+    };
+  }
+}
+async function select(factory: Factory): Promise<number> {
+  const factoryCallback = await factory.Create();
+  const callback = await factoryCallback();
+  return await callback();
+}
+export const result = await select(new ProjectFactory());
+`);
+  const phases: string[] = [];
+
+  const plan = createFixtureEffectPlan(
+    fixture.source,
+    "declared-closed",
+    (phase) => phases.push(phase),
+  );
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+  assert.ok(
+    phases.filter((phase) => phase === "effect-indirect-round").length >= 3,
+  );
+});
+
 test("retains a nested indirect chain with one open callable origin", () => {
   const fixture = checkedEffectFixture(`
 type Callback = () => number | PromiseLike<number>;

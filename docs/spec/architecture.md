@@ -1031,10 +1031,12 @@ Its call-result and value-slot owners therefore inspect a preliminary indirect
 implementation exactly as they inspect a direct implementation. The final
 indirect closure recomputes a finite exact upper bound on the same immutable
 projection-root domain, seeded by admitted interface call and declaration
-implementations, then monotonically contracts calls and references until every
-remaining fact is reproduced by the complete input and transport set. It does
-not restart from an empty relation or reconstruct the source-sized candidate
-census. This closes
+implementations. It saturates that permissive bound through nested indirect
+results before treating it as a bound, then monotonically contracts calls and
+references until every remaining fact is reproduced by the complete input and
+transport set. A one-pass candidate set is not an upper bound. The contracting
+transaction does not restart from an empty relation or reconstruct the source-
+sized candidate census. This closes
 callbacks returned by an interface call without a spelling join. Extracted
 interface method values remain open unless a separate exact receiver-binding
 fact owns their method-value semantics. Every later callable, return, storage,

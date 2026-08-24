@@ -55,6 +55,14 @@ interface ExactIndirectInvocationDomain {
   readonly cooperativeEffects: TypeScriptActiveCooperativeEffectProfile;
 }
 
+type ExactIndirectInvocationSettlementDirection = "expanding" | "contracting";
+type CallableReferenceAdmission = "derived" | "universal";
+
+interface SettledExactIndirectInvocationRound {
+  readonly round: ExactIndirectInvocationRound;
+  readonly invocationInputs: ExactInvocationInputIndex;
+}
+
 function emptyRound(): ExactIndirectInvocationRound {
   return Object.freeze({
     invocations: Object.freeze([]),
@@ -151,8 +159,31 @@ function settleExactIndirectInvocationAnalysis(
   initialCallImplementations: ExactCallImplementations | undefined,
   planningObserver: TypeScriptPlanningObserver | undefined,
   seed: ExactIndirectInvocationRound,
-  direction: "expanding" | "contracting" = "expanding",
+  direction: ExactIndirectInvocationSettlementDirection = "expanding",
 ): ExactIndirectInvocationAnalysis {
+  const settled = settleExactIndirectInvocationRound(
+    domain,
+    direct,
+    transports,
+    initialCallImplementations,
+    planningObserver,
+    seed,
+    direction,
+    "derived",
+  );
+  return createAnalysis(domain, settled.round, settled.invocationInputs);
+}
+
+function settleExactIndirectInvocationRound(
+  domain: ExactIndirectInvocationDomain,
+  direct: ExactInvocationInputIndex,
+  transports: InvocationTransportContract | undefined,
+  initialCallImplementations: ExactCallImplementations | undefined,
+  planningObserver: TypeScriptPlanningObserver | undefined,
+  seed: ExactIndirectInvocationRound,
+  direction: ExactIndirectInvocationSettlementDirection,
+  referenceAdmission: CallableReferenceAdmission,
+): SettledExactIndirectInvocationRound {
   const { source, program, projections, objectProjections } = domain;
   let invocationInputs = extendInputs(
     source,
@@ -175,7 +206,9 @@ function settleExactIndirectInvocationAnalysis(
         initialCallImplementations,
         implementationsFor(previous.invocations),
       ),
-      (reference) => previous.callableReferences.has(reference),
+      referenceAdmission === "universal"
+        ? () => true
+        : (reference) => previous.callableReferences.has(reference),
       domain.projectionCandidates,
       planningObserver,
       domain.callableFields,
@@ -189,7 +222,7 @@ function settleExactIndirectInvocationAnalysis(
       references: current.callableReferences.size,
     });
     if (sameRound(previous, current)) {
-      return createAnalysis(domain, current, invocationInputs);
+      return Object.freeze({ round: current, invocationInputs });
     }
     const monotonic = direction === "expanding"
       ? roundRefines(previous, current)
@@ -274,30 +307,23 @@ function createAnalysis(
       callImplementations: ExactCallImplementations | undefined,
       planningObserver?: TypeScriptPlanningObserver,
     ): ExactIndirectInvocationAnalysis {
-      const upperBound = collectExactIndirectInvocationRound(
-        domain.source,
-        domain.program,
+      const saturatedUpperBound = settleExactIndirectInvocationRound(
+        domain,
         refinedInputs,
-        domain.projections,
-        domain.objectProjections,
         transports,
         callImplementations,
-        () => true,
-        domain.projectionCandidates,
         planningObserver,
-        domain.callableFields,
-        domain.storageOwners,
-        domain.boundaryDependencies,
-        domain.bodyInspectionIsCertified,
-        domain.cooperativeEffects,
-      );
+        emptyRound(),
+        "expanding",
+        "universal",
+      ).round;
       return settleExactIndirectInvocationAnalysis(
         domain,
         refinedInputs,
         transports,
         callImplementations,
         planningObserver,
-        upperBound,
+        saturatedUpperBound,
         "contracting",
       );
     },
