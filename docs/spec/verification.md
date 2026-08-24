@@ -643,6 +643,19 @@ The value-slot materializer must consume the persistent origin index and never
 the resolver's flattened `originEvidence`. A same-authored-occurrence fixture
 places two distinct value-slot origin vertices behind one root and requires
 both exact vertices; occurrence-only deduplication must fail.
+An adversarial value-slot fixture contributes 300 independently consumed
+interface origins, crossing the canonical 256-root transaction boundary. It
+requires every callable and await to settle and observes at least two graph
+transactions. Omitting or retaining a later batch, changing the bound without
+updating authority, sharing mutable builder/SCC state across batches, or
+publishing a partial resolution must fail. A duplicate-expression fixture
+feeds independently materialized evidence through the batch merger: identical
+closure, origin, contract, invocation, and path evidence is accepted without
+replacement, while one changed origin must stop planning with a conflict.
+Unioning inconsistent evidence is forbidden. The whole-product phase ledger
+reports the batch count and aggregate graph denominator, while the guarded
+memory limit proves that no
+single value-slot graph grows with the complete root universe.
 One provider fixture transports an exact tuple argument as its result and then
 invokes the callable selected from one fixed slot. The callable must settle
 through the canonical result-projection graph. A structural mutation that

@@ -649,10 +649,10 @@ the target never queries foreign nodes through project-source semantics.
 Every cyclic effect-flow problem uses one finite provenance algebra. A semantic
 owner creates exact node-identity vertices, typed dependency edges carrying the
 authored occurrence that established each edge, explicit origins, and explicit
-closed boundary reasons. The graph builder is mutable only during that owner's
-single construction transaction. Sealing copies and freezes its compact
-ledgers and permanently rejects another seal or mutation. Consumers cannot
-reach builder storage.
+closed boundary reasons. A graph builder is mutable only during one bounded
+construction transaction. Sealing copies and freezes its compact ledgers and
+permanently rejects another seal or mutation. Consumers cannot reach builder
+storage.
 
 Resolution condenses strongly connected components once, then propagates
 origins and boundaries over the acyclic component graph. A value is closed only
@@ -667,6 +667,19 @@ Callable, return, result-consumer, selected-value-slot, and blocker flows share
 this algebra but remain separate semantic graphs with separate owners and
 reason catalogs; there is no universal effect IR and no flow may read another
 flow's mutable construction state.
+
+Selected-value-slot analysis canonicalizes its exact requested roots and
+partitions them into deterministic transactions of at most 256 roots. Binding,
+storage, projection, and structural-write indexes are immutable domain facts
+built once; each root transaction owns a fresh graph, worklist, SCC resolution,
+and origin materialization, then releases all graph state before the next
+transaction. Final identity-keyed resolutions are merged only after each graph
+is sealed. When an alias causes one expression to be materialized by two
+transactions, both resolutions must agree exactly on closure, origins,
+contracts, invocations, and selector paths or planning fails closed. Batch
+placement therefore cannot change a semantic result. A monolithic value-slot
+graph, per-batch rebuilding of shared semantic indexes, heuristic root pruning,
+or a larger heap in place of bounded construction is forbidden.
 
 Condensation stores graph adjacency and vertex-to-component identity in compact
 typed arrays. Component dependencies and direct evidence are sparse: a

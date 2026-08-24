@@ -89,6 +89,7 @@ export const typeScriptPlanningPhases = Object.freeze([
 export type TypeScriptPlanningPhase = typeof typeScriptPlanningPhases[number];
 
 export const typeScriptPlanningMeasurementNames = Object.freeze([
+  "batches",
   "boundaries",
   "calls",
   "candidates",

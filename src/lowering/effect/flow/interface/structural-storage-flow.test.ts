@@ -12,6 +12,7 @@ import {
 } from "../../test-support/fixture.test-support.js";
 import { lowerCooperativeEffects } from "../../rewrite/transform.js";
 import { createExactStructuralSlotWriteIndex } from "../value/slot/structural-writes.js";
+import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 
 const generatedStorageFixture = `
 type Awaitable<T> = T | PromiseLike<T>;
@@ -213,9 +214,59 @@ export const result = values;
   assert.equal(queries, 0);
 });
 
-function rewriteFixture(sourceText: string) {
+test("resolves value-slot roots in more than one bounded transaction", () => {
+  const declarations = Array.from(
+    { length: 300 },
+    (_, index) => `
+async function use${index}(worker: Worker): Promise<number> {
+  return await worker.Work();
+}`,
+  ).join("\n");
+  const calls = Array.from(
+    { length: 300 },
+    (_, index) => `await use${index}(new SyncWorker())`,
+  ).join(",\n");
+  const source = `
+type Awaitable<T> = T | PromiseLike<T>;
+
+interface Worker {
+  Work(): Awaitable<number>;
+}
+
+class SyncWorker {
+  async Work(): Promise<number> {
+    return 1;
+  }
+}
+
+${declarations}
+
+export const result = [${calls}];
+`;
+  const batches: number[] = [];
+  const rewritten = rewriteFixture(source, (phase, measurements) => {
+    if (
+      phase === "effect-value-slot-roots" &&
+      measurements?.batches !== undefined
+    ) {
+      batches.push(measurements.batches);
+    }
+  });
+
+  assert.equal(rewritten.asyncCount, 0);
+  assert.ok(Math.max(...batches) >= 2);
+});
+
+function rewriteFixture(
+  sourceText: string,
+  planningObserver?: TypeScriptPlanningObserver,
+) {
   const fixture = checkedEffectFixture(sourceText);
-  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const plan = createFixtureEffectPlan(
+    fixture.source,
+    "declared-closed",
+    planningObserver,
+  );
   const rewritten = fixture.source.navigation.sourceFiles.map((sourceFile) =>
     lowerCooperativeEffects(sourceFile, plan)
   );

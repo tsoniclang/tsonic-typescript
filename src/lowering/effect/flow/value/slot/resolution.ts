@@ -10,6 +10,7 @@ import type {
   ExactValueSlotResolution,
   ExactValueSlotStep,
 } from "./model.js";
+import { exactValueSlotPathKey } from "./selectors.js";
 
 const openValueSlotResolution: ExactValueSlotResolution = Object.freeze({
   closed: false,
@@ -57,4 +58,72 @@ export function materializeExactValueSlotResolutions<Reason extends string>(
     }));
   }
   return result;
+}
+
+export function mergeExactValueSlotResolutions(
+  target: Map<Node, ExactValueSlotResolution>,
+  selected: ReadonlyMap<Node, ExactValueSlotResolution>,
+): void {
+  for (const [expression, resolution] of selected) {
+    const existing = target.get(expression);
+    if (existing === undefined) {
+      target.set(expression, resolution);
+    } else if (!sameResolution(existing, resolution)) {
+      throw new Error("value-slot batches produced conflicting exact evidence");
+    }
+  }
+}
+
+function sameResolution(
+  left: ExactValueSlotResolution,
+  right: ExactValueSlotResolution,
+): boolean {
+  return left.closed === right.closed && (
+    !left.closed ||
+    (
+      sameNodeSet(left.expressions, right.expressions) &&
+      sameStepSet(left.steps, right.steps)
+    )
+  );
+}
+
+function sameNodeSet(left: readonly Node[], right: readonly Node[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const selected = new Set(left);
+  return right.every((node) => selected.has(node));
+}
+
+function sameStepSet(
+  left: readonly ExactValueSlotStep[],
+  right: readonly ExactValueSlotStep[],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const matched = new Uint8Array(right.length);
+  for (const step of left) {
+    const index = right.findIndex((candidate, candidateIndex) =>
+      matched[candidateIndex] === 0 && sameStep(step, candidate)
+    );
+    if (index < 0) {
+      return false;
+    }
+    matched[index] = 1;
+  }
+  return true;
+}
+
+function sameStep(
+  left: ExactValueSlotStep,
+  right: ExactValueSlotStep,
+): boolean {
+  return left.resultOwner === right.resultOwner &&
+    left.invocation === right.invocation &&
+    exactValueSlotPathKey(left.path) === exactValueSlotPathKey(right.path) &&
+    left.contracts.length === right.contracts.length &&
+    left.contracts.every((contract, index) =>
+      contract === right.contracts[index]
+    );
 }
