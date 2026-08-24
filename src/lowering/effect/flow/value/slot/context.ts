@@ -38,4 +38,5 @@ export interface ValueSlotContext {
   readonly active: ValueSlotActiveStates;
   readonly storageSlots: ExactStorageSlotInputIndex;
   readonly structuralWrites: ExactStructuralSlotWriteIndex;
+  boundaryFound: boolean;
 }

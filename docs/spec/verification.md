@@ -644,8 +644,8 @@ the resolver's flattened `originEvidence`. A same-authored-occurrence fixture
 places two distinct value-slot origin vertices behind one root and requires
 both exact vertices; occurrence-only deduplication must fail.
 An adversarial value-slot fixture contributes 300 independently consumed
-interface origins, crossing the canonical 16-root transaction boundary. It
-requires every callable and await to settle and observes at least two graph
+interface origins, crossing the canonical one-root transaction boundary. It
+requires every callable and await to settle and observes 300 graph
 transactions. Omitting or retaining a later batch, changing the bound without
 updating authority, sharing mutable builder/SCC state across batches, or
 publishing a partial resolution must fail. A duplicate-expression fixture

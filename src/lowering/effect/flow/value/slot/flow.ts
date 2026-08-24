@@ -38,7 +38,7 @@ import { mergeExactValueSlotResolutions } from "./resolution.js";
 import type { ExactCallImplementations } from "../../callable/result-inputs.js";
 import type { StorageOwnerBoundaryDependencies } from "../../storage/owner-boundaries.js";
 
-export const maximumExactValueSlotRootsPerBatch = 16;
+export const maximumExactValueSlotRootsPerBatch = 1;
 
 export function createExactValueSlotFlow(
   source: TargetSourceProgram,

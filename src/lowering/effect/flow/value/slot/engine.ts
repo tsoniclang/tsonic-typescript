@@ -47,6 +47,10 @@ export function stateForExpression(
 
 export function drainValueSlotWorklist(context: ValueSlotContext): void {
   for (;;) {
+    if (context.boundaryFound) {
+      context.worklist.length = 0;
+      return;
+    }
     const item = context.worklist.pop();
     if (item === undefined) {
       return;
@@ -522,6 +526,7 @@ function boundary(
   reason: ValueSlotBoundaryReason = "open-slot",
 ): void {
   context.builder.addBoundary(state.vertex, reason, occurrence);
+  context.boundaryFound = true;
 }
 
 function assertSameValues(

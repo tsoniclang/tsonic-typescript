@@ -254,7 +254,7 @@ export const result = [${calls}];
   });
 
   assert.equal(rewritten.asyncCount, 0);
-  assert.ok(Math.max(...batches) >= 2);
+  assert.ok(Math.max(...batches) >= 300);
 });
 
 function rewriteFixture(

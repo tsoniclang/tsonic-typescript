@@ -670,7 +670,9 @@ flow's mutable construction state.
 
 Selected-value-slot analysis canonicalizes and selects its exact requested
 roots before graph construction, then partitions only selected roots into
-deterministic transactions of at most 16 roots. Binding,
+one-root deterministic transactions. A root transaction stops at its first
+reachable boundary because that single witness makes closure impossible;
+unvisited alternatives cannot reverse an open decision. Binding,
 storage, projection, and structural-write indexes are immutable domain facts
 built once; each root transaction owns a fresh graph, worklist, SCC resolution,
 and origin materialization, then releases all graph state before the next
@@ -678,7 +680,8 @@ transaction. Final identity-keyed resolutions are merged only after each graph
 is sealed. When an alias causes one expression to be materialized by two
 transactions, both resolutions must agree exactly on closure, origins,
 contracts, invocations, and selector paths or planning fails closed. Batch
-placement therefore cannot change a semantic result. A monolithic value-slot
+placement therefore cannot change a semantic result. A multi-root or
+monolithic value-slot
 graph, per-batch rebuilding of shared semantic indexes, heuristic root pruning,
 or a larger heap in place of bounded construction is forbidden.
 

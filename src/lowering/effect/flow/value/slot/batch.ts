@@ -62,6 +62,12 @@ export interface ExactValueSlotBatchResult {
   readonly resolutions: ReadonlyMap<Node, ExactValueSlotResolution>;
 }
 
+const openValueSlotResolution: ExactValueSlotResolution = Object.freeze({
+  closed: false,
+  expressions: Object.freeze([]),
+  steps: Object.freeze([]),
+});
+
 export type ExactValueSlotRoot =
   | {
       readonly kind: "expression";
@@ -100,6 +106,9 @@ export function resolveExactValueSlotBatch(
   domain: ExactValueSlotBatchDomain,
   selectedRoots: readonly ExactValueSlotRoot[],
 ): ExactValueSlotBatchResult {
+  if (selectedRoots.length > 1) {
+    throw new Error("value-slot graph transaction received more than one root");
+  }
   const builder = createEffectProvenanceGraphBuilder<ValueSlotBoundaryReason>();
   const active = createValueSlotActiveStates();
   const context: ValueSlotContext = {
@@ -117,12 +126,21 @@ export function resolveExactValueSlotBatch(
     active,
     storageSlots: domain.storageSlots,
     structuralWrites: domain.structuralWrites,
+    boundaryFound: false,
   };
   const roots = new Map<Node, EffectProvenanceVertex>();
   for (const selected of selectedRoots) {
     addRoot(selected, roots, context);
   }
   const graph = context.builder.seal();
+  if (context.boundaryFound) {
+    return Object.freeze({
+      measurements: graphMeasurements(graph, 0, roots.size),
+      resolutions: new Map(
+        [...roots.keys()].map((root) => [root, openValueSlotResolution]),
+      ),
+    });
+  }
   const componentResolutions = resolveEffectProvenance(graph);
   const resolutions = materializeExactValueSlotResolutions(
     graph,
@@ -132,15 +150,27 @@ export function resolveExactValueSlotBatch(
     context.steps,
   );
   return Object.freeze({
-    measurements: Object.freeze({
-      boundaries: graph.boundaries.length,
-      components: componentResolutions.componentCount,
-      edges: graph.edges.length,
-      origins: graph.origins.length,
-      roots: roots.size,
-      vertices: graph.vertices.length,
-    }),
+    measurements: graphMeasurements(
+      graph,
+      componentResolutions.componentCount,
+      roots.size,
+    ),
     resolutions,
+  });
+}
+
+function graphMeasurements(
+  graph: ReturnType<ValueSlotContext["builder"]["seal"]>,
+  components: number,
+  roots: number,
+): ExactValueSlotBatchMeasurements {
+  return Object.freeze({
+    boundaries: graph.boundaries.length,
+    components,
+    edges: graph.edges.length,
+    origins: graph.origins.length,
+    roots,
+    vertices: graph.vertices.length,
   });
 }
 
