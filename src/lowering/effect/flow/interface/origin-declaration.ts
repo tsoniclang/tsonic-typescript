@@ -1,5 +1,10 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../model/source-membership.js";
+import { sourceValueReference } from "../../model/exact-source-invocation.js";
 
 export function declarationMayReceiveCheckedValues(
   source: TargetSourceProgram,
@@ -12,10 +17,11 @@ export function declarationMayReceiveCheckedValues(
 export function originDeclarationIsClosed(
   source: TargetSourceProgram,
   declaration: Node | undefined,
+  certified?: ExactSourceBodyInspection,
 ): declaration is Node {
   if (
     declaration === undefined ||
-    !source.navigation.isProjectDeclaration(declaration)
+    !sourceBodyInspectionIsExact(source, declaration, certified)
   ) {
     return false;
   }
@@ -45,4 +51,26 @@ export function originDeclarationInitializer(
   return source.ast.is.IsParameterDeclaration(declaration)
     ? source.ast.as.AsParameterDeclaration(declaration)?.Initializer
     : undefined;
+}
+
+export function propertyValueIsReceiverIndependent(
+  source: TargetSourceProgram,
+  receiver: Node,
+  declaration: Node,
+): boolean {
+  if (source.ast.hasModifierKind(declaration, "static")) {
+    return true;
+  }
+  const reference = sourceValueReference(source, receiver);
+  if (
+    reference !== undefined &&
+    source.ast.is.IsNamespaceImport(reference.declaration)
+  ) {
+    return true;
+  }
+  const receiverModule = source.navigation.declarationFor(receiver);
+  const declarationFile = source.ast.getSourceFile(declaration);
+  return receiverModule !== undefined &&
+    source.ast.is.IsSourceFile(receiverModule) &&
+    declarationFile === receiverModule;
 }

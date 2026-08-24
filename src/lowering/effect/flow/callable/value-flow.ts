@@ -11,11 +11,15 @@ import {
   createGraphCallableValueFlow,
 } from "./provenance-flow.js";
 import type { CallableValueResolution } from "./value-resolution.js";
-import type { ExactCallImplementations } from "./result-inputs.js";
+import type {
+  ExactCallableBodyInspection,
+  ExactCallImplementations,
+} from "./result-inputs.js";
 import type { CallableFields } from "../storage/fields.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 
 export type { CallableValueResolution } from "./value-resolution.js";
 
@@ -28,6 +32,10 @@ export interface CallableValueFlow {
   resolutionForExpression(
     expression: Node | undefined,
   ): CallableValueResolution | undefined;
+  resolutionForDeclaration(
+    declaration: Node | undefined,
+  ): CallableValueResolution | undefined;
+  callReturnsCallableValue(call: Node): boolean;
   contractForCall(call: Node): CallableValueResolution | undefined;
   allowsCallableReference(node: Node): boolean;
   settledReturnTypes(
@@ -50,6 +58,8 @@ export function createCallableValueFlow(
   storageOwners?: ClosedStorageOwnerAnalysis,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
   planningObserver?: TypeScriptPlanningObserver,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): CallableValueFlow {
   return createGraphCallableValueFlow(
     source,
@@ -66,5 +76,7 @@ export function createCallableValueFlow(
     storageOwners,
     boundaryDependencies,
     planningObserver,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
 }

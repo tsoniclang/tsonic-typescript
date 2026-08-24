@@ -9,6 +9,8 @@ import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import { createResultConsumerGraph } from "./consumer/graph.js";
+import type { ExactCallableBodyInspection } from "../callable/result-inputs.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 
 export interface CooperativeResultConsumption {
   returnedCallHasClosedConsumers(call: Node): boolean;
@@ -34,6 +36,8 @@ export function createCooperativeResultConsumption(
   exactCallImplementations?: (call: Node) => readonly Node[] | undefined,
   transports?: InvocationTransportContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): CooperativeResultConsumption {
   const graph = createResultConsumerGraph(
     source,
@@ -47,6 +51,8 @@ export function createCooperativeResultConsumption(
     exactCallImplementations,
     transports,
     callableReferenceIsClosed,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
   const evidence = Object.freeze({
     callEntries: program.nodesOfKind(KindCallExpression).length,

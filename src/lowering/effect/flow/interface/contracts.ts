@@ -7,7 +7,8 @@ import {
   callableReturnRewrite,
   type CallableReturnRewrite,
 } from "../../model/callable-contract.js";
-import { isExactInterfaceProjectDeclaration } from "./declarations.js";
+import { isExactInterfaceSourceDeclaration } from "./declarations.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
 
 export interface InterfaceEffectContract {
   readonly declaration: Node;
@@ -18,6 +19,7 @@ export interface InterfaceEffectContract {
 export function collectInterfaceEffectContracts(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): readonly InterfaceEffectContract[] {
   const contracts: InterfaceEffectContract[] = [];
   for (const declaration of program.nodesOfKind(KindMethodSignature)) {
@@ -26,8 +28,16 @@ export function collectInterfaceEffectContracts(
     if (
       owner === undefined ||
       !source.ast.is.IsInterfaceDeclaration(owner) ||
-      !isExactInterfaceProjectDeclaration(source, owner) ||
-      !isExactInterfaceProjectDeclaration(source, declaration) ||
+      !isExactInterfaceSourceDeclaration(
+        source,
+        owner,
+        bodyInspectionIsCertified,
+      ) ||
+      !isExactInterfaceSourceDeclaration(
+        source,
+        declaration,
+        bodyInspectionIsCertified,
+      ) ||
       typeNode === undefined
     ) {
       continue;

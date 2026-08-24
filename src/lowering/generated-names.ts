@@ -13,6 +13,7 @@ export interface GeneratedBindingName {
 
 export interface SourceFileGeneratedNames {
   readonly sourceFile: SourceFile;
+  reserveExact(preferred: string): GeneratedBindingName | undefined;
   reserve(preferred: string): GeneratedBindingName;
 }
 
@@ -52,10 +53,16 @@ function createSourceFileGeneratedNames(
   const generated = new Set<string>();
   return Object.freeze({
     sourceFile,
-    reserve(preferred: string): GeneratedBindingName {
-      if (preferred.length === 0) {
-        throw new Error("generated binding requires a non-empty preferred name");
+    reserveExact(preferred: string): GeneratedBindingName | undefined {
+      requirePreferredName(preferred);
+      if (hasAuthoredName(preferred) || generated.has(preferred)) {
+        return undefined;
       }
+      generated.add(preferred);
+      return generatedBindingName(preferred);
+    },
+    reserve(preferred: string): GeneratedBindingName {
+      requirePreferredName(preferred);
       if (!hasAuthoredName(preferred) && !generated.has(preferred)) {
         generated.add(preferred);
         return generatedBindingName(preferred);
@@ -69,6 +76,12 @@ function createSourceFileGeneratedNames(
       }
     },
   });
+}
+
+function requirePreferredName(preferred: string): void {
+  if (preferred.length === 0) {
+    throw new Error("generated binding requires a non-empty preferred name");
+  }
 }
 
 function generatedBindingName(text: string): GeneratedBindingName {

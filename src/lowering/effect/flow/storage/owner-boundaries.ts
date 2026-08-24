@@ -6,9 +6,16 @@ import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import { isTransparentParent } from "../callable/input-reference.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import {
+  resolveExactSourceInvocation,
+  sourceValueReference,
+} from "../../model/exact-source-invocation.js";
 import { isModuleForwardingReference } from "../../model/syntax.js";
 import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../model/source-membership.js";
 import {
   storageValueTypeIsClosed,
 } from "./owner-types.js";
@@ -94,6 +101,7 @@ export function auditStorageOwnerBoundaries(
   planningObserver?: TypeScriptPlanningObserver,
   topology?: StorageOwnerTopology,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): void {
   if (owners.size === 0) {
     return;
@@ -105,6 +113,7 @@ export function auditStorageOwnerBoundaries(
     program,
     owners,
     planningObserver,
+    bodyInspectionIsCertified,
   );
   if (!selectedTopology.covers(source, program, owners)) {
     throw new Error("storage-owner topology does not cover its selected owners");
@@ -122,6 +131,7 @@ export function auditStorageOwnerBoundaries(
     exactCallImplementations,
     callableReferenceIsClosed,
     boundaryDependencies,
+    bodyInspectionIsCertified,
   );
   planningObserver?.("effect-indirect-storage-ingress");
   auditInvocations(
@@ -133,6 +143,7 @@ export function auditStorageOwnerBoundaries(
     transports,
     exactCallImplementations,
     boundaryDependencies,
+    bodyInspectionIsCertified,
   );
   planningObserver?.("effect-indirect-storage-invocations");
   auditValueFlows(
@@ -163,24 +174,26 @@ function auditInvocations(
   transports: InvocationTransportContract | undefined,
   exactCallImplementations: ExactCallImplementations | undefined,
   boundaryDependencies: StorageOwnerBoundaryDependencies | undefined,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): void {
   for (const invocation of topology.invocations) {
     const { node, resultOwners } = invocation;
-    const projectInvocation = storageInvocationHasProjectImplementation(
+    const exactInvocation = storageInvocationHasExactImplementation(
       source,
       node,
       exactCallImplementations,
       boundaryDependencies,
+      bodyInspectionIsCertified,
     );
     const transport = transports?.transportFor(node);
-    if (!projectInvocation && transport === undefined) {
+    if (!exactInvocation && transport === undefined) {
       for (const owner of resultOwners) {
         if (!selectedOwners.has(owner)) {
           continue;
         }
         invalid.add(owner);
       }
-    } else if (!projectInvocation && transport !== undefined) {
+    } else if (!exactInvocation && transport !== undefined) {
       for (const owner of resultOwners) {
         if (!selectedOwners.has(owner)) {
           continue;
@@ -204,7 +217,7 @@ function auditInvocations(
           continue;
         }
         if (
-          !projectInvocation ||
+          !exactInvocation ||
           (!argument.contextualOwners.includes(owner) &&
             boundaryDependencies?.allowsContextualValue(argument.expression) !==
               true)
@@ -219,7 +232,7 @@ function auditInvocations(
         }
       }
     }
-    if (!projectInvocation && transport === undefined) {
+    if (!exactInvocation && transport === undefined) {
       for (const owner of invocation.receiverOwners) {
         if (selectedOwners.has(owner)) {
           invalid.add(owner);
@@ -379,26 +392,37 @@ function storageDestination(
   }
 }
 
-function declarationHasProjectBody(
+function declarationHasExactBody(
   source: TargetSourceProgram,
   declaration: Node | undefined,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): declaration is Node {
   return declaration !== undefined &&
-    source.navigation.isProjectDeclaration(declaration) &&
+    sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) &&
     !source.ast.hasModifierKind(declaration, "ambient") &&
     source.ast.body(declaration) !== undefined;
 }
 
-export function storageInvocationHasProjectImplementation(
+export function storageInvocationHasExactImplementation(
   source: TargetSourceProgram,
   invocation: Node,
   exactCallImplementations: ExactCallImplementations | undefined,
   boundaryDependencies: StorageOwnerBoundaryDependencies | undefined,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
   if (
-    declarationHasProjectBody(
+    declarationHasExactBody(
       source,
-      resolveProjectInvocation(source, invocation)?.implementation,
+      resolveExactSourceInvocation(
+        source,
+        invocation,
+        bodyInspectionIsCertified,
+      )?.implementation,
+      bodyInspectionIsCertified,
     )
   ) {
     return true;
@@ -413,7 +437,11 @@ export function storageInvocationHasProjectImplementation(
     implementations !== undefined &&
     implementations.length !== 0 &&
     implementations.every((implementation) =>
-      declarationHasProjectBody(source, implementation)
+      declarationHasExactBody(
+        source,
+        implementation,
+        bodyInspectionIsCertified,
+      )
     )
   ) {
     return true;
@@ -424,9 +452,13 @@ export function storageInvocationHasProjectImplementation(
   const expression = source.ast.as.AsNewExpression(invocation)?.Expression;
   const selected = expression === undefined
     ? undefined
-    : source.navigation.sourceReferenceFor(expression)?.declaration;
+    : sourceValueReference(source, expression)?.declaration;
   return selected !== undefined &&
-    source.navigation.isProjectDeclaration(selected) &&
+    sourceBodyInspectionIsExact(
+      source,
+      selected,
+      bodyInspectionIsCertified,
+    ) &&
     source.ast.is.IsClassDeclaration(selected) &&
     source.ast.members(selected).every((member) =>
       member === undefined ||

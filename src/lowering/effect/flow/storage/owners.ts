@@ -3,23 +3,37 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindClassDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import { isTransparentParent } from "../callable/input-reference.js";
 import { isModuleForwardingReference } from "../../model/syntax.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../model/source-membership.js";
 
 export function collectClosedStorageOwners(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+  exactCallImplementations?: ExactCallImplementations,
 ): ReadonlySet<Node> {
   const owners = new Set<Node>();
   for (const declaration of program.nodesOfKind(KindClassDeclaration)) {
-    if (classCanOwnStorage(source, declaration)) {
+    if (classCanOwnStorage(source, declaration, bodyInspectionIsCertified)) {
       owners.add(declaration);
     }
   }
   for (const owner of [...owners]) {
     for (const reference of source.navigation.referencesToDeclaration(owner)) {
-      auditClassReference(source, reference, owner, owners);
+      auditClassReference(
+        source,
+        reference,
+        owner,
+        owners,
+        bodyInspectionIsCertified,
+        exactCallImplementations,
+      );
     }
   }
   return owners;
@@ -28,8 +42,13 @@ export function collectClosedStorageOwners(
 export function classCanOwnStorage(
   source: TargetSourceProgram,
   declaration: Node,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
-  return source.navigation.isProjectDeclaration(declaration) &&
+  return sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) &&
     source.ast.is.IsClassDeclaration(declaration) &&
     source.ast.extendsHeritageElements(declaration).length === 0 &&
     !source.ast.hasModifierKind(declaration, "abstract") &&
@@ -42,14 +61,27 @@ function auditClassReference(
   reference: Node,
   owner: Node,
   owners: Set<Node>,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
+  exactCallImplementations: ExactCallImplementations | undefined,
 ): void {
   if (
     !owners.has(owner) ||
     reference === source.ast.name(owner) ||
     isTypeOnlyReference(source, reference) ||
     isModuleForwardingReference(source, reference) ||
-    isExactConstruction(source, reference, owner) ||
-    isExactStaticMember(source, reference, owner)
+    isExactConstruction(
+      source,
+      reference,
+      owner,
+      bodyInspectionIsCertified,
+      exactCallImplementations,
+    ) ||
+    isExactStaticMember(
+      source,
+      reference,
+      owner,
+      bodyInspectionIsCertified,
+    )
   ) {
     return;
   }
@@ -60,6 +92,8 @@ function isExactConstruction(
   source: TargetSourceProgram,
   reference: Node,
   owner: Node,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
+  exactCallImplementations: ExactCallImplementations | undefined,
 ): boolean {
   let current = reference;
   for (;;) {
@@ -80,13 +114,24 @@ function isExactConstruction(
     ) {
       return false;
     }
-    const constructor = resolveProjectInvocation(source, parent)?.implementation;
-    if (constructor === undefined) {
+    const direct = resolveExactSourceInvocation(
+      source,
+      parent,
+      bodyInspectionIsCertified,
+    )?.implementation;
+    const constructors = direct === undefined
+      ? exactCallImplementations?.(parent) ?? []
+      : [direct];
+    if (constructors.length === 0) {
       return source.ast.members(owner).every((member) =>
         member === undefined ||
         !source.ast.is.IsConstructorDeclaration(member)
       );
     }
+    if (constructors.length !== 1) {
+      return false;
+    }
+    const constructor = constructors[0]!;
     return source.ast.is.IsConstructorDeclaration(constructor) &&
       source.ast.parent(constructor) === owner &&
       source.ast.body(constructor) !== undefined &&
@@ -104,6 +149,7 @@ function isExactStaticMember(
   source: TargetSourceProgram,
   reference: Node,
   owner: Node,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): boolean {
   const parent = source.ast.parent(reference);
   const selected = parent !== undefined &&
@@ -118,7 +164,11 @@ function isExactStaticMember(
         ?.selectedDeclaration
     : undefined;
   return selected !== undefined &&
-    source.navigation.isProjectDeclaration(selected) &&
+    sourceBodyInspectionIsExact(
+      source,
+      selected,
+      bodyInspectionIsCertified,
+    ) &&
     source.ast.hasModifierKind(selected, "static") &&
     source.ast.parent(selected) === owner;
 }

@@ -1,6 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
+export type ExactSourceBodyInspection = (declaration: Node) => boolean;
+
 const exactSemanticMembership = new WeakMap<
   TargetSourceProgram,
   WeakMap<Node, boolean>
@@ -24,4 +26,14 @@ export function nodeHasExactSourceSemantics(
     source.semantics.includes(sourceFile);
   byNode.set(node, included);
   return included;
+}
+
+export function sourceBodyInspectionIsExact(
+  source: TargetSourceProgram,
+  declaration: Node,
+  certified?: ExactSourceBodyInspection,
+): boolean {
+  return source.navigation.isProjectDeclaration(declaration) ||
+    (nodeHasExactSourceSemantics(source, declaration) &&
+      certified?.(declaration) === true);
 }

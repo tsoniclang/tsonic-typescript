@@ -6,6 +6,8 @@ import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import { createExactValueBindingInputs } from "../value/binding-inputs.js";
 import type { ExactValueSlotPath } from "../value/slot/model.js";
 import { createReturnLocalTopology } from "./local/topology.js";
+import type { ExactCallableBodyInspection } from "../callable/result-inputs.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 
 export interface ReturnLocalBinding {
   readonly declaration: Node;
@@ -22,6 +24,8 @@ export function createReturnLocalFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   planningObserver?: TypeScriptPlanningObserver,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ReturnLocalFlow {
   const topology = createReturnLocalTopology(source, program);
   const bindings = createExactValueBindingInputs(
@@ -29,6 +33,8 @@ export function createReturnLocalFlow(
     program,
     undefined,
     (reference) => topology.readIsAdmitted(reference),
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
   planningObserver?.("effect-return-locals");
   const cache = new Map<Node, ReturnLocalBinding>();

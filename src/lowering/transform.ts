@@ -150,6 +150,7 @@ export function prepareTypeScriptLowering(
         profile.interfaceDispatch,
         profile.cooperativeEffects,
         planningObserver,
+        generatedNames,
       )
     : undefined;
   const representationPlan = createRepresentationProjectionPlan(

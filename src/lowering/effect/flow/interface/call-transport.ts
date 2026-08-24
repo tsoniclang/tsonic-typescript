@@ -17,8 +17,8 @@ import type {
 } from "../../../invocation-transport.js";
 import {
   interfaceContractTypeDeclaration,
-  isExactInterfaceProjectDeclaration,
 } from "./declarations.js";
+import { originDeclarationIsClosed } from "./origin-declaration.js";
 import {
   type InterfaceContractIngress,
   retainOpaqueInterfaceResultOrigin,
@@ -41,8 +41,10 @@ import {
 } from "../invocation/call-binding.js";
 import {
   isDiscardedCall,
+  callableDispatchIsClosed,
   successfulValueExpression,
 } from "../../model/syntax.js";
+import { sourceBodyInspectionIsExact } from "../../model/source-membership.js";
 
 export interface InterfaceCallTransportSink {
   processTypePair(
@@ -82,9 +84,13 @@ export function collectInterfaceCallTransports(
   sink: InterfaceCallTransportSink,
   transports?: InvocationTransportContract,
   planningObserver?: TypeScriptPlanningObserver,
-): void {
+): OpaqueInterfaceExposureIndex {
   const calls: InterfaceCallTransportAnalysis[] = [];
-  const opaqueExposure = createOpaqueInterfaceExposureIndex(source, relevance);
+  const opaqueExposure = createOpaqueInterfaceExposureIndex(
+    source,
+    relevance,
+    ingress.bodyInspectionIsCertified,
+  );
   for (const kind of [KindCallExpression, KindNewExpression]) {
     for (const node of program.nodesOfKind(kind)) {
       const semantics = source.semantics.forNode(node);
@@ -99,10 +105,12 @@ export function collectInterfaceCallTransports(
         ...(call === undefined ? {} : { call }),
         ...(transport === undefined ? {} : { transport }),
         opaqueBoundary: call !== undefined &&
+          !callHasExactInspectableImplementations(source, node, ingress) &&
           callCrossesOpaqueInterfaceBoundary(
             source,
             declaration,
             ingress.entries,
+            ingress.bodyInspectionIsCertified,
           ),
         exactBindings: call !== undefined && callHasExactBindings(
           source,
@@ -148,6 +156,24 @@ export function collectInterfaceCallTransports(
     "effect-interface-call-processing",
     relevance.measurements(),
   );
+  return opaqueExposure;
+}
+
+function callHasExactInspectableImplementations(
+  source: TargetSourceProgram,
+  call: Node,
+  ingress: InterfaceContractIngress,
+): boolean {
+  const implementations = ingress.exactCallImplementations?.(call);
+  return implementations !== undefined &&
+    implementations.length !== 0 &&
+    implementations.every((implementation) =>
+      sourceBodyInspectionIsExact(
+        source,
+        implementation,
+        ingress.bodyInspectionIsCertified,
+      ) && callableDispatchIsClosed(source, ingress.program, implementation)
+    );
 }
 
 function collectCheckedProviderParameters(
@@ -431,7 +457,11 @@ function retainOpaqueCallResult(
     );
     if (
       declaration !== undefined &&
-      isExactInterfaceProjectDeclaration(source, declaration) &&
+      originDeclarationIsClosed(
+        source,
+        declaration,
+        ingress.bodyInspectionIsCertified,
+      ) &&
       (
         source.ast.is.IsClassDeclaration(declaration) ||
         source.ast.is.IsClassExpression(declaration)

@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { CallableInputUseContract } from "../callable/input-use.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
+import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import {
   declarationForSymbols,
   isCallableNonEscapingObservation,
@@ -14,7 +15,9 @@ import {
   isModuleForwardingReference,
   isProjectDeclarationOnlyName,
 } from "../../model/syntax.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
+import { exactAssignmentInput } from "./assignment.js";
 
 export interface StorageReferenceCounts {
   total: number;
@@ -33,6 +36,8 @@ export function auditCallableOwnerReference(
   invocationInputs: ExactInvocationInputIndex,
   inputUses?: CallableInputUseContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  exactCallImplementations?: ExactCallImplementations,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): void {
   let declaration: Node | undefined;
   let reference: Node | undefined;
@@ -67,9 +72,15 @@ export function auditCallableOwnerReference(
   const call = directContainingCall(source, reference);
   const selected = call === undefined
     ? undefined
-    : resolveProjectInvocation(source, call)?.implementation;
+    : resolveExactSourceInvocation(
+      source,
+      call,
+      bodyInspectionIsCertified,
+    )?.implementation;
   if (
     selected === declaration ||
+    (call !== undefined &&
+      exactCallImplementations?.(call)?.includes(declaration) === true) ||
     inputUses?.useFor(reference) !== undefined ||
     callableReferenceIsClosed?.(reference) === true
   ) {
@@ -173,15 +184,9 @@ function exactAssignedValue(
   access: Node,
 ): Node | undefined {
   const parent = source.ast.parent(access);
-  if (
-    parent === undefined ||
-    !source.ast.is.IsBinaryExpression(parent) ||
-    source.ast.operatorKindName(parent) !== "KindEqualsToken" ||
-    source.ast.as.AsBinaryExpression(parent)?.Left !== access
-  ) {
-    return undefined;
-  }
-  return source.ast.as.AsBinaryExpression(parent)?.Right;
+  return parent === undefined
+    ? undefined
+    : exactAssignmentInput(source, parent, access);
 }
 
 function isPropertyAccessName(

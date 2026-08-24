@@ -7,6 +7,7 @@ import type {
 import type { InterfaceContractBoundaryReason } from "../boundary.js";
 import type { InterfaceContractIndex } from "../graph.js";
 import type { InterfaceContractRelevance } from "../relevance.js";
+import type { ExactSourceBodyInspection } from "../../../model/source-membership.js";
 
 export interface InterfaceContractPendingTypePair {
   readonly semantics: SourceFileSemantics;
@@ -22,6 +23,7 @@ export interface InterfaceContractTypePairState {
   readonly seen: Map<Type, Set<Type>>;
   readonly pending: InterfaceContractPendingTypePair[];
   rootSourceIsFresh: boolean;
+  readonly bodyInspectionIsCertified?: ExactSourceBodyInspection;
 }
 
 export type InterfaceContractTypePairEnqueue = (

@@ -1,15 +1,18 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, Type } from "@tsonic/tsts";
 import {
-  AsTypeReferenceNode,
   AsUnionTypeNode,
 } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import type {
+  SourceFileSemantics,
+  TargetSourceProgram,
+} from "@tsonic/target-api/source";
 
 import {
   callableReturnRewrite,
   callableReturnRewriteAdmitsDirectValue,
 } from "../callable-contract.js";
 import { typeMaySuspend } from "../synchronous.js";
+import { typeHasDefinitelyNonThenableContract } from "../../../thenability.js";
 
 export function callableDeclarationHasResolvableType(
   source: TargetSourceProgram,
@@ -27,8 +30,7 @@ export function callableDeclarationHasResolvableType(
   if (
     type === undefined ||
     semantics.types.isAny(type) ||
-    semantics.types.isUnknown(type) ||
-    semantics.types.couldContainTypeVariables(type)
+    semantics.types.isUnknown(type)
   ) {
     return false;
   }
@@ -44,6 +46,67 @@ export function callableDeclarationHasResolvableType(
     const result = semantics.types.returnType(signature);
     return result !== undefined && !typeMaySuspend(semantics, result);
   });
+}
+
+export function callableDeclarationHasExactCallableType(
+  source: TargetSourceProgram,
+  declaration: Node,
+): boolean {
+  const typeNode = source.ast.typeNode(declaration);
+  const name = source.ast.name(declaration);
+  const selected = typeNode ?? name;
+  if (selected === undefined) {
+    return false;
+  }
+  const semantics = source.semantics.forNode(selected);
+  const type = typeNode === undefined
+    ? semantics.types.expressionType(selected)
+    : semantics.types.authoredType(typeNode);
+  return type !== undefined && exactCallableType(semantics, type, new Set());
+}
+
+export function expressionHasExactCallableType(
+  source: TargetSourceProgram,
+  expression: Node,
+): boolean {
+  const semantics = source.semantics.forNode(expression);
+  const type = semantics.types.expressionType(expression);
+  return type !== undefined && exactCallableType(semantics, type, new Set());
+}
+
+function exactCallableType(
+  semantics: SourceFileSemantics,
+  type: Type,
+  pending: Set<Type>,
+): boolean {
+  if (
+    pending.has(type) ||
+    semantics.types.isAny(type) ||
+    semantics.types.isUnknown(type)
+  ) {
+    return false;
+  }
+  if (semantics.types.isUnion(type)) {
+    pending.add(type);
+    let callable = false;
+    for (const member of semantics.types.unionOrIntersectionTypes(type)) {
+      if (member === undefined) {
+        pending.delete(type);
+        return false;
+      }
+      if (semantics.types.isNullish(member)) {
+        continue;
+      }
+      if (!exactCallableType(semantics, member, pending)) {
+        pending.delete(type);
+        return false;
+      }
+      callable = true;
+    }
+    pending.delete(type);
+    return callable;
+  }
+  return semantics.types.callSignatures(type).length !== 0;
 }
 
 function callableTypeNodeIsResolvable(
@@ -99,24 +162,5 @@ function callableResultTypeIsResolvable(
   const selected = semantics.types.authoredType(node);
   return selected !== undefined &&
     (!typeMaySuspend(semantics, selected) ||
-      isExactTypeParameterReference(source, node));
-}
-
-function isExactTypeParameterReference(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  const name = AsTypeReferenceNode(node)?.TypeName;
-  if (name === undefined) {
-    return false;
-  }
-  const semantics = source.semantics.forNode(name);
-  const symbol = source.navigation.sourceReferenceFor(name)?.symbol;
-  if (symbol === undefined) {
-    return false;
-  }
-  const declarations = semantics.declarations.symbolDeclarations(symbol);
-  return declarations.length !== 0 && declarations.every((declaration) =>
-    source.ast.is.IsTypeParameterDeclaration(declaration)
-  );
+      typeHasDefinitelyNonThenableContract(source, semantics, selected));
 }

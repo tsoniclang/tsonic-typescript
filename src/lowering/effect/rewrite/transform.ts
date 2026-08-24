@@ -10,8 +10,19 @@ import {
   AsFunctionExpression,
   AsMethodDeclaration,
   AsPropertyAccessExpression,
+  KindEqualsGreaterThanToken,
+  NewArrowFunction,
+  NewBlock,
+  NewCallExpression,
+  NewCatchClause,
   NewIdentifier,
+  NewParenthesizedExpression,
   NewPropertyAccessExpression,
+  NewReturnStatement,
+  NewToken,
+  NewTryStatement,
+  NewVariableDeclaration,
+  NodeFactory_NewNodeList,
   NodeFactory_UpdateCallExpression,
   NodeFactory_UpdateArrowFunction,
   NodeFactory_UpdateFunctionDeclaration,
@@ -35,6 +46,8 @@ import {
 
 type ConditionalProviderInvocation =
   CooperativeEffectFilePlan["providerCalls"][number];
+type CooperativePromiseBoundary =
+  CooperativeEffectFilePlan["promiseBoundaries"][number];
 
 export interface CooperativeEffectRewriteResult {
   readonly sourceFile: SourceFile;
@@ -61,6 +74,9 @@ export function createCooperativeEffectRewriteSession(
   const providerCalls = new Map(
     file.providerCalls.map((provider) => [provider.call, provider] as const),
   );
+  const promiseBoundaryByCall = new Map(
+    file.promiseBoundaries.map((boundary) => [boundary.call, boundary] as const),
+  );
   if (returnTypes.size !== file.returnTypes.length) {
     throw new Error("cooperative-effect return contract was planned twice");
   }
@@ -69,6 +85,7 @@ export function createCooperativeEffectRewriteSession(
   const consumedModifiers = new Set<Node>();
   const consumedReturnTypes = new Set<Node>();
   const consumedProviderCalls = new Set<Node>();
+  const consumedPromiseBoundaries = new Set<Node>();
   let finished = false;
   return Object.freeze({
     rewrite(original: Node, updated: Node, factory: NodeFactory): Node | undefined {
@@ -104,12 +121,28 @@ export function createCooperativeEffectRewriteSession(
         return expression;
       }
       const provider = providerCalls.get(original);
-      if (provider !== undefined) {
+      const promiseBoundary = promiseBoundaryByCall.get(original);
+      if (provider !== undefined || promiseBoundary !== undefined) {
         if (consumedProviderCalls.has(original)) {
           throw new Error("planned conditional provider call was visited twice");
         }
-        consumedProviderCalls.add(original);
-        return settleProviderCall(plan, provider, updated, factory);
+        let replacement = updated;
+        if (provider !== undefined) {
+          consumedProviderCalls.add(original);
+          replacement = settleProviderCall(plan, provider, replacement, factory);
+        }
+        if (promiseBoundary !== undefined) {
+          if (consumedPromiseBoundaries.has(original)) {
+            throw new Error("planned promise boundary was visited twice");
+          }
+          consumedPromiseBoundaries.add(original);
+          replacement = preservePromiseObservation(
+            promiseBoundary,
+            replacement,
+            factory,
+          );
+        }
+        return replacement;
       }
       if (!callables.has(original)) {
         return updated;
@@ -138,6 +171,11 @@ export function createCooperativeEffectRewriteSession(
         new Set(providerCalls.keys()),
         consumedProviderCalls,
       );
+      assertExactConsumption(
+        "promise boundary",
+        new Set(promiseBoundaryByCall.keys()),
+        consumedPromiseBoundaries,
+      );
       plan.finishFile(sourceFile);
       return Object.freeze({
         sourceFile: transformed,
@@ -146,6 +184,109 @@ export function createCooperativeEffectRewriteSession(
       });
     },
   });
+}
+
+function preservePromiseObservation(
+  boundary: CooperativePromiseBoundary,
+  expression: Node,
+  factory: NodeFactory,
+): Node {
+  const tryBlock = requiredNode(NewBlock(
+    factory,
+    NodeFactory_NewNodeList(factory, [
+      requiredNode(NewReturnStatement(
+        factory,
+        promiseMethodCall(factory, boundary, "resolve", expression),
+      )),
+    ]),
+    true,
+  ));
+  const errorDeclaration = requiredNode(NewVariableDeclaration(
+    factory,
+    NewIdentifier(factory, boundary.names.error.text),
+    undefined,
+    undefined,
+    undefined,
+  ));
+  const catchBlock = requiredNode(NewBlock(
+    factory,
+    NodeFactory_NewNodeList(factory, [
+      requiredNode(NewReturnStatement(
+        factory,
+        promiseMethodCall(
+          factory,
+          boundary,
+          "reject",
+          requiredNode(NewIdentifier(factory, boundary.names.error.text)),
+        ),
+      )),
+    ]),
+    true,
+  ));
+  const catchClause = requiredNode(NewCatchClause(
+    factory,
+    errorDeclaration,
+    catchBlock,
+  ));
+  const body = requiredNode(NewBlock(
+    factory,
+    NodeFactory_NewNodeList(factory, [
+      requiredNode(NewTryStatement(factory, tryBlock, catchClause, undefined)),
+    ]),
+    true,
+  ));
+  const arrow = requiredNode(NewArrowFunction(
+    factory,
+    undefined,
+    undefined,
+    NodeFactory_NewNodeList(factory, []),
+    undefined,
+    undefined,
+    NewToken(factory, KindEqualsGreaterThanToken),
+    body,
+  ));
+  return requiredNode(NewCallExpression(
+    factory,
+    requiredNode(NewParenthesizedExpression(factory, arrow)),
+    undefined,
+    undefined,
+    NodeFactory_NewNodeList(factory, []),
+    0,
+  ));
+}
+
+function promiseMethodCall(
+  factory: NodeFactory,
+  boundary: CooperativePromiseBoundary,
+  method: "resolve" | "reject",
+  value: Node,
+): Node {
+  const globalObject = requiredNode(NewIdentifier(
+    factory,
+    boundary.names.globalObject.text,
+  ));
+  const promise = requiredNode(NewPropertyAccessExpression(
+    factory,
+    globalObject,
+    undefined,
+    requiredNode(NewIdentifier(factory, "Promise")),
+    0,
+  ));
+  const target = requiredNode(NewPropertyAccessExpression(
+    factory,
+    promise,
+    undefined,
+    requiredNode(NewIdentifier(factory, method)),
+    0,
+  ));
+  return requiredNode(NewCallExpression(
+    factory,
+    target,
+    undefined,
+    undefined,
+    NodeFactory_NewNodeList(factory, [value]),
+    0,
+  ));
 }
 
 function settleProviderCall(

@@ -6,13 +6,21 @@ import type {
   InvocationTransportContract,
 } from "../../../invocation-transport.js";
 import { exactSourceCallBindings } from "../invocation/call-binding.js";
+import type { ExactCallableBodyInspection } from "../callable/result-inputs.js";
+import { sourceBodyInspectionIsExact } from "../../model/source-membership.js";
 import { collectInterfaceContractComponent } from "./component.js";
 import type { InterfaceContractIndex } from "./graph.js";
+
+export interface AbstractInvocationTransportSelection {
+  readonly calls: readonly Node[];
+  readonly contract: InvocationTransportContract;
+}
 
 export function createAbstractInvocationTransports(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
-): InvocationTransportContract | undefined {
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+): AbstractInvocationTransportSelection | undefined {
   const transports = new Map<Node, InvocationTransport>();
   const visited = new Set<Node>();
   for (const entry of contracts.entries.values()) {
@@ -26,7 +34,12 @@ export function createAbstractInvocationTransports(
     );
     if (
       contracts.boundaries.causesFor(declarations).length !== 0 ||
-      !componentHasExactProjectImplementations(source, contracts, declarations)
+      !componentHasExactImplementations(
+        source,
+        contracts,
+        declarations,
+        bodyInspectionIsCertified,
+      )
     ) {
       continue;
     }
@@ -38,7 +51,11 @@ export function createAbstractInvocationTransports(
     let complete = true;
     for (const contract of selected) {
       for (const call of contract.calls) {
-        const transport = abstractCallTransport(source, call, contract.declaration);
+        const transport = abstractCallTransport(
+          source,
+          call,
+          contract.declaration,
+        );
         if (transport === undefined) {
           complete = false;
           break;
@@ -54,24 +71,31 @@ export function createAbstractInvocationTransports(
     }
     for (const [call, transport] of pending) {
       if (transports.has(call)) {
-        throw new Error("abstract invocation belongs to multiple contract components");
+        throw new Error(
+          "abstract invocation belongs to multiple contract components",
+        );
       }
       transports.set(call, transport);
     }
   }
-  return transports.size === 0
-    ? undefined
-    : Object.freeze({
+  if (transports.size === 0) {
+    return undefined;
+  }
+  return Object.freeze({
+    calls: Object.freeze([...transports.keys()]),
+    contract: Object.freeze({
         transportFor(call: Node): InvocationTransport | undefined {
           return transports.get(call);
         },
-      });
+      }),
+  });
 }
 
-function componentHasExactProjectImplementations(
+function componentHasExactImplementations(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
   declarations: readonly Node[],
+  bodyInspectionIsCertified: ExactCallableBodyInspection | undefined,
 ): boolean {
   for (const declaration of declarations) {
     const entry = contracts.entries.get(declaration);
@@ -84,8 +108,11 @@ function componentHasExactProjectImplementations(
     if (
       implementations.length === 0 ||
       implementations.some((implementation) =>
-        !source.navigation.isProjectDeclaration(implementation) ||
-        source.ast.body(implementation) === undefined
+        !sourceBodyInspectionIsExact(
+          source,
+          implementation,
+          bodyInspectionIsCertified,
+        ) || source.ast.body(implementation) === undefined
       )
     ) {
       return false;

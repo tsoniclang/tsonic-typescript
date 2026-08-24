@@ -19,6 +19,9 @@ import {
 } from "./projection/finalization.js";
 import type { ReturnStorageFlow } from "./storage.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
+import type { ExactCallableBodyInspection } from "../callable/result-inputs.js";
+import { sourceBodyInspectionIsExact } from "../../model/source-membership.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 
 export type { ReturnProjectionFlow } from "./projection/finalization.js";
 
@@ -35,6 +38,8 @@ export function createReturnProjectionFlow(
   objectProjections: ExactObjectPropertyProjectionIndex,
   transports?: InvocationTransportContract,
   planningObserver?: TypeScriptPlanningObserver,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ReturnProjectionFlow {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
   const sourceForCall = (
@@ -55,7 +60,11 @@ export function createReturnProjectionFlow(
     const expressions: (Node | undefined)[] = [];
     for (const declaration of declarations) {
       if (
-        !source.navigation.isProjectDeclaration(declaration) ||
+        !sourceBodyInspectionIsExact(
+          source,
+          declaration,
+          bodyInspectionIsCertified,
+        ) ||
         !callableDispatchIsClosed(source, program, declaration)
       ) {
         return undefined;
@@ -88,6 +97,9 @@ export function createReturnProjectionFlow(
     objectProjections,
     invocationInputs,
     sourceForCall,
+    ...(bodyInspectionIsCertified === undefined
+      ? {}
+      : { bodyInspectionIsCertified }),
   });
   planningObserver?.("effect-return-projections", {
     candidates: candidates.length,
@@ -102,6 +114,10 @@ export function createReturnProjectionFlow(
     candidates,
     planningObserver,
     storageOwners,
+    undefined,
+    undefined,
+    undefined,
+    cooperativeEffects,
   );
   const closedInputs = new Map<Node, readonly Node[]>();
   for (const expression of candidates) {

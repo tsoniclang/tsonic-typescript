@@ -28,9 +28,9 @@ import {
 } from "../../model/syntax.js";
 import {
   callableContractResultIsDefinitelyNonThenable,
-  resolvedCallResultIsDefinitelyNonThenable,
+  resolvedCallProducesDefinitelySynchronousValue,
 } from "../../model/synchronous.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
 import {
   createTypeScriptRuntimeReturnContract,
 } from "../../../../runtime/return-contract.js";
@@ -49,6 +49,7 @@ import {
 } from "./provenance/finalization.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import type { ReturnFlowQueries } from "./queries.js";
+import type { ExactCallableBodyInspection } from "../callable/result-inputs.js";
 
 export type { ReturnProvenanceResolution } from "./provenance/resolution.js";
 
@@ -82,6 +83,7 @@ interface ReturnContext {
   readonly objectProjections: ExactObjectPropertyProjectionIndex;
   readonly invocationInputs: ExactInvocationInputIndex;
   readonly cooperativeEffects: TypeScriptActiveCooperativeEffectProfile;
+  readonly bodyInspectionIsCertified: ExactCallableBodyInspection | undefined;
   readonly builder: ReturnType<
     typeof createEffectProvenanceGraphBuilder<ReturnBoundaryReason>
   >;
@@ -107,9 +109,16 @@ export function createReturnProvenanceFlow(
   callableReferenceIsClosed?: (reference: Node) => boolean,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
   planningObserver?: TypeScriptPlanningObserver,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): ReturnProvenanceFlow {
   let context: ReturnContext;
-  const locals = createReturnLocalFlow(source, program, planningObserver);
+  const locals = createReturnLocalFlow(
+    source,
+    program,
+    planningObserver,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
+  );
   const storage = createReturnStorageFlow(
     source,
     program,
@@ -129,7 +138,11 @@ export function createReturnProvenanceFlow(
     projections,
     (call) => {
       const direct = directCallDeclaration(call) ??
-        resolveProjectInvocation(source, call)?.implementation;
+        resolveExactSourceInvocation(
+          source,
+          call,
+          bodyInspectionIsCertified,
+        )?.implementation;
       return new Set([
         ...(direct === undefined ? [] : [direct]),
         ...settledCallDeclarations(call),
@@ -143,6 +156,8 @@ export function createReturnProvenanceFlow(
     objectProjections,
     transports,
     planningObserver,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
   context = {
     source,
@@ -159,6 +174,7 @@ export function createReturnProvenanceFlow(
     objectProjections,
     invocationInputs,
     cooperativeEffects,
+    bodyInspectionIsCertified,
     builder: createEffectProvenanceGraphBuilder<ReturnBoundaryReason>(),
     expressions: new Map(),
     declarations: new Map(),
@@ -231,7 +247,11 @@ function expandExpression(
   context: ReturnContext,
 ): void {
   const { source } = context;
-  if (staticallyNonThenable(source, root)) {
+  if (staticallyNonThenable(
+    source,
+    root,
+    context.bodyInspectionIsCertified,
+  )) {
     origin(state, root, context);
     return;
   }
@@ -343,13 +363,9 @@ function expandCall(
   context: ReturnContext,
 ): void {
   const { source } = context;
-  const transport = context.transports?.transportFor(call);
-  if (transport !== undefined) {
-    const origins = transport.resultOriginExpressions;
-    if (origins === undefined) {
-      boundary(state, "inexact-call", call, context);
-      return;
-    }
+  const origins = context.transports?.transportFor(call)
+    ?.resultOriginExpressions;
+  if (origins !== undefined) {
     if (origins.length === 0) {
       origin(state, call, context);
       return;
@@ -365,7 +381,11 @@ function expandCall(
     }
     return;
   }
-  if (resolvedCallResultIsDefinitelyNonThenable(source, call)) {
+  if (resolvedCallProducesDefinitelySynchronousValue(
+    source,
+    call,
+    context.bodyInspectionIsCertified,
+  )) {
     origin(state, call, context);
     return;
   }
@@ -377,7 +397,11 @@ function expandCall(
   for (const declaration of context.settledCallDeclarations(call)) {
     declarations.add(declaration);
   }
-  const implementation = resolveProjectInvocation(source, call)?.implementation;
+  const implementation = resolveExactSourceInvocation(
+    source,
+    call,
+    context.bodyInspectionIsCertified,
+  )?.implementation;
   if (implementation !== undefined) {
     declarations.add(implementation);
   }
@@ -422,6 +446,7 @@ function stateForResult(
     context.program,
     context.candidates,
     declaration,
+    context.bodyInspectionIsCertified,
   )) {
     boundary(state, "inexact-call", declaration, context);
     return state;

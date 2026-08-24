@@ -6,6 +6,7 @@ import { KindAsyncKeyword } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { CallableReturnRewrite } from "../model/callable-contract.js";
 import type { ConditionalProviderInvocation } from "../flow/provider/flow.js";
+import type { CooperativePromiseBoundary } from "./promise-boundaries.js";
 
 export interface CooperativeEffectFilePlan {
   readonly callables: readonly Node[];
@@ -13,6 +14,7 @@ export interface CooperativeEffectFilePlan {
   readonly asyncModifiers: readonly Node[];
   readonly returnTypes: readonly CallableReturnRewrite[];
   readonly providerCalls: readonly ConditionalProviderInvocation[];
+  readonly promiseBoundaries: readonly CooperativePromiseBoundary[];
 }
 
 export interface CooperativeEffectFileCandidate {
@@ -26,6 +28,7 @@ interface MutableCooperativeEffectFilePlan {
   readonly asyncModifiers: Node[];
   readonly returnTypes: Map<Node, CallableReturnRewrite>;
   readonly providerCalls: Map<Node, ConditionalProviderInvocation>;
+  readonly promiseBoundaries: Map<Node, CooperativePromiseBoundary>;
 }
 
 export function createCooperativeEffectFilePlans(
@@ -35,6 +38,7 @@ export function createCooperativeEffectFilePlans(
   awaits: Iterable<Node>,
   returnTypes: Iterable<CallableReturnRewrite>,
   providerCalls: Iterable<ConditionalProviderInvocation>,
+  promiseBoundaries: Iterable<CooperativePromiseBoundary>,
 ): ReadonlyMap<SourceFile, CooperativeEffectFilePlan> {
   const mutable = new Map<SourceFile, MutableCooperativeEffectFilePlan>();
   for (const sourceFile of source.navigation.sourceFiles) {
@@ -44,6 +48,7 @@ export function createCooperativeEffectFilePlans(
       asyncModifiers: [],
       returnTypes: new Map(),
       providerCalls: new Map(),
+      promiseBoundaries: new Map(),
     });
   }
   for (const candidate of candidates) {
@@ -82,6 +87,13 @@ export function createCooperativeEffectFilePlans(
     }
     file.providerCalls.set(provider.call, provider);
   }
+  for (const boundary of promiseBoundaries) {
+    const file = filePlanForNode(source, mutable, boundary.call);
+    if (file.promiseBoundaries.has(boundary.call)) {
+      throw new Error("cooperative Promise boundary was planned twice");
+    }
+    file.promiseBoundaries.set(boundary.call, boundary);
+  }
   return new Map(
     [...mutable].map(([sourceFile, file]) => [
       sourceFile,
@@ -91,6 +103,7 @@ export function createCooperativeEffectFilePlans(
         asyncModifiers: Object.freeze(file.asyncModifiers),
         returnTypes: Object.freeze([...file.returnTypes.values()]),
         providerCalls: Object.freeze([...file.providerCalls.values()]),
+        promiseBoundaries: Object.freeze([...file.promiseBoundaries.values()]),
       }),
     ]),
   );

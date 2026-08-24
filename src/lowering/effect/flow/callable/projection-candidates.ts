@@ -14,7 +14,8 @@ import {
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import { exactCallableTarget } from "../../model/syntax.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
 
 const projectionAccessKinds = Object.freeze([
   KindElementAccessExpression,
@@ -30,9 +31,10 @@ export function collectCallableProjectionCandidates(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   planningObserver?: TypeScriptPlanningObserver,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): readonly Node[] {
   const candidates = new Set<Node>();
-  const directProjectTargets = new Set<Node>();
+  const exactInvocationTargets = new Set<Node>();
   for (const call of program.nodesOfKind(KindCallExpression)) {
     const target = exactCallableTarget(
       source,
@@ -41,8 +43,14 @@ export function collectCallableProjectionCandidates(
     if (target === undefined) {
       continue;
     }
-    if (resolveProjectInvocation(source, call) !== undefined) {
-      directProjectTargets.add(target);
+    if (
+      resolveExactSourceInvocation(
+        source,
+        call,
+        bodyInspectionIsCertified,
+      ) !== undefined
+    ) {
+      exactInvocationTargets.add(target);
     } else {
       candidates.add(target);
     }
@@ -53,7 +61,7 @@ export function collectCallableProjectionCandidates(
   const callableTypes = new WeakMap<Type, boolean>();
   for (const expression of program.nodesOfKinds(projectionAccessKinds)) {
     if (
-      !directProjectTargets.has(expression) &&
+      !exactInvocationTargets.has(expression) &&
       expressionMayContainCallable(
         source.semantics.forNode(expression),
         expression,

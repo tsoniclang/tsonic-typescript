@@ -10,6 +10,10 @@ import {
 import type { TargetProgramIndex } from "../../../program-index.js";
 import { transparentExpression } from "../../model/syntax.js";
 import { sameValueAlternatives } from "../value/alternatives.js";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../model/source-membership.js";
 
 export interface ExactAggregateSource {
   readonly declaration: Node | undefined;
@@ -65,6 +69,7 @@ const updateOperators = new Set([
 export function createExactAggregateProjectionIndex(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ExactAggregateProjectionIndex {
   const bindings = collectAggregateBindings(source, program);
   const symbols = indexBindingSymbols(source, bindings);
@@ -80,7 +85,12 @@ export function createExactAggregateProjectionIndex(
       }
       if (source.ast.is.IsIdentifier(root)) {
         const reference = source.navigation.sourceReferenceFor(root);
-        const projection = reference?.project === true
+        const projection = reference !== undefined &&
+            sourceBodyInspectionIsExact(
+              source,
+              reference.declaration,
+              bodyInspectionIsCertified,
+            )
           ? destructured.get(reference.declaration)
           : undefined;
         return projection !== undefined &&

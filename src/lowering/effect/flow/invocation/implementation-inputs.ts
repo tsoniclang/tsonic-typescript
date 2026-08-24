@@ -9,6 +9,7 @@ import {
   selectRestElementInputs,
   type ExactInvocationInputIndex,
 } from "./inputs.js";
+import { isFunctionLike } from "../../model/syntax.js";
 
 export interface ExactImplementationInputSource {
   readonly calls: readonly Node[];
@@ -29,6 +30,11 @@ export function extendExactInvocationInputIndex(
   const invalid = new Set<Node>();
   for (const entry of sources) {
     for (const implementation of entry.implementations) {
+      if (!isFunctionLike(source, implementation)) {
+        throw new Error(
+          "exact implementation-input source contains a non-callable implementation",
+        );
+      }
       const parameters = source.ast.parameters(implementation).filter(
         (parameter): parameter is Node => parameter !== undefined,
       );
@@ -54,9 +60,36 @@ export function extendExactInvocationInputIndex(
   }
   const sealedValues = seal(values);
   const sealedDestinations = seal(destinations);
+  const sealedInputGroups = new Map<Node, readonly (readonly Node[])[]>(
+    [...observed].map((parameter) => [
+      parameter,
+      Object.freeze([...(inputGroups.get(parameter) ?? [])]),
+    ]),
+  );
+  const parameters = Object.freeze([
+    ...new Set([
+      ...direct.parameters(),
+      ...observed,
+      ...invalid,
+    ]),
+  ]);
   return Object.freeze({
+    parameters(): Iterable<Node> {
+      return parameters;
+    },
     inputsFor(parameter: Node): readonly Node[] | undefined {
       return combine(direct.inputsFor(parameter), sealedValues.get(parameter));
+    },
+    inputGroupsFor(
+      parameter: Node,
+    ): readonly (readonly Node[])[] | undefined {
+      const directGroups = direct.inputGroupsFor(parameter);
+      const selectedGroups = sealedInputGroups.get(parameter);
+      return directGroups === undefined
+        ? selectedGroups
+        : selectedGroups === undefined
+        ? directGroups
+        : mergeInputGroups(directGroups, selectedGroups);
     },
     restElementInputsFor(
       parameter: Node,
@@ -195,7 +228,28 @@ function appendGroup(
   const selected = target.get(parameter);
   if (selected === undefined) {
     target.set(parameter, [group]);
-  } else {
+  } else if (!selected.some((existing) => sameNodeSequence(existing, group))) {
     selected.push(group);
   }
+}
+
+function mergeInputGroups(
+  left: readonly (readonly Node[])[],
+  right: readonly (readonly Node[])[],
+): readonly (readonly Node[])[] {
+  const merged = [...left];
+  for (const group of right) {
+    if (!merged.some((existing) => sameNodeSequence(existing, group))) {
+      merged.push(group);
+    }
+  }
+  return Object.freeze(merged);
+}
+
+function sameNodeSequence(
+  left: readonly Node[],
+  right: readonly Node[],
+): boolean {
+  return left.length === right.length &&
+    left.every((node, index) => node === right[index]);
 }

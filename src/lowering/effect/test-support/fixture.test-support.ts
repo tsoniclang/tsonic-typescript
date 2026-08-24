@@ -4,6 +4,7 @@ import {
   createCompilerSessionFromFiles,
 } from "@tsonic/tsts";
 import type {
+  CompilerExtension,
   Node,
   SourceFile,
 } from "@tsonic/tsts";
@@ -34,6 +35,7 @@ export interface CheckedEffectFixture {
 export function checkedEffectFixture(
   sourceText: string,
   additionalFiles: Readonly<Record<string, string>> = {},
+  extensions: readonly CompilerExtension[] = Object.freeze([]),
 ): CheckedEffectFixture {
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/src",
@@ -49,7 +51,10 @@ export function checkedEffectFixture(
       target: "es2022",
     },
     extensionHostOptions: {
-      extensions: Object.freeze([createTypeScriptRuntimeReturnExtension()]),
+      extensions: Object.freeze([
+        createTypeScriptRuntimeReturnExtension(),
+        ...extensions,
+      ]),
     },
   });
   const checked = session.checkSource();

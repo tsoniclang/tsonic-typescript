@@ -11,10 +11,13 @@ import {
   objectLiteralIsDefinitelyNonThenable,
   projectConstructionIsDefinitelyNonThenable,
 } from "../construction.js";
+import type { ExactCallableBodyInspection } from "../../callable/result-inputs.js";
+import { sourceBodyInspectionIsExact } from "../../../model/source-membership.js";
 
 export function staticallyNonThenable(
   source: TargetSourceProgram,
   expression: Node,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): boolean {
   if (source.ast.is.IsAwaitExpression(expression)) {
     return true;
@@ -36,7 +39,12 @@ export function staticallyNonThenable(
   }
   if (source.ast.is.IsNewExpression(expression)) {
     return typeHasDefinitelyNonThenableContract(source, semantics, type) ||
-      projectConstructionIsDefinitelyNonThenable(source, expression, type);
+      projectConstructionIsDefinitelyNonThenable(
+        source,
+        expression,
+        type,
+        bodyInspectionIsCertified,
+      );
   }
   return typeHasDefinitelyNonThenableContract(source, semantics, type);
 }
@@ -46,9 +54,14 @@ export function callableResultIsInspectable(
   program: TargetProgramIndex,
   candidates: ReadonlySet<Node>,
   declaration: Node,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): boolean {
   if (
-    !source.navigation.isProjectDeclaration(declaration) ||
+    !sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) ||
     source.ast.body(declaration) === undefined ||
     !callableDispatchIsClosed(source, program, declaration) ||
     (source.ast.hasModifierKind(declaration, "async") &&

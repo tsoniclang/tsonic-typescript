@@ -8,7 +8,11 @@ import type { DeclaredInterfaceDispatch } from "../../flow/interface/dispatch.js
 import type { ReturnValueFlow } from "../../flow/return/value.js";
 import type { CooperativeEffectCandidate } from "../../inventory/candidates.js";
 import { exactReturnedCall } from "../../model/syntax.js";
-import { sameSelectedType } from "../../model/synchronous.js";
+import {
+  resolvedCallProducesDefinitelySynchronousValue,
+  sameSelectedType,
+} from "../../model/synchronous.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
 
 const noDependencies: readonly Node[] = Object.freeze([]);
 
@@ -21,6 +25,7 @@ export function classifyReturnedExpression(
   returnFlow: ReturnValueFlow,
   conditionalSettlements: (dependencies: Iterable<Node>) =>
     ReadonlySet<Node> | undefined,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
   owner: CooperativeEffectCandidate,
   expression: Node,
 ): void {
@@ -42,6 +47,24 @@ export function classifyReturnedExpression(
     : interfaces.calls.get(returnedCall);
   if (returnedCall !== undefined && family !== undefined) {
     interfaces.addDependencies(owner, family, "return", returnedCall);
+    return;
+  }
+  if (
+    returnedCall !== undefined &&
+    interfaces.callIsRejected(returnedCall)
+  ) {
+    blockCooperativeEffect(owner, "unresolved-call", returnedCall);
+    return;
+  }
+  if (
+    returnedCall !== undefined &&
+    resolvedCallProducesDefinitelySynchronousValue(
+      source,
+      returnedCall,
+      bodyInspectionIsCertified,
+    ) &&
+    callResultMatchesCandidateReturn(source, returnedCall, owner)
+  ) {
     return;
   }
   if (returnedCall !== undefined) {

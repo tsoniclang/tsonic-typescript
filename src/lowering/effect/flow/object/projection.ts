@@ -9,6 +9,11 @@ import {
 } from "../../model/syntax.js";
 import { declarationIsExported } from "../../model/declaration-surface.js";
 import { sameValueAlternatives } from "../value/alternatives.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
+import {
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../../model/source-membership.js";
 
 export interface ExactObjectPropertyProjection {
   readonly declaration: Node;
@@ -38,10 +43,17 @@ interface ObjectBinding {
 export function createExactObjectPropertyProjectionIndex(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ExactObjectPropertyProjectionIndex {
-  const bindings = collectBindings(source, program);
+  const bindings = collectBindings(
+    source,
+    program,
+    cooperativeEffects,
+    bodyInspectionIsCertified,
+  );
   for (const binding of bindings) {
-    auditBinding(source, program, binding);
+    auditBinding(source, program, binding, cooperativeEffects);
   }
   const byRead = new Map<Node, ObjectPropertySource>();
   const readsByInitializer = new Map<Node, Node[]>();
@@ -103,6 +115,8 @@ export function createExactObjectPropertyProjectionIndex(
 function collectBindings(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): readonly ObjectBinding[] {
   const result: ObjectBinding[] = [];
   for (const declaration of program.nodesOfKind(KindVariableDeclaration)) {
@@ -112,7 +126,13 @@ function collectBindings(
     );
     if (
       !source.ast.is.IsIdentifier(source.ast.name(declaration)) ||
-      declarationIsExported(source, declaration) ||
+      !sourceBodyInspectionIsExact(
+        source,
+        declaration,
+        bodyInspectionIsCertified,
+      ) ||
+      cooperativeEffects !== "closed-program" &&
+        declarationIsExported(source, declaration) ||
       initializer === undefined ||
       program.hasBindingWrite(declaration)
     ) {
@@ -270,10 +290,13 @@ function auditBinding(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   binding: ObjectBinding,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
 ): void {
   for (const reference of source.navigation.referencesToDeclaration(binding.declaration)) {
     if (isModuleForwardingReference(source, reference)) {
-      binding.closed = false;
+      if (cooperativeEffects !== "closed-program") {
+        binding.closed = false;
+      }
       continue;
     }
     const access = containingPropertyRead(source, reference);

@@ -250,6 +250,7 @@ function expandDeclaration(
     return;
   }
   let inputCount = 0;
+  let hasClosedEmptyInput = false;
   const initializer = originDeclarationInitializer(ingress.source, declaration);
   if (initializer !== undefined) {
     inputCount += 1;
@@ -291,12 +292,13 @@ function expandDeclaration(
     }
     if (directInputsAreClosed && inputs.length === 0) {
       origin(state, declaration, context);
-      return;
+      hasClosedEmptyInput = true;
     }
   }
   if (
     ingress.source.ast.is.IsVariableDeclaration(declaration) ||
-    ingress.source.ast.is.IsPropertyDeclaration(declaration)
+    ingress.source.ast.is.IsPropertyDeclaration(declaration) ||
+    ingress.source.ast.is.IsParameterDeclaration(declaration)
   ) {
     for (const write of ingress.program.bindingWritesFor(declaration)) {
       const input = exactBindingWriteInput(ingress.source, write);
@@ -310,7 +312,10 @@ function expandDeclaration(
   }
   if (
     inputCount === 0 &&
-    declarationMayReceiveCheckedValues(ingress.source, declaration)
+    (
+      hasClosedEmptyInput ||
+      declarationMayReceiveCheckedValues(ingress.source, declaration)
+    )
   ) {
     origin(state, declaration, context);
   } else if (inputCount === 0) {

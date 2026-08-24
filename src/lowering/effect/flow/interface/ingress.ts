@@ -23,7 +23,10 @@ import type { ExactValueSlotFlow } from "../value/slot/model.js";
 import type {
   CheckedInterfaceParameterInputs,
 } from "./ingress/checked-parameters.js";
-import type { ExactCallImplementations } from "../callable/result-inputs.js";
+import type {
+  ExactCallableBodyInspection,
+  ExactCallImplementations,
+} from "../callable/result-inputs.js";
 
 export interface InterfaceContractIngress {
   readonly source: TargetSourceProgram;
@@ -42,6 +45,7 @@ export interface InterfaceContractIngress {
   readonly originRequirements: InterfaceOriginRequirements;
   readonly transports?: InvocationTransportContract;
   readonly exactCallImplementations?: ExactCallImplementations;
+  readonly bodyInspectionIsCertified?: ExactCallableBodyInspection;
 }
 
 export function retainUnprovenInterfaceIngress(
@@ -59,14 +63,14 @@ export function retainUnprovenInterfaceIngress(
   if (selectedTarget === undefined || semantics.types.isNever(selectedTarget)) {
     return;
   }
-  const targetContracts = ingress.relevance.valueContracts(
+  const targetContracts = ingress.relevance.valueImplementationContracts(
     semantics,
     selectedTarget,
   );
   if (targetContracts.length === 0) {
     return;
   }
-  const sourceContracts = ingress.relevance.valueContracts(
+  const sourceContracts = ingress.relevance.valueImplementationContracts(
     semantics,
     selectedSource,
   );

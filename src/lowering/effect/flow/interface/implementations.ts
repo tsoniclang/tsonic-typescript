@@ -6,13 +6,26 @@ import type {
 
 import {
   interfaceContractTypeDeclaration,
-  isExactInterfaceProjectDeclaration,
+  isExactInterfaceSourceDeclaration,
 } from "./declarations.js";
+import {
+  type CallableReturnRewrite,
+} from "../../model/callable-contract.js";
+import {
+  callableDeclarationHasExactCallableType,
+  callableDeclarationHasResolvableType,
+} from "../../model/callable-contract/resolution.js";
 import {
   callableUsesSynchronousTransport,
   typeHasTrustedSynchronousCallSignatures,
 } from "../../model/synchronous.js";
-import { nodeHasExactSourceSemantics } from "../../model/source-membership.js";
+import {
+  nodeHasExactSourceSemantics,
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../../model/source-membership.js";
+import { storageDeclarationCanBeTracked } from "../storage/owners.js";
+import { interfaceImplementationReturnContract } from "./implementation-synchrony.js";
 
 export interface InterfaceContractImplementationLedger {
   recordTypeImplementations(
@@ -30,6 +43,8 @@ export interface InterfaceContractImplementationLedger {
     contract: Node,
   ): boolean;
   implementationsFor(contract: Node): readonly Node[];
+  returnRewritesFor(implementation: Node): readonly CallableReturnRewrite[];
+  returnContractBlockersFor(implementation: Node): readonly Node[];
 }
 
 interface ResolvedImplementation {
@@ -37,16 +52,30 @@ interface ResolvedImplementation {
   readonly sourceDeclaration?: Node;
   readonly contract: Node;
   readonly implementation: Node;
+  readonly returnRewrites: readonly CallableReturnRewrite[];
+  readonly returnContractBlockers: readonly Node[];
+}
+
+interface ResolvedCallableImplementation {
+  readonly declaration: Node;
+  readonly returnRewrites: readonly CallableReturnRewrite[];
+  readonly returnContractBlockers: readonly Node[];
 }
 
 export function createInterfaceContractImplementationLedger(
   source: TargetSourceProgram,
   linkContracts: (left: Node, right: Node) => void,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): InterfaceContractImplementationLedger {
   const contractImplementations = new Map<Node, Set<Node>>();
   const typeContracts = new Map<Type, Set<Node>>();
   const declarationContracts = new Map<Node, Set<Node>>();
   const implementationContracts = new Map<Node, Set<Node>>();
+  const implementationReturnRewrites = new Map<
+    Node,
+    Map<Node, CallableReturnRewrite>
+  >();
+  const implementationReturnContractBlockers = new Map<Node, Set<Node>>();
   const attemptedTypeContracts = new Map<Type, Map<Node, boolean>>();
 
   const commit = (resolved: readonly ResolvedImplementation[]): void => {
@@ -73,6 +102,20 @@ export function createInterfaceContractImplementationLedger(
         entry.implementation,
         entry.contract,
       );
+      for (const rewrite of entry.returnRewrites) {
+        addReturnRewrite(
+          implementationReturnRewrites,
+          entry.implementation,
+          rewrite,
+        );
+      }
+      for (const blocker of entry.returnContractBlockers) {
+        addToSet(
+          implementationReturnContractBlockers,
+          entry.implementation,
+          blocker,
+        );
+      }
     }
   };
 
@@ -95,6 +138,7 @@ export function createInterfaceContractImplementationLedger(
         semantics,
         sourceType,
         contract,
+        bodyInspectionIsCertified,
       );
       if (resolved === undefined) {
         recordAttempt(attemptedTypeContracts, sourceType, contract, false);
@@ -119,11 +163,9 @@ export function createInterfaceContractImplementationLedger(
       return true;
     }
     if (semantics.types.isUnion(selected)) {
-      const members = semantics.types.unionOrIntersectionTypes(selected).filter(
-        (member): member is Type => member !== undefined,
-      );
+      const members = semantics.types.unionOrIntersectionTypes(selected);
       return members.length !== 0 && members.every((member) =>
-        provides(semantics, member, contract)
+        member !== undefined && provides(semantics, member, contract)
       );
     }
     const declaration = interfaceContractTypeDeclaration(
@@ -176,6 +218,16 @@ export function createInterfaceContractImplementationLedger(
         ...(contractImplementations.get(contract) ?? []),
       ]);
     },
+    returnRewritesFor(implementation: Node): readonly CallableReturnRewrite[] {
+      return Object.freeze([
+        ...(implementationReturnRewrites.get(implementation)?.values() ?? []),
+      ]);
+    },
+    returnContractBlockersFor(implementation: Node): readonly Node[] {
+      return Object.freeze([
+        ...(implementationReturnContractBlockers.get(implementation) ?? []),
+      ]);
+    },
   });
 }
 
@@ -184,6 +236,7 @@ function resolveContractImplementations(
   semantics: SourceFileSemantics,
   sourceType: Type,
   contract: Node,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): readonly ResolvedImplementation[] | undefined {
   const selected = semantics.types.withoutMissingOrUndefined(sourceType);
   if (
@@ -205,6 +258,7 @@ function resolveContractImplementations(
         semantics,
         member,
         contract,
+        bodyInspectionIsCertified,
       );
       if (resolved === undefined) {
         return undefined;
@@ -222,6 +276,7 @@ function resolveContractImplementations(
     semantics,
     selected,
     contract,
+    bodyInspectionIsCertified,
   );
   if (implementation === undefined) {
     return undefined;
@@ -230,7 +285,9 @@ function resolveContractImplementations(
     sourceType: selected,
     ...(sourceDeclaration === undefined ? {} : { sourceDeclaration }),
     contract,
-    implementation,
+    implementation: implementation.declaration,
+    returnRewrites: implementation.returnRewrites,
+    returnContractBlockers: implementation.returnContractBlockers,
   })];
 }
 
@@ -239,7 +296,8 @@ function resolveCallableImplementation(
   semantics: SourceFileSemantics,
   sourceType: Type,
   contract: Node,
-): Node | undefined {
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+): ResolvedCallableImplementation | undefined {
   const name = source.ast.name(contract);
   if (
     name === undefined ||
@@ -265,15 +323,36 @@ function resolveCallableImplementation(
     candidate !== undefined && selected.indexOf(candidate) === index
   );
   const candidates = declarations.map((candidate) =>
-    callableImplementationNode(source, candidate)
+    callableImplementationNode(
+      source,
+      candidate,
+      bodyInspectionIsCertified,
+    )
   ).filter(
     (candidate, index, selected): candidate is Node =>
       candidate !== undefined &&
       selected.indexOf(candidate) === index &&
-      isExactInterfaceImplementationDeclaration(source, candidate),
+      isExactInterfaceImplementationDeclaration(
+        source,
+        candidate,
+        bodyInspectionIsCertified,
+      ),
   );
   if (candidates.length === 1) {
-    return candidates[0];
+    const implementation = candidates[0]!;
+    const returnContract = interfaceImplementationReturnContract(
+      source,
+      declarations,
+      implementation,
+      bodyInspectionIsCertified,
+    );
+    if (returnContract !== undefined) {
+      return Object.freeze({
+        declaration: implementation,
+        returnRewrites: returnContract.rewrites,
+        returnContractBlockers: returnContract.blockers,
+      });
+    }
   }
   const memberType = semantics.types.typeOfSymbol(symbol);
   return declarations.length !== 0 &&
@@ -282,13 +361,18 @@ function resolveCallableImplementation(
       ) &&
       memberType !== undefined &&
       typeHasTrustedSynchronousCallSignatures(source, semantics, memberType)
-    ? declarations[0]
+    ? Object.freeze({
+        declaration: declarations[0]!,
+        returnRewrites: Object.freeze([]),
+        returnContractBlockers: Object.freeze([]),
+      })
     : undefined;
 }
 
 function callableImplementationNode(
   source: TargetSourceProgram,
   declaration: Node,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): Node | undefined {
   if (
     (
@@ -313,7 +397,36 @@ function callableImplementationNode(
   ) {
     return initializer;
   }
-  return callableUsesSynchronousTransport(source, declaration)
+  if (
+    storageDeclarationCanBeTracked(source, declaration) &&
+    sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) &&
+    (
+      callableDeclarationHasResolvableType(source, declaration) ||
+      callableDeclarationHasExactCallableType(source, declaration)
+    )
+  ) {
+    return declaration;
+  }
+  if (
+    sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) &&
+    (source.ast.is.IsPropertyAssignment(declaration) ||
+      source.ast.is.IsShorthandPropertyAssignment(declaration))
+  ) {
+    return declaration;
+  }
+  return callableUsesSynchronousTransport(
+    source,
+    declaration,
+    bodyInspectionIsCertified,
+  )
     ? declaration
     : undefined;
 }
@@ -321,14 +434,30 @@ function callableImplementationNode(
 function isExactInterfaceImplementationDeclaration(
   source: TargetSourceProgram,
   declaration: Node,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
-  if (isExactInterfaceProjectDeclaration(source, declaration)) {
+  if (
+    isExactInterfaceSourceDeclaration(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) ||
+    sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    )
+  ) {
     return true;
   }
   const sourceFile = source.ast.getSourceFile(declaration);
   return sourceFile !== undefined &&
     source.ast.isDeclarationFile(sourceFile) &&
-    callableUsesSynchronousTransport(source, declaration);
+    callableUsesSynchronousTransport(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    );
 }
 
 function declarationFileSynchronousImplementation(
@@ -352,6 +481,27 @@ function addToSet<Key, Value>(
   } else {
     selected.add(value);
   }
+}
+
+function addReturnRewrite(
+  target: Map<Node, Map<Node, CallableReturnRewrite>>,
+  implementation: Node,
+  rewrite: CallableReturnRewrite,
+): void {
+  let rewrites = target.get(implementation);
+  if (rewrites === undefined) {
+    rewrites = new Map();
+    target.set(implementation, rewrites);
+  }
+  const existing = rewrites.get(rewrite.target);
+  if (
+    existing !== undefined &&
+    (existing.selection.kind !== rewrite.selection.kind ||
+      existing.selection.index !== rewrite.selection.index)
+  ) {
+    throw new Error("interface implementation has conflicting return rewrites");
+  }
+  rewrites.set(rewrite.target, rewrite);
 }
 
 function recordAttempt(

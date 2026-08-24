@@ -1,15 +1,16 @@
-import type { Node, Symbol, Type } from "@tsonic/tsts";
-import type {
-  SourceFileSemantics,
-  TargetSourceProgram,
-} from "@tsonic/target-api/source";
+import type { Node, Symbol } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { CallableInputUseContract } from "./input-use.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
+import { exactAssignmentInput } from "../storage/assignment.js";
 
-import { callableDeclarationAllowsSynchronousValue } from "../../model/callable-contract.js";
+import {
+  callableDeclarationHasExactCallableType,
+  callableDeclarationHasResolvableType,
+} from "../../model/callable-contract/resolution.js";
 import {
   isCallableNonEscapingObservation,
   trackedInputDestination,
@@ -19,6 +20,11 @@ import {
   directContainingCall,
   isModuleForwardingReference,
 } from "../../model/syntax.js";
+import {
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../../model/source-membership.js";
+import { declarationIsExported } from "../../model/declaration-surface.js";
 
 interface ReferenceCounts {
   total: number;
@@ -29,6 +35,8 @@ export function collectCallableLocals(
   source: TargetSourceProgram,
   excluded: ReadonlySet<Node>,
   program: TargetProgramIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+  allowExportedDeclarations: boolean = false,
 ): Map<Node, Node[]> {
   const locals = new Map<Node, Node[]>();
   for (const node of program.nodesOfKind(KindVariableDeclaration)) {
@@ -36,63 +44,23 @@ export function collectCallableLocals(
     const initializer = source.ast.is.IsVariableDeclaration(node)
       ? source.ast.as.AsVariableDeclaration(node)?.Initializer
       : undefined;
-    const semantics = name === undefined
-      ? undefined
-      : source.semantics.forNode(name);
-    const type = semantics === undefined || name === undefined
-      ? undefined
-      : semantics.types.expressionType(name);
-    const inferredImmutableCallable =
-      source.ast.variableDeclarationKind(node) === "const" &&
-      initializer !== undefined &&
-      semantics !== undefined &&
-      type !== undefined &&
-      !semantics.types.isAny(type) &&
-      !semantics.types.isUnknown(type) &&
-      inferredTypeIsCallable(semantics, type, new Set());
     if (
       !source.ast.is.IsIdentifier(name) ||
       excluded.has(node) ||
-      (!callableDeclarationAllowsSynchronousValue(source, node) &&
-        !inferredImmutableCallable)
+      (!allowExportedDeclarations && declarationIsExported(source, node)) ||
+      !sourceBodyInspectionIsExact(
+        source,
+        node,
+        bodyInspectionIsCertified,
+      ) ||
+      (!callableDeclarationHasResolvableType(source, node) &&
+        !callableDeclarationHasExactCallableType(source, node))
     ) {
       continue;
     }
     locals.set(node, initializer === undefined ? [] : [initializer]);
   }
   return locals;
-}
-
-function inferredTypeIsCallable(
-  semantics: SourceFileSemantics,
-  type: Type,
-  pending: Set<Type>,
-): boolean {
-  if (
-    pending.has(type) ||
-    semantics.types.isAny(type) ||
-    semantics.types.isUnknown(type) ||
-    semantics.types.isNullish(type)
-  ) {
-    return false;
-  }
-  if (semantics.types.isUnion(type)) {
-    pending.add(type);
-    let callable = false;
-    for (const member of semantics.types.unionOrIntersectionTypes(type)) {
-      if (member === undefined || semantics.types.isNullish(member)) {
-        continue;
-      }
-      if (!inferredTypeIsCallable(semantics, member, pending)) {
-        pending.delete(type);
-        return false;
-      }
-      callable = true;
-    }
-    pending.delete(type);
-    return callable;
-  }
-  return semantics.types.callSignatures(type).length !== 0;
 }
 
 export function auditCallableLocalUse(
@@ -107,18 +75,24 @@ export function auditCallableLocalUse(
   inputUses?: CallableInputUseContract,
   invocationInputs?: ExactInvocationInputIndex,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  allowModuleForwarding: boolean = false,
 ): void {
   if (!source.ast.is.IsIdentifier(reference)) {
     return;
   }
   if (
     reference === source.ast.name(local) ||
-    isModuleForwardingReference(source, reference) ||
     isTypeOnlyReference(source, reference)
   ) {
     return;
   }
   counts.total += 1;
+  if (isModuleForwardingReference(source, reference)) {
+    if (allowModuleForwarding) {
+      counts.admitted += 1;
+    }
+    return;
+  }
   const assigned = exactAssignedValue(source, reference);
   if (assigned !== undefined) {
     append(values, local, assigned);
@@ -166,15 +140,9 @@ function exactAssignedValue(
   reference: Node,
 ): Node | undefined {
   const parent = source.ast.parent(reference);
-  if (
-    parent === undefined ||
-    !source.ast.is.IsBinaryExpression(parent) ||
-    source.ast.operatorKindName(parent) !== "KindEqualsToken" ||
-    source.ast.as.AsBinaryExpression(parent)?.Left !== reference
-  ) {
-    return undefined;
-  }
-  return source.ast.as.AsBinaryExpression(parent)?.Right;
+  return parent === undefined
+    ? undefined
+    : exactAssignmentInput(source, parent, reference);
 }
 
 function isTypeOnlyReference(source: TargetSourceProgram, node: Node): boolean {

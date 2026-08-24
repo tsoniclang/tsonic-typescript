@@ -13,7 +13,8 @@ import {
   callableProjectedResultSlotReturnRewrites,
   type CallableReturnRewrite,
 } from "../../model/callable-contract.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
 import { transparentExpression } from "../../model/syntax.js";
 import type { CallableResultLookup } from "./result-inputs.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
@@ -21,6 +22,7 @@ import { exactValueSlotPathKey } from "../value/slot/selectors.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import type { ExactCallImplementations } from "./result-inputs.js";
 import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 
 export interface CallableProjectionInput {
   readonly declaration: Node;
@@ -48,6 +50,8 @@ export function createCallableProjectionInputs(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): CallableProjectionInputs {
   const slots = createExactValueSlotFlow(
     source,
@@ -61,6 +65,7 @@ export function createCallableProjectionInputs(
     exactCallImplementations,
     callableReferenceIsClosed,
     boundaryDependencies,
+    cooperativeEffects,
   );
   const projectionResults = new Map<Node, CallableProjectionInput>();
   for (const expression of candidates) {
@@ -83,6 +88,7 @@ export function createCallableProjectionInputs(
     source,
     program,
     exactCallContracts,
+    bodyInspectionIsCertified,
   );
   const traversed = indexTraversedProjectionCalls(projectionResults.values());
   const completeSteps = indexCompleteProjectionSteps(
@@ -168,10 +174,15 @@ function indexCallsByDeclaration(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   exactCallContracts: ((call: Node) => readonly Node[] | undefined) | undefined,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ReadonlyMap<Node, ReadonlySet<Node>> {
   const result = new Map<Node, Set<Node>>();
   for (const call of program.nodesOfKind(KindCallExpression)) {
-    const direct = resolveProjectInvocation(source, call)?.implementation;
+    const direct = resolveExactSourceInvocation(
+      source,
+      call,
+      bodyInspectionIsCertified,
+    )?.implementation;
     const declarations = direct === undefined
       ? exactCallContracts?.(call) ?? []
       : [direct];

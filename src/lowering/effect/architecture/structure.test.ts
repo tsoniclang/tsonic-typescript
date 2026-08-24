@@ -1,65 +1,24 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, normalize, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
-
-const repositoryRoot = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../..",
-);
-const sourceRoot = join(repositoryRoot, "src");
-const effectRoot = join(sourceRoot, "lowering", "effect");
-
-const expectedEffectDirectories = Object.freeze([
-  "architecture",
-  "closure",
-  "flow",
-  "inventory",
-  "model",
-  "planning",
-  "provenance",
-  "rewrite",
-  "test-support",
-]);
-
-const expectedFlowDirectories = Object.freeze([
-  "aggregate",
-  "callable",
-  "collection",
-  "interface",
-  "invocation",
-  "object",
-  "provider",
-  "return",
-  "storage",
-  "value",
-]);
-
-const allowedProductionDependencies = new Map<string, ReadonlySet<string>>([
-  ["closure", new Set(["closure", "provenance"])],
-  ["flow", new Set([
-    "closure",
-    "flow",
-    "inventory",
-    "model",
-    "provenance",
-  ])],
-  ["inventory", new Set(["closure", "inventory", "model", "provenance"])],
-  ["model", new Set(["model"])],
-  ["planning", new Set(["closure", "flow", "inventory", "model", "planning"])],
-  ["provenance", new Set(["provenance"])],
-  ["rewrite", new Set(["model", "planning", "rewrite"])],
-]);
-
-const externalProductionSurface = new Set([
-  "closure/retention.ts",
-  "flow/interface/decision.ts",
-  "flow/provider/source-extension.ts",
-  "planning/plan.ts",
-  "planning/summary.ts",
-  "rewrite/transform.ts",
-]);
+import {
+  allowedProductionDependencies,
+  directoryNames,
+  effectRoot,
+  expectedEffectDirectories,
+  expectedFlowDirectories,
+  externalProductionSurface,
+  firstPathSegment,
+  isWithin,
+  productionFiles,
+  regularFileNames,
+  relativeImports,
+  relativeImportSpecifiers,
+  relativePath,
+  sourceFiles,
+  sourceRoot,
+} from "./structure.test-support.js";
 
 test("effect source is nested by semantic owner", () => {
   assert.deepEqual(directoryNames(effectRoot), expectedEffectDirectories);
@@ -285,7 +244,10 @@ test("return projection discards its value-slot construction graph", () => {
 
   assert.match(source, /collectReturnProjectionCandidates\(/u);
   assert.match(source, /finalizeReturnProjectionFlow\(closedInputs\)/u);
-  assert.match(candidates, /!staticallyNonThenable\(source, node\)/u);
+  assert.match(
+    candidates,
+    /!staticallyNonThenable\([\s\S]{0,120}source,[\s\S]{0,80}node,[\s\S]{0,120}context\.bodyInspectionIsCertified/u,
+  );
   assert.match(candidates, /context\.locals\.bindingFor/u);
   assert.match(candidates, /context\.sourceForCall/u);
   assert.match(candidates, /selected\.has\(expression\)/u);
@@ -317,7 +279,14 @@ test("callable, return, and consumer flows share one storage-owner analysis", ()
     "utf8",
   );
 
-  assert.match(plan, /createClosedStorageOwnerAnalysis\(source, program\)/u);
+  assert.equal(
+    [...plan.matchAll(/createClosedStorageOwnerAnalysis\(/gu)].length,
+    1,
+  );
+  assert.match(
+    plan,
+    /const storageOwners = createClosedStorageOwnerAnalysis\([\s\S]{0,240}sourceInvocations\.bodyInspectionIsCertified,[\s\S]{0,120}sourceInvocations\.implementationsFor/u,
+  );
   assert.match(plan, /collectCallableFields\(source, program, storageOwners\)/u);
   assert.match(fields, /storageOwners\.topology\(planningObserver\)/u);
   assert.match(returns, /storageOwners\.topology\(planningObserver\)/u);
@@ -431,6 +400,10 @@ test("effect flow finalizers retain only settled query capabilities", () => {
     join(effectRoot, "planning", "plan.ts"),
     "utf8",
   );
+  const settlement = readFileSync(
+    join(effectRoot, "flow", "settlement", "program.ts"),
+    "utf8",
+  );
   const classification = readFileSync(
     join(effectRoot, "planning", "classification.ts"),
     "utf8",
@@ -485,8 +458,11 @@ test("effect flow finalizers retain only settled query capabilities", () => {
     indirectFinalization,
     /TargetSourceProgram|ExactIndirectInvocationDomain|ExactIndirectInvocationRound|settleExactIndirectInvocationAnalysis|projectionCandidates|refine\s*\(/u,
   );
-  assert.match(plan, /preliminaryAnalysis\.finalize\(\)/u);
-  assert.match(plan, /\)\.finalize\(\)/u);
+  assert.match(plan, /settleCooperativeEffectFlows\(/u);
+  assert.doesNotMatch(plan, /preliminaryAnalysis|\.refine\(/u);
+  assert.match(settlement, /preliminaryAnalysis\.finalize\(\)/u);
+  assert.match(settlement, /preliminaryAnalysis\.refine\(/u);
+  assert.match(settlement, /\)\.finalize\(\)/u);
 });
 
 test("callable result projection owns one value-slot graph", () => {
@@ -520,80 +496,3 @@ test("every value-slot analysis requires an explicit semantic root domain", () =
     /rootExpressions: readonly Node\[\]\s*=\s*Object\.freeze/u,
   );
 });
-
-function directoryNames(root: string): string[] {
-  return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort(compareCodeUnits);
-}
-
-function regularFileNames(root: string): string[] {
-  return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => entry.name)
-    .sort(compareCodeUnits);
-}
-
-function sourceFiles(root: string): string[] {
-  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) {
-      return sourceFiles(path);
-    }
-    return entry.isFile() && entry.name.endsWith(".ts") ? [path] : [];
-  });
-}
-
-function productionFiles(root: string): string[] {
-  return sourceFiles(root).filter((path) =>
-    !path.endsWith(".test.ts") && !path.endsWith(".test-support.ts")
-  );
-}
-
-function relativeImports(importer: string): string[] {
-  const source = readFileSync(importer, "utf8");
-  return relativeImportSpecifiers(source).map((specifier) =>
-    normalize(join(dirname(importer), `${specifier.slice(0, -3)}.ts`))
-  );
-}
-
-function relativeImportSpecifiers(source: string): string[] {
-  const imports: string[] = [];
-  const patterns = [
-    /\bfrom\s+["'](\.\.?\/[^"']+\.js)["']/gu,
-    /\bimport\s*\(\s*["'](\.\.?\/[^"']+\.js)["']\s*\)/gu,
-    /\bimport\s+["'](\.\.?\/[^"']+\.js)["']/gu,
-  ];
-  for (const pattern of patterns) {
-    for (const match of source.matchAll(pattern)) {
-      const specifier = match[1];
-      if (specifier === undefined) {
-        throw new Error("relative import has no specifier");
-      }
-      imports.push(specifier);
-    }
-  }
-  return imports.sort(compareCodeUnits);
-}
-
-function isWithin(root: string, path: string): boolean {
-  const pathFromRoot = relative(root, path);
-  return pathFromRoot !== "" && !pathFromRoot.startsWith("../");
-}
-
-function relativePath(root: string, path: string): string {
-  return relative(root, path).replaceAll("\\", "/");
-}
-
-function firstPathSegment(path: string): string {
-  const segment = path.split("/")[0];
-  if (segment === undefined || segment.length === 0) {
-    throw new Error(`path has no semantic owner: ${path}`);
-  }
-  return segment;
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}

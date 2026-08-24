@@ -1,8 +1,7 @@
-import type { Node, Symbol } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindAwaitExpression,
-  KindIdentifier,
   KindReturnStatement,
 } from "@tsonic/tsts/target-ast";
 
@@ -12,12 +11,8 @@ import { blockCooperativeEffect } from "../closure/retention.js";
 import type { DeclaredInterfaceDispatch } from "../flow/interface/dispatch.js";
 import type { ReturnValueFlow } from "../flow/return/value.js";
 import {
-  containingAwait,
-  containingReturn,
   directContainingCall,
   exactCallExpression,
-  isFunctionLike,
-  isDiscardedCall,
   isModuleForwardingReference,
 } from "../model/syntax.js";
 import type { CallableValueFlow } from "../flow/callable/value-flow.js";
@@ -25,6 +20,9 @@ import { isCallableNonEscapingObservation } from "../flow/callable/input-referen
 import { connectCooperativeEffectDependency } from "../closure/dependency.js";
 import { classifyReturnedExpression } from "./classification/returned-expression.js";
 import type { ConditionalProviderEffectFlow } from "../flow/provider/conditional.js";
+import type { ExactSourceBodyInspection } from "../model/source-membership.js";
+import { resolvedCallProducesDefinitelySynchronousValue } from "../model/synchronous.js";
+import { enclosingCooperativeCandidate } from "./classification/owner.js";
 
 const noDependencies: readonly Node[] = Object.freeze([]);
 
@@ -39,8 +37,8 @@ export function classifyCooperativeEffectProgram(
   providers: ConditionalProviderEffectFlow,
   conditionalSettlements: (dependencies: Iterable<Node>) =>
     ReadonlySet<Node> | undefined,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): void {
-  const tracked = indexCandidateSymbols(source, candidates.values());
   for (const node of program.nodesOfKind(KindAwaitExpression)) {
     classifyAwaitDependencies(
       source,
@@ -51,6 +49,7 @@ export function classifyCooperativeEffectProgram(
       returnFlow,
       providers,
       conditionalSettlements,
+      bodyInspectionIsCertified,
       node,
     );
   }
@@ -63,6 +62,7 @@ export function classifyCooperativeEffectProgram(
       valueFlow,
       returnFlow,
       conditionalSettlements,
+      bodyInspectionIsCertified,
       node,
     );
   }
@@ -79,25 +79,30 @@ export function classifyCooperativeEffectProgram(
         valueFlow,
         returnFlow,
         conditionalSettlements,
+        bodyInspectionIsCertified,
         candidate,
         body,
       );
     }
   }
-  for (const node of program.nodesOfKind(KindIdentifier)) {
-    const candidate = candidateForReference(source, tracked, node);
-    if (
-      candidate === undefined ||
-      node === source.ast.name(candidate.declaration) ||
-      isModuleForwardingReference(source, node) ||
-      isCallableNonEscapingObservation(source, node) ||
-      valueFlow.allowsCallableReference(node)
+  for (const candidate of candidates.values()) {
+    for (
+      const reference of source.navigation.referencesToDeclaration(
+        candidate.declaration,
+      )
     ) {
-      continue;
-    }
-    const call = directContainingCall(source, node);
-    if (call === undefined || calls.get(call) !== candidate) {
-      blockCooperativeEffect(candidate, "escaping-callable", node);
+      if (
+        reference === source.ast.name(candidate.declaration) ||
+        isModuleForwardingReference(source, reference) ||
+        isCallableNonEscapingObservation(source, reference) ||
+        valueFlow.allowsCallableReference(reference)
+      ) {
+        continue;
+      }
+      const call = directContainingCall(source, reference);
+      if (call === undefined || calls.get(call) !== candidate) {
+        blockCooperativeEffect(candidate, "escaping-callable", reference);
+      }
     }
   }
   for (const candidate of candidates.values()) {
@@ -116,141 +121,6 @@ export function classifyCooperativeEffectProgram(
   }
 }
 
-export function classifyCooperativeEffectCallUses(
-  source: TargetSourceProgram,
-  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
-  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
-  interfaces: DeclaredInterfaceDispatch,
-  valueFlow: CallableValueFlow,
-  returnedCallHasClosedConsumers: (call: Node) => boolean,
-): void {
-  for (const [call, candidate] of calls) {
-    const use = cooperativeCallUse(source, candidates, call);
-    if (use === "awaited") {
-      continue;
-    }
-    if (use === "discarded") {
-      blockCooperativeEffect(candidate, "promise-observed", call);
-      continue;
-    }
-    if (typeof use !== "string") {
-      connectCooperativeEffectDependency(use.owner, candidate, "return", call);
-      continue;
-    }
-    if (returnedCallHasClosedConsumers(call)) {
-      continue;
-    }
-    blockCooperativeEffect(candidate, "promise-observed", call);
-  }
-  for (const [call, family] of interfaces.calls) {
-    const use = cooperativeCallUse(source, candidates, call);
-    if (use === "awaited") {
-      continue;
-    }
-    if (use === "discarded") {
-      interfaces.block(family, "promise-observed", call);
-      continue;
-    }
-    if (typeof use !== "string") {
-      interfaces.addDependencies(use.owner, family, "return", call);
-      continue;
-    }
-    if (returnedCallHasClosedConsumers(call)) {
-      continue;
-    }
-    interfaces.block(family, "promise-observed", call);
-  }
-  valueFlow.forEachCall((call, resolution) => {
-    if (
-      calls.has(call) ||
-      interfaces.calls.has(call) ||
-      resolution.dependencyCount === 0
-    ) {
-      return;
-    }
-    const use = cooperativeCallUse(source, candidates, call);
-    if (use === "awaited") {
-      return;
-    }
-    if (use === "discarded") {
-      for (const declaration of resolution.dependencyNodes()) {
-        const candidate = candidates.get(declaration);
-        if (candidate !== undefined) {
-          blockCooperativeEffect(candidate, "promise-observed", call);
-        }
-      }
-      return;
-    }
-    if (resolution.closed && typeof use !== "string") {
-      return;
-    }
-    if (resolution.closed && returnedCallHasClosedConsumers(call)) {
-      return;
-    }
-    for (const declaration of resolution.dependencyNodes()) {
-      const candidate = candidates.get(declaration);
-      if (candidate !== undefined) {
-        blockCooperativeEffect(candidate, "promise-observed", call);
-      }
-    }
-  });
-}
-
-export function collectCooperativeResultConsumerQueries(
-  source: TargetSourceProgram,
-  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
-  calls: ReadonlyMap<Node, CooperativeEffectCandidate>,
-  interfaces: DeclaredInterfaceDispatch,
-  valueFlow: CallableValueFlow,
-): ReadonlySet<Node> {
-  const queries = new Set<Node>();
-  const include = (call: Node): void => {
-    if (cooperativeCallUse(source, candidates, call) === "consumer") {
-      queries.add(call);
-    }
-  };
-  for (const call of calls.keys()) {
-    include(call);
-  }
-  for (const call of interfaces.calls.keys()) {
-    include(call);
-  }
-  valueFlow.forEachCall((call, resolution) => {
-    if (
-      !calls.has(call) &&
-      !interfaces.calls.has(call) &&
-      resolution.closed &&
-      resolution.dependencyCount !== 0
-    ) {
-      include(call);
-    }
-  });
-  return Object.freeze(queries);
-}
-
-type CooperativeCallUse =
-  | "awaited"
-  | "discarded"
-  | "consumer"
-  | { readonly kind: "returned"; readonly owner: CooperativeEffectCandidate };
-
-function cooperativeCallUse(
-  source: TargetSourceProgram,
-  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
-  call: Node,
-): CooperativeCallUse {
-  if (containingAwait(source, call) !== undefined) {
-    return "awaited";
-  }
-  if (isDiscardedCall(source, call)) {
-    return "discarded";
-  }
-  const owner = enclosingCandidate(source, candidates, call);
-  return owner !== undefined && containingReturn(source, call) !== undefined
-    ? Object.freeze({ kind: "returned", owner })
-    : "consumer";
-}
-
 export function collectSettledCooperativeAwaits(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
@@ -261,6 +131,7 @@ export function collectSettledCooperativeAwaits(
   returnFlow: ReturnValueFlow,
   providers: ConditionalProviderEffectFlow,
   optimized: ReadonlySet<Node>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ReadonlySet<Node> {
   const awaits = new Set<Node>();
   for (const node of program.nodesOfKind(KindAwaitExpression)) {
@@ -299,6 +170,21 @@ export function collectSettledCooperativeAwaits(
     }
     const direct = calls.get(call);
     const family = interfaces.calls.get(call);
+    if (interfaces.callIsRejected(call)) {
+      continue;
+    }
+    if (
+      direct === undefined &&
+      family === undefined &&
+      resolvedCallProducesDefinitelySynchronousValue(
+        source,
+        call,
+        bodyInspectionIsCertified,
+      )
+    ) {
+      awaits.add(node);
+      continue;
+    }
     const resolution = direct === undefined
       ? valueFlow.resolutionFor(call)
       : undefined;
@@ -347,12 +233,13 @@ function classifyAwaitDependencies(
   providers: ConditionalProviderEffectFlow,
   conditionalSettlements: (dependencies: Iterable<Node>) =>
     ReadonlySet<Node> | undefined,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
   node: Node,
 ): void {
   if (!source.ast.is.IsAwaitExpression(node)) {
     return;
   }
-  const owner = enclosingCandidate(source, candidates, node);
+  const owner = enclosingCooperativeCandidate(source, candidates, node);
   if (owner === undefined) {
     return;
   }
@@ -376,6 +263,20 @@ function classifyAwaitDependencies(
       "callable-invocation",
       call,
     );
+    return;
+  }
+  if (call !== undefined && interfaces.callIsRejected(call)) {
+    blockCooperativeEffect(owner, "unresolved-call", call);
+    return;
+  }
+  if (
+    call !== undefined &&
+    resolvedCallProducesDefinitelySynchronousValue(
+      source,
+      call,
+      bodyInspectionIsCertified,
+    )
+  ) {
     return;
   }
   const provider = providers.forCall(call);
@@ -491,12 +392,13 @@ function classifyReturnDependencies(
   returnFlow: ReturnValueFlow,
   conditionalSettlements: (dependencies: Iterable<Node>) =>
     ReadonlySet<Node> | undefined,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
   node: Node,
 ): void {
   if (!source.ast.is.IsReturnStatement(node)) {
     return;
   }
-  const owner = enclosingCandidate(source, candidates, node);
+  const owner = enclosingCooperativeCandidate(source, candidates, node);
   if (owner === undefined) {
     return;
   }
@@ -518,45 +420,10 @@ function classifyReturnDependencies(
     valueFlow,
     returnFlow,
     conditionalSettlements,
+    bodyInspectionIsCertified,
     owner,
     expression,
   );
-}
-
-function indexCandidateSymbols(
-  source: TargetSourceProgram,
-  candidates: Iterable<CooperativeEffectCandidate>,
-): ReadonlyMap<Symbol, CooperativeEffectCandidate> {
-  const result = new Map<Symbol, CooperativeEffectCandidate>();
-  for (const candidate of candidates) {
-    const name = source.ast.name(candidate.declaration);
-    for (const symbol of exactSymbolsAt(source, name)) {
-      result.set(symbol, candidate);
-    }
-  }
-  return result;
-}
-
-function candidateForReference(
-  source: TargetSourceProgram,
-  tracked: ReadonlyMap<Symbol, CooperativeEffectCandidate>,
-  node: Node,
-): CooperativeEffectCandidate | undefined {
-  for (const symbol of exactSymbolsAt(source, node)) {
-    const candidate = tracked.get(symbol);
-    if (candidate !== undefined) {
-      return candidate;
-    }
-  }
-  return undefined;
-}
-
-function exactSymbolsAt(
-  source: TargetSourceProgram,
-  node: Node | undefined,
-): readonly Symbol[] {
-  const symbol = source.navigation.sourceReferenceFor(node)?.symbol;
-  return symbol === undefined ? [] : [symbol];
 }
 
 function hasRetainedDependency(
@@ -570,19 +437,4 @@ function hasRetainedDependency(
     }
   }
   return false;
-}
-
-function enclosingCandidate(
-  source: TargetSourceProgram,
-  candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
-  node: Node,
-): CooperativeEffectCandidate | undefined {
-  let current = source.ast.parent(node);
-  while (current !== undefined) {
-    if (isFunctionLike(source, current)) {
-      return candidates.get(current);
-    }
-    current = source.ast.parent(current);
-  }
-  return undefined;
 }

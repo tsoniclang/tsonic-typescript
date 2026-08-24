@@ -2,11 +2,22 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
-import { exactBindingWriteInput } from "../../storage/assignment.js";
-import { storageDeclarationCanBeTracked } from "../../storage/owners.js";
+import { KindThisKeyword } from "@tsonic/tsts/target-ast";
+import {
+  exactBindingWriteInput,
+  exactConstructorFieldWriteInput,
+} from "../../storage/assignment.js";
+import {
+  classCanOwnStorage,
+  storageDeclarationCanBeTracked,
+} from "../../storage/owners.js";
 import type { ExactInvocationInputIndex } from "../../invocation/inputs.js";
 import type { ExactValueSlotSelector } from "./model.js";
 import type { ClosedStorageOwnerAnalysis } from "../../storage/analysis.js";
+import type { ExactAggregateProjectionIndex } from "../../aggregate/projection.js";
+import { resolveExactSourceInvocation } from "../../../model/exact-source-invocation.js";
+import { exactSourceCallInputsForDeclaration } from "../../invocation/call-binding.js";
+import { transparentExpression } from "../../../model/syntax.js";
 import {
   auditStorageOwnerBoundaries,
   type StorageOwnerBoundaryDependencies,
@@ -24,6 +35,10 @@ export interface ExactStorageSlotInputIndex {
   slotFor(
     selector: Extract<ExactValueSlotSelector, { readonly kind: "property" }>,
   ): ExactStorageSlot | undefined;
+  constructionInputsFor(
+    expression: Node,
+    selector: Extract<ExactValueSlotSelector, { readonly kind: "property" }>,
+  ): readonly Node[] | undefined;
   isInput(expression: Node): boolean;
   isOwnerReference(expression: Node): boolean;
 }
@@ -31,6 +46,7 @@ export interface ExactStorageSlotInputIndex {
 export function createExactStorageSlotInputIndex(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  projections: ExactAggregateProjectionIndex,
   invocationInputs: ExactInvocationInputIndex | undefined,
   storageOwners: ClosedStorageOwnerAnalysis,
   planningObserver?: TypeScriptPlanningObserver,
@@ -66,6 +82,7 @@ export function createExactStorageSlotInputIndex(
     planningObserver,
     topology,
     boundaryDependencies,
+    storageOwners.bodyInspectionIsExact,
   );
   const slots = new Map<Node, ExactStorageSlot>();
   const inputs = new Set<Node>();
@@ -95,6 +112,21 @@ export function createExactStorageSlotInputIndex(
       }
       return slots.get(declarations[0]!);
     },
+    constructionInputsFor(
+      expression: Node,
+      selector: Extract<ExactValueSlotSelector, { readonly kind: "property" }>,
+    ): readonly Node[] | undefined {
+      return exactConstructionSlotInputs(
+        source,
+        program,
+        projections,
+        expression,
+        selector,
+        exactCallImplementations,
+        storageOwners.owners,
+        storageOwners.bodyInspectionIsExact,
+      );
+    },
     isInput(expression: Node): boolean {
       return inputs.has(expression);
     },
@@ -104,6 +136,221 @@ export function createExactStorageSlotInputIndex(
       ) === true;
     },
   });
+}
+
+function exactConstructionSlotInputs(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  projections: ExactAggregateProjectionIndex,
+  expression: Node,
+  selector: Extract<ExactValueSlotSelector, { readonly kind: "property" }>,
+  exactCallImplementations: ExactCallImplementations | undefined,
+  closedOwners: ReadonlySet<Node>,
+  bodyInspectionIsCertified: (declaration: Node) => boolean,
+): readonly Node[] | undefined {
+  if (!source.ast.is.IsNewExpression(expression)) {
+    return undefined;
+  }
+  const direct = resolveExactSourceInvocation(
+    source,
+    expression,
+    bodyInspectionIsCertified,
+  )?.implementation;
+  const constructors = new Set([
+    ...(direct === undefined ? [] : [direct]),
+    ...(exactCallImplementations?.(expression) ?? []),
+  ]);
+  const constructor = constructors.size === 1
+    ? [...constructors][0]
+    : undefined;
+  const owner = constructor === undefined ? undefined : source.ast.parent(constructor);
+  const body = constructor === undefined ? undefined : source.ast.body(constructor);
+  if (
+    constructor === undefined ||
+    owner === undefined ||
+    body === undefined ||
+    !source.ast.is.IsConstructorDeclaration(constructor) ||
+    !classCanOwnStorage(source, owner, bodyInspectionIsCertified) ||
+    !closedOwners.has(owner) ||
+    hasDecorator(source, constructor) ||
+    !constructorParametersAreTransparent(source, constructor) ||
+    source.ast.members(owner).some((member) =>
+      member !== undefined &&
+      source.ast.is.IsPropertyDeclaration(member) &&
+      source.ast.as.AsPropertyDeclaration(member)?.Initializer !== undefined
+    )
+  ) {
+    return undefined;
+  }
+  const declaration = selectedConstructionSlot(
+    source,
+    owner,
+    constructor,
+    selector,
+  );
+  if (declaration === undefined) {
+    return undefined;
+  }
+  const parameter = source.ast.is.IsParameterDeclaration(declaration)
+    ? declaration
+    : assignedConstructorParameter(
+      source,
+      program,
+      owner,
+      constructor,
+      declaration,
+    );
+  if (parameter === undefined) {
+    return undefined;
+  }
+  const assignments = source.ast.statements(body);
+  if (
+    source.ast.is.IsParameterDeclaration(declaration)
+      ? assignments.length !== 0
+      : !constructorAssignmentsAreTransparent(
+        source,
+        owner,
+        constructor,
+        assignments,
+      )
+  ) {
+    return undefined;
+  }
+  return exactSourceCallInputsForDeclaration(
+    source,
+    expression,
+    constructor,
+    projections,
+  )?.inputs.get(parameter);
+}
+
+function selectedConstructionSlot(
+  source: TargetSourceProgram,
+  owner: Node,
+  constructor: Node,
+  selector: Extract<ExactValueSlotSelector, { readonly kind: "property" }>,
+): Node | undefined {
+  const candidates = [
+    ...source.ast.members(owner).filter((member): member is Node =>
+      member !== undefined && source.ast.is.IsPropertyDeclaration(member)
+    ),
+    ...source.ast.parameters(constructor).filter((parameter): parameter is Node =>
+      parameter !== undefined && storageDeclarationCanBeTracked(source, parameter)
+    ),
+  ].filter((declaration) =>
+    source.ast.hasModifierKind(declaration, "readonly") &&
+    selectorSelectsDeclaration(source, selector, declaration)
+  );
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+function assignedConstructorParameter(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  owner: Node,
+  constructor: Node,
+  declaration: Node,
+): Node | undefined {
+  const writes = program.bindingWritesFor(declaration);
+  if (writes.length !== 1) {
+    return undefined;
+  }
+  const write = writes[0]!;
+  const input = exactBindingWriteInput(source, write);
+  const access = source.ast.as.AsPropertyAccessExpression(write.reference);
+  const parameter = transparentExpression(source, input);
+  return access?.Expression !== undefined &&
+      source.ast.kind(access.Expression) === KindThisKeyword &&
+      parameter !== undefined &&
+      source.ast.is.IsIdentifier(parameter) &&
+      source.navigation.sourceReferenceFor(parameter)?.declaration !== undefined &&
+      source.ast.parameters(constructor).includes(
+        source.navigation.sourceReferenceFor(parameter)?.declaration,
+      ) &&
+      source.ast.parent(constructor) === owner
+    ? source.navigation.sourceReferenceFor(parameter)?.declaration
+    : undefined;
+}
+
+function constructorAssignmentsAreTransparent(
+  source: TargetSourceProgram,
+  owner: Node,
+  constructor: Node,
+  statements: readonly (Node | undefined)[],
+): boolean {
+  const assigned = new Set<Node>();
+  for (const statement of statements) {
+    const expression = statement === undefined ||
+        !source.ast.is.IsExpressionStatement(statement)
+      ? undefined
+      : source.ast.as.AsExpressionStatement(statement)?.Expression;
+    const binary = expression === undefined ||
+        !source.ast.is.IsBinaryExpression(expression) ||
+        source.ast.operatorKindName(expression) !== "KindEqualsToken"
+      ? undefined
+      : source.ast.as.AsBinaryExpression(expression);
+    const access = binary?.Left === undefined ||
+        !source.ast.is.IsPropertyAccessExpression(binary.Left)
+      ? undefined
+      : source.ast.as.AsPropertyAccessExpression(binary.Left);
+    const declaration = binary?.Left === undefined
+      ? undefined
+      : source.semantics.forNode(binary.Left).operations.propertyAccess(binary.Left)
+        ?.selectedDeclaration;
+    const parameter = transparentExpression(source, binary?.Right);
+    if (
+      access?.Expression === undefined ||
+      source.ast.kind(access.Expression) !== KindThisKeyword ||
+      declaration === undefined ||
+      source.ast.parent(declaration) !== owner ||
+      !source.ast.is.IsPropertyDeclaration(declaration) ||
+      !source.ast.hasModifierKind(declaration, "readonly") ||
+      assigned.has(declaration) ||
+      parameter === undefined ||
+      !source.ast.is.IsIdentifier(parameter) ||
+      !source.ast.parameters(constructor).includes(
+        source.navigation.sourceReferenceFor(parameter)?.declaration,
+      )
+    ) {
+      return false;
+    }
+    assigned.add(declaration);
+  }
+  return true;
+}
+
+function constructorParametersAreTransparent(
+  source: TargetSourceProgram,
+  constructor: Node,
+): boolean {
+  return source.ast.parameters(constructor).every((parameter) => {
+    const parsed = source.ast.as.AsParameterDeclaration(parameter);
+    return parameter !== undefined &&
+      parsed !== undefined &&
+      parsed.DotDotDotToken === undefined &&
+      parsed.QuestionToken === undefined &&
+      parsed.Initializer === undefined &&
+      !hasDecorator(source, parameter);
+  });
+}
+
+function selectorSelectsDeclaration(
+  source: TargetSourceProgram,
+  selector: Extract<ExactValueSlotSelector, { readonly kind: "property" }>,
+  declaration: Node,
+): boolean {
+  if (selector.declarations.has(declaration)) {
+    return true;
+  }
+  const symbol = source.navigation.sourceReferenceFor(source.ast.name(declaration))
+    ?.symbol;
+  return symbol !== undefined && selector.symbols.has(symbol);
+}
+
+function hasDecorator(source: TargetSourceProgram, node: Node): boolean {
+  return source.ast.modifiers(node).some((modifier) =>
+    source.ast.is.IsDecorator(modifier)
+  );
 }
 
 function collectStorageSlotBindings(
@@ -201,6 +448,15 @@ function exactStorageSlotInputs(
       .filter((write) => isFieldAccess(source, write.reference, declaration))
       .map((write) => [write.reference, write] as const),
   );
+  if (
+    source.ast.is.IsPropertyDeclaration(declaration) &&
+    !source.ast.hasModifierKind(declaration, "readonly") &&
+    [...writes.values()].some((write) =>
+      exactConstructorFieldWriteInput(source, write, declaration) !== undefined
+    )
+  ) {
+    return undefined;
+  }
   for (const reference of source.navigation.referencesToDeclaration(declaration)) {
     if (
       reference === source.ast.name(declaration) ||

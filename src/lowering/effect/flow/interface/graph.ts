@@ -8,12 +8,15 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { InvocationTransportContract } from "../../../invocation-transport.js";
+import {
+  composeInvocationTransportContracts,
+  type InvocationTransportContract,
+} from "../../../invocation-transport.js";
 import type { SourceIdentityResolver } from "../../../occurrence.js";
 import {
   type CallableReturnRewrite,
 } from "../../model/callable-contract.js";
-import { isExactInterfaceProjectDeclaration } from "./declarations.js";
+import { isExactInterfaceSourceDeclaration } from "./declarations.js";
 import {
   createInterfaceContractImplementationLedger,
   type InterfaceContractImplementationLedger,
@@ -25,7 +28,6 @@ import {
   type InterfaceContractBoundaryLedger,
 } from "./boundary.js";
 import { collectInterfaceContractComponent } from "./component.js";
-import { createAbstractInvocationTransports } from "./abstract-transport.js";
 import {
   createExactInvocationInputIndex,
   type ExactInvocationInputIndex,
@@ -33,7 +35,10 @@ import {
 import {
   createExactIndirectInvocationAnalysis,
 } from "../invocation/indirect.js";
-import type { ExactCallImplementations } from "../callable/result-inputs.js";
+import type {
+  ExactCallableBodyInspection,
+  ExactCallImplementations,
+} from "../callable/result-inputs.js";
 import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import {
@@ -46,6 +51,8 @@ import {
 } from "../object/projection.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import { collectInterfaceEffectContracts } from "./contracts.js";
+import { createAbstractInvocationTransports } from "./abstract-transport.js";
+import { createInterfaceStorageBoundaryDependencies } from "./storage-dependencies.js";
 
 export interface InterfaceContractFlowIndexes {
   readonly invocationInputs: ExactInvocationInputIndex;
@@ -54,17 +61,27 @@ export interface InterfaceContractFlowIndexes {
   readonly aggregateProjections: ExactAggregateProjectionIndex;
   readonly objectProjections?: ExactObjectPropertyProjectionIndex;
   readonly storageOwners?: ClosedStorageOwnerAnalysis;
+  readonly bodyInspectionIsCertified?: ExactCallableBodyInspection;
 }
 
 export interface InterfaceContractEntry {
   readonly declaration: Node;
   readonly calls: readonly Node[];
   readonly implementations: readonly Node[];
+  readonly implementationReturnRewrites: readonly CallableReturnRewrite[];
+  readonly implementationReturnContractBlockers: readonly Node[];
   readonly returnRewrite: CallableReturnRewrite;
+}
+
+export interface InterfaceAbstractTransportEntry {
+  readonly declaration: Node;
+  readonly calls: readonly Node[];
+  readonly implementations: readonly Node[];
 }
 
 export interface InterfaceContractComponent {
   readonly entries: readonly InterfaceContractEntry[];
+  readonly abstractTransports: readonly InterfaceAbstractTransportEntry[];
   readonly boundary: boolean;
   readonly boundaryCauses: readonly InterfaceContractBoundaryCause[];
 }
@@ -74,6 +91,7 @@ export interface InterfaceContractGraph {
   readonly components: readonly InterfaceContractComponent[];
   readonly boundaryCauses: readonly InterfaceContractBoundaryCause[];
   readonly invocationInputs: ExactInvocationInputIndex;
+  readonly invocationTransportCalls: readonly Node[];
   readonly invocationTransports?: InvocationTransportContract;
 }
 
@@ -102,20 +120,87 @@ export function createInterfaceContractGraph(
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
   planningObserver?: TypeScriptPlanningObserver,
 ): InterfaceContractGraph {
+  let derivedTransports: InvocationTransportContract | undefined;
+  let derivedCalls: readonly Node[] = Object.freeze([]);
+  const maximumRounds = program.nodesOfKind(KindCallExpression).length + 1;
+  for (let round = 0; round <= maximumRounds; round += 1) {
+    const graph = createInterfaceContractGraphRound(
+      source,
+      program,
+      composeInvocationTransportContracts([transports, derivedTransports]),
+      sourceIdentityFor,
+      indexes,
+      cooperativeEffects,
+      planningObserver,
+    );
+    if (!nodesAreSubset(derivedCalls, graph.invocationTransportCalls)) {
+      throw new Error("abstract interface transport closure is not monotonic");
+    }
+    if (sameNodes(derivedCalls, graph.invocationTransportCalls)) {
+      return graph;
+    }
+    derivedCalls = graph.invocationTransportCalls;
+    derivedTransports = graph.invocationTransports;
+  }
+  throw new Error("abstract interface transport closure exceeded its finite domain");
+}
+
+function createInterfaceContractGraphRound(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  transports: InvocationTransportContract | undefined,
+  sourceIdentityFor: SourceIdentityResolver,
+  indexes: InterfaceContractFlowIndexes | undefined,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
+  planningObserver: TypeScriptPlanningObserver | undefined,
+): InterfaceContractGraph {
+  const contracts = collectContracts(
+    source,
+    program,
+    sourceIdentityFor,
+    indexes?.bodyInspectionIsCertified,
+  );
   const aggregateProjections = indexes?.aggregateProjections ??
     createExactAggregateProjectionIndex(source, program);
   const objectProjections = indexes?.objectProjections ??
-    createExactObjectPropertyProjectionIndex(source, program);
+    createExactObjectPropertyProjectionIndex(
+      source,
+      program,
+      cooperativeEffects,
+    );
   const indirectInvocations =
     indexes === undefined
       ? createExactIndirectInvocationAnalysis(
-      source,
-      program,
-      createExactInvocationInputIndex(source, program, aggregateProjections),
-      aggregateProjections,
-      objectProjections,
-      transports,
-      ).finalize()
+          source,
+          program,
+          createExactInvocationInputIndex(
+            source,
+            program,
+            aggregateProjections,
+            cooperativeEffects,
+          ),
+          aggregateProjections,
+          objectProjections,
+          transports,
+          undefined,
+          planningObserver,
+          undefined,
+          undefined,
+          undefined,
+          "declared-interface",
+          createInterfaceStorageBoundaryDependencies(
+            source,
+            new Set([...contracts.entries.keys()].flatMap((contract) => {
+              const owner = source.ast.parent(contract);
+              return owner !== undefined &&
+                  source.ast.is.IsInterfaceDeclaration(owner)
+                ? [owner]
+                : [];
+            })),
+          ),
+          undefined,
+          cooperativeEffects,
+        ).finalize()
       : undefined;
   const invocationInputs = indexes?.invocationInputs ??
     indirectInvocations?.invocationInputs;
@@ -124,7 +209,6 @@ export function createInterfaceContractGraph(
   }
   const exactCallImplementations = indexes?.exactCallImplementations ??
     indirectInvocations?.implementationsFor;
-  const contracts = collectContracts(source, program, sourceIdentityFor);
   planningObserver?.("effect-interface-contracts", {
     contracts: contracts.entries.size,
   });
@@ -149,6 +233,7 @@ export function createInterfaceContractGraph(
     cooperativeEffects,
     planningObserver,
     indexes?.storageOwners,
+    indexes?.bodyInspectionIsCertified,
   );
   const seeds = [...contracts.entries.values()].filter((entry) =>
     entry.returnRewrite !== undefined && entry.calls.length !== 0
@@ -171,27 +256,52 @@ export function createInterfaceContractGraph(
       if (entry === undefined) {
         throw new Error("interface contract graph lost a linked declaration");
       }
-      return entry.returnRewrite === undefined ? [] : [Object.freeze({
+      if (entry.returnRewrite === undefined) {
+        return [];
+      }
+      const implementations = contracts.implementations.implementationsFor(
+        entry.declaration,
+      );
+      return [Object.freeze({
+        declaration: entry.declaration,
+        calls: Object.freeze([...entry.calls]),
+        implementations,
+        implementationReturnRewrites: Object.freeze(implementations.flatMap(
+          (implementation) =>
+            contracts.implementations.returnRewritesFor(implementation),
+        )),
+        implementationReturnContractBlockers: Object.freeze(
+          implementations.flatMap((implementation) =>
+            contracts.implementations.returnContractBlockersFor(implementation)
+          ),
+        ),
+        returnRewrite: entry.returnRewrite,
+      })];
+    });
+    const abstractTransports = declarations.flatMap((declaration) => {
+      const entry = contracts.entries.get(declaration);
+      return entry?.abstractTransport !== true ? [] : [Object.freeze({
         declaration: entry.declaration,
         calls: Object.freeze([...entry.calls]),
         implementations: contracts.implementations.implementationsFor(
           entry.declaration,
         ),
-        returnRewrite: entry.returnRewrite,
       })];
     });
     const boundaryCauses = contracts.boundaries.causesFor(declarations);
     components.push(Object.freeze({
       entries: Object.freeze(entries),
+      abstractTransports: Object.freeze(abstractTransports),
       boundary: boundaryCauses.length !== 0,
       boundaryCauses,
     }));
   }
-  const invocationTransports = createAbstractInvocationTransports(
+  const boundaryCauses = contracts.boundaries.causesFor(consideredDeclarations);
+  const abstractTransports = createAbstractInvocationTransports(
     source,
     contracts,
+    indexes?.bodyInspectionIsCertified,
   );
-  const boundaryCauses = contracts.boundaries.causesFor(consideredDeclarations);
   planningObserver?.("effect-interface-components", {
     boundaries: boundaryCauses.length,
     components: components.length,
@@ -202,18 +312,35 @@ export function createInterfaceContractGraph(
     components: Object.freeze(components),
     boundaryCauses,
     invocationInputs: completeInvocationInputs,
-    ...(invocationTransports === undefined ? {} : { invocationTransports }),
+    invocationTransportCalls: abstractTransports?.calls ?? Object.freeze([]),
+    ...(abstractTransports === undefined
+      ? {}
+      : { invocationTransports: abstractTransports.contract }),
   });
+}
+
+function sameNodes(left: readonly Node[], right: readonly Node[]): boolean {
+  return left.length === right.length && nodesAreSubset(left, right);
+}
+
+function nodesAreSubset(left: readonly Node[], right: readonly Node[]): boolean {
+  const selected = new Set(right);
+  return left.every((node) => selected.has(node));
 }
 
 function collectContracts(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   sourceIdentityFor: SourceIdentityResolver,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): InterfaceContractIndex {
   const entries = new Map<Node, MutableInterfaceContractEntry>();
   const links = new Map<Node, Set<Node>>();
-  for (const contract of collectInterfaceEffectContracts(source, program)) {
+  for (const contract of collectInterfaceEffectContracts(
+    source,
+    program,
+    bodyInspectionIsCertified,
+  )) {
     entries.set(contract.declaration, {
       declaration: contract.declaration,
       calls: [],
@@ -234,8 +361,16 @@ function collectContracts(
     if (
       owner === undefined ||
       !abstractTransport ||
-      !isExactInterfaceProjectDeclaration(source, owner) ||
-      !isExactInterfaceProjectDeclaration(source, declaration) ||
+      !isExactInterfaceSourceDeclaration(
+        source,
+        owner,
+        bodyInspectionIsCertified,
+      ) ||
+      !isExactInterfaceSourceDeclaration(
+        source,
+        declaration,
+        bodyInspectionIsCertified,
+      ) ||
       typeNode === undefined
     ) {
       continue;
@@ -254,6 +389,7 @@ function collectContracts(
   const implementations = createInterfaceContractImplementationLedger(
     source,
     (left, right) => linkInterfaceContracts(left, right, links),
+    bodyInspectionIsCertified,
   );
   return {
     entries,
@@ -263,6 +399,7 @@ function collectContracts(
       entries,
       boundaries,
       implementations,
+      bodyInspectionIsCertified,
     ),
     implementations,
     links,
@@ -276,6 +413,7 @@ function collectDeclarationContracts(
   entries: ReadonlyMap<Node, MutableInterfaceContractEntry>,
   boundaries: InterfaceContractBoundaryLedger,
   implementations: InterfaceContractImplementationLedger,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): ReadonlyMap<Node, readonly Node[]> {
   const ownerContracts = new Map<Node, Node[]>();
   for (const contract of entries.keys()) {
@@ -304,6 +442,7 @@ function collectDeclarationContracts(
       source,
       declaration,
       ownerContracts,
+      bodyInspectionIsCertified,
     );
     if (contracts.length === 0) {
       continue;
@@ -329,6 +468,7 @@ function declaredClassContracts(
   source: TargetSourceProgram,
   declaration: Node,
   ownerContracts: ReadonlyMap<Node, readonly Node[]>,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): readonly Node[] {
   const result = new Set<Node>();
   const pending = [declaration];
@@ -347,7 +487,14 @@ function declaredClassContracts(
       for (const contract of ownerContracts.get(edge.target.declaration) ?? []) {
         result.add(contract);
       }
-      if (edge.target.project) {
+      if (
+        edge.target.project ||
+        isExactInterfaceSourceDeclaration(
+          source,
+          edge.target.declaration,
+          bodyInspectionIsCertified,
+        )
+      ) {
         pending.push(edge.target.declaration);
       }
     }

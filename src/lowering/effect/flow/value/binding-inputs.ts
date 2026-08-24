@@ -7,10 +7,15 @@ import {
   declarationIsAmbient,
   declarationIsExported,
 } from "../../model/declaration-surface.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import { exactBindingWriteInput } from "../storage/assignment.js";
 import type { ExactValueSlotPath } from "./slot/model.js";
 import { exactValueSlotPathKey } from "./slot/selectors.js";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../model/source-membership.js";
 
 export interface ExactValueBindingInputs {
   inputsForReference(
@@ -24,6 +29,8 @@ export function createExactValueBindingInputs(
   program: TargetProgramIndex,
   invocationInputs: ExactInvocationInputIndex | undefined,
   readIsAdmitted: (reference: Node, path: ExactValueSlotPath) => boolean,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ExactValueBindingInputs {
   const cache = new Map<Node, Map<string, readonly Node[] | null>>();
   return Object.freeze({
@@ -32,7 +39,14 @@ export function createExactValueBindingInputs(
       path: ExactValueSlotPath,
     ): readonly Node[] | undefined {
       const selected = source.navigation.sourceReferenceFor(reference);
-      if (selected?.project !== true) {
+      if (
+        selected === undefined ||
+        !sourceBodyInspectionIsExact(
+          source,
+          selected.declaration,
+          bodyInspectionIsCertified,
+        )
+      ) {
         return undefined;
       }
       const declaration = selected.declaration;
@@ -48,6 +62,7 @@ export function createExactValueBindingInputs(
         declaration,
         invocationInputs,
         (candidate) => readIsAdmitted(candidate, path),
+        cooperativeEffects,
       );
       if (byPath === undefined) {
         byPath = new Map();
@@ -65,13 +80,15 @@ function exactInputsForDeclaration(
   declaration: Node,
   invocationInputs: ExactInvocationInputIndex | undefined,
   readIsAdmitted: (reference: Node) => boolean,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
 ): readonly Node[] | undefined {
   const variable = source.ast.is.IsVariableDeclaration(declaration);
   const parameter = source.ast.is.IsParameterDeclaration(declaration);
   if (
     (!variable && !parameter) ||
     !source.ast.is.IsIdentifier(source.ast.name(declaration)) ||
-    (variable && declarationIsExported(source, declaration)) ||
+    (variable && cooperativeEffects !== "closed-program" &&
+      declarationIsExported(source, declaration)) ||
     (parameter && invocationInputs?.isClosed(declaration) !== true)
   ) {
     return undefined;
@@ -100,7 +117,7 @@ function exactInputsForDeclaration(
   const closed = source.navigation.referencesToDeclaration(declaration).every(
     (reference) => {
       if (isModuleForwardingReference(source, reference)) {
-        return false;
+        return cooperativeEffects === "closed-program";
       }
       const write = writes.get(reference);
       if (write === undefined) {

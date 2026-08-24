@@ -18,7 +18,6 @@ import type {
 } from "./model.js";
 import {
   containingExactValueSlotRead,
-  exactValueSlotPathIsReadonly,
   isExactObjectSpreadContainerReference,
 } from "./selectors.js";
 import { createExactStorageSlotInputIndex } from "./storage.js";
@@ -37,6 +36,8 @@ import {
 import { mergeExactValueSlotResolutions } from "./resolution.js";
 import type { ExactCallImplementations } from "../../callable/result-inputs.js";
 import type { StorageOwnerBoundaryDependencies } from "../../storage/owner-boundaries.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../../profile.js";
+import type { ExactOpaqueValueSlotTransport } from "./opaque-transport.js";
 
 export const maximumExactValueSlotRootsPerBatch = 1;
 
@@ -55,16 +56,29 @@ export function createExactValueSlotFlow(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  opaqueTransport?: ExactOpaqueValueSlotTransport,
 ): ExactValueSlotFlow {
   const storageSlots = createExactStorageSlotInputIndex(
     source,
     program,
+    projections,
     invocationInputs,
     storageOwners,
     planningObserver,
     exactCallImplementations,
     callableReferenceIsClosed,
     boundaryDependencies,
+  );
+  const structuralWrites = createExactStructuralSlotWriteIndex(
+    source,
+    program,
+    storageOwners.owners,
+    exactCallImplementations,
+    boundaryDependencies,
+    planningObserver,
+    storageOwners.bodyInspectionIsExact,
+    opaqueTransport,
   );
   const bindings = createExactValueBindingInputs(
     source,
@@ -76,13 +90,17 @@ export function createExactValueSlotFlow(
       exactInvocationInputIsClosed(reference, invocationInputs) ||
       storageSlots.isInput(reference) ||
       storageSlots.isOwnerReference(reference) ||
-      exactValueSlotPathIsReadonly(source, reference, path),
+      structuralWrites.opaqueCallDoesNotObserveSlots(reference),
+    storageOwners.bodyInspectionIsExact,
+    cooperativeEffects,
   );
   planningObserver?.("effect-value-slot-bindings");
   const bindingProjections = createExactValueBindingProjectionIndex(
     source,
     program,
     invocationInputs,
+    storageOwners.bodyInspectionIsExact,
+    cooperativeEffects,
   );
   planningObserver?.("effect-value-slot-binding-projections");
   const domain = Object.freeze({
@@ -93,14 +111,8 @@ export function createExactValueSlotFlow(
     bindings,
     bindingProjections,
     storageSlots,
-    structuralWrites: createExactStructuralSlotWriteIndex(
-      source,
-      program,
-      storageOwners.owners,
-      exactCallImplementations,
-      boundaryDependencies,
-      planningObserver,
-    ),
+    bodyInspectionIsExact: storageOwners.bodyInspectionIsExact,
+    structuralWrites,
   });
   const selectedRoots = selectExactValueSlotRoots(domain, rootExpressions);
   const resolved = new Map<Node, ExactValueSlotResolution>();

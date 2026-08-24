@@ -53,7 +53,12 @@ export function sourceContainsRelevantContracts(
     }
     if (semantics.types.isArrayLike(selected)) {
       if (semantics.types.isTypeReference(selected)) {
-        appendTypes(pending, semantics.types.typeArguments(selected));
+        const arguments_ = semantics.types.effectiveTypeArguments(selected);
+        if (arguments_ === undefined) {
+          cache.set(root, true);
+          return true;
+        }
+        appendTypes(pending, arguments_);
       }
       appendTypes(
         pending,
@@ -73,6 +78,7 @@ export function sourceContainsRelevantContracts(
             parameter.type
           ),
         );
+        appendTypes(pending, [semantics.types.returnType(signature)]);
       }
       continue;
     }
@@ -136,7 +142,13 @@ export function markAllRelevantSourceContracts(
     }
     if (semantics.types.isArrayLike(selected)) {
       if (semantics.types.isTypeReference(selected)) {
-        appendTypes(pending, semantics.types.typeArguments(selected));
+        const arguments_ = semantics.types.effectiveTypeArguments(selected);
+        if (arguments_ === undefined) {
+          sink.markExposedContracts(semantics, selected);
+          sink.markExposedValueContracts(semantics, selected);
+          return;
+        }
+        appendTypes(pending, arguments_);
       }
       appendTypes(
         pending,

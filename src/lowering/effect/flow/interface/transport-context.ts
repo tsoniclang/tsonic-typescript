@@ -1,35 +1,57 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
-import { isExactInterfaceProjectDeclaration } from "./declarations.js";
+import { isExactInterfaceSourceDeclaration } from "./declarations.js";
 import type { InterfaceContractMembership } from "./declarations.js";
-import { projectCallableImplementation } from "../../model/project-invocation.js";
+import { exactSourceCallableImplementation } from "../../model/exact-source-invocation.js";
+import {
+  nodeHasExactSourceSemantics,
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../../model/source-membership.js";
 
 export function callCrossesOpaqueInterfaceBoundary(
   source: TargetSourceProgram,
   declaration: Node | undefined,
   contracts?: InterfaceContractMembership,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
   if (declaration === undefined) {
     return true;
   }
   if (
-    !isExactInterfaceProjectDeclaration(source, declaration) ||
+    !nodeHasExactSourceSemantics(source, declaration) ||
     source.ast.hasModifierKind(declaration, "ambient")
   ) {
     return true;
   }
   if (
-    contracts?.has(declaration) === true ||
-    source.ast.is.IsFunctionTypeNode(declaration) ||
-    source.ast.is.IsConstructorTypeNode(declaration) ||
-    source.ast.is.IsCallSignatureDeclaration(declaration) ||
-    source.ast.is.IsConstructSignatureDeclaration(declaration) ||
-    source.ast.is.IsMethodSignatureDeclaration(declaration)
+    isExactInterfaceSourceDeclaration(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) &&
+    (
+      contracts?.has(declaration) === true ||
+      source.ast.is.IsFunctionTypeNode(declaration) ||
+      source.ast.is.IsConstructorTypeNode(declaration) ||
+      source.ast.is.IsCallSignatureDeclaration(declaration) ||
+      source.ast.is.IsConstructSignatureDeclaration(declaration) ||
+      source.ast.is.IsMethodSignatureDeclaration(declaration)
+    )
   ) {
     return false;
   }
-  return projectCallableImplementation(source, declaration) === undefined;
+  const implementation = exactSourceCallableImplementation(
+    source,
+    declaration,
+    bodyInspectionIsCertified,
+  );
+  return implementation === undefined || !sourceBodyInspectionIsExact(
+    source,
+    implementation,
+    bodyInspectionIsCertified,
+  );
 }
 
 export function isFreshInterfaceTransportAggregate(

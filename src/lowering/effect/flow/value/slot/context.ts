@@ -16,6 +16,7 @@ import type {
   ValueSlotStateRegistry,
   ValueSlotWorkItem,
 } from "./worklist.js";
+import type { ExactSourceBodyInspection } from "../../../model/source-membership.js";
 
 export type ValueSlotBoundaryReason = "open-slot" | "recursive-slot";
 
@@ -38,5 +39,6 @@ export interface ValueSlotContext {
   readonly active: ValueSlotActiveStates;
   readonly storageSlots: ExactStorageSlotInputIndex;
   readonly structuralWrites: ExactStructuralSlotWriteIndex;
+  readonly bodyInspectionIsExact: ExactSourceBodyInspection;
   boundaryFound: boolean;
 }

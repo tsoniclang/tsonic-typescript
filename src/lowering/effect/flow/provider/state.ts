@@ -11,6 +11,10 @@ import type {
   ProviderInvocationRecords,
 } from "./records.js";
 import { exactBindingWriteInput } from "../storage/assignment.js";
+import {
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../../model/source-membership.js";
 
 export interface ProviderStateTransportPlan {
   isClosed(call: Node): boolean;
@@ -28,6 +32,7 @@ export function createProviderStateTransportPlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   records: ProviderInvocationRecords,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ProviderStateTransportPlan {
   const stateRecords = records.all.filter((record) =>
     record.fact.state !== undefined
@@ -58,11 +63,13 @@ export function createProviderStateTransportPlan(
           record.expressionFor(state.carrierParameter),
           recognizedReferences,
           new Set(),
+          bodyInspectionIsCertified,
         );
     const destination = stateResultDestination(
       source,
       record.call,
       recognizedReferences,
+      bodyInspectionIsCertified,
     );
     if (destination !== undefined) {
       initializedOwners.add(destination);
@@ -91,6 +98,7 @@ export function createProviderStateTransportPlan(
       record.expressionFor(state.carrierParameter),
       recognizedReferences,
       new Set(),
+      bodyInspectionIsCertified,
     );
     if (owner !== undefined) {
       aliases.add(owner);
@@ -105,7 +113,11 @@ export function createProviderStateTransportPlan(
   }
   const invalidRoots = new Set<Node>();
   for (const owner of owners) {
-    if (!source.navigation.isProjectDeclaration(owner)) {
+    if (!sourceBodyInspectionIsExact(
+      source,
+      owner,
+      bodyInspectionIsCertified,
+    )) {
       if (!isFreshStateCall(records, owner)) {
         invalidRoots.add(aliases.root(owner));
       }
@@ -180,6 +192,7 @@ function resolveStateOwner(
   expression: Node | undefined,
   recognizedReferences: Set<Node>,
   seen: Set<Node>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): Node | undefined {
   const selected = successfulValueExpression(source, expression);
   if (selected === undefined || seen.has(selected)) {
@@ -196,12 +209,20 @@ function resolveStateOwner(
         record?.expressionFor(state.carrierParameter),
         recognizedReferences,
         seen,
+        bodyInspectionIsCertified,
       );
     }
     return state?.kind === "create" ? selected : undefined;
   }
   const reference = source.navigation.sourceReferenceFor(selected);
-  if (reference?.project !== true) {
+  if (
+    reference === undefined ||
+    !sourceBodyInspectionIsExact(
+      source,
+      reference.declaration,
+      bodyInspectionIsCertified,
+    )
+  ) {
     return undefined;
   }
   recognizedReferences.add(selected);
@@ -212,6 +233,7 @@ function stateResultDestination(
   source: TargetSourceProgram,
   call: Node,
   recognizedReferences: Set<Node>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): Node | undefined {
   let current = call;
   for (;;) {
@@ -251,7 +273,14 @@ function stateResultDestination(
         return undefined;
       }
       const reference = source.navigation.sourceReferenceFor(binary.Left);
-      if (reference?.project === true) {
+      if (
+        reference !== undefined &&
+        sourceBodyInspectionIsExact(
+          source,
+          reference.declaration,
+          bodyInspectionIsCertified,
+        )
+      ) {
         recognizedReferences.add(binary.Left);
         return reference.declaration;
       }

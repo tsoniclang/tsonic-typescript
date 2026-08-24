@@ -50,6 +50,28 @@ const source: Source = { value: new Pair() };`,
     "select(source)",
   ],
   [
+    "same-declaration generic union members",
+    `type Box<T> = { readonly value: T };
+type Source = { readonly nested: Box<Pair> | number };
+type Target = { readonly nested: Box<Reader> | number };
+function select(value: Target): Reader {
+  return typeof value.nested === "number"
+    ? new Pair()
+    : value.nested.value;
+}
+const source: Source = { nested: { value: new Pair() } };`,
+    "select(source)",
+  ],
+  [
+    "effective defaulted generic arguments",
+    `type Box<T = Reader> = { readonly value: T };
+type Source = { readonly nested: Box<Pair> };
+type Target = { readonly nested: Box };
+function select(value: Target): Reader { return value.nested.value; }
+const source: Source = { nested: { value: new Pair() } };`,
+    "select(source)",
+  ],
+  [
     "optional absent members",
     `type Source = {};
 type Target = { readonly value?: Reader };
@@ -112,8 +134,42 @@ export const result = await read(${expression});
     const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
     plan.finish();
     assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
+    const evidence = plan.summary.interfaceDispatch;
+    assert.equal(evidence.analyzed, true);
+    if (!evidence.analyzed) {
+      throw new Error("declared interface dispatch was not analyzed");
+    }
+    assert.equal(evidence.rejectedFamilyCount, 0);
+    assert.equal(evidence.settledFamilyCount, 1);
   });
 }
+
+test("retains an implicit implementation with a thenable body result", () => {
+  const fixture = checkedEffectFixture(`${prelude}
+class PromiseReader {
+  Read(): Awaitable<number> { return Promise.resolve(42); }
+}
+type Source = { readonly value: Reader };
+type Target = { readonly value: PromiseReader };
+function select(value: Target): Reader { return value.value; }
+const source: Source = { value: new PromiseReader() };
+export const result = await read(select(source));
+`);
+  const plan = createFixtureEffectPlan(fixture.source, "declared-closed");
+  const rewritten = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 1);
+  const evidence = plan.summary.interfaceDispatch;
+  assert.equal(evidence.analyzed, true);
+  if (!evidence.analyzed) {
+    throw new Error("declared interface dispatch was not analyzed");
+  }
+  assert.equal(evidence.settledFamilyCount, 0);
+  assert.ok(evidence.retainedFamilies.some((family) =>
+    family.reason === "unproven-synchronous-implementation"
+  ));
+});
 
 test("retains an asserted incompatible nested contract", () => {
   const fixture = checkedEffectFixture(`${prelude}

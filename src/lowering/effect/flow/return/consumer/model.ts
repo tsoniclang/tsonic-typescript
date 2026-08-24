@@ -9,6 +9,7 @@ import type {
 import type { ExactAggregateProjectionIndex } from "../../aggregate/projection.js";
 import type { ExactInvocationInputIndex } from "../../invocation/inputs.js";
 import type { ExactObjectPropertyProjectionIndex } from "../../object/projection.js";
+import type { ExactCallableBodyInspection } from "../../callable/result-inputs.js";
 
 export type ResultConsumerBoundary =
   | "open-binding"
@@ -29,6 +30,8 @@ export interface ConsumerContext {
   readonly program: TargetProgramIndex;
   readonly candidates: ReadonlySet<Node>;
   readonly callableReferenceIsClosed: ((reference: Node) => boolean) | undefined;
+  readonly bodyInspectionIsCertified: ExactCallableBodyInspection | undefined;
+  readonly allowExportedDeclarations: boolean;
   readonly invocationInputs: ExactInvocationInputIndex;
   readonly projections: ExactAggregateProjectionIndex;
   readonly objectProjections: ExactObjectPropertyProjectionIndex;

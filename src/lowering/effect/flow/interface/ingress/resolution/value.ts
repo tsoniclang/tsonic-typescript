@@ -1,9 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import { KindThisKeyword } from "@tsonic/tsts/target-ast";
 
-import { callCrossesOpaqueInterfaceBoundary } from "../../transport-context.js";
 import { exactInterfaceCallResultOrigins } from "../call-results.js";
-import { originDeclarationIsClosed } from "../../origin-declaration.js";
+import {
+  originDeclarationIsClosed,
+  propertyValueIsReceiverIndependent,
+} from "../../origin-declaration.js";
 import { storageDeclarationCanBeTracked } from "../../../storage/owners.js";
 import { exactAggregateRead } from "../../../aggregate/projection.js";
 import type {
@@ -11,7 +13,11 @@ import type {
   OriginState,
 } from "../resolution.js";
 import type { InterfaceOriginExpansion } from "./expansion.js";
-import { nodeHasExactSourceSemantics } from "../../../../model/source-membership.js";
+import {
+  sourceBodyInspectionIsExact,
+} from "../../../../model/source-membership.js";
+import { expandValueIdentifier } from "./value/identifier.js";
+import { exactStructuralCallResultTypes } from "../structural-call-result.js";
 
 export function expandInterfaceOriginValue(
   state: OriginState,
@@ -102,11 +108,17 @@ export function expandInterfaceOriginValue(
     const declaration = call === undefined
       ? undefined
       : semantics.declarations.signatureDeclaration(call.selectedSignature) ??
+        call.sourceCalleeAccess?.selectedDeclaration ??
+        call.sourceCallee.selectedDeclaration ??
         ingress.source.navigation.declarationFor(expression);
     const type = semantics.types.expressionType(expression);
     let closed = activeContext.domain.empty();
     if (
-      originDeclarationIsClosed(ingress.source, declaration) &&
+      originDeclarationIsClosed(
+        ingress.source,
+        declaration,
+        ingress.bodyInspectionIsCertified,
+      ) &&
       type !== undefined
     ) {
       closed = activeContext.domain.select(
@@ -136,7 +148,11 @@ export function expandInterfaceOriginValue(
   ) {
     flow.terminal(
       state,
-      nodeHasExactSourceSemantics(ingress.source, expression),
+      sourceBodyInspectionIsExact(
+        ingress.source,
+        expression,
+        ingress.bodyInspectionIsCertified,
+      ),
       expression,
       activeContext,
     );
@@ -174,7 +190,11 @@ function expandPropertyRead(
     (!trackedStorage && slot !== undefined && !slot.closed) ||
     (trackedStorage
       ? !flow.storageDeclarationIsClosed(declaration, context)
-      : !originDeclarationIsClosed(ingress.source, declaration)) ||
+      : !originDeclarationIsClosed(
+          ingress.source,
+          declaration,
+          ingress.bodyInspectionIsCertified,
+        )) ||
     type === undefined ||
     access?.Expression === undefined
   ) {
@@ -197,6 +217,24 @@ function expandPropertyRead(
     context.domain.subtract(context.active, provided),
   );
   if (context.domain.isEmpty(provided)) {
+    return;
+  }
+  if (
+    propertyValueIsReceiverIndependent(
+      ingress.source,
+      access.Expression,
+      declaration,
+    )
+  ) {
+    flow.declarationDependency(
+      state,
+      declaration,
+      "value",
+      "field",
+      expression,
+      context,
+      provided,
+    );
     return;
   }
   if (trackedStorage) {
@@ -281,7 +319,12 @@ function expandElementRead(
     ? undefined
     : ingress.source.navigation.sourceReferenceFor(aggregateRead.receiver);
   const restInputs = aggregateRead !== undefined &&
-      aggregateReference?.project === true &&
+      aggregateReference !== undefined &&
+      sourceBodyInspectionIsExact(
+        ingress.source,
+        aggregateReference.declaration,
+        ingress.bodyInspectionIsCertified,
+      ) &&
       ingress.source.ast.is.IsParameterDeclaration(
         aggregateReference.declaration,
       )
@@ -318,7 +361,32 @@ function expandElementRead(
     );
     return;
   }
-  if (trackedStorage && flow.storageDeclarationIsClosed(declaration, context)) {
+  if (
+    declaration !== undefined &&
+    originDeclarationIsClosed(
+      ingress.source,
+      declaration,
+      ingress.bodyInspectionIsCertified,
+    ) &&
+    propertyValueIsReceiverIndependent(
+      ingress.source,
+      owner,
+      declaration,
+    )
+  ) {
+    flow.declarationDependency(
+      state,
+      declaration,
+      "value",
+      "element",
+      expression,
+      context,
+      provided,
+    );
+  } else if (
+    trackedStorage &&
+    flow.storageDeclarationIsClosed(declaration, context)
+  ) {
     flow.declarationDependency(
       state,
       declaration,
@@ -348,13 +416,9 @@ function expandValueCall(
   flow: InterfaceOriginExpansion,
 ): void {
   const { ingress } = context;
-  const transport = ingress.transports?.transportFor(expression);
-  if (transport !== undefined) {
-    const origins = transport.resultOriginExpressions;
-    if (origins === undefined) {
-      flow.boundary(state, "opaque-call-transport", expression, context);
-      return;
-    }
+  const origins = ingress.transports?.transportFor(expression)
+    ?.resultOriginExpressions;
+  if (origins !== undefined) {
     if (origins.length === 0) {
       flow.origin(state, expression, context);
       return;
@@ -373,6 +437,10 @@ function expandValueCall(
   }
   const projectOrigins = exactInterfaceCallResultOrigins(expression, ingress);
   if (projectOrigins !== undefined) {
+    if (projectOrigins.length === 0) {
+      flow.origin(state, expression, context);
+      return;
+    }
     for (const input of projectOrigins) {
       flow.dependency(
         state,
@@ -385,102 +453,16 @@ function expandValueCall(
     }
     return;
   }
-  const semantics = ingress.source.semantics.forNode(expression);
-  const call = semantics.operations.call(expression);
-  const declaration = call === undefined
-    ? undefined
-    : semantics.declarations.signatureDeclaration(call.selectedSignature);
-  let closed = context.domain.empty();
-  if (call !== undefined && declaration !== undefined) {
-    if (!callCrossesOpaqueInterfaceBoundary(
-      ingress.source,
-      declaration,
-      ingress.entries,
-    )) {
-      closed = context.active;
-    } else {
-      closed = context.domain.select(
-        context.active,
-        (contract) => context.facts.typeHasCertifiedImplementation(
-          semantics,
-          call.sourceResultType,
-          contract,
-        ),
-      );
-    }
-  }
-  flow.terminalForContracts(
-    state,
-    closed,
-    expression,
-    context,
-    "opaque-call-transport",
-  );
-}
-
-function expandValueIdentifier(
-  state: OriginState,
-  expression: Node,
-  context: OriginGraphContext,
-  flow: InterfaceOriginExpansion,
-): void {
-  const { ingress } = context;
-  const refinement = ingress.source.semantics.selectValueTypeRefinement(
-    expression,
-  );
-  if (refinement.kind !== "resolved") {
-    const reference = ingress.source.navigation.sourceReferenceFor(expression);
-    const semantics = ingress.source.semantics.forNode(expression);
-    const type = semantics.types.expressionType(expression);
-    const sourceFile = reference === undefined
-      ? undefined
-      : ingress.source.ast.getSourceFile(reference.declaration);
-    let closed = context.domain.empty();
-    if (
-      reference !== undefined &&
-      sourceFile !== undefined &&
-      ingress.source.ast.isDeclarationFile(sourceFile) &&
-      type !== undefined
-    ) {
-      closed = context.domain.select(
-        context.active,
-        (contract) => context.facts.typeHasCertifiedImplementation(
-          semantics,
-          type,
-          contract,
-        ),
-      );
-    }
-    flow.terminalForContracts(
-      state,
-      closed,
-      expression,
-      context,
-    );
-    return;
-  }
-  if (ingress.opaqueInputs.has(refinement.reference.declaration)) {
-    flow.boundary(state, "opaque-call-transport", expression, context);
-    return;
-  }
-  if (!originDeclarationIsClosed(
-    ingress.source,
-    refinement.reference.declaration,
-  )) {
-    flow.boundary(state, "unproven-value-origin", expression, context);
-    return;
-  }
-  const semantics = ingress.source.semantics.forNode(expression);
-  if (
-    ingress.source.ast.is.IsClassDeclaration(refinement.reference.declaration) ||
-    ingress.source.ast.is.IsClassExpression(refinement.reference.declaration)
-  ) {
+  const structuralResults = exactStructuralCallResultTypes(expression, ingress);
+  if (structuralResults !== undefined) {
     const closed = context.domain.select(
       context.active,
-      (contract) => context.facts.classValueIsClosed(
-        semantics,
-        refinement.declaredType,
-        contract,
+      (contract) => structuralResults.every((result) =>
+        context.facts.typeHasCertifiedImplementation(
+          result.semantics,
+          result.type,
+          contract,
+        )
       ),
     );
     flow.terminalForContracts(
@@ -488,32 +470,31 @@ function expandValueIdentifier(
       closed,
       expression,
       context,
+      "opaque-call-transport",
     );
     return;
   }
-  const provided = context.domain.select(
-    context.active,
-    (contract) => context.facts.typeProvidesContract(
-      semantics,
-      refinement.declaredType,
-      contract,
-    ),
-  );
-  flow.boundary(
+  const semantics = ingress.source.semantics.forNode(expression);
+  const call = semantics.operations.call(expression);
+  const declaration = call === undefined
+    ? undefined
+    : semantics.declarations.signatureDeclaration(call.selectedSignature);
+  let closed = context.domain.empty();
+  if (call !== undefined && declaration !== undefined) {
+    closed = context.domain.select(
+      context.active,
+      (contract) => context.facts.typeHasCertifiedImplementation(
+        semantics,
+        call.sourceResultType,
+        contract,
+      ),
+    );
+  }
+  flow.terminalForContracts(
     state,
-    "unproven-value-origin",
+    closed,
     expression,
     context,
-    context.domain.subtract(context.active, provided),
-  );
-  if (context.domain.isEmpty(provided)) {
-    return;
-  }
-  flow.expandDeclaration(
-    state,
-    refinement.reference.declaration,
-    "value",
-    expression,
-    { ...context, active: provided },
+    "opaque-call-transport",
   );
 }

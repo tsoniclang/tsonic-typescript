@@ -4,7 +4,8 @@ import type {
   TargetSourceProgram,
 } from "@tsonic/target-api/source";
 
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import { sameValueAlternatives } from "../value/alternatives.js";
 
@@ -41,12 +42,17 @@ export function exactSourceCallImplementationInputs(
   source: TargetSourceProgram,
   node: Node,
   projections?: ExactAggregateProjectionIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ExactSourceCallImplementationInputs | undefined {
   const invocation = exactSourceCallBindings(source, node);
   if (invocation === undefined) {
     return undefined;
   }
-  const target = resolveProjectInvocation(source, node);
+  const target = resolveExactSourceInvocation(
+    source,
+    node,
+    bodyInspectionIsCertified,
+  );
   if (
     target === undefined ||
     target.call !== invocation.call ||

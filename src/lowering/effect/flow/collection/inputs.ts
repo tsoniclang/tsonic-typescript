@@ -9,14 +9,23 @@ import {
 } from "../../model/callable-contract.js";
 
 import {
-  isFunctionLike,
   transparentExpression,
 } from "../../model/syntax.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
-import type { ExactCallImplementations } from "../callable/result-inputs.js";
+import {
+  containingCallArgument,
+  containingFunction,
+  forEachDirectFunctionNode,
+  isNullishIdentityObservation,
+} from "./navigation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
+import type {
+  ExactCallableBodyInspection,
+  ExactCallImplementations,
+} from "../callable/result-inputs.js";
 import {
   exactSourceCallInputsForDeclaration,
 } from "../invocation/call-binding.js";
+import { sourceBodyInspectionIsExact } from "../../model/source-membership.js";
 
 export interface CallableCollectionContract {
   readonly returnType: CallableReturnRewrite;
@@ -48,14 +57,20 @@ export function collectCallableCollectionInputs(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   exactCallImplementations?: ExactCallImplementations,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): CallableCollectionInputs {
-  const collections = collectCollections(source, program);
+  const collections = collectCollections(
+    source,
+    program,
+    bodyInspectionIsCertified,
+  );
   const extractorParameters = new Map<Node, Node | false>();
   auditCollections(
     source,
     collections,
     extractorParameters,
     exactCallImplementations,
+    bodyInspectionIsCertified,
   );
   collectExtractions(
     source,
@@ -63,6 +78,7 @@ export function collectCallableCollectionInputs(
     collections,
     extractorParameters,
     exactCallImplementations,
+    bodyInspectionIsCertified,
   );
   const values = new Map<Node, readonly Node[]>();
   const closed = new Set<Node>();
@@ -98,6 +114,7 @@ export function collectCallableCollectionInputs(
 function collectCollections(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bodyInspectionIsCertified: ExactCallableBodyInspection | undefined,
 ): ReadonlyMap<Node, MutableCollection> {
   const collections = new Map<Node, MutableCollection>();
   for (const node of program.nodesOfKind(KindVariableDeclaration)) {
@@ -106,6 +123,11 @@ function collectCollections(
     const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
     if (
       owner === undefined ||
+      !sourceBodyInspectionIsExact(
+        source,
+        owner,
+        bodyInspectionIsCertified,
+      ) ||
       returnType === undefined ||
       initializer === undefined ||
       !source.ast.is.IsArrayLiteralExpression(initializer) ||
@@ -131,6 +153,7 @@ function auditCollections(
   collections: ReadonlyMap<Node, MutableCollection>,
   extractorParameters: Map<Node, Node | false>,
   exactCallImplementations?: ExactCallImplementations,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): void {
   const byOwner = new Map<Node, Map<Node, MutableCollection>>();
   for (const collection of collections.values()) {
@@ -145,7 +168,7 @@ function auditCollections(
     }
   }
   for (const [owner, owned] of byOwner) {
-    forEachNode(source, owner, (node) => {
+    forEachDirectFunctionNode(source, owner, (node) => {
       if (!source.ast.is.IsIdentifier(node)) {
         return;
       }
@@ -175,6 +198,7 @@ function auditCollections(
           argument.call,
           extractorParameters,
           exactCallImplementations,
+          bodyInspectionIsCertified,
         ) === argument.expression
       ) {
         return;
@@ -190,6 +214,7 @@ function collectExtractions(
   collections: ReadonlyMap<Node, MutableCollection>,
   extractorParameters: Map<Node, Node | false>,
   exactCallImplementations?: ExactCallImplementations,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): void {
   for (const node of program.nodesOfKind(KindVariableDeclaration)) {
     if (
@@ -204,6 +229,7 @@ function collectExtractions(
       collections,
       extractorParameters,
       exactCallImplementations,
+      bodyInspectionIsCertified,
     );
     if (collection !== undefined) {
       collection.extractedDeclarations.add(node);
@@ -217,6 +243,7 @@ function extractedCollection(
   collections: ReadonlyMap<Node, MutableCollection>,
   extractorParameters: Map<Node, Node | false>,
   exactCallImplementations?: ExactCallImplementations,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): MutableCollection | undefined {
   const root = transparentExpression(source, expression);
   if (root === undefined || !source.ast.is.IsCallExpression(root)) {
@@ -243,6 +270,7 @@ function extractedCollection(
     root,
     extractorParameters,
     exactCallImplementations,
+    bodyInspectionIsCertified,
   );
   const reference = transparentExpression(source, argument);
   const declaration = reference === undefined
@@ -256,8 +284,13 @@ function exactExtractorInput(
   call: Node,
   cache: Map<Node, Node | false>,
   exactCallImplementations?: ExactCallImplementations,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): Node | undefined {
-  const direct = resolveProjectInvocation(source, call)?.implementation;
+  const direct = resolveExactSourceInvocation(
+    source,
+    call,
+    bodyInspectionIsCertified,
+  )?.implementation;
   const implementations = direct === undefined
     ? exactCallImplementations?.(call) ?? []
     : [direct];
@@ -271,7 +304,11 @@ function exactExtractorInput(
     if (existing !== undefined) {
       parameter = existing === false ? undefined : existing;
     } else {
-      parameter = inspectExtractor(source, declaration);
+      parameter = inspectExtractor(
+        source,
+        declaration,
+        bodyInspectionIsCertified,
+      );
       cache.set(declaration, parameter ?? false);
     }
     const invocation = exactSourceCallInputsForDeclaration(
@@ -294,8 +331,14 @@ function exactExtractorInput(
 function inspectExtractor(
   source: TargetSourceProgram,
   declaration: Node,
+  bodyInspectionIsCertified: ExactCallableBodyInspection | undefined,
 ): Node | undefined {
   if (
+    !sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) ||
     !source.ast.is.IsFunctionDeclaration(declaration) ||
     source.ast.body(declaration) === undefined
   ) {
@@ -421,7 +464,8 @@ function selectedArrayOperation(
     selected.optionalChain ||
     selected.accessMode !== "read" ||
     declaration === undefined ||
-    declarationFile?.IsDeclarationFile !== true ||
+    declarationFile === undefined ||
+    !source.ast.isDeclarationFile(declarationFile) ||
     receiverType === undefined ||
     !source.semantics.forNode(receiver).types.isArrayLike(receiverType)
   ) {
@@ -480,101 +524,4 @@ function unwrapParenthesizedType(
     current = source.ast.as.AsParenthesizedTypeNode(current)?.Type;
   }
   return current;
-}
-
-function containingCallArgument(
-  source: TargetSourceProgram,
-  reference: Node,
-): { readonly call: Node; readonly expression: Node } | undefined {
-  let current = reference;
-  for (;;) {
-    const parent = source.ast.parent(current);
-    if (parent === undefined) {
-      return undefined;
-    }
-    if (source.ast.is.IsCallExpression(parent)) {
-      return source.ast.arguments(parent).includes(current)
-        ? { call: parent, expression: current }
-        : undefined;
-    }
-    const transparent = transparentExpression(source, parent);
-    if (transparent !== current) {
-      return undefined;
-    }
-    current = parent;
-  }
-}
-
-function isNullishIdentityObservation(
-  source: TargetSourceProgram,
-  reference: Node,
-): boolean {
-  const parent = source.ast.parent(reference);
-  if (
-    parent === undefined ||
-    !source.ast.is.IsBinaryExpression(parent) ||
-    !new Set([
-      "KindEqualsEqualsEqualsToken",
-      "KindExclamationEqualsEqualsToken",
-    ]).has(source.ast.operatorKindName(parent) ?? "")
-  ) {
-    return false;
-  }
-  const binary = source.ast.as.AsBinaryExpression(parent);
-  const other = binary?.Left === reference ? binary.Right : binary?.Left;
-  if (other === undefined) {
-    return false;
-  }
-  const semantics = source.semantics.forNode(other);
-  const type = semantics.types.expressionType(other);
-  return type !== undefined && semantics.types.isNullish(type);
-}
-
-function containingFunction(
-  source: TargetSourceProgram,
-  node: Node,
-): Node | undefined {
-  let current = source.ast.parent(node);
-  while (current !== undefined) {
-    if (isFunctionLike(source, current)) {
-      return current;
-    }
-    current = source.ast.parent(current);
-  }
-  return undefined;
-}
-
-function forEachDirectFunctionNode(
-  source: TargetSourceProgram,
-  owner: Node,
-  callback: (node: Node) => void,
-): void {
-  forEachNode(source, owner, (node) => {
-    if (node !== owner && isFunctionLike(source, node)) {
-      return false;
-    }
-    callback(node);
-    return true;
-  });
-}
-
-function forEachNode(
-  source: TargetSourceProgram,
-  root: Node,
-  callback: (node: Node) => boolean | void,
-): void {
-  const pending = [root];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined || callback(node) === false) {
-      continue;
-    }
-    const children = source.ast.children(node);
-    for (let index = children.length - 1; index >= 0; index -= 1) {
-      const child = children[index];
-      if (child !== undefined) {
-        pending.push(child);
-      }
-    }
-  }
 }

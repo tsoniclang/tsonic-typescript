@@ -5,6 +5,7 @@ import { KindCallExpression } from "@tsonic/tsts/target-ast";
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { ProviderInvocationFact } from "./fact.js";
 import { providerInvocationFactKey } from "./fact.js";
+import { callHasExactBindings } from "../invocation/call-binding.js";
 
 export interface ProviderInvocationRecord {
   readonly call: Node;
@@ -30,9 +31,18 @@ export function collectProviderInvocationRecords(
       continue;
     }
     const selected = source.semantics.forNode(call).operations.call(call);
-    if (selected === undefined || selected.call !== call) {
+    const declaration = selected === undefined
+      ? undefined
+      : source.semantics.forNode(call).declarations.signatureDeclaration(
+          selected.selectedSignature,
+        );
+    if (
+      selected === undefined ||
+      selected.call !== call ||
+      !callHasExactBindings(source, call, selected, declaration)
+    ) {
       throw new Error(
-        `Provider invocation '${fact.semanticKey}' has no exact checked call`,
+        `Provider invocation '${fact.semanticKey}' has no exact checked call bindings`,
       );
     }
     const expressionsByParameter = new Map<number, Node[]>();

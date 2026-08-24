@@ -8,7 +8,11 @@ import {
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
+import {
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../../model/source-membership.js";
 import { exactSourceCallImplementationInputs } from "./call-binding.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import {
@@ -17,7 +21,11 @@ import {
 } from "../../model/syntax.js";
 
 export interface ExactInvocationInputIndex {
+  parameters(): Iterable<Node>;
   inputsFor(parameter: Node): readonly Node[] | undefined;
+  inputGroupsFor(
+    parameter: Node,
+  ): readonly (readonly Node[])[] | undefined;
   restElementInputsFor(
     parameter: Node,
     index: number,
@@ -32,6 +40,7 @@ export function createExactInvocationInputIndex(
   program: TargetProgramIndex,
   projections?: ExactAggregateProjectionIndex,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ExactInvocationInputIndex {
   const inputs = new Map<Node, Node[]>();
   const inputGroups = new Map<Node, (readonly Node[])[]>();
@@ -43,7 +52,11 @@ export function createExactInvocationInputIndex(
     KindCallExpression,
     KindNewExpression,
   ])) {
-    const target = resolveProjectInvocation(source, call);
+    const target = resolveExactSourceInvocation(
+      source,
+      call,
+      bodyInspectionIsCertified,
+    );
     if (target === undefined) {
       continue;
     }
@@ -66,6 +79,7 @@ export function createExactInvocationInputIndex(
       source,
       call,
       projections,
+      bodyInspectionIsCertified,
     );
     if (invocation === undefined || invocation.declaration !== implementation) {
       for (const parameter of implementationParameters) {
@@ -89,6 +103,11 @@ export function createExactInvocationInputIndex(
     if (
       callsByImplementation.has(implementation) ||
       source.ast.body(implementation) === undefined ||
+      !sourceBodyInspectionIsExact(
+        source,
+        implementation,
+        bodyInspectionIsCertified,
+      ) ||
       source.ast.hasModifierKind(implementation, "ambient") ||
       (cooperativeEffects === "closed-direct" &&
         (source.ast.hasModifierKind(implementation, "export") ||
@@ -137,9 +156,26 @@ export function createExactInvocationInputIndex(
       Object.freeze(selected),
     ]),
   );
+  const sealedInputGroups = new Map<Node, readonly (readonly Node[])[]>(
+    [...inputs].map(([parameter]) => [
+      parameter,
+      Object.freeze([...(inputGroups.get(parameter) ?? [])]),
+    ]),
+  );
+  const parameters = Object.freeze([
+    ...new Set([...inputs.keys(), ...invalid]),
+  ]);
   return Object.freeze({
+    parameters(): Iterable<Node> {
+      return parameters;
+    },
     inputsFor(parameter: Node): readonly Node[] | undefined {
       return sealedInputs.get(parameter);
+    },
+    inputGroupsFor(
+      parameter: Node,
+    ): readonly (readonly Node[])[] | undefined {
+      return sealedInputGroups.get(parameter);
     },
     restElementInputsFor(
       parameter: Node,
@@ -164,6 +200,63 @@ export function createExactInvocationInputIndex(
       return sealedInputs.has(parameter) && !invalid.has(parameter);
     },
   });
+}
+
+export function sameExactInvocationInputIndexes(
+  left: ExactInvocationInputIndex,
+  right: ExactInvocationInputIndex,
+): boolean {
+  const leftParameters = new Set(left.parameters());
+  const rightParameters = new Set(right.parameters());
+  if (
+    leftParameters.size !== rightParameters.size ||
+    [...leftParameters].some((parameter) => !rightParameters.has(parameter))
+  ) {
+    return false;
+  }
+  return [...leftParameters].every((parameter) =>
+    left.isInvalid(parameter) === right.isInvalid(parameter) &&
+    left.isClosed(parameter) === right.isClosed(parameter) &&
+    sameNodeSet(left.inputsFor(parameter), right.inputsFor(parameter)) &&
+    sameInputGroups(
+      left.inputGroupsFor(parameter),
+      right.inputGroupsFor(parameter),
+    )
+  );
+}
+
+function sameInputGroups(
+  left: readonly (readonly Node[])[] | undefined,
+  right: readonly (readonly Node[])[] | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.length === right.length && left.every((group, index) =>
+    sameNodeSequence(group, right[index])
+  );
+}
+
+function sameNodeSequence(
+  left: readonly Node[],
+  right: readonly Node[] | undefined,
+): boolean {
+  return right !== undefined &&
+    left.length === right.length &&
+    left.every((node, index) => node === right[index]);
+}
+
+function sameNodeSet(
+  left: readonly Node[] | undefined,
+  right: readonly Node[] | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === rightSet.size &&
+    [...leftSet].every((node) => rightSet.has(node));
 }
 
 export function selectRestElementInputs(

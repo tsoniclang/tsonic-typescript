@@ -50,7 +50,7 @@ export const result = await pending[0];
 test("settles a private reverse caller reached through an exact alias", () => {
   const fixture = checkedEffectFixture(`
 async function leaf(): Promise<number> { return 42; }
-function forward(): Promise<number> { return leaf(); }
+function forward(): number | PromiseLike<number> { return leaf(); }
 const invoke = forward;
 const pending = invoke();
 export const result = await pending;
@@ -64,6 +64,44 @@ export const result = await pending;
   assert.equal(
     countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
     0,
+  );
+});
+
+test("settles a returned callable consumed by one exact invocation", () => {
+  const fixture = checkedEffectFixture(`
+async function leaf(): Promise<number> { return 42; }
+function select(): () => number | PromiseLike<number> { return leaf; }
+const invoke = select();
+export const result = await invoke();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
+});
+
+test("retains a returned callable consumed by an open invocation", () => {
+  const fixture = checkedEffectFixture(`
+async function leaf(): Promise<number> { return 42; }
+function select(): () => Promise<number> { return leaf; }
+export const invoke = select();
+export const result = await invoke();
+`);
+
+  const plan = createFixtureEffectPlan(fixture.source);
+  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
+  plan.finish();
+
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    1,
   );
 });
 

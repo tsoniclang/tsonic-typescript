@@ -34,6 +34,10 @@ import {
   stateForBindingProjection,
   stateForExpression,
 } from "./engine.js";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../../model/source-membership.js";
 
 export interface ExactValueSlotBatchDomain {
   readonly source: TargetSourceProgram;
@@ -46,6 +50,7 @@ export interface ExactValueSlotBatchDomain {
   readonly bindingProjections: ExactValueBindingProjectionIndex;
   readonly storageSlots: ExactStorageSlotInputIndex;
   readonly structuralWrites: ExactStructuralSlotWriteIndex;
+  readonly bodyInspectionIsExact: ExactSourceBodyInspection;
 }
 
 export interface ExactValueSlotBatchMeasurements {
@@ -126,6 +131,7 @@ export function resolveExactValueSlotBatch(
     active,
     storageSlots: domain.storageSlots,
     structuralWrites: domain.structuralWrites,
+    bodyInspectionIsExact: domain.bodyInspectionIsExact,
     boundaryFound: false,
   };
   const roots = new Map<Node, EffectProvenanceVertex>();
@@ -225,7 +231,12 @@ function selectRoot(
       path,
     });
   }
-  const alias = exactRootSlotAlias(domain.source, domain.program, root);
+  const alias = exactRootSlotAlias(
+    domain.source,
+    domain.program,
+    root,
+    domain.bodyInspectionIsExact,
+  );
   return alias === undefined
     ? undefined
     : Object.freeze({
@@ -253,6 +264,7 @@ function exactRootSlotAlias(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   root: Node,
+  bodyInspectionIsExact: ExactSourceBodyInspection,
 ): {
   readonly expression: Node;
   readonly read: NonNullable<ReturnType<typeof exactValueSlotRead>>;
@@ -262,7 +274,12 @@ function exactRootSlotAlias(
   while (source.ast.is.IsIdentifier(current) && !seen.has(current)) {
     seen.add(current);
     const reference = source.navigation.sourceReferenceFor(current);
-    const declaration = reference?.project === true
+    const declaration = reference !== undefined &&
+        sourceBodyInspectionIsExact(
+          source,
+          reference.declaration,
+          bodyInspectionIsExact,
+        )
       ? reference.declaration
       : undefined;
     if (

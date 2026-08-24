@@ -9,20 +9,36 @@ import type {
 } from "@tsonic/target-api/source";
 
 import { typeHasDefinitelyNonThenableContract } from "../../thenability.js";
-import { resolveProjectInvocation } from "./project-invocation.js";
+import { resolveExactSourceInvocation } from "./exact-source-invocation.js";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "./source-membership.js";
 
 export function resolvedCallUsesSynchronousTransport(
   source: TargetSourceProgram,
   call: Node,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
   const semantics = source.semantics.forNode(call);
   const signature = semantics.operations.call(call)?.selectedSignature;
   const contract = signature === undefined
     ? undefined
     : semantics.declarations.signatureDeclaration(signature);
-  const implementation = resolveProjectInvocation(source, call)
+  const implementation = resolveExactSourceInvocation(
+    source,
+    call,
+    bodyInspectionIsCertified,
+  )
     ?.implementation;
-  return declarationUsesSynchronousBody(source, implementation) ||
+  return (
+    implementation !== undefined &&
+    callableUsesSynchronousTransport(
+      source,
+      implementation,
+      bodyInspectionIsCertified,
+    )
+  ) ||
     (declarationHasTrustedContract(source, contract) &&
       resolvedSignatureResultIsDefinitelyNonThenable(
         source,
@@ -49,6 +65,26 @@ export function resolvedCallResultIsDefinitelyNonThenable(
   );
 }
 
+export function resolvedCallProducesDefinitelySynchronousValue(
+  source: TargetSourceProgram,
+  call: Node,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+): boolean {
+  const implementation = resolveExactSourceInvocation(
+    source,
+    call,
+    bodyInspectionIsCertified,
+  )?.implementation;
+  return (
+    implementation !== undefined &&
+    callableUsesSynchronousTransport(
+      source,
+      implementation,
+      bodyInspectionIsCertified,
+    )
+  ) || resolvedCallResultIsDefinitelyNonThenable(source, call);
+}
+
 export function callableContractResultIsDefinitelyNonThenable(
   source: TargetSourceProgram,
   declaration: Node,
@@ -69,54 +105,43 @@ export function typeHasTrustedSynchronousCallSignatures(
   source: TargetSourceProgram,
   semantics: SourceFileSemantics,
   type: Type,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
   const signatures = semantics.types.callSignatures(type);
-  return signatures.length !== 0 && signatures.every((signature) =>
-    declarationHasTrustedContract(
-      source,
-      semantics.declarations.signatureDeclaration(signature),
-    ) && resolvedSignatureResultIsDefinitelyNonThenable(
+  return signatures.length !== 0 && signatures.every((signature) => {
+    const declaration = semantics.declarations.signatureDeclaration(signature);
+    return (
+      declarationHasTrustedContract(source, declaration) ||
+      declarationUsesSynchronousBody(
         source,
-        semantics,
-        signature,
+        declaration,
+        bodyInspectionIsCertified,
       )
-  );
+    ) && resolvedSignatureResultIsDefinitelyNonThenable(
+      source,
+      semantics,
+      signature,
+    );
+  });
 }
 
 export function callableUsesSynchronousTransport(
   source: TargetSourceProgram,
   declaration: Node,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
-  if (declarationUsesSynchronousBody(source, declaration)) {
-    return true;
-  }
   if (source.ast.hasModifierKind(declaration, "async")) {
     return false;
   }
-  return callableContractResultIsDefinitelyNonThenable(
+  const selected = source.ast.name(declaration) ?? declaration;
+  const semantics = source.semantics.forNode(selected);
+  const type = semantics.types.expressionType(selected);
+  return type !== undefined && typeHasTrustedSynchronousCallSignatures(
     source,
-    declaration,
+    semantics,
+    type,
+    bodyInspectionIsCertified,
   );
-}
-
-export function callableBodyResultIsDefinitelyNonThenable(
-  source: TargetSourceProgram,
-  declaration: Node,
-): boolean {
-  if (
-    !isCallableDeclaration(source, declaration) ||
-    source.ast.body(declaration) === undefined ||
-    source.ast.hasModifierKind(declaration, "async")
-  ) {
-    return false;
-  }
-  const typeNode = source.ast.typeNode(declaration);
-  if (typeNode === undefined) {
-    return false;
-  }
-  const semantics = source.semantics.forNode(typeNode);
-  const type = semantics.types.authoredType(typeNode);
-  return type !== undefined && !typeMaySuspend(semantics, type);
 }
 
 export function typeMaySuspend(
@@ -143,8 +168,7 @@ function typeMaySuspendWithin(
   }
   if (
     semantics.types.isAny(type) ||
-    semantics.types.isUnknown(type) ||
-    semantics.types.couldContainTypeVariables(type)
+    semantics.types.isUnknown(type)
   ) {
     return true;
   }
@@ -160,11 +184,17 @@ function typeMaySuspendWithin(
     return false;
   }
   pending.add(type);
-  if (
-    semantics.types.isUnion(type) &&
-    semantics.types.unionOrIntersectionTypes(type).some((member) =>
+  if (semantics.types.isUnion(type)) {
+    const suspends = semantics.types.unionOrIntersectionTypes(type).some((member) =>
       member === undefined || typeMaySuspendWithin(semantics, member, pending)
-    )
+    );
+    pending.delete(type);
+    return suspends;
+  }
+  if (
+    semantics.types.couldContainTypeVariables(type) &&
+    semantics.types.callSignatures(type).length === 0 &&
+    semantics.types.constructSignatures(type).length === 0
   ) {
     pending.delete(type);
     return true;
@@ -278,8 +308,11 @@ function sameSelectedTypeShape(
   ) {
     return false;
   }
-  const leftArguments = semantics.types.typeArguments(left);
-  const rightArguments = semantics.types.typeArguments(right);
+  const leftArguments = semantics.types.effectiveTypeArguments(left);
+  const rightArguments = semantics.types.effectiveTypeArguments(right);
+  if (leftArguments === undefined || rightArguments === undefined) {
+    return false;
+  }
   return leftArguments.length === rightArguments.length &&
     leftArguments.every((argument, index) =>
       sameSelectedTypeWithin(
@@ -418,15 +451,24 @@ function isCallableDeclaration(
   return source.ast.is.IsFunctionDeclaration(node) ||
     source.ast.is.IsFunctionExpression(node) ||
     source.ast.is.IsArrowFunction(node) ||
-    source.ast.is.IsMethodDeclaration(node);
+    source.ast.is.IsMethodDeclaration(node) ||
+    source.ast.is.IsConstructorDeclaration(node) ||
+    source.ast.is.IsGetAccessorDeclaration(node) ||
+    source.ast.is.IsSetAccessorDeclaration(node);
 }
 
 function declarationUsesSynchronousBody(
   source: TargetSourceProgram,
   declaration: Node | undefined,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
   return declaration !== undefined &&
     isCallableDeclaration(source, declaration) &&
+    sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) &&
     source.ast.body(declaration) !== undefined &&
     !source.ast.hasModifierKind(declaration, "async");
 }

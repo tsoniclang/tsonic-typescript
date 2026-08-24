@@ -18,6 +18,7 @@ import {
 
 import type { TargetProgramIndex } from "../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
 import { isTransparentParent } from "../callable/input-reference.js";
 import { storageDeclarationCanBeTracked } from "./owners.js";
 import {
@@ -65,8 +66,14 @@ export function createStorageOwnerTopology(
   program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
   planningObserver?: TypeScriptPlanningObserver,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): StorageOwnerTopology {
-  const carriers = collectStorageOwnerCarriers(source, program, owners).carriers;
+  const carriers = collectStorageOwnerCarriers(
+    source,
+    program,
+    owners,
+    bodyInspectionIsCertified,
+  ).carriers;
   planningObserver?.("effect-indirect-storage-carriers");
   const typeOwners = new Map<Type, StorageOwnerMembership>();
   const positiveOwners = new Map<Node, StorageOwnerMembership>();

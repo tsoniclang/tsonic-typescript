@@ -93,6 +93,45 @@ export const result = await read(holder.reader);`,
   });
 }
 
+test("settles a namespace-import member through its selected declaration", () => {
+  const fixture = checkedEffectFixture(
+    `
+type Awaitable<T> = T | PromiseLike<T>;
+interface Reader { Read(): Awaitable<number>; }
+import * as runtime from "./runtime.js";
+async function read(reader: Reader): Promise<number> {
+  return await reader.Read();
+}
+export const result = await read(runtime.reader);
+`,
+    {
+      "/src/runtime.ts": `
+export class Pair {
+  async Read(): Promise<number> { return 42; }
+}
+export const reader = new Pair();
+`,
+    },
+  );
+
+  const plan = createFixtureEffectPlan(
+    fixture.source,
+    "declared-closed",
+    undefined,
+    "closed-program",
+  );
+  const rewrittenFiles = fixture.source.navigation.sourceFiles.map((sourceFile) =>
+    lowerCooperativeEffects(sourceFile, plan)
+  );
+  plan.finish();
+  const rewritten = rewrittenFiles.find((entry) =>
+    fixture.source.ast.getFileName(entry.sourceFile) === "/src/index.ts"
+  );
+  assert.ok(rewritten !== undefined);
+
+  assert.equal(countAsyncCallables(fixture.source, rewritten.sourceFile), 0);
+});
+
 test("retains an ambient conditional origin", () => {
   const fixture = checkedEffectFixture(`${prelude}
 declare const external: Reader;
@@ -127,6 +166,27 @@ export const result = await read(holder.reader);
       memberDispatch: false,
     }),
   );
+  assert.equal(graph.components.length, 1);
+  assert.ok(graph.components[0]?.boundaryCauses.some((cause) =>
+    cause.reason === "unproven-value-origin"
+  ));
+});
+
+test("retains a readonly carrier that reaches an opaque consumer", () => {
+  const fixture = checkedEffectFixture(`${prelude}
+declare function expose(value: unknown): void;
+const holder: { readonly reader: Reader } = { reader: new Pair() };
+expose(holder);
+export const result = await read(holder.reader);
+`);
+  const graph = createInterfaceContractGraph(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+  );
+
   assert.equal(graph.components.length, 1);
   assert.ok(graph.components[0]?.boundaryCauses.some((cause) =>
     cause.reason === "unproven-value-origin"

@@ -1,7 +1,9 @@
 import type { Node } from "@tsonic/tsts";
 
 import { transparentExpression } from "../../../model/syntax.js";
-import { callableDeclarationAllowsSynchronousValue } from "../../../model/callable-contract.js";
+import {
+  callableDeclarationAllowsSynchronousValue,
+} from "../../../model/callable-contract/declarations.js";
 import { sameValueAlternatives } from "../alternatives.js";
 import {
   exactBindingSlotPath,
@@ -144,6 +146,27 @@ function expandExpression(
     source.ast.is.IsObjectLiteralExpression(root)
   ) {
     expandObjectLiteral(state, root, selector, remaining, context);
+    return;
+  }
+  if (
+    selector.kind === "property" &&
+    source.ast.is.IsNewExpression(root)
+  ) {
+    const inputs = context.storageSlots.constructionInputsFor(
+      root,
+      selector,
+    );
+    if (inputs === undefined) {
+      boundary(state, root, context);
+      return;
+    }
+    for (const input of inputs) {
+      if (remaining.length === 0) {
+        addValueOrigin(state, input, context);
+      } else {
+        dependency(state, input, remaining, root, context);
+      }
+    }
     return;
   }
   const alternatives = sameValueAlternatives(source, root);

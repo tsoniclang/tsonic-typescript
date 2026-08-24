@@ -5,8 +5,10 @@ import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { ExactCallImplementations } from "../callable/result-inputs.js";
 import {
+  callableDeclarationHasExactCallableType,
   callableDeclarationHasResolvableType,
 } from "../../model/callable-contract/resolution.js";
+import { exactCallableTarget } from "../../model/syntax.js";
 import {
   auditStorageOwnerBoundaries,
   type StorageOwnerBoundaryDependencies,
@@ -17,6 +19,7 @@ import {
   createClosedStorageOwnerAnalysis,
   type ClosedStorageOwnerAnalysis,
 } from "./analysis.js";
+import { exactConstructorFieldWriteInput } from "./assignment.js";
 
 export interface CallableFields {
   readonly declarations: ReadonlySet<Node>;
@@ -40,7 +43,10 @@ export function createCallableFieldBoundaryDependencies(
       if (!source.ast.is.IsCallExpression(invocation)) {
         return false;
       }
-      const expression = source.ast.as.AsCallExpression(invocation)?.Expression;
+      const expression = exactCallableTarget(
+        source,
+        source.ast.as.AsCallExpression(invocation)?.Expression,
+      );
       if (expression === undefined) {
         return false;
       }
@@ -77,7 +83,10 @@ export function collectCallableFields(
   const initialValues = new Map<Node, readonly Node[]>();
   for (const owner of storageOwners.owners) {
     for (const member of source.ast.members(owner)) {
-      if (member !== undefined && fieldCanCarryCallable(source, member)) {
+      if (
+        member !== undefined &&
+        fieldCanCarryCallable(source, program, member)
+      ) {
         addField(source, ownerByField, initialValues, owner, member);
       }
     }
@@ -136,6 +145,7 @@ export function collectCallableFields(
         planningObserver,
         owners.size === 0 ? undefined : storageOwners.topology(planningObserver),
         boundaryDependencies,
+        storageOwners.bodyInspectionIsExact,
       );
       return new Set([...bindings.values()]
         .filter((binding) => binding.valid)
@@ -162,11 +172,21 @@ function addField(
 
 function fieldCanCarryCallable(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   node: Node,
 ): boolean {
   return source.ast.is.IsPropertyDeclaration(node) &&
     storageDeclarationCanBeTracked(source, node) &&
-    callableDeclarationHasResolvableType(source, node);
+    (
+      source.ast.hasModifierKind(node, "readonly") ||
+      !program.bindingWritesFor(node).some((write) =>
+        exactConstructorFieldWriteInput(source, write, node) !== undefined
+      )
+    ) &&
+    (
+      callableDeclarationHasResolvableType(source, node) ||
+      callableDeclarationHasExactCallableType(source, node)
+    );
 }
 
 function parameterPropertyCanCarryCallable(
@@ -174,7 +194,10 @@ function parameterPropertyCanCarryCallable(
   node: Node,
 ): boolean {
   return storageDeclarationCanBeTracked(source, node) &&
-    callableDeclarationHasResolvableType(source, node);
+    (
+      callableDeclarationHasResolvableType(source, node) ||
+      callableDeclarationHasExactCallableType(source, node)
+    );
 }
 
 function selectedField(

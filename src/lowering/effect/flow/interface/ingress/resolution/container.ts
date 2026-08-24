@@ -3,14 +3,18 @@ import { KindThisKeyword } from "@tsonic/tsts/target-ast";
 
 import { callCrossesOpaqueInterfaceBoundary } from "../../transport-context.js";
 import { exactInterfaceCallResultOrigins } from "../call-results.js";
-import { originDeclarationIsClosed } from "../../origin-declaration.js";
+import {
+  originDeclarationIsClosed,
+  propertyValueIsReceiverIndependent,
+} from "../../origin-declaration.js";
 import { storageDeclarationCanBeTracked } from "../../../storage/owners.js";
 import type {
   OriginGraphContext,
   OriginState,
 } from "../resolution.js";
 import type { InterfaceOriginExpansion } from "./expansion.js";
-import { nodeHasExactSourceSemantics } from "../../../../model/source-membership.js";
+import { sourceBodyInspectionIsExact } from "../../../../model/source-membership.js";
+import { sourceValueReference } from "../../../../model/exact-source-invocation.js";
 
 export function expandInterfaceOriginContainer(
   state: OriginState,
@@ -22,7 +26,7 @@ export function expandInterfaceOriginContainer(
   if (ingress.source.ast.kind(expression) === KindThisKeyword) {
     flow.terminal(
       state,
-      context.facts.thisContainerIsClosed(expression),
+      context.facts.valueContainerIsClosed(expression),
       expression,
       context,
     );
@@ -67,12 +71,31 @@ export function expandInterfaceOriginContainer(
       (!trackedStorage && slot !== undefined && !slot.closed) ||
       (trackedStorage
         ? !flow.storageDeclarationIsClosed(declaration, context)
-        : !originDeclarationIsClosed(ingress.source, declaration))
+        : !originDeclarationIsClosed(
+            ingress.source,
+            declaration,
+            ingress.bodyInspectionIsCertified,
+          ))
     ) {
       flow.boundary(state, "unproven-value-origin", expression, context);
       return;
     }
-    if (trackedStorage) {
+    if (
+      propertyValueIsReceiverIndependent(
+        ingress.source,
+        access.Expression,
+        declaration,
+      )
+    ) {
+      flow.declarationDependency(
+        state,
+        declaration,
+        "container",
+        "field",
+        expression,
+        context,
+      );
+    } else if (trackedStorage) {
       flow.declarationDependency(
         state,
         declaration,
@@ -115,6 +138,27 @@ export function expandInterfaceOriginContainer(
     ) {
       flow.boundary(state, "unproven-value-origin", expression, context);
     } else if (
+      declaration !== undefined &&
+      originDeclarationIsClosed(
+        ingress.source,
+        declaration,
+        ingress.bodyInspectionIsCertified,
+      ) &&
+      propertyValueIsReceiverIndependent(
+        ingress.source,
+        owner,
+        declaration,
+      )
+    ) {
+      flow.declarationDependency(
+        state,
+        declaration,
+        "container",
+        "element",
+        expression,
+        context,
+      );
+    } else if (
       trackedStorage && flow.storageDeclarationIsClosed(declaration, context)
     ) {
       flow.declarationDependency(
@@ -151,7 +195,11 @@ export function expandInterfaceOriginContainer(
   ) {
     flow.terminal(
       state,
-      nodeHasExactSourceSemantics(ingress.source, expression),
+      sourceBodyInspectionIsExact(
+        ingress.source,
+        expression,
+        ingress.bodyInspectionIsCertified,
+      ),
       expression,
       context,
     );
@@ -167,10 +215,16 @@ export function expandInterfaceOriginContainer(
     const declaration = call === undefined
       ? ingress.source.navigation.declarationFor(expression)
       : semantics.declarations.signatureDeclaration(call.selectedSignature) ??
+        call.sourceCalleeAccess?.selectedDeclaration ??
+        call.sourceCallee.selectedDeclaration ??
         ingress.source.navigation.declarationFor(expression);
     flow.terminal(
       state,
-      originDeclarationIsClosed(ingress.source, declaration),
+      originDeclarationIsClosed(
+        ingress.source,
+        declaration,
+        ingress.bodyInspectionIsCertified,
+      ),
       expression,
       context,
     );
@@ -180,12 +234,16 @@ export function expandInterfaceOriginContainer(
     flow.boundary(state, "unproven-value-origin", expression, context);
     return;
   }
-  const reference = ingress.source.navigation.sourceReferenceFor(expression);
+  const reference = sourceValueReference(ingress.source, expression);
   if (reference !== undefined && ingress.opaqueInputs.has(reference.declaration)) {
     flow.boundary(state, "opaque-call-transport", expression, context);
     return;
   }
-  if (!originDeclarationIsClosed(ingress.source, reference?.declaration)) {
+  if (!originDeclarationIsClosed(
+    ingress.source,
+    reference?.declaration,
+    ingress.bodyInspectionIsCertified,
+  )) {
     flow.boundary(state, "unproven-value-origin", expression, context);
     return;
   }
@@ -205,13 +263,9 @@ function expandContainerCall(
   flow: InterfaceOriginExpansion,
 ): void {
   const { ingress } = context;
-  const transport = ingress.transports?.transportFor(expression);
-  if (transport !== undefined) {
-    const origins = transport.resultOriginExpressions;
-    if (origins === undefined) {
-      flow.boundary(state, "opaque-call-transport", expression, context);
-      return;
-    }
+  const origins = ingress.transports?.transportFor(expression)
+    ?.resultOriginExpressions;
+  if (origins !== undefined) {
     if (origins.length === 0) {
       flow.origin(state, expression, context);
       return;
@@ -230,6 +284,10 @@ function expandContainerCall(
   }
   const projectOrigins = exactInterfaceCallResultOrigins(expression, ingress);
   if (projectOrigins !== undefined) {
+    if (projectOrigins.length === 0) {
+      flow.origin(state, expression, context);
+      return;
+    }
     for (const input of projectOrigins) {
       flow.dependency(
         state,
@@ -249,12 +307,15 @@ function expandContainerCall(
     : semantics.declarations.signatureDeclaration(call.selectedSignature);
   flow.terminal(
     state,
-    declaration !== undefined &&
+    call !== undefined &&
+      declaration !== undefined &&
       !callCrossesOpaqueInterfaceBoundary(
         ingress.source,
         declaration,
         ingress.entries,
-      ),
+        ingress.bodyInspectionIsCertified,
+      ) &&
+      context.facts.valueContainerIsClosed(expression),
     expression,
     context,
     "opaque-call-transport",

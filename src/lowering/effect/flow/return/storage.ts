@@ -64,6 +64,8 @@ export function createReturnStorageFlow(
     callableReferenceIsClosed,
     planningObserver,
     storageOwners.topology(planningObserver),
+    undefined,
+    storageOwners.bodyInspectionIsExact,
   );
   planningObserver?.("effect-return-storage-boundaries");
   const storage = closeReturnStorageFlow(bindings);

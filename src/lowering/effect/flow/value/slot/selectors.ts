@@ -1,4 +1,4 @@
-import type { Node, Symbol, Type, TypePropertyInfo } from "@tsonic/tsts";
+import type { Node, Symbol } from "@tsonic/tsts";
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
@@ -127,91 +127,6 @@ export function exactValueSlotPathKey(path: ExactValueSlotPath): string {
     ).join("");
     return `s${symbols.join(",")}d${declarations.join(",")}n${names}`;
   }).join("/");
-}
-
-export function exactValueSlotPathIsReadonly(
-  source: TargetSourceProgram,
-  expression: Node,
-  path: ExactValueSlotPath,
-): boolean {
-  const semantics = source.semantics.forNode(expression);
-  const type = semantics.types.expressionType(expression);
-  return type !== undefined && path.length !== 0 && readonlyTypePath(
-    semantics,
-    type,
-    path,
-    0,
-  );
-}
-
-function readonlyTypePath(
-  semantics: SourceFileSemantics,
-  type: Type,
-  path: ExactValueSlotPath,
-  offset: number,
-): boolean {
-  const selected = semantics.types.withoutMissingOrUndefined(type);
-  const selector = path[offset];
-  if (selected === undefined || selector === undefined) {
-    return false;
-  }
-  if (semantics.types.isUnion(selected) || semantics.types.isIntersection(selected)) {
-    const members = semantics.types.unionOrIntersectionTypes(selected).filter(
-      (member): member is Type => member !== undefined,
-    );
-    return members.length !== 0 && members.every((member) =>
-      readonlyTypePath(semantics, member, path, offset)
-    );
-  }
-  if (selector.kind === "property") {
-    const properties = semantics.types.propertyInfos(selected).filter((property) =>
-      propertyMatchesSelector(semantics, property, selector)
-    );
-    if (properties.length !== 0) {
-      return properties.every((property) =>
-        property.readonly && (
-          offset + 1 === path.length ||
-          readonlyTypePath(semantics, property.type, path, offset + 1)
-        )
-      );
-    }
-    const indexes = semantics.types.indexInfos(selected);
-    return indexes.length !== 0 && indexes.every((index) =>
-      index.readonly && index.valueType !== undefined && (
-        offset + 1 === path.length ||
-        readonlyTypePath(semantics, index.valueType, path, offset + 1)
-      )
-    );
-  }
-  const values = semantics.types.isTuple(selected)
-    ? [semantics.types.tupleElementInfos(selected)[selector.index]?.type]
-    : semantics.types.indexInfos(selected).map((index) => index.valueType);
-  const indexes = semantics.types.indexInfos(selected);
-  return indexes.length !== 0 && indexes.every((index) => index.readonly) &&
-    values.length !== 0 && values.every((value) =>
-      value !== undefined && (
-        offset + 1 === path.length ||
-        readonlyTypePath(semantics, value, path, offset + 1)
-      )
-    );
-}
-
-function propertyMatchesSelector(
-  semantics: SourceFileSemantics,
-  property: TypePropertyInfo,
-  selector: Extract<ExactValueSlotSelector, { readonly kind: "property" }>,
-): boolean {
-  if (
-    selector.symbols.has(property.symbol) ||
-    property.rootSymbols.some((symbol) => selector.symbols.has(symbol)) ||
-    selector.names.has(property.name)
-  ) {
-    return true;
-  }
-  return semantics.declarations.symbolDeclarations(property.symbol).some(
-    (declaration) =>
-      declaration !== undefined && selector.declarations.has(declaration),
-  );
 }
 
 export function exactObjectSlotContributors(

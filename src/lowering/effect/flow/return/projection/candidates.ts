@@ -9,6 +9,7 @@ import { isFunctionLike, transparentExpression } from "../../../model/syntax.js"
 import type { ReturnLocalFlow } from "../local.js";
 import { staticallyNonThenable } from "../provenance/semantics.js";
 import type { ReturnStorageFlow } from "../storage.js";
+import type { ExactCallableBodyInspection } from "../../callable/result-inputs.js";
 
 export interface ReturnProjectionCandidateContext {
   readonly source: TargetSourceProgram;
@@ -21,6 +22,7 @@ export interface ReturnProjectionCandidateContext {
   readonly sourceForCall: (
     call: Node,
   ) => ExactValueSlotCallSource | undefined;
+  readonly bodyInspectionIsCertified?: ExactCallableBodyInspection;
 }
 
 export function collectReturnProjectionCandidates(
@@ -49,7 +51,11 @@ export function collectReturnProjectionCandidates(
       visited.add(node);
       if (
         projectionRoots.has(node) &&
-        !staticallyNonThenable(source, node)
+        !staticallyNonThenable(
+          source,
+          node,
+          context.bodyInspectionIsCertified,
+        )
       ) {
         selected.add(node);
       }

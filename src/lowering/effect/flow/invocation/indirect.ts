@@ -7,6 +7,7 @@ import type { InvocationTransportContract } from "../../../invocation-transport.
 import { callableHasOpenInvocationSurface } from "../../model/declaration-surface.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import {
+  type ExactCallableBodyInspection,
   type ExactCallImplementations,
 } from "../callable/result-inputs.js";
 import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
@@ -30,6 +31,7 @@ import {
   composeStorageOwnerBoundaryDependencies,
   type StorageOwnerBoundaryDependencies,
 } from "../storage/owner-boundaries.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 
 export type {
   ExactIndirectCallableInvocation,
@@ -49,6 +51,8 @@ interface ExactIndirectInvocationDomain {
   readonly callableFields: CallableFields;
   readonly storageOwners?: ClosedStorageOwnerAnalysis;
   readonly boundaryDependencies?: StorageOwnerBoundaryDependencies;
+  readonly bodyInspectionIsCertified?: ExactCallableBodyInspection;
+  readonly cooperativeEffects: TypeScriptActiveCooperativeEffectProfile;
 }
 
 function emptyRound(): ExactIndirectInvocationRound {
@@ -72,7 +76,15 @@ export function createExactIndirectInvocationAnalysis(
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
   bootstrap: ExactIndirectInvocationBootstrap = "none",
   bootstrapStorageDependencies?: StorageOwnerBoundaryDependencies,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ExactIndirectInvocationAnalysis {
+  const selectedCallableFields = callableFields ??
+    collectCallableFields(source, program);
+  const stableBoundaryDependencies = composeStorageOwnerBoundaryDependencies([
+    boundaryDependencies,
+    createCallableFieldBoundaryDependencies(source, selectedCallableFields),
+  ]);
   const domain: ExactIndirectInvocationDomain = Object.freeze({
     source,
     program,
@@ -82,16 +94,22 @@ export function createExactIndirectInvocationAnalysis(
       source,
       program,
       planningObserver,
+      bodyInspectionIsCertified,
     ),
-    callableFields: callableFields ?? collectCallableFields(source, program),
+    callableFields: selectedCallableFields,
     ...(storageOwners === undefined ? {} : { storageOwners }),
-    ...(boundaryDependencies === undefined ? {} : { boundaryDependencies }),
+    ...(stableBoundaryDependencies === undefined
+      ? {}
+      : { boundaryDependencies: stableBoundaryDependencies }),
+    ...(bodyInspectionIsCertified === undefined
+      ? {}
+      : { bodyInspectionIsCertified }),
+    cooperativeEffects,
   });
   if (bootstrap === "declared-interface") {
     const boundaryDependencies = composeStorageOwnerBoundaryDependencies([
       domain.boundaryDependencies,
       bootstrapStorageDependencies,
-      createCallableFieldBoundaryDependencies(source, domain.callableFields),
     ]);
     const seed = collectExactIndirectInvocationRound(
       source,
@@ -107,6 +125,8 @@ export function createExactIndirectInvocationAnalysis(
       domain.callableFields,
       domain.storageOwners,
       boundaryDependencies,
+      domain.bodyInspectionIsCertified,
+      domain.cooperativeEffects,
     );
     return createAnalysis(
       domain,
@@ -131,6 +151,7 @@ function settleExactIndirectInvocationAnalysis(
   initialCallImplementations: ExactCallImplementations | undefined,
   planningObserver: TypeScriptPlanningObserver | undefined,
   seed: ExactIndirectInvocationRound,
+  direction: "expanding" | "contracting" = "expanding",
 ): ExactIndirectInvocationAnalysis {
   const { source, program, projections, objectProjections } = domain;
   let invocationInputs = extendInputs(
@@ -140,11 +161,9 @@ function settleExactIndirectInvocationAnalysis(
     projections,
   );
   let previous = seed;
-  const states = new Set<string>();
-  const identities = new Map<Node, number>();
-  states.add(roundState(previous, identities));
-  const maximumRounds = program.nodesOfKind(KindCallExpression).length + 1;
-  for (let round = 0; round <= maximumRounds; round += 1) {
+  let previousFactCount = roundFactCount(previous);
+  const maximumFactCount = exactIndirectInvocationFactDomainSize(program);
+  for (;;) {
     const current = collectExactIndirectInvocationRound(
       source,
       program,
@@ -162,16 +181,36 @@ function settleExactIndirectInvocationAnalysis(
       domain.callableFields,
       domain.storageOwners,
       domain.boundaryDependencies,
+      domain.bodyInspectionIsCertified,
+      domain.cooperativeEffects,
     );
-    planningObserver?.("effect-indirect-round");
+    planningObserver?.("effect-indirect-round", {
+      calls: current.invocations.length,
+      references: current.callableReferences.size,
+    });
     if (sameRound(previous, current)) {
       return createAnalysis(domain, current, invocationInputs);
     }
-    const state = roundState(current, identities);
-    if (states.has(state)) {
-      return createAnalysis(domain, emptyRound(), direct);
+    const monotonic = direction === "expanding"
+      ? roundRefines(previous, current)
+      : roundRefines(current, previous);
+    if (!monotonic) {
+      throw new Error(
+        "exact indirect invocation settlement is not monotonic",
+      );
     }
-    states.add(state);
+    const currentFactCount = roundFactCount(current);
+    if (
+      (direction === "expanding"
+        ? currentFactCount <= previousFactCount
+        : currentFactCount >= previousFactCount) ||
+      currentFactCount > maximumFactCount
+    ) {
+      throw new Error(
+        "exact indirect invocation settlement exceeded its finite domain",
+      );
+    }
+    previousFactCount = currentFactCount;
     previous = current;
     invocationInputs = extendInputs(
       source,
@@ -180,7 +219,6 @@ function settleExactIndirectInvocationAnalysis(
       projections,
     );
   }
-  return createAnalysis(domain, emptyRound(), direct);
 }
 
 function composeImplementations(
@@ -188,11 +226,19 @@ function composeImplementations(
   right: ExactCallImplementations,
 ): ExactCallImplementations {
   return (call) => {
+    const leftImplementations = left?.(call);
+    const rightImplementations = right(call);
+    if (
+      leftImplementations === undefined &&
+      rightImplementations === undefined
+    ) {
+      return undefined;
+    }
     const selected = new Set([
-      ...(left?.(call) ?? []),
-      ...(right(call) ?? []),
+      ...(leftImplementations ?? []),
+      ...(rightImplementations ?? []),
     ]);
-    return selected.size === 0 ? undefined : Object.freeze([...selected]);
+    return Object.freeze([...selected]);
   };
 }
 
@@ -228,13 +274,31 @@ function createAnalysis(
       callImplementations: ExactCallImplementations | undefined,
       planningObserver?: TypeScriptPlanningObserver,
     ): ExactIndirectInvocationAnalysis {
+      const upperBound = collectExactIndirectInvocationRound(
+        domain.source,
+        domain.program,
+        refinedInputs,
+        domain.projections,
+        domain.objectProjections,
+        transports,
+        callImplementations,
+        () => true,
+        domain.projectionCandidates,
+        planningObserver,
+        domain.callableFields,
+        domain.storageOwners,
+        domain.boundaryDependencies,
+        domain.bodyInspectionIsCertified,
+        domain.cooperativeEffects,
+      );
       return settleExactIndirectInvocationAnalysis(
         domain,
         refinedInputs,
         transports,
         callImplementations,
         planningObserver,
-        round,
+        upperBound,
+        "contracting",
       );
     },
   });
@@ -297,36 +361,47 @@ function sameRound(
     );
 }
 
-function roundState(
-  round: ExactIndirectInvocationRound,
-  identities: Map<Node, number>,
-): string {
-  const references = [...round.callableReferences]
-    .map((reference) => identityFor(reference, identities))
-    .sort((left, right) => left - right);
-  return `${invocationState(round.invocations, identities)}|${references.join(",")}`;
-}
-
-function invocationState(
-  invocations: readonly ExactIndirectCallableInvocation[],
-  identities: Map<Node, number>,
-): string {
-  return invocations.map((entry) => {
-    const implementations = entry.implementations.map((implementation) =>
-      identityFor(implementation, identities)
+function roundRefines(
+  previous: ExactIndirectInvocationRound,
+  current: ExactIndirectInvocationRound,
+): boolean {
+  if (
+    [...previous.callableReferences].some((reference) =>
+      !current.callableReferences.has(reference)
     )
-      .sort((left, right) => left - right);
-    return `${identityFor(entry.call, identities)}:${implementations.join(",")}`;
-  }).sort().join(";");
+  ) {
+    return false;
+  }
+  const currentByCall = new Map(current.invocations.map((entry) => [
+    entry.call,
+    new Set(entry.implementations),
+  ]));
+  return previous.invocations.every((entry) => {
+    const selected = currentByCall.get(entry.call);
+    return selected !== undefined &&
+      entry.implementations.every((implementation) =>
+        selected.has(implementation)
+      );
+  });
 }
 
-function identityFor(node: Node, identities: Map<Node, number>): number {
-  let identity = identities.get(node);
-  if (identity === undefined) {
-    identity = identities.size;
-    identities.set(node, identity);
+function roundFactCount(round: ExactIndirectInvocationRound): number {
+  return round.callableReferences.size + round.invocations.reduce(
+    (total, entry) => total + 1 + entry.implementations.length,
+    0,
+  );
+}
+
+function exactIndirectInvocationFactDomainSize(
+  program: TargetProgramIndex,
+): number {
+  const calls = program.nodesOfKind(KindCallExpression).length;
+  const nodes = program.nodes.length;
+  const size = nodes + calls * (nodes + 1);
+  if (!Number.isSafeInteger(size)) {
+    throw new Error("exact indirect invocation finite domain is too large");
   }
-  return identity;
+  return size;
 }
 
 export function collectExactIndirectCallableInvocations(
@@ -337,8 +412,15 @@ export function collectExactIndirectCallableInvocations(
   objectProjections: ExactObjectPropertyProjectionIndex,
   transports?: InvocationTransportContract,
   exactCallImplementations?: ExactCallImplementations,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): readonly ExactIndirectCallableInvocation[] {
-  const projectionCandidates = collectCallableProjectionCandidates(source, program);
+  const projectionCandidates = collectCallableProjectionCandidates(
+    source,
+    program,
+    undefined,
+    bodyInspectionIsCertified,
+  );
   return collectExactIndirectInvocationRound(
     source,
     program,
@@ -349,5 +431,11 @@ export function collectExactIndirectCallableInvocations(
     exactCallImplementations,
     undefined,
     projectionCandidates,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   ).invocations;
 }

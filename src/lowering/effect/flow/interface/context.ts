@@ -5,6 +5,7 @@ import type {
 } from "@tsonic/target-api/source";
 
 import type { InterfaceContractRelevance } from "./relevance.js";
+import { isExactValueAssignmentOperator } from "../storage/assignment.js";
 
 export interface InterfaceContractContext {
   readonly semantics: SourceFileSemantics;
@@ -34,9 +35,12 @@ export function contextualExpression(
   if (source.ast.is.IsTypeAssertion(node)) {
     return source.ast.as.AsTypeAssertion(node)?.Expression;
   }
+  if (source.ast.is.IsSatisfiesExpression(node)) {
+    return source.ast.as.AsSatisfiesExpression(node)?.Expression;
+  }
   if (
     source.ast.is.IsBinaryExpression(node) &&
-    source.ast.operatorKindName(node) === "KindEqualsToken"
+    isExactValueAssignmentOperator(source.ast.operatorKindName(node))
   ) {
     return source.ast.as.AsBinaryExpression(node)?.Right;
   }
@@ -124,11 +128,13 @@ function callableResultTypes(
   if (callableType === undefined) {
     return [];
   }
-  return uniqueTypes(
-    semantics.types.callSignatures(callableType)
-      .map((signature) => semantics.types.returnType(signature))
-      .filter((type): type is Type => type !== undefined),
+  const signatures = semantics.types.callSignatures(callableType);
+  const results = signatures.map((signature) =>
+    semantics.types.returnType(signature)
   );
+  return signatures.length !== 0 && results.every((type) => type !== undefined)
+    ? uniqueTypes(results as readonly Type[])
+    : [];
 }
 
 function uniqueTypes(types: readonly Type[]): Type[] {

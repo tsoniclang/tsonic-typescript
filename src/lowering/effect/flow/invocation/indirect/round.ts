@@ -13,11 +13,15 @@ import {
   exactCallableTarget,
   transparentExpression,
 } from "../../../model/syntax.js";
-import { resolveProjectInvocation } from "../../../model/project-invocation.js";
-import { nodeHasExactSourceSemantics } from "../../../model/source-membership.js";
+import {
+  resolveExactSourceInvocation,
+  sourceValueReference,
+} from "../../../model/exact-source-invocation.js";
+import { sourceBodyInspectionIsExact } from "../../../model/source-membership.js";
 import { collectCallableValueInputs } from "../../callable/value-inputs.js";
 import {
   createCallableResultInputs,
+  type ExactCallableBodyInspection,
   type ExactCallImplementations,
 } from "../../callable/result-inputs.js";
 import { createCallableInputUseContract } from "../../callable/input-use.js";
@@ -29,6 +33,7 @@ import type { ExactAggregateProjectionIndex } from "../../aggregate/projection.j
 import type { ExactInvocationInputIndex } from "../inputs.js";
 import type { ClosedStorageOwnerAnalysis } from "../../storage/analysis.js";
 import type { StorageOwnerBoundaryDependencies } from "../../storage/owner-boundaries.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../../profile.js";
 import { collectClosedIndirectCallableReferences } from "./reference-closure.js";
 import { selectClosedIndirectCallableOrigins } from "./origin-selection.js";
 import type {
@@ -59,6 +64,7 @@ interface CallableOriginContext {
   readonly expressions: Map<Node, CallableOriginState>;
   readonly declarations: Map<Node, CallableOriginState>;
   readonly callableOrigins: Set<Node>;
+  readonly bodyInspectionIsCertified?: ExactCallableBodyInspection;
 }
 
 export function collectExactIndirectInvocationRound(
@@ -75,6 +81,8 @@ export function collectExactIndirectInvocationRound(
   callableFields?: CallableFields,
   storageOwners?: ClosedStorageOwnerAnalysis,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ExactIndirectInvocationRound {
   const results = createCallableResultInputs(
     source,
@@ -89,6 +97,8 @@ export function collectExactIndirectInvocationRound(
     storageOwners,
     callableReferenceIsClosed,
     boundaryDependencies,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
   planningObserver?.("effect-indirect-results");
   const inputUses = createCallableInputUseContract(
@@ -105,7 +115,10 @@ export function collectExactIndirectInvocationRound(
     callableReferenceIsClosed,
     planningObserver,
     callableFields,
+    objectProjections,
     boundaryDependencies,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
   planningObserver?.("effect-indirect-value-inputs");
   const context: CallableOriginContext = {
@@ -119,10 +132,19 @@ export function collectExactIndirectInvocationRound(
     expressions: new Map(),
     declarations: new Map(),
     callableOrigins: new Set(),
+    ...(bodyInspectionIsCertified === undefined
+      ? {}
+      : { bodyInspectionIsCertified }),
   };
   const calls = new Map<Node, CallableOriginState>();
   for (const call of program.nodesOfKind(KindCallExpression)) {
-    if (resolveProjectInvocation(source, call) !== undefined) {
+    if (
+      resolveExactSourceInvocation(
+        source,
+        call,
+        bodyInspectionIsCertified,
+      ) !== undefined
+    ) {
       continue;
     }
     const target = exactCallableTarget(
@@ -142,7 +164,13 @@ export function collectExactIndirectInvocationRound(
     resolved,
     calls,
     context.callableOrigins,
-    (declaration) => callableOriginIsExact(source, program, declaration),
+    (declaration) =>
+      callableOriginIsExact(
+        source,
+        program,
+        declaration,
+        bodyInspectionIsCertified,
+      ),
   );
   planningObserver?.("effect-indirect-origin-index");
   const result: ExactIndirectCallableInvocation[] = [];
@@ -224,7 +252,7 @@ function expandExpression(
       ?.resultOriginExpressions;
     if (transported !== undefined) {
       if (transported.length === 0) {
-        boundary(state, "open-expression", root, context);
+        emptyOrigin(state, root, context);
       }
       for (const selected of transported) {
         dependency(state, expressionState(selected, context), root, context);
@@ -269,19 +297,31 @@ function expandExpression(
     }
     return;
   }
-  const referenceNode = source.ast.is.IsPropertyAccessExpression(root)
-    ? source.ast.name(root)
-    : root;
-  const reference = source.navigation.sourceReferenceFor(referenceNode);
+  const reference = sourceValueReference(source, root);
   if (
-    reference?.project === true &&
-    callableOriginIsExact(source, context.program, reference.declaration)
+    reference !== undefined &&
+    sourceBodyInspectionIsExact(
+      source,
+      reference.declaration,
+      context.bodyInspectionIsCertified,
+    ) &&
+    callableOriginIsExact(
+      source,
+      context.program,
+      reference.declaration,
+      context.bodyInspectionIsCertified,
+    )
   ) {
     origin(state, reference.declaration, context);
     return;
   }
   if (
-    reference?.project !== true ||
+    reference === undefined ||
+    !sourceBodyInspectionIsExact(
+      source,
+      reference.declaration,
+      context.bodyInspectionIsCertified,
+    ) ||
     !context.values.isClosed(reference.declaration)
   ) {
     boundary(state, "open-binding", root, context);
@@ -325,13 +365,18 @@ function callableOriginIsExact(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   declaration: Node,
+  bodyInspectionIsCertified: ExactCallableBodyInspection | undefined,
 ): boolean {
   const callable = source.ast.is.IsFunctionDeclaration(declaration) ||
     source.ast.is.IsMethodDeclaration(declaration) ||
     source.ast.is.IsFunctionExpression(declaration) ||
     source.ast.is.IsArrowFunction(declaration);
   return callable &&
-    nodeHasExactSourceSemantics(source, declaration) &&
+    sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) &&
     source.ast.body(declaration) !== undefined &&
     !program.hasBindingWrite(declaration) &&
     callableDispatchIsClosed(source, program, declaration);

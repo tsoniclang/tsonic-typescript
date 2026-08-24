@@ -14,6 +14,7 @@ import type {
 export interface SettledCallableReturnContract {
   readonly rewrite: CallableReturnRewrite;
   readonly resolutions: readonly CallableValueResolution[];
+  readonly sources: readonly Node[];
   readonly sourceRequirements: readonly CallableContractSourceRequirement[];
 }
 
@@ -26,6 +27,10 @@ export interface GraphCallableValueFlow {
   resolutionForExpression(
     expression: Node | undefined,
   ): CallableValueResolution | undefined;
+  resolutionForDeclaration(
+    declaration: Node | undefined,
+  ): CallableValueResolution | undefined;
+  callReturnsCallableValue(call: Node): boolean;
   contractForCall(call: Node): CallableValueResolution | undefined;
   allowsCallableReference(node: Node): boolean;
   settledReturnTypes(
@@ -42,6 +47,11 @@ export function finalizeGraphCallableValueFlow(
   expressionResolution: (
     expression: Node,
   ) => CallableValueResolution | undefined,
+  declarationResolution: (
+    declaration: Node,
+  ) => CallableValueResolution | undefined,
+  closedCallableDeclarations: ReadonlySet<Node>,
+  callableResultCalls: ReadonlySet<Node>,
   inheritedCallableReferenceIsClosed:
     ((reference: Node) => boolean) | undefined,
 ): GraphCallableValueFlow {
@@ -64,6 +74,16 @@ export function finalizeGraphCallableValueFlow(
       return expression === undefined
         ? undefined
         : expressionResolution(expression);
+    },
+    resolutionForDeclaration(
+      declaration: Node | undefined,
+    ): CallableValueResolution | undefined {
+      return declaration === undefined
+        ? undefined
+        : declarationResolution(declaration);
+    },
+    callReturnsCallableValue(call: Node): boolean {
+      return callableResultCalls.has(call);
     },
     contractForCall(call: Node): CallableValueResolution | undefined {
       const requirement = callContractRequirements.get(call);
@@ -89,7 +109,10 @@ export function finalizeGraphCallableValueFlow(
     },
     allowsCallableReference(node: Node): boolean {
       return inheritedCallableReferenceIsClosed?.(node) === true ||
-        closedCallableReferences.has(node);
+        closedCallableReferences.has(node) ||
+        closedCallableDeclarations.has(node) &&
+          declarationResolution(node)?.closed === true ||
+        returnContracts.allowsSource(node);
     },
     settledReturnTypes(
       optimized: ReadonlySet<Node>,
@@ -105,6 +128,7 @@ export function finalizeGraphCallableValueFlow(
 
 interface FinalizedReturnContracts {
   readonly rewrites: readonly CallableReturnRewrite[];
+  allowsSource(source: Node): boolean;
   resolutionFor(targets: readonly Node[]): CallableValueResolution;
 }
 
@@ -143,6 +167,17 @@ function finalizeReturnContracts(
     }
   }
   const resolutions = new Map<Node, CallableValueResolution>();
+  const sourceTargets = new Map<Node, Set<Node>>();
+  for (const contract of contracts) {
+    for (const source of contract.sources) {
+      let targets = sourceTargets.get(source);
+      if (targets === undefined) {
+        targets = new Set();
+        sourceTargets.set(source, targets);
+      }
+      targets.add(contract.rewrite.target);
+    }
+  }
   const resolutionForTarget = (target: Node): CallableValueResolution => {
     const existing = resolutions.get(target);
     if (existing !== undefined) {
@@ -184,6 +219,11 @@ function finalizeReturnContracts(
     rewrites: Object.freeze(contracts.flatMap((contract) =>
       settled.has(contract.rewrite.target) ? [contract.rewrite] : []
     )),
+    allowsSource(source: Node): boolean {
+      const targets = sourceTargets.get(source);
+      return targets !== undefined &&
+        [...targets].every((target) => settled.has(target));
+    },
     resolutionFor(targets: readonly Node[]): CallableValueResolution {
       if (targets.length === 0) {
         return resolvedContract;

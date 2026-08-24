@@ -5,22 +5,28 @@ import type {
 } from "@tsonic/target-api/source";
 
 import {
-  callableDeclarationSynchronousReturnTypes,
+  callableDeclarationDirectReturnRewrite,
   callableReturnRewrite,
   callableReturnRewriteAdmitsDirectValue,
   selectedCallableReturnType,
   type CallableReturnRewrite,
 } from "../../../model/callable-contract.js";
 import {
+  callableDeclarationSynchronousReturnTypes,
+} from "../../../model/callable-contract/declarations.js";
+import {
+  callableDeclarationHasExactCallableType,
   callableDeclarationHasResolvableType,
 } from "../../../model/callable-contract/resolution.js";
 import {
   referenceHasExactSemantics,
-  resolveProjectInvocation,
-} from "../../../model/project-invocation.js";
+  resolveExactSourceInvocation,
+  sourceValueReference,
+} from "../../../model/exact-source-invocation.js";
 import {
   exactCallExpression,
   exactCallableTarget,
+  isFunctionLike,
   transparentExpression,
 } from "../../../model/syntax.js";
 import {
@@ -108,19 +114,25 @@ function collectCallRequirement(
       });
     }
   }
-  const implementation = resolveProjectInvocation(source, call)?.implementation;
+  const directImplementation = resolveExactSourceInvocation(
+    source,
+    call,
+    context.bodyInspectionIsCertified,
+  )?.implementation;
+  const implementations = directImplementation === undefined
+    ? context.exactCallImplementations?.(call) ?? []
+    : [directImplementation];
   const projected = context.results.sourceFor(call);
   if (
-    implementation === undefined ||
-    declaration !== implementation ||
-    projected?.resultOwner !== implementation ||
-    source.ast.body(implementation) === undefined ||
-    source.ast.typeNode(implementation) !== undefined ||
-    pending.has(implementation)
+    implementations.length === 0 ||
+    projected === undefined ||
+    implementations.some((implementation) => pending.has(implementation))
   ) {
     return unresolvedCallRequirement;
   }
-  pending.add(implementation);
+  for (const implementation of implementations) {
+    pending.add(implementation);
+  }
   const requirement = mergeRequirements(projected.expressions.map((expression) =>
     expression === undefined
       ? unresolvedRequirement
@@ -133,7 +145,9 @@ function collectCallRequirement(
           pending,
         )
   ));
-  pending.delete(implementation);
+  for (const implementation of implementations) {
+    pending.delete(implementation);
+  }
   return requirement;
 }
 
@@ -290,7 +304,15 @@ function collectRequirement(
         );
   }
   const resolution = expressionResolution(root);
-  if (resolution?.closed === true) {
+  const reference = sourceValueReference(context.source, root);
+  const exactReference = referenceHasExactSemantics(context.source, reference);
+  const conditionalFunction = exactReference &&
+    isFunctionLike(context.source, reference.declaration) &&
+    callableDeclarationDirectReturnRewrite(
+        context.source,
+        reference.declaration,
+      ) !== undefined;
+  if (resolution?.closed === true && !conditionalFunction) {
     return Object.freeze({
       resolvable: true,
       candidateDependencies: Object.freeze([
@@ -299,8 +321,7 @@ function collectRequirement(
       contractDependencies: emptyNodes,
     });
   }
-  const reference = context.source.navigation.sourceReferenceFor(root);
-  if (!referenceHasExactSemantics(context.source, reference)) {
+  if (!exactReference) {
     return unresolvedRequirement;
   }
   return declarationRequirement(reference.declaration, context);
@@ -334,12 +355,18 @@ function callSourceRequirement(
     context.source,
     context.source.ast.as.AsCallExpression(call)?.Expression,
   );
-  const reference = context.source.navigation.sourceReferenceFor(target);
+  const reference = sourceValueReference(context.source, target);
   const sourceContractIsResolvable =
     referenceHasExactSemantics(context.source, reference) &&
-    callableDeclarationHasResolvableType(
-      context.source,
-      reference.declaration,
+    (
+      callableDeclarationHasResolvableType(
+        context.source,
+        reference.declaration,
+      ) ||
+      callableDeclarationHasExactCallableType(
+        context.source,
+        reference.declaration,
+      )
     );
   return Object.freeze({
     resolvable: resolution?.closed === true &&
@@ -367,6 +394,9 @@ function declarationRequirement(
       contractDependencies: emptyNodes,
     });
   }
+  if (isFunctionLike(context.source, declaration)) {
+    return functionReturnRequirement(declaration, context);
+  }
   const rewrites = callableDeclarationSynchronousReturnTypes(
     context.source,
     declaration,
@@ -374,6 +404,31 @@ function declarationRequirement(
   return rewrites === undefined || rewrites.length === 0
     ? unresolvedRequirement
     : contractRequirement(rewrites.map((rewrite) => rewrite.target));
+}
+
+function functionReturnRequirement(
+  declaration: Node,
+  context: CallableContext,
+): CallableContractSourceRequirement {
+  const returnType = context.source.ast.typeNode(declaration);
+  if (returnType === undefined) {
+    return unresolvedRequirement;
+  }
+  const semantics = context.source.semantics.forNode(returnType);
+  const selected = semantics.types.authoredType(returnType);
+  if (selected === undefined) {
+    return unresolvedRequirement;
+  }
+  if (!typeMaySuspend(semantics, selected)) {
+    return resolvedRequirement;
+  }
+  const rewrite = callableDeclarationDirectReturnRewrite(
+    context.source,
+    declaration,
+  );
+  return rewrite === undefined
+    ? unresolvedRequirement
+    : contractRequirement([rewrite.target]);
 }
 
 function callableValueTypeIsSynchronous(

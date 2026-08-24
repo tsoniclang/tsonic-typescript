@@ -435,35 +435,24 @@ export const result = await invoke();
   assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
 });
 
-test("keeps a callable producer used by a discarded indirect call", () => {
+test("removes an await of an exact synchronous non-thenable call", () => {
   const fixture = checkedEffectFixture(`
-class Callback {
-  constructor(readonly value: (() => void | Promise<void>) | undefined) {}
-}
-const callback = new Callback(async (): Promise<void> => { throw new Error("boom"); });
-export function discard(): void { callback.value!(); }
+function remote(): number { return 42; }
+async function invoke(): Promise<number> { return await remote(); }
+export const result = await invoke();
 `);
 
   const plan = createClosedCooperativeEffectPlan(fixture.source);
   const result = lowerCooperativeEffects(fixture.sourceFile, plan);
   plan.finish();
 
-  assert.equal(result.callableCount, 0);
-  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
-});
-
-test("keeps a direct producer used by a discarded call", () => {
-  const fixture = checkedEffectFixture(`
-async function fail(): Promise<void> { throw new Error("boom"); }
-export function discard(): void { fail(); }
-`);
-
-  const plan = createClosedCooperativeEffectPlan(fixture.source);
-  const result = lowerCooperativeEffects(fixture.sourceFile, plan);
-  plan.finish();
-
-  assert.equal(result.callableCount, 0);
-  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 1);
+  assert.equal(result.callableCount, 1);
+  assert.equal(result.awaitCount, 2);
+  assert.equal(countAsyncCallables(fixture.source, result.sourceFile), 0);
+  assert.equal(
+    countNodes(fixture.source, result.sourceFile, IsAwaitExpression),
+    0,
+  );
 });
 
 test("settles an indirect call with a proven synchronous producer", () => {

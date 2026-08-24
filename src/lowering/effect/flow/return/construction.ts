@@ -2,18 +2,24 @@ import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { isFunctionLike } from "../../model/syntax.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
+import type { ExactCallableBodyInspection } from "../callable/result-inputs.js";
 
 export function projectConstructionIsDefinitelyNonThenable(
   source: TargetSourceProgram,
   expression: Node,
   type: Type,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): boolean {
   const semantics = source.semantics.forNode(expression);
   if (semantics.types.couldContainTypeVariables(type)) {
     return false;
   }
-  const constructor = resolveProjectInvocation(source, expression)?.implementation;
+  const constructor = resolveExactSourceInvocation(
+    source,
+    expression,
+    bodyInspectionIsCertified,
+  )?.implementation;
   if (
     constructor === undefined ||
     !source.ast.is.IsConstructorDeclaration(constructor) ||

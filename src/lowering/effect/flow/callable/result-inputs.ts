@@ -12,12 +12,17 @@ import {
   callableDispatchIsClosed,
   transparentExpression,
 } from "../../model/syntax.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
 import { createCallableProjectionInputs } from "./projection-inputs.js";
 import { exactCallableReturnExpressions } from "../invocation/results.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
+import {
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../../model/source-membership.js";
 
 export interface CallableResultInput {
   readonly expressions: readonly (Node | undefined)[];
@@ -48,6 +53,8 @@ export type ExactCallResultOrigins = (
   call: Node,
 ) => readonly Node[] | undefined;
 
+export type ExactCallableBodyInspection = ExactSourceBodyInspection;
+
 interface SelectedCallSource {
   readonly resultOwner: Node;
   readonly contracts: readonly Node[];
@@ -67,6 +74,8 @@ export function createCallableResultInputs(
   storageOwners?: ClosedStorageOwnerAnalysis,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): CallableResultInputs {
   const returns = new Map<Node, readonly (Node | undefined)[] | null>();
   const returnTypes = new Map<
@@ -101,6 +110,7 @@ export function createCallableResultInputs(
       source,
       selected.call,
       exactCallImplementations,
+      bodyInspectionIsCertified,
     );
     if (selectedSource === undefined) {
       sources.set(expression, null);
@@ -115,6 +125,7 @@ export function createCallableResultInputs(
         selected.awaited,
         implementation,
         returns,
+        bodyInspectionIsCertified,
       );
       if (returned === undefined) {
         sources.set(expression, null);
@@ -146,6 +157,7 @@ export function createCallableResultInputs(
         source,
         selected.call,
         exactCallImplementations,
+        bodyInspectionIsCertified,
       );
       if (selectedSource === undefined) {
         results.set(expression, null);
@@ -161,6 +173,7 @@ export function createCallableResultInputs(
           selected.awaited,
           declaration,
           returns,
+          bodyInspectionIsCertified,
         );
         if (selectedReturns === undefined) {
           results.set(expression, null);
@@ -197,6 +210,7 @@ export function createCallableResultInputs(
       source,
       call,
       exactCallImplementations,
+      bodyInspectionIsCertified,
     )?.contracts,
     invocationInputs,
     projectionCandidates,
@@ -205,6 +219,8 @@ export function createCallableResultInputs(
     exactCallImplementations,
     callableReferenceIsClosed,
     boundaryDependencies,
+    cooperativeEffects,
+    bodyInspectionIsCertified,
   );
   return Object.freeze({
     sourceFor,
@@ -222,8 +238,13 @@ function selectedCallSource(
   source: TargetSourceProgram,
   call: Node,
   exactCallImplementations: ExactCallImplementations | undefined,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): SelectedCallSource | undefined {
-  const direct = resolveProjectInvocation(source, call)?.implementation;
+  const direct = resolveExactSourceInvocation(
+    source,
+    call,
+    bodyInspectionIsCertified,
+  )?.implementation;
   if (direct !== undefined) {
     return Object.freeze({
       resultOwner: direct,
@@ -258,9 +279,14 @@ function inspectedReturns(
   awaited: boolean,
   declaration: Node,
   cache: Map<Node, readonly (Node | undefined)[] | null>,
+  bodyInspectionIsCertified: ExactCallableBodyInspection | undefined,
 ): readonly (Node | undefined)[] | undefined {
   if (
-    !source.navigation.isProjectDeclaration(declaration) ||
+    !sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) ||
     !callableDispatchIsClosed(source, program, declaration) ||
     program.hasBindingWrite(declaration) ||
     (source.ast.hasModifierKind(declaration, "async") &&

@@ -4,15 +4,19 @@ import type {
   SourceDeclarationReference,
   TargetSourceProgram,
 } from "@tsonic/target-api/source";
-import { nodeHasExactSourceSemantics } from "./source-membership.js";
+import {
+  type ExactSourceBodyInspection,
+  nodeHasExactSourceSemantics,
+  sourceBodyInspectionIsExact,
+} from "./source-membership.js";
 
-export interface ResolvedProjectInvocation {
+export interface ResolvedExactSourceInvocation {
   readonly call: ResolvedSourceCallInfo;
   readonly contract: Node;
   readonly implementation: Node;
 }
 
-export interface ResolvedProjectInvocationContract {
+export interface ResolvedExactSourceInvocationContract {
   readonly call: ResolvedSourceCallInfo;
   readonly contract: Node;
 }
@@ -25,24 +29,42 @@ export function referenceHasExactSemantics(
     nodeHasExactSourceSemantics(source, reference.declaration);
 }
 
-export function resolveProjectInvocation(
+export function sourceValueReference(
+  source: TargetSourceProgram,
+  expression: Node | undefined,
+): SourceDeclarationReference | undefined {
+  if (expression === undefined) {
+    return undefined;
+  }
+  const referenceNode = source.ast.is.IsPropertyAccessExpression(expression)
+    ? source.ast.name(expression)
+    : expression;
+  return source.navigation.sourceReferenceFor(referenceNode);
+}
+
+export function resolveExactSourceInvocation(
   source: TargetSourceProgram,
   node: Node,
-): ResolvedProjectInvocation | undefined {
-  const selected = resolveProjectInvocationContract(source, node);
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+): ResolvedExactSourceInvocation | undefined {
+  const selected = resolveExactSourceInvocationContract(source, node);
   if (selected === undefined) {
     return undefined;
   }
-  const implementation = projectCallableImplementation(source, selected.contract);
+  const implementation = exactSourceCallableImplementation(
+    source,
+    selected.contract,
+    bodyInspectionIsCertified,
+  );
   return implementation === undefined
     ? undefined
     : Object.freeze({ ...selected, implementation });
 }
 
-export function resolveProjectInvocationContract(
+export function resolveExactSourceInvocationContract(
   source: TargetSourceProgram,
   node: Node,
-): ResolvedProjectInvocationContract | undefined {
+): ResolvedExactSourceInvocationContract | undefined {
   if (
     !source.ast.is.IsCallExpression(node) &&
     !source.ast.is.IsNewExpression(node)
@@ -66,9 +88,10 @@ export function resolveProjectInvocationContract(
   return Object.freeze({ call, contract });
 }
 
-export function projectCallableImplementation(
+export function exactSourceCallableImplementation(
   source: TargetSourceProgram,
   contract: Node | undefined,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): Node | undefined {
   if (
     contract === undefined ||
@@ -77,10 +100,21 @@ export function projectCallableImplementation(
     return undefined;
   }
   const selected = source.navigation.callableImplementation(contract);
-  if (selected.kind === "resolved") {
+  if (
+    selected.kind === "resolved" &&
+    sourceBodyInspectionIsExact(
+      source,
+      selected.implementation.declaration,
+      bodyInspectionIsCertified,
+    )
+  ) {
     return selected.implementation.declaration;
   }
-  return source.navigation.isProjectDeclaration(contract) &&
+  return sourceBodyInspectionIsExact(
+      source,
+      contract,
+      bodyInspectionIsCertified,
+    ) &&
       source.ast.body(contract) !== undefined
     ? contract
     : undefined;

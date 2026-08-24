@@ -136,6 +136,29 @@ function analyzeTypePair(
         enqueueInterfaceContractTypePair,
       );
     }
+    pairCallableTypes(
+      semantics,
+      source,
+      target,
+      state,
+      enqueueInterfaceContractTypePair,
+    );
+    pairSequenceTypes(
+      semantics,
+      source,
+      target,
+      state,
+      enqueueInterfaceContractTypePair,
+    );
+    pairObjectMembers(
+      semantics,
+      source,
+      target,
+      sourceDeclaration,
+      targetDeclaration,
+      state,
+      enqueueInterfaceContractTypePair,
+    );
     return;
   }
   if (
@@ -184,6 +207,29 @@ function analyzeTypePair(
         semantics,
         source,
         target,
+        state,
+        enqueueInterfaceContractTypePair,
+      );
+      pairCallableTypes(
+        semantics,
+        source,
+        target,
+        state,
+        enqueueInterfaceContractTypePair,
+      );
+      pairSequenceTypes(
+        semantics,
+        source,
+        target,
+        state,
+        enqueueInterfaceContractTypePair,
+      );
+      pairObjectMembers(
+        semantics,
+        source,
+        target,
+        sourceDeclaration,
+        targetDeclaration,
         state,
         enqueueInterfaceContractTypePair,
       );

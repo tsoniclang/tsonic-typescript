@@ -19,18 +19,26 @@ import {
 } from "../storage/inputs.js";
 import type { CallableStorageContract } from "../storage/contracts.js";
 import type { CallableFields } from "../storage/fields.js";
+import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
 import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
 import {
   directContainingCall,
 } from "../../model/syntax.js";
 import type { CallableInputUseContract } from "./input-use.js";
-import type { ExactCallImplementations } from "./result-inputs.js";
+import type {
+  ExactCallableBodyInspection,
+  ExactCallImplementations,
+} from "./result-inputs.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import {
   indexDeclarationSymbols,
   isCallableNonEscapingObservation,
+  isTransparentParent,
   trackedInputDestination,
   transportedCallableDestinations,
 } from "./input-reference.js";
+import { sameValueAlternatives } from "../value/alternatives.js";
+import { isExactValueAssignmentOperator } from "../storage/assignment.js";
 
 export interface CallableValueInputs {
   readonly contracts: readonly CallableCollectionContract[];
@@ -46,6 +54,8 @@ interface CallableValueInputEvidence {
   readonly invocationInputs: ExactInvocationInputIndex;
   readonly collections: CallableCollectionInputs;
   readonly storage: CallableStorageInputs;
+  readonly objectValues: ReadonlyMap<Node, readonly Node[]>;
+  readonly objectValueInitializers: ReadonlySet<Node>;
   readonly closedStorageSymbols: ReadonlyMap<Symbol, Node>;
   readonly inputUses: CallableInputUseContract | undefined;
   readonly callableReferenceIsClosed:
@@ -61,7 +71,10 @@ export function collectCallableValueInputs(
   callableReferenceIsClosed?: (reference: Node) => boolean,
   planningObserver?: TypeScriptPlanningObserver,
   callableFields?: CallableFields,
+  objectProjections?: ExactObjectPropertyProjectionIndex,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): CallableValueInputs {
   const evidence = collectCallableValueInputEvidence(
     source,
@@ -72,7 +85,10 @@ export function collectCallableValueInputs(
     callableReferenceIsClosed,
     planningObserver,
     callableFields,
+    objectProjections,
     boundaryDependencies,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
   return finalizeCallableValueInputs(evidence);
 }
@@ -86,7 +102,10 @@ function collectCallableValueInputEvidence(
   callableReferenceIsClosed: ((reference: Node) => boolean) | undefined,
   planningObserver: TypeScriptPlanningObserver | undefined,
   callableFields: CallableFields | undefined,
+  objectProjections: ExactObjectPropertyProjectionIndex | undefined,
   boundaryDependencies: StorageOwnerBoundaryDependencies | undefined,
+  bodyInspectionIsCertified: ExactCallableBodyInspection | undefined,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
 ): CallableValueInputEvidence {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
@@ -94,6 +113,7 @@ function collectCallableValueInputEvidence(
     source,
     program,
     exactCallImplementations,
+    bodyInspectionIsCertified,
   );
   planningObserver?.("effect-indirect-value-collections");
   const storage = collectCallableStorageInputs(
@@ -107,11 +127,22 @@ function collectCallableValueInputEvidence(
     planningObserver,
     callableFields,
     boundaryDependencies,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
   planningObserver?.("effect-indirect-value-storage");
   const closedStorageSymbols = indexDeclarationSymbols(
     source,
     storage.closed,
+  );
+  const objectValues = new Map<Node, readonly Node[]>(
+    (objectProjections?.properties ?? []).map((property) => [
+      property.declaration,
+      property.initializers,
+    ] as const),
+  );
+  const objectValueInitializers = new Set(
+    [...objectValues.values()].flatMap((values) => values),
   );
   let valueCount = 0;
   for (const values of storage.values.values()) {
@@ -120,10 +151,14 @@ function collectCallableValueInputEvidence(
   for (const values of collections.values.values()) {
     valueCount += values.length;
   }
+  for (const values of objectValues.values()) {
+    valueCount += values.length;
+  }
   planningObserver?.("effect-indirect-value-finalization", {
-    closed: storage.closed.size + collections.closed.size,
+    closed: storage.closed.size + collections.closed.size + objectValues.size,
     contracts: collections.contracts.length + storage.contracts.length,
-    declarations: storage.closed.size + collections.closed.size,
+    declarations: storage.closed.size + collections.closed.size +
+      objectValues.size,
     values: valueCount,
   });
   return Object.freeze({
@@ -131,6 +166,8 @@ function collectCallableValueInputEvidence(
     invocationInputs,
     collections,
     storage,
+    objectValues,
+    objectValueInitializers,
     closedStorageSymbols,
     inputUses,
     callableReferenceIsClosed,
@@ -145,13 +182,15 @@ function finalizeCallableValueInputs(
     invocationInputs,
     collections,
     storage,
+    objectValues,
+    objectValueInitializers,
     closedStorageSymbols,
     inputUses,
     callableReferenceIsClosed,
   } = evidence;
-  const consumersAreClosed = (consumers: readonly Node[]): boolean =>
-    consumers.every((consumer) =>
+  const consumerIsClosed = (consumer: Node): boolean =>
       directContainingCall(source, consumer) !== undefined ||
+      objectValueInitializers.has(consumer) ||
       callableReferenceIsClosed?.(consumer) === true ||
       isCallableNonEscapingObservation(source, consumer) ||
       invocationInputs.parametersFor(consumer)?.some((parameter) =>
@@ -169,18 +208,47 @@ function finalizeCallableValueInputs(
           consumer,
           storage.closed,
           closedStorageSymbols,
-        ) !== undefined
-    );
+        ) !== undefined;
+  const consumersAreClosed = (consumers: readonly Node[]): boolean =>
+    consumers.every((consumer) => {
+      let current = consumer;
+      for (;;) {
+        if (consumerIsClosed(current)) {
+          return true;
+        }
+        const parent = source.ast.parent(current);
+        if (parent === undefined) {
+          return false;
+        }
+        if (isTransparentParent(source, parent, current)) {
+          current = parent;
+          continue;
+        }
+        if (
+          source.ast.is.IsBinaryExpression(parent) &&
+          isExactValueAssignmentOperator(source.ast.operatorKindName(parent))
+        ) {
+          return false;
+        }
+        const alternatives = sameValueAlternatives(source, parent);
+        if (alternatives?.includes(current) !== true) {
+          return false;
+        }
+        current = parent;
+      }
+    });
   return Object.freeze({
     contracts: collections.contracts,
     storageContracts: storage.contracts,
     valuesFor(declaration: Node): readonly Node[] | undefined {
       return storage.values.get(declaration) ??
-        collections.values.get(declaration);
+        collections.values.get(declaration) ??
+        objectValues.get(declaration);
     },
     isClosed(declaration: Node): boolean {
       return storage.closed.has(declaration) ||
-        collections.closed.has(declaration);
+        collections.closed.has(declaration) ||
+        objectValues.has(declaration);
     },
     referenceConsumerIsClosed(reference: Node): boolean {
       return consumersAreClosed([reference]);

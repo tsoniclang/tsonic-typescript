@@ -16,8 +16,14 @@ import {
   readProviderInvocationManifests,
 } from "../config/provider-invocation-manifest.js";
 import {
+  readSourceInvocationManifests,
+} from "../config/source-invocation-manifest.js";
+import {
   createProviderInvocationExtension,
 } from "../lowering/effect/flow/provider/source-extension.js";
+import {
+  createSourceInvocationExtension,
+} from "../lowering/effect/flow/source-invocation/source-extension.js";
 import { createExternalAstPrinter } from "../print/ast-printer.js";
 import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
 import {
@@ -56,12 +62,19 @@ export function createTypeScriptCompilationSession(
         context.projectDirectory,
         options.providerInvocationManifests,
       );
+      const sourceManifests = readSourceInvocationManifests(
+        context.projectDirectory,
+        options.sourceInvocationManifests,
+      );
       return Object.freeze({
         extensions: Object.freeze([
           createTypeScriptRuntimeReturnExtension(),
           ...(manifests.length === 0
             ? []
             : [createProviderInvocationExtension(manifests)]),
+          ...(sourceManifests.length === 0
+            ? []
+            : [createSourceInvocationExtension(sourceManifests)]),
         ]),
       });
     },

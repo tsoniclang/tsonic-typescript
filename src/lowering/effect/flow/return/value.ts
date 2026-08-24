@@ -15,6 +15,7 @@ import {
 } from "./provenance.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import type { ReturnFlowQueries } from "./queries.js";
+import type { ExactCallableBodyInspection } from "../callable/result-inputs.js";
 
 export interface ReturnValueFlow {
   resolutionFor(expression: Node): ReturnProvenanceResolution;
@@ -42,6 +43,7 @@ export function createReturnValueFlow(
   callableReferenceIsClosed?: (reference: Node) => boolean,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
   planningObserver?: TypeScriptPlanningObserver,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): ReturnValueFlow {
   const provenance = createReturnProvenanceFlow(
     source,
@@ -59,6 +61,7 @@ export function createReturnValueFlow(
     callableReferenceIsClosed,
     cooperativeEffects,
     planningObserver,
+    bodyInspectionIsCertified,
   );
   return Object.freeze({
     resolutionFor(expression: Node): ReturnProvenanceResolution {

@@ -3,6 +3,10 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindClassDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../program-index.js";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../model/source-membership.js";
 
 type SourceSemantics = ReturnType<TargetSourceProgram["semantics"]["forNode"]>;
 export type StorageOwnerMembership = readonly Node[];
@@ -37,12 +41,16 @@ export function storageValueTypeIsClosed(
   if (directCandidateOwners(semantics, type, owners).size !== 0) {
     return true;
   }
-  if (!semantics.types.isUnion(type) || pending.has(type)) {
+  if (pending.has(type)) {
+    return true;
+  }
+  const nested = nestedStorageTypes(semantics, type);
+  if (nested === undefined || nested.length === 0) {
     return false;
   }
   pending.add(type);
-  const result = semantics.types.unionOrIntersectionTypes(type).every((member) =>
-    member !== undefined && storageValueTypeIsClosed(
+  const result = nested.every((member) =>
+    storageValueTypeIsClosed(
       semantics,
       member,
       owners,
@@ -85,9 +93,16 @@ function collectOwnersWithinStorageType(
   if (storageTypeCannotCarryOwner(semantics, type)) {
     return emptyStorageOwnerMembership;
   }
+  if (semantics.types.isAny(type) || semantics.types.isUnknown(type)) {
+    return allStorageOwners(carriers);
+  }
   const result = [...ownersForDirectType(semantics, type, carriers)];
   const nested = nestedStorageTypes(semantics, type);
-  if (nested.length !== 0) {
+  if (nested === undefined) {
+    for (const owner of allStorageOwners(carriers)) {
+      appendUnique(result, owner);
+    }
+  } else if (nested.length !== 0) {
     const active = pending ?? new Set<Type>();
     active.add(type);
     for (const member of nested) {
@@ -116,12 +131,17 @@ export function collectStorageOwnerCarriers(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   owners: ReadonlySet<Node>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): StorageOwnerCarrierIndex {
   let operationCount = 0;
   const reverse = new Map<Node, Set<Node>>();
   for (const declaration of program.nodesOfKind(KindClassDeclaration)) {
     operationCount += 1;
-    if (!source.navigation.isProjectDeclaration(declaration)) {
+    if (!sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    )) {
       continue;
     }
     for (const member of storageMembers(source, declaration)) {
@@ -132,17 +152,25 @@ export function collectStorageOwnerCarriers(
       if (type === undefined) {
         continue;
       }
-      for (const referenced of projectClassesWithinType(
+      const referenced = exactClassesWithinType(
         source,
         semantics,
         type,
         new Set(),
+        bodyInspectionIsCertified,
         () => {
           operationCount += 1;
         },
-      )) {
+      );
+      if (referenced === undefined) {
+        for (const owner of owners) {
+          appendReverseCarrier(reverse, owner, declaration);
+        }
+        continue;
+      }
+      for (const candidate of referenced) {
         operationCount += 1;
-        appendReverseCarrier(reverse, referenced, declaration);
+        appendReverseCarrier(reverse, candidate, declaration);
       }
     }
   }
@@ -210,35 +238,54 @@ function appendUnique(target: Node[], owner: Node): void {
   }
 }
 
-function projectClassesWithinType(
+function exactClassesWithinType(
   source: TargetSourceProgram,
   semantics: SourceSemantics,
   type: Type,
   pending: Set<Type>,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
   record: () => void,
-): ReadonlySet<Node> {
+): ReadonlySet<Node> | undefined {
   record();
   if (pending.has(type) || storageTypeCannotCarryOwner(semantics, type)) {
     return new Set();
+  }
+  if (semantics.types.isAny(type) || semantics.types.isUnknown(type)) {
+    return undefined;
   }
   pending.add(type);
   const result = new Set<Node>();
   for (const declaration of directTypeDeclarations(semantics, type)) {
     if (
-      source.navigation.isProjectDeclaration(declaration) &&
+      sourceBodyInspectionIsExact(
+        source,
+        declaration,
+        bodyInspectionIsCertified,
+      ) &&
       source.ast.is.IsClassDeclaration(declaration)
     ) {
       result.add(declaration);
     }
   }
-  for (const member of nestedStorageTypes(semantics, type)) {
-    for (const declaration of projectClassesWithinType(
+  const nested = nestedStorageTypes(semantics, type);
+  if (nested === undefined) {
+    pending.delete(type);
+    return undefined;
+  }
+  for (const member of nested) {
+    const declarations = exactClassesWithinType(
       source,
       semantics,
       member,
       pending,
+      bodyInspectionIsCertified,
       record,
-    )) {
+    );
+    if (declarations === undefined) {
+      pending.delete(type);
+      return undefined;
+    }
+    for (const declaration of declarations) {
       result.add(declaration);
     }
   }
@@ -276,13 +323,77 @@ function directTypeDeclarations(
 function nestedStorageTypes(
   semantics: SourceSemantics,
   type: Type,
-): readonly Type[] {
-  return [
-    ...(semantics.types.isUnion(type) || semantics.types.isIntersection(type)
-      ? semantics.types.unionOrIntersectionTypes(type)
-      : []),
-    ...(semantics.types.isTypeReference(type) ? semantics.types.typeArguments(type) : []),
-  ].filter((member): member is Type => member !== undefined);
+): readonly Type[] | undefined {
+  const signatures = [
+    ...semantics.types.callSignatures(type),
+    ...semantics.types.constructSignatures(type),
+  ];
+  const signatureReturns = signatures.map((signature) =>
+    semantics.types.returnType(signature)
+  );
+  if (signatureReturns.some((member) => member === undefined)) {
+    return undefined;
+  }
+  const signatureParameters = signatures.flatMap((signature) =>
+    semantics.types.signatureParameterInfos(signature).map((parameter) =>
+      parameter.type
+    )
+  );
+  const members = semantics.types.isUnion(type) ||
+      semantics.types.isIntersection(type)
+    ? semantics.types.unionOrIntersectionTypes(type)
+    : [];
+  if (members.some((member) => member === undefined)) {
+    return undefined;
+  }
+  const arguments_ = semantics.types.isTypeReference(type)
+    ? semantics.types.effectiveTypeArguments(type)
+    : [];
+  if (arguments_ === undefined) {
+    return undefined;
+  }
+  const tupleElements = semantics.types.isTuple(type)
+    ? semantics.types.tupleElementTypes(type)
+    : [];
+  if (tupleElements.some((member) => member === undefined)) {
+    return undefined;
+  }
+  const inspectStructuralMembers =
+    directTypeDeclarations(semantics, type).length === 0 &&
+    !semantics.types.isTypeReference(type) &&
+    !semantics.types.isTuple(type);
+  const properties = inspectStructuralMembers
+    ? semantics.types.propertyInfos(type).map((property) => property.type)
+    : [];
+  const indexes = inspectStructuralMembers
+    ? semantics.types.indexInfos(type).map((index) => index.valueType)
+    : [];
+  if (indexes.some((member) => member === undefined)) {
+    return undefined;
+  }
+  return Object.freeze([...new Set([
+    ...(members as readonly Type[]),
+    ...arguments_,
+    ...(tupleElements as readonly Type[]),
+    ...(signatureReturns as readonly Type[]),
+    ...signatureParameters,
+    ...properties,
+    ...(indexes as readonly Type[]),
+  ])]);
+}
+
+function allStorageOwners(
+  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
+): StorageOwnerMembership {
+  const owners: Node[] = [];
+  for (const carried of carriers.values()) {
+    for (const owner of carried) {
+      appendUnique(owners, owner);
+    }
+  }
+  return owners.length === 0
+    ? emptyStorageOwnerMembership
+    : Object.freeze(owners);
 }
 
 function storageMembers(
@@ -337,9 +448,7 @@ function storageTypeCannotCarryOwner(
   semantics: SourceSemantics,
   type: Type,
 ): boolean {
-  return semantics.types.isAny(type) ||
-    semantics.types.isUnknown(type) ||
-    semantics.types.isNever(type) ||
+  return semantics.types.isNever(type) ||
     semantics.types.isVoidLike(type) ||
     semantics.types.isNullish(type) ||
     semantics.types.isStringLike(type) ||

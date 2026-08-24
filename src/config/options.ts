@@ -15,6 +15,7 @@ export interface TypeScriptTargetOptions {
   readonly printer: TypeScriptAstPrinterOptions;
   readonly optimizations: TypeScriptOptimizationProfile;
   readonly providerInvocationManifests: readonly string[];
+  readonly sourceInvocationManifests: readonly string[];
   readonly diagnostics: TypeScriptTargetDiagnostics;
 }
 
@@ -35,6 +36,7 @@ export function readTypeScriptTargetOptions(
       "printer",
       "optimizations",
       "providerInvocationManifests",
+      "sourceInvocationManifests",
       "diagnostics",
     ]),
     "TypeScript target options",
@@ -73,6 +75,10 @@ export function readTypeScriptTargetOptions(
     options["providerInvocationManifests"],
     "TypeScript target option 'providerInvocationManifests'",
   );
+  const sourceInvocationManifests = readStringArray(
+    options["sourceInvocationManifests"],
+    "TypeScript target option 'sourceInvocationManifests'",
+  );
   const diagnostics = readDiagnostics(options["diagnostics"]);
   return Object.freeze({
     printer: Object.freeze({
@@ -81,6 +87,7 @@ export function readTypeScriptTargetOptions(
     }),
     optimizations,
     providerInvocationManifests,
+    sourceInvocationManifests,
     diagnostics,
   });
 }

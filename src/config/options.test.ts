@@ -32,12 +32,14 @@ test("validates and freezes the external printer configuration", () => {
     interfaceDispatch: "open-structural",
   });
   assert.deepEqual(result.providerInvocationManifests, []);
+  assert.deepEqual(result.sourceInvocationManifests, []);
   assert.deepEqual(result.diagnostics, { planningPhases: false });
   assert.ok(Object.isFrozen(result));
   assert.ok(Object.isFrozen(result.printer));
   assert.ok(Object.isFrozen(result.printer.arguments));
   assert.ok(Object.isFrozen(result.optimizations));
   assert.ok(Object.isFrozen(result.providerInvocationManifests));
+  assert.ok(Object.isFrozen(result.sourceInvocationManifests));
   assert.ok(Object.isFrozen(result.diagnostics));
 });
 
@@ -84,6 +86,32 @@ test("validates immutable provider invocation manifest paths", () => {
       options: {
         printer: { executable: "tsgo-ast-printer" },
         providerInvocationManifests: ["same.json", "same.json"],
+      },
+    }),
+    /duplicated/u,
+  );
+});
+
+test("validates immutable source invocation manifest paths", () => {
+  const paths = ["generated/gotots-manifest.json"];
+  const result = readTypeScriptTargetOptions({
+    id: "typescript",
+    options: {
+      printer: { executable: "tsgo-ast-printer" },
+      sourceInvocationManifests: paths,
+    },
+  });
+  paths.push("generated/mutated.json");
+
+  assert.deepEqual(result.sourceInvocationManifests, [
+    "generated/gotots-manifest.json",
+  ]);
+  assert.throws(
+    () => readTypeScriptTargetOptions({
+      id: "typescript",
+      options: {
+        printer: { executable: "tsgo-ast-printer" },
+        sourceInvocationManifests: ["same.json", "same.json"],
       },
     }),
     /duplicated/u,

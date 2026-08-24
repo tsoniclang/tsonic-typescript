@@ -74,6 +74,9 @@ export function compositeValueAlternatives(
     case "KindQuestionQuestionToken":
     case "KindBarBarToken":
     case "KindAmpersandAmpersandToken":
+    case "KindQuestionQuestionEqualsToken":
+    case "KindBarBarEqualsToken":
+    case "KindAmpersandAmpersandEqualsToken":
       return Object.freeze([
         { expression: binary.Left, role: "same" as const },
         { expression: binary.Right, role: "same" as const },

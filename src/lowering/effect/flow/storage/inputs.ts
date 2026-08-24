@@ -16,6 +16,7 @@ import {
   type ExactInvocationInputIndex,
 } from "../invocation/inputs.js";
 import {
+  callableDeclarationHasExactCallableType,
   callableDeclarationHasResolvableType,
 } from "../../model/callable-contract/resolution.js";
 import {
@@ -32,8 +33,10 @@ import {
 } from "../callable/local-inputs.js";
 import {
   collectCallableFields,
+  createCallableFieldBoundaryDependencies,
   type CallableFields,
 } from "./fields.js";
+import { createClosedStorageOwnerAnalysis } from "./analysis.js";
 import { closeDependencyCandidates } from "../../closure/dependency-closure.js";
 import { createCallableStorageContracts } from "./contracts.js";
 import type { CallableStorageContract } from "./contracts.js";
@@ -42,7 +45,15 @@ import {
   auditFieldUse,
   type StorageReferenceCounts,
 } from "./reference-audit.js";
-import type { StorageOwnerBoundaryDependencies } from "./owner-boundaries.js";
+import {
+  composeStorageOwnerBoundaryDependencies,
+  type StorageOwnerBoundaryDependencies,
+} from "./owner-boundaries.js";
+import {
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../../model/source-membership.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 
 export interface CallableStorageInputs {
   readonly values: ReadonlyMap<Node, readonly Node[]>;
@@ -67,17 +78,39 @@ export function collectCallableStorageInputs(
   planningObserver?: TypeScriptPlanningObserver,
   fieldsIndex?: CallableFields,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): CallableStorageInputs {
   const invocationInputs = exactInvocationInputs ??
     createExactInvocationInputIndex(source, program);
-  const callableFields = fieldsIndex ?? collectCallableFields(source, program);
+  const callableFields = fieldsIndex ?? collectCallableFields(
+    source,
+    program,
+    createClosedStorageOwnerAnalysis(
+      source,
+      program,
+      bodyInspectionIsCertified,
+      exactCallImplementations,
+    ),
+  );
+  const effectiveBoundaryDependencies =
+    composeStorageOwnerBoundaryDependencies([
+      boundaryDependencies,
+      createCallableFieldBoundaryDependencies(source, callableFields),
+    ]);
   planningObserver?.("effect-indirect-storage-fields");
   const fields = callableFields.declarations;
-  const parameters = collectCallableParameters(source, program);
+  const parameters = collectCallableParameters(
+    source,
+    program,
+    bodyInspectionIsCertified,
+  );
   const localValues = collectCallableLocals(
     source,
     excludedDeclarations,
     program,
+    bodyInspectionIsCertified,
+    cooperativeEffects === "closed-program",
   );
   planningObserver?.("effect-indirect-storage-declarations");
   const locals = new Set(localValues.keys());
@@ -120,6 +153,8 @@ export function collectCallableStorageInputs(
     program,
     inputUses,
     callableReferenceIsClosed,
+    exactCallImplementations,
+    bodyInspectionIsCertified,
   );
   planningObserver?.("effect-indirect-storage-parameters");
   for (const [parameter, assigned] of parameterClosure.uses.assignedValues) {
@@ -169,6 +204,7 @@ export function collectCallableStorageInputs(
         inputUses,
         invocationInputs,
         callableReferenceIsClosed,
+        cooperativeEffects === "closed-program",
       );
     }
   }
@@ -179,7 +215,7 @@ export function collectCallableStorageInputs(
     exactCallImplementations,
     callableReferenceIsClosed,
     planningObserver,
-    boundaryDependencies,
+    effectiveBoundaryDependencies,
   );
   planningObserver?.("effect-indirect-storage-boundaries");
 
@@ -274,12 +310,16 @@ function closeStorageDeclarations(
 function collectCallableParameters(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ReadonlyMap<Node, Node> {
   const parameters = new Map<Node, Node>();
   for (const node of program.nodesOfKind(KindParameter)) {
     if (
       isParameterProperty(source, node) ||
-      !callableDeclarationHasResolvableType(source, node)
+      (
+        !callableDeclarationHasResolvableType(source, node) &&
+        !callableDeclarationHasExactCallableType(source, node)
+      )
     ) {
       continue;
     }
@@ -287,6 +327,11 @@ function collectCallableParameters(
     if (
       owner !== undefined &&
       isFunctionLike(source, owner) &&
+      sourceBodyInspectionIsExact(
+        source,
+        owner,
+        bodyInspectionIsCertified,
+      ) &&
       source.ast.body(owner) !== undefined
     ) {
       parameters.set(node, owner);
@@ -305,6 +350,8 @@ function closeParameters(
   program: TargetProgramIndex,
   inputUses?: CallableInputUseContract,
   callableReferenceIsClosed?: (reference: Node) => boolean,
+  exactCallImplementations?: ExactCallImplementations,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ClosedParameters {
   const ownerCounts = new Map<Node, StorageReferenceCounts>();
   const ownerParameters = new Map<Node, Set<Node>>();
@@ -339,6 +386,8 @@ function closeParameters(
       invocationInputs,
       inputUses,
       callableReferenceIsClosed,
+      exactCallImplementations,
+      bodyInspectionIsCertified,
     );
   }
   const closed = new Set<Node>();

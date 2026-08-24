@@ -9,6 +9,7 @@ import type { TargetProgramIndex } from "../../../program-index.js";
 import type { ProviderInvocationFact } from "./fact.js";
 import { collectProviderInvocationRecords } from "./records.js";
 import { createProviderStateTransportPlan } from "./state.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
 
 export interface ConditionalProviderInvocation {
   readonly call: Node;
@@ -25,12 +26,18 @@ export interface ProviderInvocationFlow {
 export function createProviderInvocationFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ProviderInvocationFlow {
   const records = collectProviderInvocationRecords(source, program);
   if (records.all.length === 0) {
     return emptyProviderInvocationFlow;
   }
-  const state = createProviderStateTransportPlan(source, program, records);
+  const state = createProviderStateTransportPlan(
+    source,
+    program,
+    records,
+    bodyInspectionIsCertified,
+  );
   const transports = new Map<Node, InvocationTransport>();
   const conditionalCalls: ConditionalProviderInvocation[] = [];
   const conditionalByCall = new Map<Node, ConditionalProviderInvocation>();

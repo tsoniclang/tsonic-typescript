@@ -20,8 +20,10 @@ import {
 } from "./value-inputs.js";
 import type { CallableFields } from "../storage/fields.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import {
   createCallableResultInputs,
+  type ExactCallableBodyInspection,
   type ExactCallImplementations,
 } from "./result-inputs.js";
 import { createCallableInputUseContract } from "./input-use.js";
@@ -71,6 +73,9 @@ import {
 } from "./provenance/call-contracts.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
+import {
+  expressionHasExactCallableType,
+} from "../../model/callable-contract/resolution.js";
 
 export type CallableBoundaryReason =
   | "inexact-reference"
@@ -98,6 +103,7 @@ export interface CallableContext {
   readonly objectProjections: ExactObjectPropertyProjectionIndex | undefined;
   readonly exactCallImplementations: ExactCallImplementations | undefined;
   readonly exactContractImplementations: ExactCallImplementations | undefined;
+  readonly bodyInspectionIsCertified: ExactCallableBodyInspection | undefined;
   readonly candidateSymbols: ReadonlyMap<Symbol, Node>;
   readonly inputs: CallableValueInputs;
   readonly results: ReturnType<typeof createCallableResultInputs>;
@@ -108,9 +114,11 @@ export interface CallableContext {
   readonly expressions: Map<Node, CallableState>;
   readonly declarations: Map<Node, CallableState>;
   readonly calls: Map<Node, CallableState>;
+  readonly invocations: Map<Node, CallableState>;
   readonly callImplementations: Map<Node, readonly Node[]>;
   readonly candidateOrigins: Set<Node>;
   readonly synchronousOrigins: Set<Node>;
+  readonly contractOrigins: Set<Node>;
   terminalOrigin: Node | undefined;
   readonly callableReferences: Map<Node, CallableState>;
   readonly returnedContracts: Map<Node, ReturnContractState>;
@@ -134,11 +142,14 @@ export function createGraphCallableValueFlow(
   storageOwners?: ClosedStorageOwnerAnalysis,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
   planningObserver?: TypeScriptPlanningObserver,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): GraphCallableValueFlow {
   const projectionCandidates = collectCallableProjectionCandidates(
     source,
     program,
     planningObserver,
+    bodyInspectionIsCertified,
   );
   const results = createCallableResultInputs(
     source,
@@ -153,6 +164,8 @@ export function createGraphCallableValueFlow(
     storageOwners,
     callableReferenceIsClosed,
     boundaryDependencies,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
   const inputUses = createCallableInputUseContract(source, results, transports);
   const inputs = collectCallableValueInputs(
@@ -164,7 +177,10 @@ export function createGraphCallableValueFlow(
     callableReferenceIsClosed,
     planningObserver,
     callableFields,
+    objectProjections,
     boundaryDependencies,
+    bodyInspectionIsCertified,
+    cooperativeEffects,
   );
   const context: CallableContext = {
     source,
@@ -173,6 +189,7 @@ export function createGraphCallableValueFlow(
     objectProjections,
     exactCallImplementations,
     exactContractImplementations,
+    bodyInspectionIsCertified,
     candidateSymbols: indexDeclarationSymbols(source, candidates),
     inputs,
     results,
@@ -181,9 +198,11 @@ export function createGraphCallableValueFlow(
     expressions: new Map(),
     declarations: new Map(),
     calls: new Map(),
+    invocations: new Map(),
     callImplementations: new Map(),
     candidateOrigins: new Set(),
     synchronousOrigins: new Set(),
+    contractOrigins: new Set(),
     terminalOrigin: undefined,
     callableReferences: new Map(),
     returnedContracts: new Map(),
@@ -195,6 +214,13 @@ export function createGraphCallableValueFlow(
     callableExpressionState(input, context);
   });
   planningObserver?.("effect-callable-transport-inputs");
+  for (const projection of projectionCandidates) {
+    for (const expression of results.resultFor(projection)?.expressions ?? []) {
+      if (expression !== undefined) {
+        callableExpressionState(expression, context);
+      }
+    }
+  }
   for (const property of objectProjections?.properties ?? []) {
     const callable = property.initializers.some((initializer) => {
       const semantics = source.semantics.forNode(initializer);
@@ -290,7 +316,10 @@ export function createGraphCallableValueFlow(
     return resolution;
   };
   const unsafeCallableUses = collectUnsafeCallableUses(context, resolved);
-  planningObserver?.("effect-callable-unsafe-uses");
+  planningObserver?.("effect-callable-unsafe-uses", {
+    boundaries: unsafeCallableUses.size,
+    references: context.callableReferences.size,
+  });
   const expressionResolution = (
     expression: Node,
   ): CallableValueResolution | undefined => {
@@ -300,8 +329,16 @@ export function createGraphCallableValueFlow(
       ? undefined
       : resolutionForState(state);
   };
+  const declarationResolution = (
+    declaration: Node,
+  ): CallableValueResolution | undefined => {
+    const state = context.declarations.get(declaration);
+    return state === undefined || unsafeCallableUses.has(state)
+      ? undefined
+      : resolutionForState(state);
+  };
   const callResolutions = new Map<Node, CallableValueResolution>();
-  for (const [call, state] of context.calls) {
+  for (const [call, state] of context.invocations) {
     const resolution = resolutionForState(state);
     if (
       resolution.closed ||
@@ -359,17 +396,24 @@ export function createGraphCallableValueFlow(
       : [];
   }));
   const closedCallableReferences = new Set(
-    [...context.callableReferences].flatMap(([reference, state]) =>
-      unsafeCallableUses.has(state) &&
-        !inputs.referenceConsumerIsClosed(reference)
-        ? []
-        : [reference]
+    [...context.callableReferences].flatMap(([reference]) =>
+      inputs.referenceConsumerIsClosed(reference) ? [reference] : []
+    ),
+  );
+  const returnedCallableDeclarations = new Set(
+    [...context.returnedContracts.values()].flatMap(({ sources }) => sources),
+  );
+  const callableResultCalls = new Set(
+    program.nodesOfKind(KindCallExpression).filter((call) =>
+      expressionHasExactCallableType(source, call) ||
+      invocationTransportResultOrigins(call, transports) !== undefined
     ),
   );
   const settledReturnContracts: readonly SettledCallableReturnContract[] = Object.freeze(
     [...returnTypes.values()].map(({ rewrite, states, sources }) => Object.freeze({
       rewrite,
       resolutions: Object.freeze(states.map(resolutionForState)),
+      sources: Object.freeze([...new Set(sources.map(({ expression }) => expression))]),
       sourceRequirements: Object.freeze(sources.map(({ expression, kind }) =>
         callableContractSourceRequirement(
           expression,
@@ -396,10 +440,19 @@ export function createGraphCallableValueFlow(
     boundaries: settledReturnContracts.filter((contract) =>
       contract.sourceRequirements.some((requirement) => !requirement.resolvable)
     ).length,
+    calls: callContractRequirements.size,
     closed: settledReturnContracts.filter((contract) =>
       contract.resolutions.every((resolution) => resolution.closed)
     ).length,
     contracts: settledReturnContracts.length,
+    references: closedCallableReferences.size,
+    roots: [...callContractRequirements.values()].filter((requirement) =>
+      !requirement.resolvable
+    ).length,
+    values: new Set(settledReturnContracts.flatMap(({ sources }) => sources)).size,
+    vertices: [...callResolutions.values()].filter((resolution) =>
+      !resolution.closed
+    ).length,
   });
   return finalizeGraphCallableValueFlow(
     signatureFamilies,
@@ -408,6 +461,9 @@ export function createGraphCallableValueFlow(
     settledReturnContracts,
     callContractRequirements,
     expressionResolution,
-    callableReferenceIsClosed,
+    declarationResolution,
+    returnedCallableDeclarations,
+    callableResultCalls,
+    undefined,
   );
 }

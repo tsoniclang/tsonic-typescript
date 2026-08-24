@@ -10,6 +10,7 @@ import {
   KindParameter,
   KindPropertyDeclaration,
   KindReturnStatement,
+  KindSatisfiesExpression,
   KindTypeAssertionExpression,
   KindVariableDeclaration,
 } from "@tsonic/tsts/target-ast";
@@ -37,10 +38,15 @@ import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
 import { createExactValueSlotFlow } from "../value/slot/flow.js";
 import type { ExactValueSlotCallSource } from "../value/slot/model.js";
+import type { ExactOpaqueValueSlotTransport } from "../value/slot/opaque-transport.js";
 import { callableDispatchIsClosed } from "../../model/syntax.js";
-import { resolveProjectInvocation } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../model/exact-source-invocation.js";
 import { exactCallableReturnExpressions } from "../invocation/results.js";
-import type { ExactCallImplementations } from "../callable/result-inputs.js";
+import type {
+  ExactCallableBodyInspection,
+  ExactCallImplementations,
+} from "../callable/result-inputs.js";
+import { sourceBodyInspectionIsExact } from "../../model/source-membership.js";
 import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
 import { createInterfaceOriginRequirements } from "./ingress/requirements.js";
@@ -80,16 +86,24 @@ export function collectInterfaceContractTransports(
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
   planningObserver?: TypeScriptPlanningObserver,
   selectedStorageOwners?: ClosedStorageOwnerAnalysis,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): ExactInvocationInputIndex {
   const state: TypePairState = {
     source,
     contracts,
     rootOccurrence: undefined,
     roots: new WeakMap(),
-    relevance: createInterfaceContractRelevance(source, contracts),
+    relevance: createInterfaceContractRelevance(
+      source,
+      contracts,
+      bodyInspectionIsCertified,
+    ),
     seen: new Map(),
     pending: [],
     rootSourceIsFresh: false,
+    ...(bodyInspectionIsCertified === undefined
+      ? {}
+      : { bodyInspectionIsCertified }),
   };
   const opaqueInputs = createOpaqueInterfaceInputLedger();
   const checkedParameterInputs = createCheckedInterfaceParameterInputs();
@@ -123,8 +137,11 @@ export function collectInterfaceContractTransports(
     ...(exactCallImplementations === undefined
       ? {}
       : { exactCallImplementations }),
+    ...(bodyInspectionIsCertified === undefined
+      ? {}
+      : { bodyInspectionIsCertified }),
   };
-  collectInterfaceCallTransports(
+  const opaqueExposure = collectInterfaceCallTransports(
     source,
     program,
     state.relevance,
@@ -170,6 +187,7 @@ export function collectInterfaceContractTransports(
     KindBinaryExpression,
     KindAsExpression,
     KindTypeAssertionExpression,
+    KindSatisfiesExpression,
   ]) {
     for (const node of program.nodesOfKind(kind)) {
       const expression = contextualExpression(source, node);
@@ -248,8 +266,24 @@ export function collectInterfaceContractTransports(
     exactCallImplementations,
     callableReferenceIsClosed,
     cooperativeEffects,
+    bodyInspectionIsCertified,
   );
   planningObserver?.("effect-interface-implementation-inputs");
+  const opaqueValueSlotTransport: ExactOpaqueValueSlotTransport = Object.freeze({
+    allows(
+      semantics: SourceFileSemantics,
+      argument: Node,
+      sourceType: Type,
+      targetType: Type,
+    ): boolean {
+      return opaqueExposure.transportIsUnobservable(
+        semantics,
+        sourceType,
+        targetType,
+        isFreshInterfaceTransportAggregate(source, argument),
+      );
+    },
+  });
   const slots = createExactValueSlotFlow(
     source,
     program,
@@ -261,6 +295,7 @@ export function collectInterfaceContractTransports(
       call,
       transports,
       exactCallImplementations,
+      bodyInspectionIsCertified,
     ),
     completeInvocationInputs,
     originRequirements.requiredValues(),
@@ -269,6 +304,8 @@ export function collectInterfaceContractTransports(
     exactCallImplementations,
     callableReferenceIsClosed,
     storageBoundaryDependencies,
+    cooperativeEffects,
+    opaqueValueSlotTransport,
   );
   planningObserver?.("effect-interface-value-slots");
   checkedParameterInputs.seal();
@@ -288,6 +325,7 @@ function interfaceSlotSource(
   call: Node,
   transports: InvocationTransportContract | undefined,
   exactCallImplementations: ExactCallImplementations | undefined,
+  bodyInspectionIsCertified: ExactCallableBodyInspection | undefined,
 ): ExactValueSlotCallSource | undefined {
   const semantics = source.semantics.forNode(call);
   const signature = semantics.operations.call(call)?.selectedSignature;
@@ -302,7 +340,11 @@ function interfaceSlotSource(
       expressions: Object.freeze([...transported]),
     });
   }
-  const direct = resolveProjectInvocation(source, call)?.implementation;
+  const direct = resolveExactSourceInvocation(
+    source,
+    call,
+    bodyInspectionIsCertified,
+  )?.implementation;
   const indirect = direct === undefined
     ? exactCallImplementations?.(call)
     : undefined;
@@ -319,7 +361,14 @@ function interfaceSlotSource(
   }
   const expressions: (Node | undefined)[] = [];
   for (const implementation of implementations) {
-    if (!callableDispatchIsClosed(source, program, implementation)) {
+    if (
+      !sourceBodyInspectionIsExact(
+        source,
+        implementation,
+        bodyInspectionIsCertified,
+      ) ||
+      !callableDispatchIsClosed(source, program, implementation)
+    ) {
       return undefined;
     }
     const returned = exactCallableReturnExpressions(source, implementation);

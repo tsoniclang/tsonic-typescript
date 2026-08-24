@@ -3,7 +3,11 @@ import type {
   SourceFileSemantics,
   TargetSourceProgram,
 } from "@tsonic/target-api/source";
-import { nodeHasExactSourceSemantics } from "../../model/source-membership.js";
+import {
+  nodeHasExactSourceSemantics,
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../../model/source-membership.js";
 
 export interface InterfaceContractMembership {
   has(declaration: Node): boolean;
@@ -61,12 +65,17 @@ export function interfaceContractsForProperty(
   return [...result];
 }
 
-export function isExactInterfaceProjectDeclaration(
+export function isExactInterfaceSourceDeclaration(
   source: TargetSourceProgram,
   declaration: Node,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
   return nodeHasExactSourceSemantics(source, declaration) &&
-    source.navigation.isProjectDeclaration(declaration);
+    sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    );
 }
 
 export function isInterfaceContractDeclaration(

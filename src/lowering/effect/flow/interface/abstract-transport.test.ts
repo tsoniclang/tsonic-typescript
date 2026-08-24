@@ -9,8 +9,9 @@ import {
   countAsyncCallables,
   createFixtureEffectPlan,
 } from "../../test-support/fixture.test-support.js";
+import { collectCooperativeEffectCandidates } from "../../inventory/candidates.js";
 import { lowerCooperativeEffects } from "../../rewrite/transform.js";
-import { createInterfaceContractGraph } from "./graph.js";
+import { createDeclaredInterfaceDispatch } from "./dispatch.js";
 
 const closedCarrierSource = `
 type Awaitable<T> = T | PromiseLike<T>;
@@ -44,9 +45,14 @@ test("settles values transported through closed abstract project dispatch", () =
     bindingWrites: true,
     memberDispatch: true,
   });
-  const graph = createInterfaceContractGraph(fixture.source, program);
+  const dispatch = createDeclaredInterfaceDispatch(
+    fixture.source,
+    program,
+    collectCooperativeEffectCandidates(fixture.source, program),
+    "declared-closed",
+  );
   const transportedCalls = program.nodesOfKind(KindCallExpression).filter(
-    (call) => graph.invocationTransports?.transportFor(call) !== undefined,
+    (call) => dispatch.invocationTransports?.transportFor(call) !== undefined,
   );
 
   assert.equal(transportedCalls.length, 2);
@@ -173,11 +179,16 @@ export const result = await read();
     bindingWrites: true,
     memberDispatch: true,
   });
-  const graph = createInterfaceContractGraph(fixture.source, program);
+  const dispatch = createDeclaredInterfaceDispatch(
+    fixture.source,
+    program,
+    collectCooperativeEffectCandidates(fixture.source, program),
+    "declared-closed",
+  );
 
   assert.equal(
     program.nodesOfKind(KindCallExpression).filter(
-      (call) => graph.invocationTransports?.transportFor(call) !== undefined,
+      (call) => dispatch.invocationTransports?.transportFor(call) !== undefined,
     ).length,
     0,
   );

@@ -7,7 +7,12 @@ import type {
 import type { TargetProgramIndex } from "../../../program-index.js";
 import { isModuleForwardingReference } from "../../model/syntax.js";
 import { declarationIsExported } from "../../model/declaration-surface.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
 import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../model/source-membership.js";
 
 export type ExactValueBindingProjectionStep =
   | {
@@ -36,6 +41,8 @@ export function createExactValueBindingProjectionIndex(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   invocationInputs?: ExactInvocationInputIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ExactValueBindingProjectionIndex {
   const cache = new Map<Node, ExactValueBindingProjection | null>();
   return Object.freeze({
@@ -46,7 +53,14 @@ export function createExactValueBindingProjectionIndex(
         return undefined;
       }
       const selected = source.navigation.sourceReferenceFor(reference);
-      if (selected?.project !== true) {
+      if (
+        selected === undefined ||
+        !sourceBodyInspectionIsExact(
+          source,
+          selected.declaration,
+          bodyInspectionIsCertified,
+        )
+      ) {
         return undefined;
       }
       const declaration = selected.declaration;
@@ -59,6 +73,7 @@ export function createExactValueBindingProjectionIndex(
         program,
         declaration,
         invocationInputs,
+        cooperativeEffects,
       );
       cache.set(declaration, projection ?? null);
       return projection;
@@ -71,19 +86,26 @@ function exactBindingProjection(
   program: TargetProgramIndex,
   declaration: Node,
   invocationInputs: ExactInvocationInputIndex | undefined,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
 ): ExactValueBindingProjection | undefined {
   if (
     source.ast.is.IsVariableDeclaration(declaration) &&
     source.ast.is.IsIdentifier(source.ast.name(declaration))
   ) {
-    return exactAssignmentBindingProjection(source, program, declaration);
+    return exactAssignmentBindingProjection(
+      source,
+      program,
+      declaration,
+      cooperativeEffects,
+    );
   }
   if (
     !source.ast.is.IsBindingElement(declaration) ||
     program.hasBindingWrite(declaration) ||
-    source.navigation.referencesToDeclaration(declaration).some((reference) =>
-      isModuleForwardingReference(source, reference)
-    )
+    cooperativeEffects !== "closed-program" &&
+      source.navigation.referencesToDeclaration(declaration).some((reference) =>
+        isModuleForwardingReference(source, reference)
+      )
   ) {
     return undefined;
   }
@@ -135,6 +157,7 @@ function exactBindingProjection(
       source,
       owner,
       invocationInputs,
+      cooperativeEffects,
     );
     if (sources === undefined) {
       return undefined;
@@ -151,9 +174,11 @@ function exactAssignmentBindingProjection(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   declaration: Node,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
 ): ExactValueBindingProjection | undefined {
   if (
-    declarationIsExported(source, declaration) ||
+    cooperativeEffects !== "closed-program" &&
+      declarationIsExported(source, declaration) ||
     source.ast.as.AsVariableDeclaration(declaration)?.Initializer !== undefined
   ) {
     return undefined;
@@ -178,9 +203,10 @@ function exactAssignmentBindingProjection(
   }
   if (
     selectedSteps === undefined ||
-    source.navigation.referencesToDeclaration(declaration).some((reference) =>
-      isModuleForwardingReference(source, reference)
-    )
+    cooperativeEffects !== "closed-program" &&
+      source.navigation.referencesToDeclaration(declaration).some((reference) =>
+        isModuleForwardingReference(source, reference)
+      )
   ) {
     return undefined;
   }
@@ -343,9 +369,13 @@ function bindingOwnerSources(
   source: TargetSourceProgram,
   owner: Node,
   invocationInputs: ExactInvocationInputIndex | undefined,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile,
 ): readonly Node[] | undefined {
   if (source.ast.is.IsVariableDeclaration(owner)) {
-    if (declarationIsExported(source, owner)) {
+    if (
+      cooperativeEffects !== "closed-program" &&
+      declarationIsExported(source, owner)
+    ) {
       return undefined;
     }
     const initializer = source.ast.as.AsVariableDeclaration(owner)?.Initializer;

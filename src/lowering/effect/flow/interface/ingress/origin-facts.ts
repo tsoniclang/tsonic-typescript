@@ -25,7 +25,7 @@ export interface InterfaceOriginFacts {
     contract: Node,
   ): boolean;
   thisValueIsClosed(expression: Node, contract: Node): boolean;
-  thisContainerIsClosed(expression: Node): boolean;
+  valueContainerIsClosed(expression: Node): boolean;
   typeProvidesContract(
     semantics: SourceFileSemantics,
     type: Type,
@@ -117,7 +117,7 @@ export function createInterfaceOriginFacts(
       typeHasCertifiedImplementation(semantics, type, contract),
   );
 
-  const thisContainerIsClosed = (expression: Node): boolean => {
+  const valueContainerIsClosed = (expression: Node): boolean => {
     const existing = containerResults.get(expression);
     if (existing !== undefined) {
       return existing;
@@ -127,7 +127,11 @@ export function createInterfaceOriginFacts(
     const declaration = type === undefined
       ? undefined
       : interfaceContractTypeDeclaration(semantics, type);
-    const result = originDeclarationIsClosed(ingress.source, declaration) &&
+    const result = originDeclarationIsClosed(
+      ingress.source,
+      declaration,
+      ingress.bodyInspectionIsCertified,
+    ) &&
       (
         ingress.source.ast.is.IsClassDeclaration(declaration) ||
         ingress.source.ast.is.IsClassExpression(declaration)
@@ -187,9 +191,9 @@ export function createInterfaceOriginFacts(
       const type = semantics.types.expressionType(expression);
       return type !== undefined &&
         typeProvidesContract(semantics, type, contract) &&
-        thisContainerIsClosed(expression);
+        valueContainerIsClosed(expression);
     },
-    thisContainerIsClosed,
+    valueContainerIsClosed,
     typeProvidesContract,
     typeHasCertifiedImplementation,
     measurements(): InterfaceOriginFactMeasurements {

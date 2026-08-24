@@ -8,6 +8,7 @@ import type { InterfaceContractRelevance } from "../relevance.js";
 import { analyzeOpaqueInterfaceInputs } from "../opaque-exposure.js";
 import type { OpaqueInterfaceExposureSink } from "./model.js";
 import { sourceContainsRelevantContracts } from "./relevance.js";
+import type { ExactSourceBodyInspection } from "../../../model/source-membership.js";
 
 export interface OpaqueInterfaceExposureMeasurements {
   readonly opaqueQueries: number;
@@ -28,6 +29,12 @@ export interface OpaqueInterfaceExposureIndex {
     sourceIsFresh: boolean,
     sink: OpaqueInterfaceExposureSink,
   ): void;
+  transportIsUnobservable(
+    semantics: SourceFileSemantics,
+    source: Type,
+    target: Type,
+    sourceIsFresh: boolean,
+  ): boolean;
   measurements(): OpaqueInterfaceExposureMeasurements;
 }
 
@@ -52,6 +59,7 @@ const emptyPlan: OpaqueInterfaceExposurePlan = Object.freeze({
 export function createOpaqueInterfaceExposureIndex(
   source: TargetSourceProgram,
   relevance: InterfaceContractRelevance,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): OpaqueInterfaceExposureIndex {
   const files = new WeakMap<Node, OpaqueInterfaceExposureFileCache>();
   let opaqueQueries = 0;
@@ -88,6 +96,41 @@ export function createOpaqueInterfaceExposureIndex(
       cache,
     );
   };
+  const planFor = (
+    semantics: SourceFileSemantics,
+    sourceType: Type,
+    targetType: Type,
+    sourceIsFresh: boolean,
+  ): OpaqueInterfaceExposurePlan | undefined => {
+    const selectedSource = semantics.types.withoutMissingOrUndefined(sourceType);
+    const selectedTarget = semantics.types.withoutMissingOrUndefined(targetType);
+    if (selectedSource === undefined || selectedTarget === undefined) {
+      return undefined;
+    }
+    const file = cacheFor(semantics);
+    const plans = sourceIsFresh ? file.freshPlans : file.sharedPlans;
+    let targets = plans.get(selectedSource);
+    if (targets === undefined) {
+      targets = new Map();
+      plans.set(selectedSource, targets);
+    }
+    let plan = targets.get(selectedTarget);
+    if (plan === undefined) {
+      planExpansions += 1;
+      plan = createPlan(
+        source,
+        semantics,
+        selectedSource,
+        selectedTarget,
+        sourceIsFresh,
+        relevance,
+        file.relevance,
+        bodyInspectionIsCertified,
+      );
+      targets.set(selectedTarget, plan);
+    }
+    return plan;
+  };
   return Object.freeze({
     sourceContains,
     retainInputs(
@@ -98,34 +141,28 @@ export function createOpaqueInterfaceExposureIndex(
       sink: OpaqueInterfaceExposureSink,
     ): void {
       planQueries += 1;
-      const selectedSource = semantics.types.withoutMissingOrUndefined(sourceType);
-      const selectedTarget = semantics.types.withoutMissingOrUndefined(targetType);
-      if (selectedSource === undefined || selectedTarget === undefined) {
-        replayPlan(emptyPlan, semantics, sink);
-        return;
-      }
-      const file = cacheFor(semantics);
-      const plans = sourceIsFresh ? file.freshPlans : file.sharedPlans;
-      let targets = plans.get(selectedSource);
-      if (targets === undefined) {
-        targets = new Map();
-        plans.set(selectedSource, targets);
-      }
-      let plan = targets.get(selectedTarget);
-      if (plan === undefined) {
-        planExpansions += 1;
-        plan = createPlan(
-          source,
-          semantics,
-          selectedSource,
-          selectedTarget,
-          sourceIsFresh,
-          relevance,
-          file.relevance,
-        );
-        targets.set(selectedTarget, plan);
-      }
-      replayPlan(plan, semantics, sink);
+      replayPlan(
+        planFor(semantics, sourceType, targetType, sourceIsFresh) ?? emptyPlan,
+        semantics,
+        sink,
+      );
+    },
+    transportIsUnobservable(
+      semantics: SourceFileSemantics,
+      sourceType: Type,
+      targetType: Type,
+      sourceIsFresh: boolean,
+    ): boolean {
+      planQueries += 1;
+      const plan = planFor(
+        semantics,
+        sourceType,
+        targetType,
+        sourceIsFresh,
+      );
+      return plan !== undefined && plan.opaqueInputs.length === 0 &&
+        plan.contractRoots.length === 0 &&
+        plan.valueContractRoots.length === 0;
     },
     measurements(): OpaqueInterfaceExposureMeasurements {
       return Object.freeze({
@@ -146,6 +183,7 @@ function createPlan(
   sourceIsFresh: boolean,
   relevance: InterfaceContractRelevance,
   relevanceCache: Map<Type, boolean>,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): OpaqueInterfaceExposurePlan {
   const opaqueInputs = new Set<Node>();
   const contractRoots = new Set<Type>();
@@ -169,6 +207,7 @@ function createPlan(
         valueContractRoots.add(root);
       },
     },
+    bodyInspectionIsCertified,
   );
   return Object.freeze({
     opaqueInputs: Object.freeze([...opaqueInputs]),

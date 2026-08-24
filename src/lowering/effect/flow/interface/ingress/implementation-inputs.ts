@@ -6,7 +6,8 @@ import {
   directContainingInvocation,
   isModuleForwardingReference,
 } from "../../../model/syntax.js";
-import { resolveProjectInvocation } from "../../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../../model/exact-source-invocation.js";
+import type { ExactSourceBodyInspection } from "../../../model/source-membership.js";
 import type { ExactAggregateProjectionIndex } from "../../aggregate/projection.js";
 import {
   extendExactInvocationInputIndex,
@@ -15,6 +16,7 @@ import {
 import type { ExactInvocationInputIndex } from "../../invocation/inputs.js";
 import type { ExactCallImplementations } from "../../callable/result-inputs.js";
 import type { TypeScriptActiveCooperativeEffectProfile } from "../../../../profile.js";
+import { isFunctionLike } from "../../../model/syntax.js";
 
 export type InterfaceImplementationInputSource = ExactImplementationInputSource;
 
@@ -27,8 +29,14 @@ export function createInterfaceImplementationInputIndex(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ExactInvocationInputIndex {
-  const entries = [...sources];
+  const entries = [...sources].map((entry) => Object.freeze({
+    calls: entry.calls,
+    implementations: Object.freeze(entry.implementations.filter(
+      (implementation) => isFunctionLike(source, implementation),
+    )),
+  }));
   const invalidImplementations = new Set<Node>();
   for (const entry of entries) {
     for (const implementation of entry.implementations) {
@@ -39,6 +47,7 @@ export function createInterfaceImplementationInputIndex(
         exactCallImplementations,
         callableReferenceIsClosed,
         cooperativeEffects,
+        bodyInspectionIsCertified,
       )) {
         invalidImplementations.add(implementation);
       }
@@ -60,6 +69,7 @@ function implementationReferencesAreClosed(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): boolean {
   return source.navigation.referencesToDeclaration(implementation).every((reference) => {
     if (isModuleForwardingReference(source, reference)) {
@@ -68,7 +78,11 @@ function implementationReferencesAreClosed(
     const invocation = directContainingInvocation(source, reference);
     return callableReferenceIsClosed?.(reference) === true ||
       invocation !== undefined &&
-        (resolveProjectInvocation(source, invocation)?.implementation ===
+        (resolveExactSourceInvocation(
+          source,
+          invocation,
+          bodyInspectionIsCertified,
+        )?.implementation ===
           implementation ||
           exactCallImplementations?.(invocation)?.includes(implementation) ===
             true);

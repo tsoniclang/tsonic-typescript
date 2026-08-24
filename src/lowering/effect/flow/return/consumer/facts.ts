@@ -20,11 +20,14 @@ import {
   callableDispatchIsClosed,
   isFunctionLike,
 } from "../../../model/syntax.js";
-import { resolveProjectInvocation } from "../../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../../model/exact-source-invocation.js";
 import { declarationIsExported } from "../../../model/declaration-surface.js";
+import type { TypeScriptActiveCooperativeEffectProfile } from "../../../../profile.js";
 import {
   storageDeclarationCanBeTracked,
 } from "../../storage/owners.js";
+import type { ExactCallableBodyInspection } from "../../callable/result-inputs.js";
+import { sourceBodyInspectionIsExact } from "../../../model/source-membership.js";
 
 export function resultConsumerBindingKind(
   source: TargetSourceProgram,
@@ -41,6 +44,7 @@ export function resultConsumerBindingIsClosed(
   source: TargetSourceProgram,
   declaration: Node,
   closedStorageOwners: ReadonlySet<Node>,
+  allowExportedDeclarations: boolean = false,
 ): boolean {
   if (
     source.ast.is.IsVariableDeclaration(declaration) ||
@@ -49,7 +53,7 @@ export function resultConsumerBindingIsClosed(
       !storageDeclarationCanBeTracked(source, declaration)
   ) {
     return source.ast.is.IsIdentifier(source.ast.name(declaration)) &&
-      !declarationIsExported(source, declaration);
+      (allowExportedDeclarations || !declarationIsExported(source, declaration));
   }
   if (!storageDeclarationCanBeTracked(source, declaration)) {
     return false;
@@ -114,10 +118,17 @@ function collectResultBindingPattern(
 export function selectedResultConsumerBinding(
   source: TargetSourceProgram,
   expression: Node,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): Node | undefined {
   if (source.ast.is.IsIdentifier(expression)) {
     const reference = source.navigation.sourceReferenceFor(expression);
-    return reference?.project === true ? reference.declaration : undefined;
+    return reference !== undefined && sourceBodyInspectionIsExact(
+        source,
+        reference.declaration,
+        bodyInspectionIsCertified,
+      )
+      ? reference.declaration
+      : undefined;
   }
   const selected = source.ast.is.IsPropertyAccessExpression(expression)
     ? source.semantics.forNode(expression)
@@ -126,7 +137,11 @@ export function selectedResultConsumerBinding(
     ? source.semantics.forNode(expression)
       .operations.elementAccess(expression)?.selectedDeclaration
     : undefined;
-  return selected !== undefined && source.navigation.isProjectDeclaration(selected)
+  return selected !== undefined && sourceBodyInspectionIsExact(
+      source,
+      selected,
+      bodyInspectionIsCertified,
+    )
     ? selected
     : undefined;
 }
@@ -134,16 +149,26 @@ export function selectedResultConsumerBinding(
 export function exactResultConsumerAssignmentBindings(
   source: TargetSourceProgram,
   expression: Node,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): readonly Node[] | undefined {
   if (
     !source.ast.is.IsArrayLiteralExpression(expression) &&
     !source.ast.is.IsObjectLiteralExpression(expression)
   ) {
-    const selected = selectedResultConsumerBinding(source, expression);
+    const selected = selectedResultConsumerBinding(
+      source,
+      expression,
+      bodyInspectionIsCertified,
+    );
     return selected === undefined ? undefined : Object.freeze([selected]);
   }
   const result: Node[] = [];
-  return collectResultAssignmentBindings(source, expression, result)
+  return collectResultAssignmentBindings(
+    source,
+    expression,
+    result,
+    bodyInspectionIsCertified,
+  )
     ? Object.freeze(result)
     : undefined;
 }
@@ -152,6 +177,7 @@ function collectResultAssignmentBindings(
   source: TargetSourceProgram,
   expression: Node,
   result: Node[],
+  bodyInspectionIsCertified: ExactCallableBodyInspection | undefined,
 ): boolean {
   const elements = source.ast.is.IsArrayLiteralExpression(expression)
     ? source.ast.elements(expression)
@@ -177,12 +203,21 @@ function collectResultAssignmentBindings(
       source.ast.is.IsArrayLiteralExpression(value) ||
       source.ast.is.IsObjectLiteralExpression(value)
     ) {
-      if (!collectResultAssignmentBindings(source, value, result)) {
+      if (!collectResultAssignmentBindings(
+        source,
+        value,
+        result,
+        bodyInspectionIsCertified,
+      )) {
         return false;
       }
       continue;
     }
-    const selected = selectedResultConsumerBinding(source, value);
+    const selected = selectedResultConsumerBinding(
+      source,
+      value,
+      bodyInspectionIsCertified,
+    );
     if (selected === undefined) {
       return false;
     }
@@ -248,12 +283,20 @@ export function isInspectableResultForwarder(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   declaration: Node,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  allowExportedDeclarations: boolean = false,
 ): boolean {
   if (source.ast.body(declaration) === undefined) {
     return false;
   }
   if (
-    declarationIsExported(source, declaration) ||
+    !sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) ||
+    (!allowExportedDeclarations && declarationIsExported(source, declaration) &&
+      bodyInspectionIsCertified?.(declaration) !== true) ||
     !callableDispatchIsClosed(source, program, declaration)
   ) {
     return false;
@@ -277,15 +320,26 @@ export function indexResultConsumerCalls(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   exactCallImplementations?: (call: Node) => readonly Node[] | undefined,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
 ): ReadonlyMap<Node, readonly Node[]> {
   const mutable = new Map<Node, Node[]>();
   for (const call of program.nodesOfKind(KindCallExpression)) {
-    const direct = resolveProjectInvocation(source, call)?.implementation;
+    const direct = resolveExactSourceInvocation(
+      source,
+      call,
+      bodyInspectionIsCertified,
+    )?.implementation;
     const declarations = direct === undefined
       ? exactCallImplementations?.(call) ?? []
       : [direct];
     for (const declaration of declarations) {
-      if (source.navigation.isProjectDeclaration(declaration)) {
+      if (
+        sourceBodyInspectionIsExact(
+          source,
+          declaration,
+          bodyInspectionIsCertified,
+        )
+      ) {
         append(mutable, declaration, call);
       }
     }
@@ -304,6 +358,8 @@ export function indexResultProjectionReads(
   exactCallImplementations?: (call: Node) => readonly Node[] | undefined,
   transports?: InvocationTransportContract,
   storageOwners?: ClosedStorageOwnerAnalysis,
+  bodyInspectionIsCertified?: ExactCallableBodyInspection,
+  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
 ): ExactResultProjectionReads {
   const mutable = new Map<Node, Node[]>();
   const invocations = new Map<Node, Node[]>();
@@ -318,11 +374,16 @@ export function indexResultProjectionReads(
       call,
       exactCallImplementations,
       transports,
+      bodyInspectionIsCertified,
     ),
     invocationInputs,
     projections.roots,
     undefined,
     storageOwners,
+    undefined,
+    undefined,
+    undefined,
+    cooperativeEffects,
   );
   for (const read of program.nodesOfKinds([
     KindElementAccessExpression,
@@ -374,6 +435,7 @@ function exactAggregateResultSource(
   exactCallImplementations: ((call: Node) => readonly Node[] | undefined) |
     undefined,
   transports: InvocationTransportContract | undefined,
+  bodyInspectionIsCertified: ExactCallableBodyInspection | undefined,
 ): ExactValueSlotCallSource | undefined {
   const semantics = source.semantics.forNode(call);
   const signature = semantics.operations.call(call)?.selectedSignature;
@@ -388,7 +450,11 @@ function exactAggregateResultSource(
       expressions: Object.freeze([...transported]),
     });
   }
-  const direct = resolveProjectInvocation(source, call)?.implementation;
+  const direct = resolveExactSourceInvocation(
+    source,
+    call,
+    bodyInspectionIsCertified,
+  )?.implementation;
   const implementations = direct === undefined
     ? exactCallImplementations?.(call) ?? []
     : [direct];
@@ -398,7 +464,11 @@ function exactAggregateResultSource(
   const expressions: (Node | undefined)[] = [];
   for (const implementation of implementations) {
     if (
-      !source.navigation.isProjectDeclaration(implementation) ||
+      !sourceBodyInspectionIsExact(
+        source,
+        implementation,
+        bodyInspectionIsCertified,
+      ) ||
       !callableDispatchIsClosed(source, program, implementation)
     ) {
       return undefined;

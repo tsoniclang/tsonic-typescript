@@ -4,7 +4,7 @@ import type {
   TargetSourceProgram,
 } from "@tsonic/target-api/source";
 
-import { resolveProjectInvocationContract } from "../../model/project-invocation.js";
+import { resolveExactSourceInvocationContract } from "../../model/exact-source-invocation.js";
 import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
 
 export function createInterfaceStorageBoundaryDependencies(
@@ -13,9 +13,32 @@ export function createInterfaceStorageBoundaryDependencies(
 ): StorageOwnerBoundaryDependencies {
   return Object.freeze({
     allowsInvocation(invocation: Node): boolean {
-      const contract = resolveProjectInvocationContract(source, invocation)?.contract;
+      const resolved = resolveExactSourceInvocationContract(
+        source,
+        invocation,
+      );
+      const contract = resolved?.contract;
       const owner = contract === undefined ? undefined : source.ast.parent(contract);
-      return owner !== undefined && interfaceOwners.has(owner);
+      if (owner !== undefined && interfaceOwners.has(owner)) {
+        return true;
+      }
+      const semantics = source.semantics.forNode(invocation);
+      const call = semantics.operations.call(invocation);
+      return call !== undefined && [
+        call.sourceResultType,
+        ...call.sourceArguments.map((argument) => argument.type),
+        ...call.sourceArgumentBindings.flatMap((binding) => [
+          binding.selectedArgumentType,
+          binding.selectedParameterType,
+        ]),
+      ].some((type) =>
+        typeContainsInterfaceOwner(
+          semantics,
+          type,
+          interfaceOwners,
+          new Set(),
+        )
+      );
     },
     allowsContextualValue(value: Node): boolean {
       const semantics = source.semantics.forNode(value);
@@ -58,13 +81,18 @@ function typeContainsInterfaceOwner(
   const target = semantics.types.isTypeReference(type)
     ? semantics.types.typeReferenceTarget(type)
     : undefined;
+  const arguments_ = semantics.types.isTypeReference(type)
+    ? semantics.types.effectiveTypeArguments(type)
+    : Object.freeze([]);
+  if (arguments_ === undefined) {
+    pending.delete(type);
+    return false;
+  }
   const children = [
     ...(semantics.types.isUnion(type) || semantics.types.isIntersection(type)
       ? semantics.types.unionOrIntersectionTypes(type)
       : []),
-    ...(semantics.types.isTypeReference(type)
-      ? semantics.types.typeArguments(type)
-      : []),
+    ...arguments_,
     ...(target === undefined ? [] : [target]),
   ];
   const result = children.some((child) =>

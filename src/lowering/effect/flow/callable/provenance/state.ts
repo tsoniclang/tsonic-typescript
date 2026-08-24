@@ -109,6 +109,16 @@ export function synchronousOrigin(
   markRelevant(state, context);
 }
 
+export function contractOrigin(
+  state: CallableState,
+  declaration: Node,
+  context: CallableContext,
+): void {
+  context.contractOrigins.add(declaration);
+  context.builder.addOrigin(state.vertex, declaration);
+  markRelevant(state, context);
+}
+
 export function emptyOrigin(
   state: CallableState,
   occurrence: Node,

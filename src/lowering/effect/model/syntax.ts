@@ -75,10 +75,11 @@ export function containingAwait(
         ? parent
         : undefined;
     }
-    if (!isTransparentExpression(source, parent, current)) {
-      return undefined;
+    if (isTransparentExpression(source, parent, current)) {
+      current = parent;
+      continue;
     }
-    current = parent;
+    return undefined;
   }
 }
 
@@ -146,15 +147,30 @@ export function directContainingCall(
       continue;
     }
     if (
-      source.ast.is.IsPropertyAccessExpression(parent) ||
-      source.ast.is.IsElementAccessExpression(parent) ||
-      isTransparentExpression(source, parent, current)
+      isTransparentExpression(source, parent, current) ||
+      accessSelectsReference(source, parent, current)
     ) {
       current = parent;
       continue;
     }
     return undefined;
   }
+}
+
+function accessSelectsReference(
+  source: TargetSourceProgram,
+  access: Node,
+  reference: Node,
+): boolean {
+  const selected = source.ast.is.IsPropertyAccessExpression(access)
+    ? source.semantics.forNode(access).operations.propertyAccess(access)
+      ?.selectedDeclaration
+    : source.ast.is.IsElementAccessExpression(access)
+    ? source.semantics.forNode(access).operations.elementAccess(access)
+      ?.selectedDeclaration
+    : undefined;
+  return selected !== undefined &&
+    source.navigation.sourceReferenceFor(reference)?.declaration === selected;
 }
 
 export function directContainingInvocation(
@@ -177,7 +193,10 @@ export function directContainingInvocation(
         ? parent
         : undefined;
     }
-    if (!isTransparentExpression(source, parent, current)) {
+    if (
+      !isTransparentExpression(source, parent, current) &&
+      !accessSelectsReference(source, parent, current)
+    ) {
       return undefined;
     }
     current = parent;

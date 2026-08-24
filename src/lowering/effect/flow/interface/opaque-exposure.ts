@@ -5,7 +5,11 @@ import type {
 } from "@tsonic/target-api/source";
 
 import { sameSelectedType } from "../../model/synchronous.js";
-import { projectCallableImplementation } from "../../model/project-invocation.js";
+import { exactSourceCallableImplementation } from "../../model/exact-source-invocation.js";
+import {
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../model/source-membership.js";
 import {
   indexCoversProperty,
   indexDomainCovers,
@@ -27,6 +31,7 @@ interface OpaqueInterfaceExposureState {
   readonly freshSeen: Map<Type, Set<Type>>;
   readonly sharedSeen: Map<Type, Set<Type>>;
   readonly relevanceCache: Map<Type, boolean>;
+  readonly bodyInspectionIsCertified?: ExactSourceBodyInspection;
 }
 
 export function analyzeOpaqueInterfaceInputs(
@@ -38,6 +43,7 @@ export function analyzeOpaqueInterfaceInputs(
   relevance: InterfaceContractRelevance,
   relevanceCache: Map<Type, boolean>,
   sink: OpaqueInterfaceExposureSink,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): void {
   analyzeOpaquePair(
     semantics,
@@ -51,6 +57,9 @@ export function analyzeOpaqueInterfaceInputs(
       freshSeen: new Map(),
       sharedSeen: new Map(),
       relevanceCache,
+      ...(bodyInspectionIsCertified === undefined
+        ? {}
+        : { bodyInspectionIsCertified }),
     },
   );
 }
@@ -140,7 +149,17 @@ function pairOpaqueUnion(
   state: OpaqueInterfaceExposureState,
 ): boolean {
   if (semantics.types.isUnion(source)) {
-    for (const member of selectedMembers(semantics, source)) {
+    const members = selectedMembers(semantics, source);
+    if (members === undefined) {
+      markAllRelevantSourceContracts(
+        semantics,
+        source,
+        state.relevance,
+        state.sink,
+      );
+      return true;
+    }
+    for (const member of members) {
       pairOpaqueUnionMember(
         semantics,
         member,
@@ -175,10 +194,11 @@ function pairOpaqueUnionMember(
     analyzeOpaquePair(semantics, source, target, sourceIsFresh, state);
     return;
   }
-  const exact = selectedMembers(semantics, target).filter((member) =>
+  const targets = selectedMembers(semantics, target);
+  const exact = targets?.filter((member) =>
     sameSelectedType(semantics, source, member)
-  );
-  if (exact.length !== 1) {
+  ) ?? [];
+  if (targets === undefined || exact.length !== 1) {
     markAllRelevantSourceContracts(
       semantics,
       source,
@@ -255,9 +275,10 @@ function retainSignaturePairInputs(
   state: OpaqueInterfaceExposureState,
 ): void {
   const sourceParameters = semantics.types.signatureParameterInfos(source);
-  const implementation = projectCallableImplementation(
+  const implementation = exactSourceCallableImplementation(
     state.source,
     semantics.declarations.signatureDeclaration(source),
+    state.bodyInspectionIsCertified,
   );
   if (implementation !== undefined) {
     const declarations = sourceParameters.map((parameter) =>
@@ -267,7 +288,11 @@ function retainSignaturePairInputs(
       declarations.every((declaration): declaration is Node =>
         declaration !== undefined &&
         state.source.ast.is.IsParameterDeclaration(declaration) &&
-        state.source.navigation.isProjectDeclaration(declaration) &&
+        sourceBodyInspectionIsExact(
+          state.source,
+          declaration,
+          state.bodyInspectionIsCertified,
+        ) &&
         state.source.ast.parent(declaration) === implementation
       )
     ) {
@@ -365,16 +390,18 @@ function sequenceElements(
     return undefined;
   }
   const arguments_ = semantics.types.isTypeReference(type)
-    ? semantics.types.typeArguments(type).filter(
-      (argument): argument is Type => argument !== undefined,
-    )
+    ? semantics.types.effectiveTypeArguments(type)
     : [];
+  if (arguments_ === undefined) {
+    return undefined;
+  }
   if (arguments_.length === 1) {
     return arguments_;
   }
-  const indexed = semantics.types.indexInfos(type).map((index) => index.valueType)
-    .filter((value): value is Type => value !== undefined);
-  return indexed.length === 1 ? indexed : undefined;
+  const indexes = semantics.types.indexInfos(type);
+  return indexes.length === 1 && indexes[0]?.valueType !== undefined
+    ? Object.freeze([indexes[0].valueType])
+    : undefined;
 }
 
 function pairSequenceElements(
@@ -497,10 +524,11 @@ function pairOpaqueMembers(
 function selectedMembers(
   semantics: SourceFileSemantics,
   type: Type,
-): readonly Type[] {
-  return semantics.types.unionOrIntersectionTypes(type).filter(
-    (member): member is Type => member !== undefined,
-  );
+): readonly Type[] | undefined {
+  const members = semantics.types.unionOrIntersectionTypes(type);
+  return members.length !== 0 && members.every((member) => member !== undefined)
+    ? members as readonly Type[]
+    : undefined;
 }
 
 function pairWasSeen(

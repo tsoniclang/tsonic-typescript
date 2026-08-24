@@ -14,11 +14,15 @@ import {
   type CooperativeEffectFallbackReason,
 } from "../closure/retention.js";
 import { callableDispatchIsClosed } from "../model/syntax.js";
-import { resolveProjectInvocation } from "../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../model/exact-source-invocation.js";
 import { sameSelectedType } from "../model/synchronous.js";
 import { callableHasOpenInvocationSurface } from "../model/declaration-surface.js";
 import type { EffectProvenanceEdgeKind } from "../provenance/model.js";
 import type { TypeScriptActiveCooperativeEffectProfile } from "../../profile.js";
+import {
+  sourceBodyInspectionIsExact,
+  type ExactSourceBodyInspection,
+} from "../model/source-membership.js";
 
 export interface CooperativeEffectCandidate {
   readonly declaration: Node;
@@ -40,6 +44,7 @@ export function collectCooperativeEffectCandidates(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): Map<Node, CooperativeEffectCandidate> {
   const candidates = new Map<Node, CooperativeEffectCandidate>();
   for (const node of program.nodesOfKinds([
@@ -48,7 +53,14 @@ export function collectCooperativeEffectCandidates(
     KindFunctionExpression,
     KindArrowFunction,
   ])) {
-    if (!isAsyncCallable(source, node)) {
+    if (
+      !isAsyncCallable(source, node) ||
+      !sourceBodyInspectionIsExact(
+        source,
+        node,
+        bodyInspectionIsCertified,
+      )
+    ) {
       continue;
     }
     const sourceFile = source.ast.getSourceFile(node);
@@ -95,10 +107,15 @@ export function collectCooperativeEffectCalls(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   candidates: ReadonlyMap<Node, CooperativeEffectCandidate>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): ReadonlyMap<Node, CooperativeEffectCandidate> {
   const calls = new Map<Node, CooperativeEffectCandidate>();
   for (const node of program.nodesOfKind(KindCallExpression)) {
-    const declaration = resolveProjectInvocation(source, node)?.implementation;
+    const declaration = resolveExactSourceInvocation(
+      source,
+      node,
+      bodyInspectionIsCertified,
+    )?.implementation;
     const candidate = declaration === undefined ? undefined : candidates.get(declaration);
     if (candidate !== undefined) {
       calls.set(node, candidate);

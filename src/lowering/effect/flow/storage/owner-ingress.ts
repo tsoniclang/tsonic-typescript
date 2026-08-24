@@ -29,9 +29,10 @@ import {
 } from "../../model/syntax.js";
 import type { StorageOwnerMembership } from "./owner-types.js";
 import {
-  projectCallableImplementation,
-  resolveProjectInvocation,
-} from "../../model/project-invocation.js";
+  exactSourceCallableImplementation,
+  resolveExactSourceInvocation,
+} from "../../model/exact-source-invocation.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
 
 interface OwnerIngress {
   readonly declaration: Node;
@@ -50,12 +51,14 @@ export function auditStorageOwnerIngress(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): void {
   const ingress = collectOwnerIngress(
     source,
     program,
     ownersFor,
     selectedOwners,
+    bodyInspectionIsCertified,
   );
   if (ingress.size === 0) {
     return;
@@ -65,6 +68,7 @@ export function auditStorageOwnerIngress(
     program,
     ingress,
     exactCallImplementations,
+    bodyInspectionIsCertified,
   );
   auditCallableReferences(
     source,
@@ -74,6 +78,7 @@ export function auditStorageOwnerIngress(
     exactCallImplementations,
     callableReferenceIsClosed,
     boundaryDependencies,
+    bodyInspectionIsCertified,
   );
   for (const entry of ingress.values()) {
     if (entry.open) {
@@ -89,6 +94,7 @@ function collectOwnerIngress(
   program: TargetProgramIndex,
   ownersFor: (node: Node) => StorageOwnerMembership,
   selectedOwners: ReadonlySet<Node>,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): Map<Node, OwnerIngress> {
   const result = new Map<Node, OwnerIngress>();
   for (const parameter of program.nodesOfKind(KindParameter)) {
@@ -100,7 +106,11 @@ function collectOwnerIngress(
       owners.size === 0 ||
       declaration === undefined ||
       source.ast.is.IsConstructorDeclaration(declaration) ||
-      !source.navigation.isProjectDeclaration(declaration) ||
+      exactSourceCallableImplementation(
+          source,
+          declaration,
+          bodyInspectionIsCertified,
+        ) !== declaration ||
       source.ast.body(declaration) === undefined
     ) {
       continue;
@@ -134,9 +144,14 @@ function auditExactInvocations(
   program: TargetProgramIndex,
   ingress: ReadonlyMap<Node, OwnerIngress>,
   exactCallImplementations: ExactCallImplementations | undefined,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): void {
   for (const call of program.nodesOfKind(KindCallExpression)) {
-    const direct = resolveProjectInvocation(source, call)?.implementation;
+    const direct = resolveExactSourceInvocation(
+      source,
+      call,
+      bodyInspectionIsCertified,
+    )?.implementation;
     const declarations = direct === undefined
       ? exactCallImplementations?.(call) ?? []
       : [direct];
@@ -146,7 +161,12 @@ function auditExactInvocations(
         continue;
       }
       const invocation = direct === declaration
-        ? exactSourceCallImplementationInputs(source, call)
+        ? exactSourceCallImplementationInputs(
+          source,
+          call,
+          undefined,
+          bodyInspectionIsCertified,
+        )
         : exactSourceCallInputsForDeclaration(source, call, declaration);
       if (
         invocation === undefined ||
@@ -170,6 +190,7 @@ function auditCallableReferences(
   exactCallImplementations?: ExactCallImplementations,
   callableReferenceIsClosed?: (reference: Node) => boolean,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): void {
   const symbols = indexDeclarationSymbols(source, ingress.keys());
   for (const node of program.nodesOfKinds([
@@ -177,7 +198,12 @@ function auditCallableReferences(
     KindPropertyAccessExpression,
     KindElementAccessExpression,
   ])) {
-    const declaration = selectedCallableDeclaration(source, symbols, node);
+    const declaration = selectedCallableDeclaration(
+      source,
+      symbols,
+      node,
+      bodyInspectionIsCertified,
+    );
     const entry = declaration === undefined ? undefined : ingress.get(declaration);
     if (
       declaration === undefined ||
@@ -198,7 +224,11 @@ function auditCallableReferences(
     const call = directContainingCall(source, node);
     const selected = call === undefined
       ? undefined
-      : resolveProjectInvocation(source, call)?.implementation;
+      : resolveExactSourceInvocation(
+        source,
+        call,
+        bodyInspectionIsCertified,
+      )?.implementation;
     const indirect = call === undefined
       ? undefined
       : exactCallImplementations?.(call);
@@ -217,19 +247,22 @@ function selectedCallableDeclaration(
   source: TargetSourceProgram,
   symbols: ReadonlyMap<Symbol, Node>,
   node: Node,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): Node | undefined {
   if (source.ast.is.IsPropertyAccessExpression(node)) {
-    return projectCallableImplementation(
+    return exactSourceCallableImplementation(
       source,
       source.semantics.forNode(node).operations.propertyAccess(node)
         ?.selectedDeclaration,
+      bodyInspectionIsCertified,
     );
   }
   if (source.ast.is.IsElementAccessExpression(node)) {
-    return projectCallableImplementation(
+    return exactSourceCallableImplementation(
       source,
       source.semantics.forNode(node).operations.elementAccess(node)
         ?.selectedDeclaration,
+      bodyInspectionIsCertified,
     );
   }
   return source.ast.is.IsIdentifier(node)

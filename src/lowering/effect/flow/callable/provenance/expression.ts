@@ -1,19 +1,25 @@
 import type { Node } from "@tsonic/tsts";
 
 import {
+  callableDispatchIsClosed,
   exactCallableTarget,
   isFunctionLike,
   transparentExpression,
 } from "../../../model/syntax.js";
+import {
+  callableDeclarationDirectReturnRewrite,
+} from "../../../model/callable-contract.js";
 import {
   callableUsesSynchronousTransport,
   resolvedCallUsesSynchronousTransport,
 } from "../../../model/synchronous.js";
 import {
   referenceHasExactSemantics,
-  resolveProjectInvocation,
-} from "../../../model/project-invocation.js";
+  resolveExactSourceInvocation,
+  sourceValueReference,
+} from "../../../model/exact-source-invocation.js";
 import { sameValueAlternatives } from "../../value/alternatives.js";
+import { typeHasDefinitelyNonThenableContract } from "../../../../thenability.js";
 import { invocationTransportResultOrigins } from "../invocation-transport.js";
 import { declarationForSymbols } from "../input-reference.js";
 import type {
@@ -23,11 +29,16 @@ import type {
 import {
   boundary,
   candidateOrigin,
+  contractOrigin,
   dependency,
   emptyOrigin,
   newState,
   synchronousOrigin,
 } from "./state.js";
+import {
+  sourceBodyInspectionIsExact,
+} from "../../../model/source-membership.js";
+import { exactCallableReturnExpressions } from "../../invocation/results.js";
 
 export function callableExpressionState(
   expression: Node,
@@ -39,6 +50,9 @@ export function callableExpressionState(
   if (state === undefined) {
     state = newState("expression", selected, context);
     context.expressions.set(selected, state);
+    if (context.source.ast.is.IsCallExpression(selected)) {
+      context.calls.set(selected, state);
+    }
   }
   if (state.expanded) {
     return state;
@@ -80,8 +94,16 @@ export function callableDeclarationState(
     candidateOrigin(state, declaration, context);
     return state;
   }
-  if (callableUsesSynchronousTransport(context.source, declaration)) {
+  if (callableUsesSynchronousTransport(
+    context.source,
+    declaration,
+    context.bodyInspectionIsCertified,
+  )) {
     synchronousOrigin(state, declaration, context);
+    return state;
+  }
+  if (callableUsesConditionalReturnContract(declaration, context)) {
+    contractOrigin(state, declaration, context);
     return state;
   }
   const values = context.inputs.valuesFor(declaration);
@@ -207,7 +229,7 @@ function expandExpression(
     return;
   }
   if (source.ast.is.IsCallExpression(root)) {
-    const call = callableCallState(root, context);
+    const call = callableInvocationState(root, context);
     if (call !== state) {
       dependency(state, call, "callable-invocation", root, context);
     }
@@ -216,16 +238,16 @@ function expandExpression(
   expandReference(state, root, context);
 }
 
-function callableCallState(
+export function callableInvocationState(
   call: Node,
   context: CallableContext,
 ): CallableState {
-  const existing = context.calls.get(call);
+  const existing = context.invocations.get(call);
   if (existing !== undefined) {
     return existing;
   }
   const state = newState("expression", call, context);
-  context.calls.set(call, state);
+  context.invocations.set(call, state);
   state.expanded = true;
   const { source } = context;
   const semantics = source.semantics.forNode(call);
@@ -237,8 +259,12 @@ function callableCallState(
     source,
     source.ast.as.AsCallExpression(call)?.Expression,
   );
-  const implementation = resolveProjectInvocation(source, call)?.implementation;
-  const reference = source.navigation.sourceReferenceFor(target);
+  const implementation = resolveExactSourceInvocation(
+    source,
+    call,
+    context.bodyInspectionIsCertified,
+  )?.implementation;
+  const reference = sourceValueReference(source, target);
   const exactImplementations = context.exactCallImplementations?.(call);
   const implementations = exactImplementations ??
     (contract === undefined
@@ -296,10 +322,42 @@ function callableCallState(
     }
     return state;
   }
+  if (implementation !== undefined) {
+    const result = context.results.sourceFor(call);
+    if (result !== undefined) {
+      for (const expression of result.expressions) {
+        if (expression === undefined) {
+          emptyOrigin(state, call, context);
+          continue;
+        }
+        const semantics = source.semantics.forNode(expression);
+        const type = semantics.types.expressionType(expression);
+        if (
+          type !== undefined &&
+          typeHasDefinitelyNonThenableContract(source, semantics, type)
+        ) {
+          emptyOrigin(state, expression, context);
+        } else {
+          dependency(
+            state,
+            callableExpressionState(expression, context),
+            "return",
+            expression,
+            context,
+          );
+        }
+      }
+      return state;
+    }
+  }
   const synchronous = implementation ?? contract;
   if (
     synchronous !== undefined &&
-    resolvedCallUsesSynchronousTransport(source, call)
+    resolvedCallUsesSynchronousTransport(
+      source,
+      call,
+      context.bodyInspectionIsCertified,
+    )
   ) {
     if (implementation === undefined) {
       synchronousOrigin(state, synchronous, context);
@@ -351,7 +409,7 @@ function expandReference(
     );
     return;
   }
-  const reference = source.navigation.sourceReferenceFor(root);
+  const reference = sourceValueReference(source, root);
   if (!referenceHasExactSemantics(source, reference)) {
     boundary(state, "inexact-reference", root, context);
     return;
@@ -368,12 +426,25 @@ function expandReference(
       return;
     }
     for (const implementation of implementations) {
-      selectCallableOrigin(
-        state,
-        implementation,
-        root,
-        context,
-      );
+      if (
+        isFunctionLike(source, implementation) ||
+        context.candidates.has(implementation) ||
+        callableUsesSynchronousTransport(
+          source,
+          implementation,
+          context.bodyInspectionIsCertified,
+        )
+      ) {
+        selectCallableOrigin(state, implementation, root, context);
+      } else {
+        dependency(
+          state,
+          callableDeclarationState(implementation, context),
+          "alias",
+          root,
+          context,
+        );
+      }
     }
     return;
   }
@@ -410,13 +481,42 @@ function selectCallableOrigin(
     } else {
       candidateOrigin(state, declaration, context);
     }
-  } else if (callableUsesSynchronousTransport(context.source, declaration)) {
+  } else if (callableUsesSynchronousTransport(
+    context.source,
+    declaration,
+    context.bodyInspectionIsCertified,
+  )) {
     if (context.program.hasBindingWrite(declaration)) {
       boundary(state, "open-binding", occurrence, context);
     } else {
       synchronousOrigin(state, declaration, context);
     }
+  } else if (callableUsesConditionalReturnContract(declaration, context)) {
+    if (context.program.hasBindingWrite(declaration)) {
+      boundary(state, "open-binding", occurrence, context);
+    } else {
+      contractOrigin(state, declaration, context);
+    }
   } else {
     boundary(state, "open-callable", occurrence, context);
   }
+}
+
+function callableUsesConditionalReturnContract(
+  declaration: Node,
+  context: CallableContext,
+): boolean {
+  return isFunctionLike(context.source, declaration) &&
+    !context.source.ast.hasModifierKind(declaration, "async") &&
+    callableDispatchIsClosed(context.source, context.program, declaration) &&
+    sourceBodyInspectionIsExact(
+      context.source,
+      declaration,
+      context.bodyInspectionIsCertified,
+    ) &&
+    exactCallableReturnExpressions(context.source, declaration) !== undefined &&
+    callableDeclarationDirectReturnRewrite(
+        context.source,
+        declaration,
+      ) !== undefined;
 }

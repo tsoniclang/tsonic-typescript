@@ -145,6 +145,7 @@ function pairProperty(
       state.source,
       semantics,
       targetProperty.type,
+      state.bodyInspectionIsCertified,
     )
   ) {
     markContractBoundaries(
@@ -166,6 +167,7 @@ function pairProperty(
       state.source,
       semantics,
       sourceProperty.type,
+      state.bodyInspectionIsCertified,
     )
   ) {
     markContractBoundaries(
@@ -218,11 +220,14 @@ function pairMissingProperty(
     );
     return;
   }
-  const values = sourceIndexes.filter((index) =>
+  const providers = sourceIndexes.filter((index) =>
     indexCoversProperty(state.source, semantics, index, targetProperty)
-  ).map((index) => index.valueType).filter(
-    (value): value is Type => value !== undefined,
   );
+  if (providers.some((index) => index.valueType === undefined)) {
+    markNestedTypeMismatch(semantics, sourceType, targetProperty.type, state);
+    return;
+  }
+  const values = providers.map((index) => index.valueType as Type);
   if (values.length === 0) {
     return;
   }

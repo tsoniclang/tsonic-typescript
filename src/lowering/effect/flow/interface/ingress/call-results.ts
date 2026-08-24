@@ -1,17 +1,22 @@
 import type { Node } from "@tsonic/tsts";
 
 import { callableDispatchIsClosed } from "../../../model/syntax.js";
-import { resolveProjectInvocation } from "../../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../../model/exact-source-invocation.js";
 import { exactCallableReturnExpressions } from "../../invocation/results.js";
 import { exactSourceCallInputsForDeclaration } from "../../invocation/call-binding.js";
-import { transparentExpression } from "../../../model/syntax.js";
 import type { InterfaceContractIngress } from "../ingress.js";
+import { sourceBodyInspectionIsExact } from "../../../model/source-membership.js";
+import { exactCallSpecificResultOrigins } from "./call-result-origin.js";
 
 export function exactInterfaceCallResultOrigins(
   call: Node,
   ingress: InterfaceContractIngress,
 ): readonly Node[] | undefined {
-  const direct = resolveProjectInvocation(ingress.source, call)?.implementation;
+  const direct = resolveExactSourceInvocation(
+    ingress.source,
+    call,
+    ingress.bodyInspectionIsCertified,
+  )?.implementation;
   const semantics = ingress.source.semantics.forNode(call);
   const signature = semantics.operations.call(call)?.selectedSignature;
   const contract = signature === undefined
@@ -34,7 +39,11 @@ export function exactInterfaceCallResultOrigins(
   const origins: Node[] = [];
   for (const implementation of implementations) {
     if (
-      !ingress.source.navigation.isProjectDeclaration(implementation) ||
+      !sourceBodyInspectionIsExact(
+        ingress.source,
+        implementation,
+        ingress.bodyInspectionIsCertified,
+      ) ||
       !callableDispatchIsClosed(
         ingress.source,
         ingress.program,
@@ -63,25 +72,20 @@ export function exactInterfaceCallResultOrigins(
     if (inputs === undefined) {
       return undefined;
     }
-    for (const expression of returned) {
-      if (expression === undefined) {
-        return undefined;
-      }
-      const root = transparentExpression(ingress.source, expression);
-      const reference = root !== undefined &&
-          ingress.source.ast.is.IsIdentifier(root)
-        ? ingress.source.navigation.sourceReferenceFor(root)
-        : undefined;
-      const substituted = reference?.project === true &&
-          ingress.source.ast.is.IsParameterDeclaration(reference.declaration)
-        ? inputs.inputs.get(reference.declaration)
-        : undefined;
-      if (substituted === undefined) {
-        origins.push(expression);
-      } else {
-        origins.push(...substituted);
-      }
+    const selectedOrigins = exactCallSpecificResultOrigins(
+      ingress.source,
+      ingress.program,
+      implementation,
+      returned.filter((expression): expression is Node =>
+        expression !== undefined
+      ),
+      inputs,
+      ingress.bodyInspectionIsCertified,
+    );
+    if (selectedOrigins === undefined) {
+      return undefined;
     }
+    origins.push(...selectedOrigins);
   }
   return Object.freeze([...new Set(origins)]);
 }

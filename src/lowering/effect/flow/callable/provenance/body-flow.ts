@@ -22,7 +22,11 @@ export function connectSynchronousCallableBodies(
     if (
       owner === undefined ||
       context.candidates.has(owner) ||
-      !callableUsesSynchronousTransport(context.source, owner)
+      !callableUsesSynchronousTransport(
+        context.source,
+        owner,
+        context.bodyInspectionIsCertified,
+      )
     ) {
       continue;
     }

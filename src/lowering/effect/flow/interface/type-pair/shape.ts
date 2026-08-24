@@ -17,7 +17,12 @@ export function pairUnionTypes(
   enqueue: InterfaceContractTypePairEnqueue,
 ): boolean {
   if (semantics.types.isUnion(source)) {
-    for (const member of selectedMembers(semantics, source)) {
+    const members = selectedMembers(semantics, source);
+    if (members === undefined || members.length === 0) {
+      markNestedTypeMismatch(semantics, source, target, state);
+      return true;
+    }
+    for (const member of members) {
       pairSourceToTargetUnion(semantics, member, target, state, enqueue);
     }
     return true;
@@ -40,7 +45,7 @@ export function pairTargetIntersection(
     return false;
   }
   const members = selectedMembers(semantics, target);
-  if (members.length === 0) {
+  if (members === undefined || members.length === 0) {
     markNestedTypeMismatch(semantics, source, target, state);
     return true;
   }
@@ -96,10 +101,13 @@ export function pairSequenceTypes(
       markNestedTypeMismatch(semantics, source, target, state);
       return true;
     }
-    for (const sourceElement of semantics.types.tupleElementTypes(source)) {
-      if (sourceElement !== undefined) {
-        enqueue(semantics, sourceElement, targetElement, state);
-      }
+    const sourceElements = semantics.types.tupleElementTypes(source);
+    if (sourceElements.some((element) => element === undefined)) {
+      markNestedTypeMismatch(semantics, source, target, state);
+      return true;
+    }
+    for (const sourceElement of sourceElements) {
+      enqueue(semantics, sourceElement!, targetElement, state);
     }
     return true;
   }
@@ -109,10 +117,13 @@ export function pairSequenceTypes(
       markNestedTypeMismatch(semantics, source, target, state);
       return true;
     }
-    for (const targetElement of semantics.types.tupleElementTypes(target)) {
-      if (targetElement !== undefined) {
-        enqueue(semantics, sourceElement, targetElement, state);
-      }
+    const targetElements = semantics.types.tupleElementTypes(target);
+    if (targetElements.some((element) => element === undefined)) {
+      markNestedTypeMismatch(semantics, source, target, state);
+      return true;
+    }
+    for (const targetElement of targetElements) {
+      enqueue(semantics, sourceElement, targetElement!, state);
     }
     return true;
   }
@@ -133,10 +144,27 @@ export function pairTypeArguments(
   state: InterfaceContractTypePairState,
   enqueue: InterfaceContractTypePairEnqueue,
 ): void {
+  const sources = semantics.types.effectiveTypeArguments(source);
+  const targets = semantics.types.effectiveTypeArguments(target);
+  if (sources === undefined || targets === undefined) {
+    markInterfaceContractsExposed(
+      semantics,
+      source,
+      state,
+      "incompatible-type-arguments",
+    );
+    markInterfaceContractsExposed(
+      semantics,
+      target,
+      state,
+      "incompatible-type-arguments",
+    );
+    return;
+  }
   pairTypeLists(
     semantics,
-    semantics.types.typeArguments(source),
-    semantics.types.typeArguments(target),
+    sources,
+    targets,
     state,
     enqueue,
   );
@@ -154,6 +182,10 @@ function pairSourceToTargetUnion(
     return;
   }
   const targets = selectedMembers(semantics, target);
+  if (targets === undefined || targets.length === 0) {
+    markNestedTypeMismatch(semantics, source, target, state);
+    return;
+  }
   const exact = targets.filter((member) =>
     sameSelectedType(semantics, source, member)
   );
@@ -161,42 +193,70 @@ function pairSourceToTargetUnion(
     enqueue(semantics, source, exact[0]!, state);
     return;
   }
+  const sameDeclaration = targets.filter((member) =>
+    sameTypeReferenceDeclaration(semantics, source, member)
+  );
+  if (sameDeclaration.length === 1) {
+    enqueue(semantics, source, sameDeclaration[0]!, state);
+    return;
+  }
+  const related = targets.filter((member) =>
+    semantics.types.relationship(source, member) !== "unrelated"
+  );
+  if (related.length !== 0) {
+    for (const member of related) {
+      enqueue(semantics, source, member, state);
+    }
+    return;
+  }
   const relevant = targets.filter((member) =>
     state.relevance.valueContracts(semantics, member).length !== 0
   );
-  if (relevant.length === 1) {
-    enqueue(semantics, source, relevant[0]!, state);
+  if (relevant.length !== 0) {
+    for (const member of relevant) {
+      enqueue(semantics, source, member, state);
+    }
     return;
   }
   markNestedTypeMismatch(semantics, source, target, state);
 }
 
+function sameTypeReferenceDeclaration(
+  semantics: SourceFileSemantics,
+  source: Type,
+  target: Type,
+): boolean {
+  if (
+    !semantics.types.isTypeReference(source) ||
+    !semantics.types.isTypeReference(target)
+  ) {
+    return false;
+  }
+  const sourceTarget = semantics.types.typeReferenceTarget(source);
+  return sourceTarget !== undefined &&
+    sourceTarget === semantics.types.typeReferenceTarget(target);
+}
+
 function pairTypeLists(
   semantics: SourceFileSemantics,
-  sources: readonly (Type | undefined)[],
-  targets: readonly (Type | undefined)[],
+  sources: readonly Type[],
+  targets: readonly Type[],
   state: InterfaceContractTypePairState,
   enqueue: InterfaceContractTypePairEnqueue,
 ): void {
   if (sources.length !== targets.length) {
     for (const type of [...sources, ...targets]) {
-      if (type !== undefined) {
-        markInterfaceContractsExposed(
-          semantics,
-          type,
-          state,
-          "incompatible-type-arguments",
-        );
-      }
+      markInterfaceContractsExposed(
+        semantics,
+        type,
+        state,
+        "incompatible-type-arguments",
+      );
     }
     return;
   }
   for (let index = 0; index < sources.length; index += 1) {
-    const source = sources[index];
-    const target = targets[index];
-    if (source !== undefined && target !== undefined) {
-      enqueue(semantics, source, target, state);
-    }
+    enqueue(semantics, sources[index]!, targets[index]!, state);
   }
 }
 
@@ -208,23 +268,26 @@ function arrayElementType(
     return undefined;
   }
   const arguments_ = semantics.types.isTypeReference(type)
-    ? semantics.types.typeArguments(type).filter(
-      (argument): argument is Type => argument !== undefined,
-    )
+    ? semantics.types.effectiveTypeArguments(type)
     : [];
+  if (arguments_ === undefined) {
+    return undefined;
+  }
   if (arguments_.length === 1) {
     return arguments_[0];
   }
-  const values = semantics.types.indexInfos(type).map((index) => index.valueType)
-    .filter((value): value is Type => value !== undefined);
-  return values.length === 1 ? values[0] : undefined;
+  const indexes = semantics.types.indexInfos(type);
+  return indexes.length === 1 && indexes[0]?.valueType !== undefined
+    ? indexes[0].valueType
+    : undefined;
 }
 
 function selectedMembers(
   semantics: SourceFileSemantics,
   type: Type,
-): readonly Type[] {
-  return semantics.types.unionOrIntersectionTypes(type).filter(
-    (member): member is Type => member !== undefined,
-  );
+): readonly Type[] | undefined {
+  const members = semantics.types.unionOrIntersectionTypes(type);
+  return members.length !== 0 && members.every((member) => member !== undefined)
+    ? members as readonly Type[]
+    : undefined;
 }

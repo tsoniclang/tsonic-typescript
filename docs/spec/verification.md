@@ -191,7 +191,8 @@ same contract identity with a carrier changing contract identity and an
 ambient consumer. Only the exact project-body transport may settle; mutating
 either side to the unmatched or ambient form must retain the family.
 The nested matrix recursively covers exact union members, tuples, arrays,
-matching generic arguments, callable parameters/results, optional properties,
+matching explicit and checker-defaulted effective generic arguments, callable
+parameters/results, optional properties,
 and string/number index signatures. Mutations drop or duplicate one selected
 union member, alter one type argument, make an optional target required,
 remove a property provider, substitute an incompatible index domain, or make a
@@ -372,6 +373,20 @@ call only when its exact provider invocation record is present before
 interface ingress. Removing that record must retain all three at
 `opaque-call-transport`. This mutation proves plan assembly cannot defer
 fact-owned transport until after interface-family admission.
+An exact-source fixture loads one non-project authored implementation file
+through the versioned source-invocation manifest, verifies its immutable source
+digest, and exercises an exported overload, constructor, instance method,
+static member, namespace-import member, nested callback, interface declaration,
+parameter ingress, collection extraction, and result-origin transport. The
+same checked program must settle these shapes identically to project-owned
+source. Mutations change the source bytes, duplicate or reorder a file owner,
+orphan an invocation, select a same-spelled export, change one file digest,
+mark a file exact while its selected invocation is inexact, omit file certification,
+or restore any project-only invocation/body path; each must fail at the
+manifest/fact owner or retain the exact affected component. A declaration-file
+foil remains opaque. Structural inspection proves every effect-flow family
+consumes the one source-inspection capability and that no project-invocation
+compatibility owner survives.
 Indirect-call closure fixtures form a three-level chain in which an exact
 outer indirect invocation supplies a callback parameter that is invoked by an
 inner indirect call. They repeat the chain through interface-derived inputs,
@@ -395,8 +410,8 @@ forwarding boundary.
 The recursive stored-callback fixture runs under both profiles: exact exported
 linkage settles under `closed-program` and the same callback/storage component
 retains under `closed-direct`. This gate must fail if callable-storage ingress
-skips all module-forwarding references or lets an interface bootstrap permission
-escape into final closure.
+skips all module-forwarding references or lets a preliminary interface
+upper-bound fact escape into final closure.
 A joint interface/storage fixture forms a closed cycle through a structural
 slot, an implicitly implementing class, an interface call, a stored recursive
 callback, and its owner class. Under `declared-closed` plus `closed-program`,
@@ -411,6 +426,10 @@ decision for slot flow must fail the positive cycle, while removal of final
 post-validation must fail the negative matrix. The focused test also proves
 `closed-direct` retains an exported callable signature and `closed-program`
 settles the otherwise identical closed product flow.
+An exact structural-call fixture must require its provisionally discovered
+call-to-implementation facts in the final interface graph: removing the
+monotonic seed loses the positive closure, while replacing one implementation
+with an ambient, open-dispatch, or duplicate origin fails post-validation.
 The same gate requires source-file-keyed relevance caches and rejects the
 single-current-file cache that recomputes identical type closures across
 kind-major passes. A recursive shared-tail fixture exact-checks positive and
@@ -503,9 +522,15 @@ holding the cooperative call and consumer graph fixed. Total call inventory
 must grow exactly while consumer-owner and edge counts remain unchanged. A
 structural mutation gate rejects restoring every call expression as a consumer
 graph root or rebuilding the shared closed-storage-owner set.
-Direct and indirect discarded invocations retain their async producer so a
-rejected Promise cannot become a synchronous throw. Removing either retention
-edge must fail its owning fixture.
+Direct, indirect, interface, and conditional-provider discarded invocations
+retain their async producer under `closed-direct`. Under `closed-program`, an
+otherwise settled direct, indirect, or interface call must instead retain its
+observable Promise result through the exact `try`/`Promise.resolve`/
+`Promise.reject` boundary. Fixtures prove direct values, thenables, and
+synchronous throws; mutations omit the catch, omit assimilation, shadow
+`globalThis`, collide with the generated catch binding, or wrap a canonical
+provider call. Each mutation must fail at the Promise-boundary or generated-name
+owner.
 Exact call-contract fixtures cover direct calls, immutable callable aliases,
 closed object-member projections, and declared-closed interface dispatch.
 Settlement must remove the selected direct-value union, every connected
@@ -570,6 +595,20 @@ contracts to be consumed exactly once, and strict product typechecking proves
 the rewritten producer remains assignable to every rewritten consumer. A
 mutation that omits only the producer's nested return rewrite must fail that
 proof rather than ship a partially settled flow.
+The same matrix follows one named callable alias through an interface-returned
+factory and requires the alias return contract, exact returned function source,
+producer, consumer, and every await to settle atomically. Replacing the alias
+with a Promise-only contract must retain the complete family. An overload foil
+adds one bodyless Promise-only signature beside an otherwise settling implicit
+interface implementation and must retain it; changing that overload to an
+exact direct-value-admitting contract must rewrite every overload return node
+and settle the family.
+The storage matrix assigns a callable through a simple assignment expression
+and then exports the assigned local. It must retain the callable despite the
+assignment expression sharing its right-hand value; the closed counterpart
+settles only after the storage owner certifies the exact destination. A mutation
+that treats indirect-invocation reachability as contract-rewrite permission must
+incorrectly narrow the Promise-only callable foil and fail AST inspection.
 Callable-contract atomicity also has two fail-closed carrier fixtures. One
 reads an awaitable callable through an unresolved generic carrier before
 assigning it to a local callable contract; the other returns an awaitable
@@ -609,13 +648,27 @@ must retain its async modifier and awaits without asking project semantics to
 interpret that foreign type node. A mutation that removes exact-source
 membership admission must fail this focused fixture before a whole-product
 run can reach the same boundary.
+Opaque transport fixtures contrast readonly and writable arrays, named
+properties, and indexes. A readonly target edge is one-way and cannot inject an
+opaque value back into the source contract; the corresponding writable edge
+must retain the reached family. Mutations that treat readonly as global object
+immutability, apply it to a sibling alias, or ignore a writable target must fail
+the exact boundary ledger.
 A candidate-domain gate adds hundreds of unrelated scalar bindings without
 changing the callable projection denominator. It also proves that a narrowed
 callable union and an invoked open target remain candidates, while an exact
-direct project invocation does not enter projection flow. Removing either open
+direct inspectable-source invocation does not enter projection flow. Removing either open
 admission or restoring direct invocations must fail while admitting the scalar
 siblings must fail the bounded candidate count.
-A paired method fixture places one exact project property access in direct call
+A paired exact direct-call fixture contrasts `function value(): number` with
+`function value(): Promise<number>`. The former must remove its await and
+settle its caller; the latter must preserve both. Mutating either the exact
+implementation join or the non-thenable-result predicate must fail one side.
+An implicit-interface pair repeats that distinction behind a method declared
+as `Awaitable<number>`: an exact non-`async` body returning a number settles,
+while an otherwise identical body returning `Promise.resolve(...)` retains the
+complete family as `unproven-synchronous-implementation`.
+A paired method fixture places one exact inspectable-source property access in direct call
 position and an equal-spelled sibling in method-value position. The direct
 target must be absent while the method value remains; excluding by spelling or
 re-admitting property-call targets must fail the candidate-domain gate.
@@ -626,6 +679,22 @@ Each exact root must settle its positive case, while an unrelated identifier
 scaling control must not enter any value-slot graph. Omitting one owner's roots
 must fail its semantic fixture; restoring all identifiers must fail the bounded
 candidate and guarded product gates.
+Constructor-slot fixtures cover both a readonly parameter property and an
+ordinary readonly property initialized by a transparent constructor
+assignment. A closed recursive callback stored in one fresh allocation must
+settle even when an independently constructed sibling escapes. Exposing that
+same allocation, making the slot mutable, adding an opaque constructor action,
+misbinding the selected parameter, or replacing exact declaration identity
+with member spelling must retain and fail the positive proof.
+An otherwise closed readonly carrier passed to one opaque consumer must retain
+for interface, callable, and thenable slot consumers alike. A mutation that
+restores readonly-path admission as escape evidence must fail this fixture and
+the structural gate.
+Reference-origin fixtures cover each one-sided type fact: declared type only
+and selected type only may continue through the exact project declaration,
+while neither type or an ambient declaration retains. A generic union fixture
+must select one same-declaration container branch and recursively conserve its
+interface-bearing type argument; two compatible branches must fail closed.
 An exact fixed-slot result forwarded through at least two thousand checked
 callables must settle under the ordinary guarded test stack. Replacing the
 explicit value-slot worklist with recursive expansion must exhaust that stack

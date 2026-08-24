@@ -378,13 +378,17 @@ function singleCallableAlternative(
       ? undefined
       : selected;
   }
-  const callable = semantics.types.unionOrIntersectionTypes(selected).filter(
+  const members = semantics.types.unionOrIntersectionTypes(selected);
+  if (members.some((member) => member === undefined)) {
+    return undefined;
+  }
+  const callable = members.filter(
     (member): member is Type =>
       member !== undefined &&
       !semantics.types.isNullish(member) &&
       semantics.types.callSignatures(member).length !== 0,
   );
-  const nonCallable = semantics.types.unionOrIntersectionTypes(selected).filter(
+  const nonCallable = members.filter(
     (member): member is Type =>
       member !== undefined &&
       !semantics.types.isNullish(member) &&
@@ -401,11 +405,12 @@ function sameTypeMembers(
   fulfilled: Type,
 ): boolean {
   const expected = semantics.types.isUnion(fulfilled)
-    ? semantics.types.unionOrIntersectionTypes(fulfilled).filter(
-      (member): member is Type => member !== undefined,
-    )
+    ? semantics.types.unionOrIntersectionTypes(fulfilled)
     : [fulfilled];
-  if (direct.length !== expected.length) {
+  if (
+    direct.length !== expected.length ||
+    expected.some((member) => member === undefined)
+  ) {
     return false;
   }
   const unmatched = new Set(expected.keys());

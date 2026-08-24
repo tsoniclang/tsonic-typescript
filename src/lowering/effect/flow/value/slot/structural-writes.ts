@@ -1,15 +1,13 @@
-import type { Node, Symbol, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
-  KindCallExpression,
   KindElementAccessExpression,
-  KindNewExpression,
   KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../../../../program-index.js";
 import type { TypeScriptPlanningObserver } from "../../../../planning-observer.js";
-import { resolveProjectInvocation } from "../../../model/project-invocation.js";
+import { resolveExactSourceInvocation } from "../../../model/exact-source-invocation.js";
 import { transparentExpression } from "../../../model/syntax.js";
 import { exactCallableReturnExpressions } from "../../invocation/results.js";
 import { sameValueAlternatives } from "../alternatives.js";
@@ -21,10 +19,16 @@ import { exactValueSlotRead } from "./selectors.js";
 import { exactClosedStorageSlotOwner } from "./storage.js";
 import type { ExactTrackedValueSlotInput } from "./tracked.js";
 import type { ExactCallImplementations } from "../../callable/result-inputs.js";
+import type { StorageOwnerBoundaryDependencies } from "../../storage/owner-boundaries.js";
 import {
-  storageInvocationHasProjectImplementation,
-  type StorageOwnerBoundaryDependencies,
-} from "../../storage/owner-boundaries.js";
+  type ExactSourceBodyInspection,
+  sourceBodyInspectionIsExact,
+} from "../../../model/source-membership.js";
+import {
+  collectOpaqueStructuralCallEscapes,
+  opaqueCallDoesNotObserveValueSlots,
+} from "./structural-boundaries.js";
+import type { ExactOpaqueValueSlotTransport } from "./opaque-transport.js";
 
 export interface ExactStructuralStorageMutations {
   readonly closed: boolean;
@@ -38,6 +42,7 @@ export interface ExactStructuralSlotWriteIndex {
   ): ExactStructuralStorageMutations;
   pathCanBeTracked(path: ExactValueSlotPath): boolean;
   pathIsClosed(path: ExactValueSlotPath): boolean;
+  opaqueCallDoesNotObserveSlots(reference: Node): boolean;
 }
 
 interface ExactStoragePath {
@@ -56,12 +61,15 @@ export function createExactStructuralSlotWriteIndex(
   exactCallImplementations?: ExactCallImplementations,
   boundaryDependencies?: StorageOwnerBoundaryDependencies,
   planningObserver?: TypeScriptPlanningObserver,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+  opaqueTransport?: ExactOpaqueValueSlotTransport,
 ): ExactStructuralSlotWriteIndex {
-  const openDeclarations = collectOpaqueCallEscapes(
+  const openDeclarations = collectOpaqueStructuralCallEscapes(
     source,
     program,
     exactCallImplementations,
     boundaryDependencies,
+    bodyInspectionIsCertified,
   );
   planningObserver?.("effect-value-slot-structural-escapes", {
     declarations: openDeclarations.size,
@@ -71,7 +79,11 @@ export function createExactStructuralSlotWriteIndex(
     KindPropertyAccessExpression,
     KindElementAccessExpression,
   ])) {
-    const access = selectedStructuralAccess(source, node);
+    const access = selectedStructuralAccess(
+      source,
+      node,
+      bodyInspectionIsCertified,
+    );
     if (access === undefined || access.accessMode === "read") {
       continue;
     }
@@ -93,6 +105,8 @@ export function createExactStructuralSlotWriteIndex(
           closedStorageOwners,
           access.receiver,
           new Set(),
+          exactCallImplementations,
+          bodyInspectionIsCertified,
         );
     if (input === undefined || storage === undefined) {
       openDeclarations.add(declaration);
@@ -129,18 +143,41 @@ export function createExactStructuralSlotWriteIndex(
           path: Object.freeze(path.slice(mutation.path.length)),
         }));
       return Object.freeze({
-        closed: structuralPathIsClosed(source, path, openDeclarations),
+        closed: structuralPathIsClosed(
+          source,
+          path,
+          openDeclarations,
+          bodyInspectionIsCertified,
+        ),
         inputs: Object.freeze(inputs),
       });
     },
     pathCanBeTracked(path: ExactValueSlotPath): boolean {
       return path.some((selector) =>
         selector.kind === "property" &&
-        exactStructuralDeclarations(source, selector).length === 1
+        exactStructuralDeclarations(
+          source,
+          selector,
+          bodyInspectionIsCertified,
+        ).length === 1
       );
     },
     pathIsClosed(path: ExactValueSlotPath): boolean {
-      return structuralPathIsClosed(source, path, openDeclarations);
+      return structuralPathIsClosed(
+        source,
+        path,
+        openDeclarations,
+        bodyInspectionIsCertified,
+      );
+    },
+    opaqueCallDoesNotObserveSlots(reference: Node): boolean {
+      return opaqueCallDoesNotObserveValueSlots(
+        source,
+        reference,
+        exactCallImplementations,
+        opaqueTransport,
+        bodyInspectionIsCertified,
+      );
     },
   });
 }
@@ -148,6 +185,7 @@ export function createExactStructuralSlotWriteIndex(
 function selectedStructuralAccess(
   source: TargetSourceProgram,
   node: Node,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): {
   readonly accessMode: string;
   readonly receiver: Node;
@@ -174,7 +212,11 @@ function selectedStructuralAccess(
   ]) {
     if (
       declaration !== undefined &&
-      source.navigation.isProjectDeclaration(declaration) &&
+      sourceBodyInspectionIsExact(
+        source,
+        declaration,
+        bodyInspectionIsCertified,
+      ) &&
       source.ast.is.IsPropertySignatureDeclaration(declaration)
     ) {
       declarations.add(declaration);
@@ -195,6 +237,8 @@ function exactStoragePathForExpression(
   closedStorageOwners: ReadonlySet<Node>,
   expression: Node,
   seen: Set<Node>,
+  exactCallImplementations: ExactCallImplementations | undefined,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): ExactStoragePath | undefined {
   const root = transparentExpression(source, expression) ?? expression;
   if (seen.has(root)) {
@@ -218,7 +262,11 @@ function exactStoragePathForExpression(
         path: Object.freeze([]),
       });
     }
-    const declarations = exactStructuralDeclarations(source, read.selector);
+    const declarations = exactStructuralDeclarations(
+      source,
+      read.selector,
+      bodyInspectionIsCertified,
+    );
     if (declarations.length !== 1) {
       return undefined;
     }
@@ -228,6 +276,8 @@ function exactStoragePathForExpression(
       closedStorageOwners,
       read.receiver,
       pending,
+      exactCallImplementations,
+      bodyInspectionIsCertified,
     );
     return parent === undefined
       ? undefined
@@ -249,16 +299,33 @@ function exactStoragePathForExpression(
           closedStorageOwners,
           alternative,
           pending,
+          exactCallImplementations,
+          bodyInspectionIsCertified,
         )
       ),
     );
   }
   if (source.ast.is.IsCallExpression(root)) {
-    const implementation = resolveProjectInvocation(source, root)?.implementation;
-    const returned = implementation === undefined
-      ? undefined
-      : exactCallableReturnExpressions(source, implementation);
-    return returned === undefined || returned.some((value) => value === undefined)
+    const direct = resolveExactSourceInvocation(
+      source,
+      root,
+      bodyInspectionIsCertified,
+    )?.implementation;
+    const implementations = direct === undefined
+      ? exactCallImplementations?.(root) ?? []
+      : [direct];
+    const returned = implementations.flatMap((implementation) => {
+      if (!sourceBodyInspectionIsExact(
+        source,
+        implementation,
+        bodyInspectionIsCertified,
+      )) {
+        return [undefined];
+      }
+      return exactCallableReturnExpressions(source, implementation) ?? [undefined];
+    });
+    return implementations.length === 0 ||
+        returned.some((value) => value === undefined)
       ? undefined
       : commonStoragePath(returned.map((value) =>
           exactStoragePathForExpression(
@@ -267,6 +334,8 @@ function exactStoragePathForExpression(
             closedStorageOwners,
             value!,
             pending,
+            exactCallImplementations,
+            bodyInspectionIsCertified,
           )
         ));
   }
@@ -274,7 +343,12 @@ function exactStoragePathForExpression(
     return undefined;
   }
   const reference = source.navigation.sourceReferenceFor(root);
-  const declaration = reference?.project === true
+  const declaration = reference !== undefined &&
+      sourceBodyInspectionIsExact(
+        source,
+        reference.declaration,
+        bodyInspectionIsCertified,
+      )
     ? reference.declaration
     : undefined;
   if (
@@ -292,6 +366,8 @@ function exactStoragePathForExpression(
           closedStorageOwners,
           initializer,
           pending,
+          exactCallImplementations,
+          bodyInspectionIsCertified,
         );
   }
   return undefined;
@@ -316,9 +392,14 @@ function commonStoragePath(
 function exactStructuralDeclarations(
   source: TargetSourceProgram,
   selector: Extract<ExactValueSlotSelector, { readonly kind: "property" }>,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): readonly Node[] {
   return [...selector.declarations].filter((declaration) =>
-    source.navigation.isProjectDeclaration(declaration) &&
+    sourceBodyInspectionIsExact(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) &&
     source.ast.is.IsPropertySignatureDeclaration(declaration)
   );
 }
@@ -327,12 +408,17 @@ function structuralPathIsClosed(
   source: TargetSourceProgram,
   path: ExactValueSlotPath,
   openDeclarations: ReadonlySet<Node>,
+  bodyInspectionIsCertified: ExactSourceBodyInspection | undefined,
 ): boolean {
   for (const selector of path) {
     if (selector.kind !== "property") {
       continue;
     }
-    const declarations = exactStructuralDeclarations(source, selector);
+    const declarations = exactStructuralDeclarations(
+      source,
+      selector,
+      bodyInspectionIsCertified,
+    );
     if (declarations.length > 1) {
       return false;
     }
@@ -370,190 +456,4 @@ function exactAssignedValue(
   }
   const assignment = source.ast.as.AsBinaryExpression(parent);
   return assignment?.Left === reference ? assignment.Right : undefined;
-}
-
-function collectOpaqueCallEscapes(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  exactCallImplementations: ExactCallImplementations | undefined,
-  boundaryDependencies: StorageOwnerBoundaryDependencies | undefined,
-): Set<Node> {
-  const escaped = new Set<Node>();
-  const expandedTypes = new Set<Type>();
-  const expandedTypePairs = new Map<Type, Set<Type>>();
-  for (const call of program.nodesOfKinds([
-    KindCallExpression,
-    KindNewExpression,
-  ])) {
-    if (storageInvocationHasProjectImplementation(
-      source,
-      call,
-      exactCallImplementations,
-      boundaryDependencies,
-    )) {
-      continue;
-    }
-    const semantics = source.semantics.forNode(call);
-    const selectedCall = semantics.operations.call(call);
-    const receiver = selectedCall?.sourceReceiver;
-    if (receiver !== undefined) {
-      collectPropertySignatures(
-        source,
-        semantics,
-        receiver.type,
-        escaped,
-        expandedTypes,
-      );
-    }
-    for (const [sourceArgumentIndex, argument] of (
-      selectedCall?.sourceArguments ?? []
-    ).entries()) {
-      const targets = new Set(
-        selectedCall?.sourceArgumentBindings.filter((binding) =>
-          binding.sourceArgumentIndex === sourceArgumentIndex
-        ).map((binding) => binding.selectedParameterType) ?? [],
-      );
-      if (targets.size === 0) {
-        collectPropertySignatures(
-          source,
-          semantics,
-          argument.type,
-          escaped,
-          expandedTypes,
-        );
-        continue;
-      }
-      for (const target of targets) {
-        collectWritablePropertySignatures(
-          source,
-          semantics,
-          argument.type,
-          target,
-          escaped,
-          expandedTypePairs,
-          expandedTypes,
-        );
-      }
-    }
-  }
-  return escaped;
-}
-
-function collectWritablePropertySignatures(
-  source: TargetSourceProgram,
-  semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
-  sourceType: Type,
-  targetType: Type,
-  result: Set<Node>,
-  seen: Map<Type, Set<Type>>,
-  expandedTypes: Set<Type>,
-): void {
-  let targets = seen.get(sourceType);
-  if (targets?.has(targetType) === true) {
-    return;
-  }
-  if (targets === undefined) {
-    targets = new Set();
-    seen.set(sourceType, targets);
-  }
-  targets.add(targetType);
-  if (semantics.types.isAny(targetType) || semantics.types.isUnknown(targetType)) {
-    collectPropertySignatures(source, semantics, sourceType, result, expandedTypes);
-    return;
-  }
-  const sourceProperties = new Map(
-    semantics.types.propertyInfos(sourceType).map((property) => [
-      property.name,
-      property,
-    ]),
-  );
-  for (const targetProperty of semantics.types.propertyInfos(targetType)) {
-    const sourceProperty = sourceProperties.get(targetProperty.name);
-    if (sourceProperty === undefined) {
-      continue;
-    }
-    const projectSlot = !targetProperty.readonly &&
-      addPropertySignatureDeclarations(
-        source,
-        semantics,
-        sourceProperty.symbol,
-        result,
-      );
-    if (projectSlot) {
-      continue;
-    }
-    collectWritablePropertySignatures(
-      source,
-      semantics,
-      sourceProperty.type,
-      targetProperty.type,
-      result,
-      seen,
-      expandedTypes,
-    );
-  }
-}
-
-function addPropertySignatureDeclarations(
-  source: TargetSourceProgram,
-  semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
-  symbol: Symbol,
-  result: Set<Node>,
-): boolean {
-  let added = false;
-  for (const declaration of semantics.declarations.symbolDeclarations(symbol)) {
-    if (
-      declaration !== undefined &&
-      source.navigation.isProjectDeclaration(declaration) &&
-      source.ast.is.IsPropertySignatureDeclaration(declaration)
-    ) {
-      result.add(declaration);
-      added = true;
-    }
-  }
-  return added;
-}
-
-function collectPropertySignatures(
-  source: TargetSourceProgram,
-  semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
-  type: Type,
-  result: Set<Node>,
-  expanded: Set<Type>,
-): void {
-  if (expanded.has(type)) {
-    return;
-  }
-  expanded.add(type);
-  for (const property of semantics.types.propertyInfos(type)) {
-    let projectSlot = false;
-    for (const declaration of semantics.declarations.symbolDeclarations(
-      property.symbol,
-    )) {
-      if (
-        declaration !== undefined &&
-        source.navigation.isProjectDeclaration(declaration) &&
-        source.ast.is.IsPropertySignatureDeclaration(declaration)
-      ) {
-        result.add(declaration);
-        projectSlot = true;
-      }
-    }
-    if (!projectSlot) {
-      collectPropertySignatures(source, semantics, property.type, result, expanded);
-    }
-  }
-  for (const member of [
-    ...(semantics.types.isUnion(type) || semantics.types.isIntersection(type)
-      ? semantics.types.unionOrIntersectionTypes(type)
-      : []),
-    ...(semantics.types.isTypeReference(type)
-      ? semantics.types.typeArguments(type)
-      : []),
-    ...semantics.types.indexInfos(type).map((index) => index.valueType),
-  ]) {
-    if (member !== undefined) {
-      collectPropertySignatures(source, semantics, member, result, expanded);
-    }
-  }
 }

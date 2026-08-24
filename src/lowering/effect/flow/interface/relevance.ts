@@ -7,8 +7,9 @@ import type {
 import type { InterfaceContractIndex } from "./graph.js";
 import {
   interfaceContractTypeDeclaration,
-  isExactInterfaceProjectDeclaration,
+  isExactInterfaceSourceDeclaration,
 } from "./declarations.js";
+import type { ExactSourceBodyInspection } from "../../model/source-membership.js";
 import {
   createTransitivePredicateIndex,
   type TransitivePredicateExpansion,
@@ -19,6 +20,10 @@ export interface InterfaceContractRelevance {
   contains(semantics: SourceFileSemantics, type: Type): boolean;
   contracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
   valueContracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
+  valueImplementationContracts(
+    semantics: SourceFileSemantics,
+    type: Type,
+  ): readonly Node[];
   directContracts(semantics: SourceFileSemantics, type: Type): readonly Node[];
   measurements(): InterfaceContractRelevanceMeasurements;
 }
@@ -36,12 +41,14 @@ interface InterfaceContractRelevanceCache {
   readonly contains: TransitivePredicateIndex<Type>;
   readonly contracts: WeakMap<Type, readonly Node[]>;
   readonly directContracts: WeakMap<Type, readonly Node[]>;
+  readonly implementationContracts: WeakMap<Type, readonly Node[]>;
   readonly valueContracts: WeakMap<Type, readonly Node[]>;
 }
 
 export function createInterfaceContractRelevance(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): InterfaceContractRelevance {
   let containsQueries = 0;
   let containsExpansions = 0;
@@ -65,10 +72,12 @@ export function createInterfaceContractRelevance(
             source,
             contracts,
             directContracts,
+            bodyInspectionIsCertified,
           );
         }),
         contracts: new WeakMap<Type, readonly Node[]>(),
         directContracts,
+        implementationContracts: new WeakMap<Type, readonly Node[]>(),
         valueContracts: new WeakMap<Type, readonly Node[]>(),
       };
       caches.set(semantics.sourceFile, selected);
@@ -92,6 +101,7 @@ export function createInterfaceContractRelevance(
       source,
       contracts,
       cache.directContracts,
+      bodyInspectionIsCertified,
     );
     cache.contracts.set(type, result);
     return result;
@@ -114,6 +124,7 @@ export function createInterfaceContractRelevance(
       contracts,
       selectedContracts(semantics, type),
       cacheFor(semantics).directContracts,
+      bodyInspectionIsCertified,
     );
     selected.set(type, result);
     return result;
@@ -130,6 +141,26 @@ export function createInterfaceContractRelevance(
     ): readonly Node[] {
       return selectedValueContracts(semantics, type);
     },
+    valueImplementationContracts(
+      semantics: SourceFileSemantics,
+      type: Type,
+    ): readonly Node[] {
+      const cache = cacheFor(semantics);
+      const existing = cache.implementationContracts.get(type);
+      if (existing !== undefined) {
+        return existing;
+      }
+      const result = collectValueImplementationContracts(
+        semantics,
+        type,
+        source,
+        contracts,
+        cache.directContracts,
+        bodyInspectionIsCertified,
+      );
+      cache.implementationContracts.set(type, result);
+      return result;
+    },
     directContracts(semantics: SourceFileSemantics, type: Type): readonly Node[] {
       return cachedDirectTypeContracts(
         semantics,
@@ -137,6 +168,7 @@ export function createInterfaceContractRelevance(
         source,
         contracts,
         cacheFor(semantics).directContracts,
+        bodyInspectionIsCertified,
       );
     },
     measurements(): InterfaceContractRelevanceMeasurements {
@@ -162,6 +194,7 @@ function contractPredicateExpansion(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
   directContracts: WeakMap<Type, readonly Node[]>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): TransitivePredicateExpansion<Type> {
   const selected = semantics.types.withoutMissingOrUndefined(type);
   if (selected === undefined || isPrimitiveType(semantics, selected)) {
@@ -174,6 +207,7 @@ function contractPredicateExpansion(
       source,
       contracts,
       directContracts,
+      bodyInspectionIsCertified,
     ).length !== 0
   ) {
     return { matches: true, dependencies: noTypes };
@@ -183,7 +217,11 @@ function contractPredicateExpansion(
     const declaration = semantics.declarations.signatureDeclaration(signature);
     if (
       declaration === undefined ||
-      !isExactInterfaceProjectDeclaration(source, declaration)
+      !isExactInterfaceSourceDeclaration(
+        source,
+        declaration,
+        bodyInspectionIsCertified,
+      )
     ) {
       continue;
     }
@@ -198,7 +236,9 @@ function contractPredicateExpansion(
       dependencies.push(returnType);
     }
   }
-  appendStructuralTypes(semantics, selected, dependencies);
+  if (!appendStructuralTypes(semantics, selected, dependencies)) {
+    return { matches: true, dependencies: noTypes };
+  }
   return {
     matches: false,
     dependencies: dependencies.length === 0
@@ -213,6 +253,7 @@ function collectContracts(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
   directContracts: WeakMap<Type, readonly Node[]>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): readonly Node[] {
   const result = new Set<Node>();
   const pending = [root];
@@ -233,6 +274,7 @@ function collectContracts(
       source,
       contracts,
       directContracts,
+      bodyInspectionIsCertified,
     )) {
       result.add(contract);
     }
@@ -240,7 +282,11 @@ function collectContracts(
       const declaration = semantics.declarations.signatureDeclaration(signature);
       if (
         declaration === undefined ||
-        !isExactInterfaceProjectDeclaration(source, declaration)
+        !isExactInterfaceSourceDeclaration(
+          source,
+          declaration,
+          bodyInspectionIsCertified,
+        )
       ) {
         continue;
       }
@@ -255,7 +301,11 @@ function collectContracts(
         pending.push(returnType);
       }
     }
-    appendStructuralTypes(semantics, selected, pending);
+    if (!appendStructuralTypes(semantics, selected, pending)) {
+      for (const contract of contracts.entries.keys()) {
+        result.add(contract);
+      }
+    }
   }
   return result.size === 0
     ? noContracts
@@ -268,6 +318,7 @@ function cachedDirectTypeContracts(
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
   cache: WeakMap<Type, readonly Node[]>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): readonly Node[] {
   const selected = semantics.types.withoutMissingOrUndefined(type);
   if (selected === undefined) {
@@ -277,7 +328,13 @@ function cachedDirectTypeContracts(
   if (existing !== undefined) {
     return existing;
   }
-  const result = directTypeContracts(semantics, selected, source, contracts);
+  const result = directTypeContracts(
+    semantics,
+    selected,
+    source,
+    contracts,
+    bodyInspectionIsCertified,
+  );
   cache.set(selected, result);
   return result;
 }
@@ -287,11 +344,16 @@ function directTypeContracts(
   type: Type,
   source: TargetSourceProgram,
   contracts: InterfaceContractIndex,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): readonly Node[] {
   const declaration = interfaceContractTypeDeclaration(semantics, type);
   if (
     declaration !== undefined &&
-    isExactInterfaceProjectDeclaration(source, declaration) &&
+    isExactInterfaceSourceDeclaration(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    ) &&
     (
       source.ast.is.IsClassDeclaration(declaration) ||
       source.ast.is.IsClassExpression(declaration)
@@ -302,7 +364,11 @@ function directTypeContracts(
   if (
     declaration === undefined ||
     !source.ast.is.IsInterfaceDeclaration(declaration) ||
-    !isExactInterfaceProjectDeclaration(source, declaration)
+    !isExactInterfaceSourceDeclaration(
+      source,
+      declaration,
+      bodyInspectionIsCertified,
+    )
   ) {
     return noContracts;
   }
@@ -326,6 +392,7 @@ function collectValueContracts(
   contracts: InterfaceContractIndex,
   fallback: readonly Node[],
   directContracts: WeakMap<Type, readonly Node[]>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): readonly Node[] {
   const result = new Set<Node>();
   const pending = [root];
@@ -349,6 +416,7 @@ function collectValueContracts(
       source,
       contracts,
       directContracts,
+      bodyInspectionIsCertified,
     )) {
       result.add(contract);
     }
@@ -367,7 +435,11 @@ function collectValueContracts(
       continue;
     }
     if (semantics.types.isArrayLike(selected)) {
-      appendTypes(pending, semantics.types.typeArguments(selected));
+      const arguments_ = semantics.types.effectiveTypeArguments(selected);
+      if (arguments_ === undefined) {
+        return fallback;
+      }
+      appendTypes(pending, arguments_);
       appendTypes(
         pending,
         semantics.types.indexInfos(selected).map((index) => index.valueType),
@@ -388,11 +460,50 @@ function collectValueContracts(
     : Object.freeze([...result]);
 }
 
+function collectValueImplementationContracts(
+  semantics: SourceFileSemantics,
+  root: Type,
+  source: TargetSourceProgram,
+  contracts: InterfaceContractIndex,
+  directContracts: WeakMap<Type, readonly Node[]>,
+  bodyInspectionIsCertified?: ExactSourceBodyInspection,
+): readonly Node[] {
+  const result = new Set<Node>();
+  const pending = [root];
+  const seen = new Set<Type>();
+  while (pending.length !== 0) {
+    const type = pending.pop();
+    if (type === undefined || seen.has(type)) {
+      continue;
+    }
+    seen.add(type);
+    const selected = semantics.types.withoutMissingOrUndefined(type);
+    if (selected === undefined || isPrimitiveType(semantics, selected)) {
+      continue;
+    }
+    if (semantics.types.isUnion(selected) || semantics.types.isIntersection(selected)) {
+      appendTypes(pending, semantics.types.unionOrIntersectionTypes(selected));
+      continue;
+    }
+    for (const contract of cachedDirectTypeContracts(
+      semantics,
+      selected,
+      source,
+      contracts,
+      directContracts,
+      bodyInspectionIsCertified,
+    )) {
+      result.add(contract);
+    }
+  }
+  return result.size === 0 ? noContracts : Object.freeze([...result]);
+}
+
 function appendStructuralTypes(
   semantics: SourceFileSemantics,
   type: Type,
   pending: Type[],
-): void {
+): boolean {
   if (semantics.types.isUnion(type) || semantics.types.isIntersection(type)) {
     appendTypes(pending, semantics.types.unionOrIntersectionTypes(type));
   }
@@ -400,11 +511,24 @@ function appendStructuralTypes(
     semantics.types.isTypeReference(type) &&
     semantics.types.typeReferenceTarget(type) !== undefined
   ) {
-    appendTypes(pending, semantics.types.typeArguments(type));
+    const arguments_ = semantics.types.effectiveTypeArguments(type);
+    if (arguments_ === undefined) {
+      return false;
+    }
+    appendTypes(pending, arguments_);
   }
   if (semantics.types.isTuple(type)) {
     appendTypes(pending, semantics.types.tupleElementTypes(type));
   }
+  appendTypes(
+    pending,
+    semantics.types.propertyInfos(type).map((property) => property.type),
+  );
+  appendTypes(
+    pending,
+    semantics.types.indexInfos(type).map((index) => index.valueType),
+  );
+  return true;
 }
 
 function appendTypes(

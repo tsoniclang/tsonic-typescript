@@ -45,7 +45,9 @@ export const result = [possiblyThenable, scalar];
       readsForInitializer: () => undefined,
     }),
     invocationInputs: Object.freeze({
+      parameters: () => [],
       inputsFor: () => undefined,
+      inputGroupsFor: () => undefined,
       restElementInputsFor: () => undefined,
       parametersFor: () => undefined,
       isInvalid: () => false,
@@ -124,7 +126,7 @@ test("settles separate polymorphic result owners through their exact shared cont
   const fixture = checkedEffectFixture(`
 class Failure { constructor(readonly message: string) {} }
 interface Producer {
-  (): Promise<[number, Failure | undefined]>;
+  (): [number, Failure | undefined] | PromiseLike<[number, Failure | undefined]>;
 }
 async function left(): Promise<[number, Failure | undefined]> {
   return [1, new Failure("left")];
