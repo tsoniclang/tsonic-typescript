@@ -13,6 +13,7 @@ import type { ExactStorageSlotInputIndex } from "./storage.js";
 import type { ExactStructuralSlotWriteIndex } from "./structural-writes.js";
 import type {
   ExactValueSlotCallSource,
+  ExactValueSlotPath,
   ExactValueSlotResolution,
 } from "./model.js";
 import {
@@ -61,9 +62,43 @@ export interface ExactValueSlotBatchResult {
   readonly resolutions: ReadonlyMap<Node, ExactValueSlotResolution>;
 }
 
+export type ExactValueSlotRoot =
+  | {
+      readonly kind: "expression";
+      readonly expressions: readonly Node[];
+      readonly source: Node;
+      readonly path: ExactValueSlotPath;
+    }
+  | {
+      readonly kind: "binding";
+      readonly expressions: readonly Node[];
+      readonly sources: readonly Node[];
+      readonly path: ExactValueSlotPath;
+    };
+
+export function selectExactValueSlotRoots(
+  domain: ExactValueSlotBatchDomain,
+  expressions: readonly Node[],
+): readonly ExactValueSlotRoot[] {
+  const roots: ExactValueSlotRoot[] = [];
+  const seen = new Set<Node>();
+  for (const expression of expressions) {
+    const root = transparentExpression(domain.source, expression) ?? expression;
+    if (seen.has(root)) {
+      continue;
+    }
+    seen.add(root);
+    const selected = selectRoot(domain, root);
+    if (selected !== undefined) {
+      roots.push(selected);
+    }
+  }
+  return Object.freeze(roots);
+}
+
 export function resolveExactValueSlotBatch(
   domain: ExactValueSlotBatchDomain,
-  rootExpressions: readonly Node[],
+  selectedRoots: readonly ExactValueSlotRoot[],
 ): ExactValueSlotBatchResult {
   const builder = createEffectProvenanceGraphBuilder<ValueSlotBoundaryReason>();
   const active = createValueSlotActiveStates();
@@ -84,8 +119,8 @@ export function resolveExactValueSlotBatch(
     structuralWrites: domain.structuralWrites,
   };
   const roots = new Map<Node, EffectProvenanceVertex>();
-  for (const expression of rootExpressions) {
-    addRoot(expression, roots, context, domain);
+  for (const selected of selectedRoots) {
+    addRoot(selected, roots, context);
   }
   const graph = context.builder.seal();
   const componentResolutions = resolveEffectProvenance(graph);
@@ -110,66 +145,78 @@ export function resolveExactValueSlotBatch(
 }
 
 function addRoot(
-  expression: Node,
+  selected: ExactValueSlotRoot,
   roots: Map<Node, EffectProvenanceVertex>,
   context: ValueSlotContext,
-  domain: ExactValueSlotBatchDomain,
 ): void {
-  const root = transparentExpression(domain.source, expression) ?? expression;
+  const state = selected.kind === "expression"
+    ? stateForExpression(selected.source, selected.path, context)
+    : stateForBindingProjection(
+        selected.expressions[0]!,
+        selected.sources,
+        selected.path,
+        context,
+      );
+  for (const expression of selected.expressions) {
+    roots.set(expression, state.vertex);
+  }
+  drainValueSlotWorklist(context);
+}
+
+function selectRoot(
+  domain: ExactValueSlotBatchDomain,
+  root: Node,
+): ExactValueSlotRoot | undefined {
   const projection = domain.projections.projectionFor(root);
   if (projection !== undefined) {
-    roots.set(
+    return expressionRoot(
       root,
-      stateForExpression(
-        projection.source.initializer,
-        Object.freeze([{ kind: "element", index: projection.index }]),
-        context,
-      ).vertex,
+      projection.source.initializer,
+      Object.freeze([{ kind: "element", index: projection.index }]),
     );
-    drainValueSlotWorklist(context);
-    return;
   }
   const read = exactValueSlotRead(domain.source, root);
   if (read !== undefined) {
-    roots.set(
+    return expressionRoot(
       root,
-      stateForExpression(
-        read.receiver,
-        Object.freeze([read.selector]),
-        context,
-      ).vertex,
+      read.receiver,
+      Object.freeze([read.selector]),
     );
-    drainValueSlotWorklist(context);
-    return;
   }
   const binding = domain.bindingProjections.projectionForReference(root);
   const path = binding === undefined
     ? undefined
     : exactBindingSlotPath(domain.source, binding.steps);
   if (binding !== undefined && path !== undefined) {
-    roots.set(
-      root,
-      stateForBindingProjection(
-        root,
-        binding.sources,
-        path,
-        context,
-      ).vertex,
-    );
-    drainValueSlotWorklist(context);
-    return;
+    return Object.freeze({
+      kind: "binding",
+      expressions: Object.freeze([root]),
+      sources: binding.sources,
+      path,
+    });
   }
   const alias = exactRootSlotAlias(domain.source, domain.program, root);
-  if (alias !== undefined) {
-    const state = stateForExpression(
-      alias.read.receiver,
-      Object.freeze([alias.read.selector]),
-      context,
-    );
-    roots.set(root, state.vertex);
-    roots.set(alias.expression, state.vertex);
-    drainValueSlotWorklist(context);
-  }
+  return alias === undefined
+    ? undefined
+    : Object.freeze({
+        kind: "expression",
+        expressions: Object.freeze([root, alias.expression]),
+        source: alias.read.receiver,
+        path: Object.freeze([alias.read.selector]),
+      });
+}
+
+function expressionRoot(
+  expression: Node,
+  source: Node,
+  path: ExactValueSlotPath,
+): ExactValueSlotRoot {
+  return Object.freeze({
+    kind: "expression",
+    expressions: Object.freeze([expression]),
+    source,
+    path,
+  });
 }
 
 function exactRootSlotAlias(

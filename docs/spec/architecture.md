@@ -668,8 +668,9 @@ this algebra but remain separate semantic graphs with separate owners and
 reason catalogs; there is no universal effect IR and no flow may read another
 flow's mutable construction state.
 
-Selected-value-slot analysis canonicalizes its exact requested roots and
-partitions them into deterministic transactions of at most 256 roots. Binding,
+Selected-value-slot analysis canonicalizes and selects its exact requested
+roots before graph construction, then partitions only selected roots into
+deterministic transactions of at most 16 roots. Binding,
 storage, projection, and structural-write indexes are immutable domain facts
 built once; each root transaction owns a fresh graph, worklist, SCC resolution,
 and origin materialization, then releases all graph state before the next

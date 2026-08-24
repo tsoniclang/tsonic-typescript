@@ -20,7 +20,8 @@ test("value-slot provenance graphs have a bounded transaction owner", () => {
     "utf8",
   );
 
-  assert.match(flow, /maximumExactValueSlotRootsPerBatch = 256/u);
+  assert.match(flow, /maximumExactValueSlotRootsPerBatch = 16/u);
+  assert.match(flow, /selectExactValueSlotRoots/u);
   assert.match(flow, /resolveExactValueSlotBatch/u);
   assert.doesNotMatch(flow, /createEffectProvenanceGraphBuilder/u);
   assert.match(batch, /createEffectProvenanceGraphBuilder/u);

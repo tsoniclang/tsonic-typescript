@@ -31,13 +31,14 @@ import {
 } from "./structural-writes.js";
 import {
   resolveExactValueSlotBatch,
+  selectExactValueSlotRoots,
   type ExactValueSlotBatchMeasurements,
 } from "./batch.js";
 import { mergeExactValueSlotResolutions } from "./resolution.js";
 import type { ExactCallImplementations } from "../../callable/result-inputs.js";
 import type { StorageOwnerBoundaryDependencies } from "../../storage/owner-boundaries.js";
 
-export const maximumExactValueSlotRootsPerBatch = 256;
+export const maximumExactValueSlotRootsPerBatch = 16;
 
 export function createExactValueSlotFlow(
   source: TargetSourceProgram,
@@ -101,30 +102,33 @@ export function createExactValueSlotFlow(
       planningObserver,
     ),
   });
-  const uniqueRoots: Node[] = [];
-  const seenRoots = new Set<Node>();
-  for (const expression of rootExpressions) {
-    const root = transparentExpression(source, expression) ?? expression;
-    if (!seenRoots.has(root)) {
-      seenRoots.add(root);
-      uniqueRoots.push(root);
-    }
-  }
+  const selectedRoots = selectExactValueSlotRoots(domain, rootExpressions);
   const resolved = new Map<Node, ExactValueSlotResolution>();
   const measurements = emptyBatchMeasurements();
   let batches = 0;
   for (
     let offset = 0;
-    offset < uniqueRoots.length;
+    offset < selectedRoots.length;
     offset += maximumExactValueSlotRootsPerBatch
   ) {
     const batch = resolveExactValueSlotBatch(
       domain,
-      uniqueRoots.slice(offset, offset + maximumExactValueSlotRootsPerBatch),
+      selectedRoots.slice(offset, offset + maximumExactValueSlotRootsPerBatch),
     );
     batches += 1;
     addBatchMeasurements(measurements, batch.measurements);
     mergeExactValueSlotResolutions(resolved, batch.resolutions);
+    if (
+      batches === 1 ||
+      batches % 64 === 0 ||
+      offset + maximumExactValueSlotRootsPerBatch >= selectedRoots.length
+    ) {
+      planningObserver?.("effect-value-slot-batch", {
+        batches,
+        roots: measurements.roots,
+        vertices: measurements.vertices,
+      });
+    }
   }
   planningObserver?.("effect-value-slot-roots", {
     batches,
