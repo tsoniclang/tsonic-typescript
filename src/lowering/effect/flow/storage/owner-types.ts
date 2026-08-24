@@ -9,12 +9,48 @@ import {
 } from "../../model/source-membership.js";
 
 type SourceSemantics = ReturnType<TargetSourceProgram["semantics"]["forNode"]>;
-export type StorageOwnerMembership = readonly Node[];
+export type StorageOwnerMembership =
+  | { readonly kind: "empty" }
+  | { readonly kind: "sparse"; readonly owners: readonly Node[] }
+  | { readonly kind: "universal" };
 
-export const emptyStorageOwnerMembership: StorageOwnerMembership = Object.freeze([]);
+export const emptyStorageOwnerMembership: StorageOwnerMembership = Object.freeze({
+  kind: "empty",
+});
+
+export const universalStorageOwnerMembership: StorageOwnerMembership = Object.freeze({
+  kind: "universal",
+});
+
+export function storageOwnerMembershipIsEmpty(
+  membership: StorageOwnerMembership,
+): boolean {
+  return membership.kind === "empty";
+}
+
+export function storageOwnerMembershipContains(
+  membership: StorageOwnerMembership,
+  owner: Node,
+): boolean {
+  return membership.kind === "universal" ||
+    (membership.kind === "sparse" && membership.owners.includes(owner));
+}
+
+export function selectedStorageOwners(
+  membership: StorageOwnerMembership,
+  selectedOwners: ReadonlySet<Node>,
+): Iterable<Node> {
+  if (membership.kind === "universal") {
+    return selectedOwners;
+  }
+  return membership.kind === "sparse"
+    ? membership.owners.filter((owner) => selectedOwners.has(owner))
+    : [];
+}
 
 export interface StorageOwnerCarrierIndex {
   readonly carriers: ReadonlyMap<Node, StorageOwnerMembership>;
+  readonly owners: readonly Node[];
   readonly operationCount: number;
 }
 
@@ -66,14 +102,27 @@ export function ownersWithinStorageType(
   type: Type,
   carriers: ReadonlyMap<Node, StorageOwnerMembership>,
   cache: Map<Type, StorageOwnerMembership>,
+  allOwners: readonly Node[],
 ): StorageOwnerMembership {
-  return collectOwnersWithinStorageType(
+  if (allOwners.length === 0) {
+    return emptyStorageOwnerMembership;
+  }
+  const existing = cache.get(type);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const selected = collectOwnersWithinStorageType(
     semantics,
     type,
     carriers,
     cache,
-    undefined,
+    new Set(),
+    allOwners,
   );
+  if (!storageOwnerMembershipIsEmpty(selected)) {
+    cache.set(type, selected);
+  }
+  return selected;
 }
 
 function collectOwnersWithinStorageType(
@@ -81,50 +130,59 @@ function collectOwnersWithinStorageType(
   type: Type,
   carriers: ReadonlyMap<Node, StorageOwnerMembership>,
   cache: Map<Type, StorageOwnerMembership>,
-  pending: Set<Type> | undefined,
+  pending: Set<Type>,
+  allOwners: readonly Node[],
 ): StorageOwnerMembership {
   const existing = cache.get(type);
   if (existing !== undefined) {
     return existing;
   }
-  if (pending?.has(type) === true) {
+  if (pending.has(type)) {
     return emptyStorageOwnerMembership;
   }
   if (storageTypeCannotCarryOwner(semantics, type)) {
     return emptyStorageOwnerMembership;
   }
   if (semantics.types.isAny(type) || semantics.types.isUnknown(type)) {
-    return allStorageOwners(carriers);
+    return universalStorageOwnerMembership;
   }
-  const result = [...ownersForDirectType(semantics, type, carriers)];
+  const result = ownersForDirectType(semantics, type, carriers);
+  if (result.kind === "universal") {
+    return result;
+  }
+  const selected = new Set(result.kind === "sparse" ? result.owners : []);
   const nested = nestedStorageTypes(semantics, type);
   if (nested === undefined) {
-    for (const owner of allStorageOwners(carriers)) {
-      appendUnique(result, owner);
-    }
+    pending.delete(type);
+    return universalStorageOwnerMembership;
   } else if (nested.length !== 0) {
-    const active = pending ?? new Set<Type>();
-    active.add(type);
+    pending.add(type);
     for (const member of nested) {
-      for (const owner of collectOwnersWithinStorageType(
+      const carried = collectOwnersWithinStorageType(
         semantics,
         member,
         carriers,
         cache,
-        active,
-      )) {
-        appendUnique(result, owner);
+        pending,
+        allOwners,
+      );
+      if (carried.kind === "universal") {
+        pending.delete(type);
+        return universalStorageOwnerMembership;
+      }
+      if (carried.kind === "sparse") {
+        for (const owner of carried.owners) {
+          selected.add(owner);
+        }
+      }
+      if (selected.size === allOwners.length) {
+        pending.delete(type);
+        return universalStorageOwnerMembership;
       }
     }
-    active.delete(type);
+    pending.delete(type);
   }
-  const sealed = result.length === 0
-    ? emptyStorageOwnerMembership
-    : Object.freeze(result);
-  if (sealed.length !== 0) {
-    cache.set(type, sealed);
-  }
-  return sealed;
+  return storageOwnerMembershipFrom(selected);
 }
 
 export function collectStorageOwnerCarriers(
@@ -135,6 +193,7 @@ export function collectStorageOwnerCarriers(
 ): StorageOwnerCarrierIndex {
   let operationCount = 0;
   const reverse = new Map<Node, Set<Node>>();
+  const universalCarriers = new Set<Node>();
   for (const declaration of program.nodesOfKind(KindClassDeclaration)) {
     operationCount += 1;
     if (!sourceBodyInspectionIsExact(
@@ -163,8 +222,9 @@ export function collectStorageOwnerCarriers(
         },
       );
       if (referenced === undefined) {
-        for (const owner of owners) {
-          appendReverseCarrier(reverse, owner, declaration);
+        if (owners.size !== 0) {
+          universalCarriers.add(declaration);
+          operationCount += 1;
         }
         continue;
       }
@@ -174,11 +234,16 @@ export function collectStorageOwnerCarriers(
       }
     }
   }
-  const mutable = new Map<Node, Set<Node>>();
+  const allOwners = Object.freeze([...owners]);
+  const mutable = new Map<Node, MutableStorageOwnerMembership>();
   const pending: Node[] = [];
   for (const owner of owners) {
-    mutable.set(owner, new Set([owner]));
+    mutable.set(owner, { universal: false, owners: new Set([owner]) });
     pending.push(owner);
+  }
+  for (const carrier of universalCarriers) {
+    mutable.set(carrier, { universal: true, owners: new Set() });
+    pending.push(carrier);
   }
   while (pending.length !== 0) {
     const contained = pending.pop();
@@ -188,24 +253,47 @@ export function collectStorageOwnerCarriers(
     }
     for (const carrier of reverse.get(contained) ?? []) {
       operationCount += 1;
-      const carrierOwners = mutable.get(carrier) ?? new Set<Node>();
-      const size = carrierOwners.size;
-      for (const owner of carried) {
-        carrierOwners.add(owner);
+      const carrierOwners = mutable.get(carrier) ?? {
+        universal: false,
+        owners: new Set<Node>(),
+      };
+      if (carrierOwners.universal) {
+        continue;
       }
-      if (carrierOwners.size !== size) {
+      const size = carrierOwners.owners.size;
+      if (carried.universal) {
+        carrierOwners.universal = true;
+        carrierOwners.owners.clear();
+      } else {
+        for (const owner of carried.owners) {
+          carrierOwners.owners.add(owner);
+        }
+        if (carrierOwners.owners.size === allOwners.length) {
+          carrierOwners.universal = true;
+          carrierOwners.owners.clear();
+        }
+      }
+      if (carrierOwners.universal || carrierOwners.owners.size !== size) {
         mutable.set(carrier, carrierOwners);
         pending.push(carrier);
       }
     }
   }
   return Object.freeze({
-    carriers: new Map([...mutable].map(([declaration, carried]) => [
-      declaration,
-      Object.freeze([...carried]),
-    ])),
+    carriers: new Map([...mutable].map(([declaration, carried]) => {
+      const selected = carried.universal
+        ? universalStorageOwnerMembership
+        : storageOwnerMembershipFrom(carried.owners);
+      return [declaration, selected] as const;
+    })),
+    owners: allOwners,
     operationCount,
   });
+}
+
+interface MutableStorageOwnerMembership {
+  universal: boolean;
+  readonly owners: Set<Node>;
 }
 
 function directCandidateOwners(
@@ -223,19 +311,30 @@ function ownersForDirectType(
   type: Type,
   carriers: ReadonlyMap<Node, StorageOwnerMembership>,
 ): StorageOwnerMembership {
-  const result: Node[] = [];
+  const result = new Set<Node>();
   for (const declaration of directTypeDeclarations(semantics, type)) {
-    for (const owner of carriers.get(declaration) ?? []) {
-      appendUnique(result, owner);
+    const carried = carriers.get(declaration);
+    if (carried?.kind === "universal") {
+      return universalStorageOwnerMembership;
+    }
+    if (carried?.kind === "sparse") {
+      for (const owner of carried.owners) {
+        result.add(owner);
+      }
     }
   }
-  return result;
+  return storageOwnerMembershipFrom(result);
 }
 
-function appendUnique(target: Node[], owner: Node): void {
-  if (!target.includes(owner)) {
-    target.push(owner);
-  }
+function storageOwnerMembershipFrom(
+  owners: ReadonlySet<Node>,
+): StorageOwnerMembership {
+  return owners.size === 0
+    ? emptyStorageOwnerMembership
+    : Object.freeze({
+        kind: "sparse",
+        owners: Object.freeze([...owners]),
+      });
 }
 
 function exactClassesWithinType(
@@ -380,20 +479,6 @@ function nestedStorageTypes(
     ...properties,
     ...(indexes as readonly Type[]),
   ])]);
-}
-
-function allStorageOwners(
-  carriers: ReadonlyMap<Node, StorageOwnerMembership>,
-): StorageOwnerMembership {
-  const owners: Node[] = [];
-  for (const carried of carriers.values()) {
-    for (const owner of carried) {
-      appendUnique(owners, owner);
-    }
-  }
-  return owners.length === 0
-    ? emptyStorageOwnerMembership
-    : Object.freeze(owners);
 }
 
 function storageMembers(

@@ -27,7 +27,10 @@ import {
   directContainingCall,
   isModuleForwardingReference,
 } from "../../model/syntax.js";
-import type { StorageOwnerMembership } from "./owner-types.js";
+import {
+  selectedStorageOwners,
+  type StorageOwnerMembership,
+} from "./owner-types.js";
 import {
   exactSourceCallableImplementation,
   resolveExactSourceInvocation,
@@ -98,9 +101,10 @@ function collectOwnerIngress(
 ): Map<Node, OwnerIngress> {
   const result = new Map<Node, OwnerIngress>();
   for (const parameter of program.nodesOfKind(KindParameter)) {
-    const owners = new Set(
-      ownersFor(parameter).filter((owner) => selectedOwners.has(owner)),
-    );
+    const owners = new Set(selectedStorageOwners(
+      ownersFor(parameter),
+      selectedOwners,
+    ));
     const declaration = source.ast.parent(parameter);
     if (
       owners.size === 0 ||

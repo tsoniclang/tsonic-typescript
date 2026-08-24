@@ -8,6 +8,8 @@ import { checkedEffectFixture, visit } from "../../test-support/fixture.test-sup
 import {
   collectStorageOwnerCarriers,
   ownersWithinStorageType,
+  storageOwnerMembershipContains,
+  universalStorageOwnerMembership,
 } from "./owner-types.js";
 import { createStorageOwnerTopology } from "./owner-topology.js";
 
@@ -24,7 +26,7 @@ test("indexes nominal owner carriers with bounded graph work", () => {
   }
 });
 
-test("retains only positive immutable owner memberships", () => {
+test("retains positive memberships without a negative-result ledger", () => {
   const fixture = checkedEffectFixture(`
 class Owner {
   constructor(public callback: (() => number) | undefined) {}
@@ -48,14 +50,15 @@ let unrelatedValue!: Unrelated;
     ownerValue !== undefined &&
     unrelatedValue !== undefined,
   );
-  const carriers = collectStorageOwnerCarriers(
+  const carrierIndex = collectStorageOwnerCarriers(
     fixture.source,
     createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
       memberDispatch: false,
     }),
     new Set([owner]),
-  ).carriers;
+  );
+  const { carriers } = carrierIndex;
   const cache = new Map();
   const ownerSemantics = fixture.source.semantics.forNode(ownerValue);
   const ownerType = ownerSemantics.types.expressionType(ownerValue);
@@ -68,12 +71,14 @@ let unrelatedValue!: Unrelated;
     unrelatedType,
     carriers,
     cache,
+    carrierIndex.owners,
   );
   const secondEmpty = ownersWithinStorageType(
     unrelatedSemantics,
     unrelatedType,
     carriers,
     cache,
+    carrierIndex.owners,
   );
   assert.equal(firstEmpty, secondEmpty);
   assert.equal(cache.size, 0);
@@ -83,11 +88,41 @@ let unrelatedValue!: Unrelated;
     ownerType,
     carriers,
     cache,
+    carrierIndex.owners,
   );
-  assert.equal(carried.length, 1);
-  assert.equal(carried[0], owner);
+  assert.equal(carried.kind, "sparse");
+  assert.equal(carried.kind === "sparse" ? carried.owners.length : 0, 1);
+  assert.equal(carried.kind === "sparse" ? carried.owners[0] : undefined, owner);
   assert.equal(Object.isFrozen(carried), true);
+  assert.equal(
+    carried.kind === "sparse" && Object.isFrozen(carried.owners),
+    true,
+  );
   assert.equal(cache.size, 1);
+
+  const emptyDomainCache = new Map();
+  const emptyDomain = ownersWithinStorageType(
+    ownerSemantics,
+    ownerType,
+    new Map(),
+    emptyDomainCache,
+    [],
+  );
+  assert.equal(emptyDomain.kind, "empty");
+  assert.equal(emptyDomainCache.size, 0);
+});
+
+test("compresses opaque carrier closure without a Cartesian owner graph", () => {
+  const measurements = [8, 16, 32].map(measureOpaqueCarrierGraph);
+  for (let index = 1; index < measurements.length; index += 1) {
+    const previous = measurements[index - 1];
+    const current = measurements[index];
+    assert.ok(previous !== undefined && current !== undefined);
+    assert.ok(
+      current.operationCount < previous.operationCount * 2.5,
+      `opaque carrier work grew ${previous.operationCount} -> ${current.operationCount}`,
+    );
+  }
 });
 
 test("retains only positive storage-owner topology rows", () => {
@@ -160,8 +195,37 @@ function measureCarrierGraph(carrierCount: number): {
   );
   const outerCarriers = index.carriers.get(outer);
   assert.ok(outerCarriers !== undefined);
-  assert.equal(outerCarriers.length, 1);
-  assert.equal(outerCarriers[0], owner);
+  assert.equal(storageOwnerMembershipContains(outerCarriers, owner), true);
+  return { operationCount: index.operationCount };
+}
+
+function measureOpaqueCarrierGraph(size: number): {
+  readonly operationCount: number;
+} {
+  const fixture = checkedEffectFixture(opaqueCarrierSourceFor(size));
+  const declarations = classDeclarations(fixture.source, fixture.sourceFile);
+  const owners = new Set<Node>();
+  for (let index = 0; index < size; index += 1) {
+    const owner = declarations.get(`Owner${index}`);
+    assert.ok(owner !== undefined);
+    owners.add(owner);
+  }
+  const index = collectStorageOwnerCarriers(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, {
+      bindingWrites: false,
+      memberDispatch: false,
+    }),
+    owners,
+  );
+  assert.equal(index.owners.length, size);
+  assert.equal(Object.isFrozen(index.owners), true);
+  assert.equal(Object.isFrozen(universalStorageOwnerMembership), true);
+  for (let opaque = 0; opaque < size; opaque += 1) {
+    const declaration = declarations.get(`Opaque${opaque}`);
+    assert.ok(declaration !== undefined);
+    assert.equal(index.carriers.get(declaration), universalStorageOwnerMembership);
+  }
   return { operationCount: index.operationCount };
 }
 
@@ -180,6 +244,19 @@ class Owner {
 }
 ${carriers.join("\n")}
 `;
+}
+
+function opaqueCarrierSourceFor(size: number): string {
+  return [
+    ...Array.from(
+      { length: size },
+      (_, index) => `class Owner${index} {}`,
+    ),
+    ...Array.from(
+      { length: size },
+      (_, index) => `class Opaque${index} { value: any; }`,
+    ),
+  ].join("\n");
 }
 
 function classDeclarations(

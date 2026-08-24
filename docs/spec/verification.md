@@ -561,6 +561,12 @@ implementation or only the calls must fail strict output typechecking.
 The carrier cost fixture doubles a deep nominal chain and requires the recorded
 class/member/type-edge/propagation work to remain linear; arbitrary checker
 property-graph expansion is outside the admitted algorithm.
+An opaque-carrier fixture independently doubles candidate owners and open
+carrier declarations. Every open carrier must reference the same canonical
+symbolic universal membership, construction work must remain linear, and no
+negative checker-type or node result may enter a retained cache. Mutations that
+expand the universal membership into owner-by-carrier edges or retain empty
+query rows must fail the structural and scaling gates.
 An indirect-chain fixture requiring multiple closure rounds, the final
 callable flow, and return flow record exactly one shared storage-owner topology
 construction. Restoring per-round or per-consumer topology construction must

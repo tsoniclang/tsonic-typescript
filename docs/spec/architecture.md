@@ -1193,10 +1193,14 @@ property graphs. This keeps carrier work proportional to declared carrier
 edges rather than the transitive checker graph.
 
 The index retains only positive owner memberships as immutable sparse rows.
-All negative queries share one immutable empty result, and no per-type mutable
-set or negative-result ledger is retained. Recursive type-cycle state is local
-and allocated only while a nested nominal type is being inspected. The target
-must not trade bounded graph traversal for a dense checker-type-by-owner table.
+An open checker type that can carry any selected owner uses one canonical
+symbolic universal row; it is never expanded into owner-by-carrier or
+owner-by-type entries, and consumers intersect it lazily with their selected
+owner subset. All negative queries share one immutable empty result, and no
+per-type or per-node negative-result ledger is retained. Recursive type-cycle
+state is local and allocated only while a nested nominal type is being
+inspected. The target must not trade bounded graph traversal for a dense
+checker-type-by-owner table.
 
 The complete closed-owner set and its positive topology are one plan-owned
 analysis. Callable storage consumes an exact owner subset view of that same

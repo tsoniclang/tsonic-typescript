@@ -24,6 +24,8 @@ import { storageDeclarationCanBeTracked } from "./owners.js";
 import {
   collectStorageOwnerCarriers,
   emptyStorageOwnerMembership,
+  storageOwnerMembershipIsEmpty,
+  universalStorageOwnerMembership,
   ownersWithinStorageType,
   type StorageOwnerMembership,
 } from "./owner-types.js";
@@ -68,13 +70,18 @@ export function createStorageOwnerTopology(
   planningObserver?: TypeScriptPlanningObserver,
   bodyInspectionIsCertified?: ExactSourceBodyInspection,
 ): StorageOwnerTopology {
-  const carriers = collectStorageOwnerCarriers(
+  const carrierIndex = collectStorageOwnerCarriers(
     source,
     program,
     owners,
     bodyInspectionIsCertified,
-  ).carriers;
-  planningObserver?.("effect-indirect-storage-carriers");
+  );
+  const { carriers } = carrierIndex;
+  planningObserver?.("effect-indirect-storage-carriers", {
+    declarations: carriers.size,
+    roots: carrierIndex.owners.length,
+    steps: carrierIndex.operationCount,
+  });
   const typeOwners = new Map<Type, StorageOwnerMembership>();
   const positiveOwners = new Map<Node, StorageOwnerMembership>();
   const ownersFor = (node: Node): StorageOwnerMembership => {
@@ -82,8 +89,14 @@ export function createStorageOwnerTopology(
     if (existing !== undefined) {
       return existing;
     }
-    const selected = ownersForNode(source, node, carriers, typeOwners);
-    if (selected.length !== 0) {
+    const selected = ownersForNode(
+      source,
+      node,
+      carriers,
+      typeOwners,
+      carrierIndex.owners,
+    );
+    if (!storageOwnerMembershipIsEmpty(selected)) {
       positiveOwners.set(node, selected);
     }
     return selected;
@@ -91,11 +104,19 @@ export function createStorageOwnerTopology(
   const valueFlows: StorageOwnerValueFlow[] = [];
   const valueFlowNodes = new Set<Node>();
   const addValueFlow = (node: Node, carried: StorageOwnerMembership): void => {
-    if (carried.length === 0 || valueFlowNodes.has(node)) {
+    if (storageOwnerMembershipIsEmpty(carried) || valueFlowNodes.has(node)) {
       return;
     }
     valueFlowNodes.add(node);
-    valueFlows.push(createValueFlow(source, node, carried, ownersFor, carriers, typeOwners));
+    valueFlows.push(createValueFlow(
+      source,
+      node,
+      carried,
+      ownersFor,
+      carriers,
+      typeOwners,
+      carrierIndex.owners,
+    ));
   };
   const invocations: StorageOwnerInvocation[] = [];
   for (const node of program.nodesOfKinds([
@@ -108,7 +129,7 @@ export function createStorageOwnerTopology(
         return [];
       }
       const carried = ownersFor(argument);
-      return carried.length === 0
+      return storageOwnerMembershipIsEmpty(carried)
         ? []
         : [Object.freeze({
           expression: argument,
@@ -119,6 +140,7 @@ export function createStorageOwnerTopology(
             argument,
             carriers,
             typeOwners,
+            carrierIndex.owners,
           ),
         })];
     });
@@ -129,9 +151,9 @@ export function createStorageOwnerTopology(
       ? emptyStorageOwnerMembership
       : ownersFor(receiver);
     if (
-      resultOwners.length !== 0 ||
+      !storageOwnerMembershipIsEmpty(resultOwners) ||
       arguments_.length !== 0 ||
-      receiverOwners.length !== 0
+      !storageOwnerMembershipIsEmpty(receiverOwners)
     ) {
       invocations.push(Object.freeze({
         node,
@@ -157,7 +179,11 @@ export function createStorageOwnerTopology(
   ])) {
     addValueFlow(node, ownersFor(node));
   }
-  planningObserver?.("effect-indirect-storage-topology");
+  planningObserver?.("effect-indirect-storage-topology", {
+    calls: invocations.length,
+    declarations: typeOwners.size,
+    values: valueFlows.length,
+  });
   const exactOwners = new Set(owners);
   return Object.freeze({
     invocations: Object.freeze(invocations),
@@ -184,6 +210,7 @@ function createValueFlow(
   ownersFor: (node: Node) => StorageOwnerMembership,
   carriers: ReadonlyMap<Node, StorageOwnerMembership>,
   typeOwners: Map<Type, StorageOwnerMembership>,
+  allOwners: readonly Node[],
 ): StorageOwnerValueFlow {
   const child = transparentChild(source, node);
   const parent = source.ast.parent(node);
@@ -211,6 +238,7 @@ function createValueFlow(
             : contextual.types,
           carriers,
           typeOwners,
+          allOwners,
         ),
       }),
   });
@@ -222,6 +250,7 @@ function contextualOwnersFor(
   argument: Node,
   carriers: ReadonlyMap<Node, StorageOwnerMembership>,
   typeOwners: Map<Type, StorageOwnerMembership>,
+  allOwners: readonly Node[],
 ): StorageOwnerMembership {
   const semantics = source.semantics.forNode(invocation);
   const contextual = semantics.types.contextualValueSelection(argument);
@@ -231,6 +260,7 @@ function contextualOwnersFor(
       contextual.type,
       carriers,
       typeOwners,
+      allOwners,
     )
     : emptyStorageOwnerMembership;
 }
@@ -241,24 +271,36 @@ function ownersForTypes(
   types: readonly Type[],
   carriers: ReadonlyMap<Node, StorageOwnerMembership>,
   typeOwners: Map<Type, StorageOwnerMembership>,
+  allOwners: readonly Node[],
 ): StorageOwnerMembership {
   const semantics = source.semantics.forNode(occurrence);
-  const result: Node[] = [];
+  const result = new Set<Node>();
   for (const type of types) {
-    for (const owner of ownersWithinStorageType(
+    const carried = ownersWithinStorageType(
       semantics,
       type,
       carriers,
       typeOwners,
-    )) {
-      if (!result.includes(owner)) {
-        result.push(owner);
+      allOwners,
+    );
+    if (carried.kind === "universal") {
+      return universalStorageOwnerMembership;
+    }
+    if (carried.kind === "sparse") {
+      for (const owner of carried.owners) {
+        result.add(owner);
+        if (result.size === allOwners.length) {
+          return universalStorageOwnerMembership;
+        }
       }
     }
   }
-  return result.length === 0
+  return result.size === 0
     ? emptyStorageOwnerMembership
-    : Object.freeze(result);
+    : Object.freeze({
+        kind: "sparse",
+        owners: Object.freeze([...result]),
+      });
 }
 
 function ownersForNode(
@@ -266,12 +308,19 @@ function ownersForNode(
   node: Node,
   carriers: ReadonlyMap<Node, StorageOwnerMembership>,
   typeOwners: Map<Type, StorageOwnerMembership>,
+  allOwners: readonly Node[],
 ): StorageOwnerMembership {
   const semantics = source.semantics.forNode(node);
   const type = semantics.types.expressionType(node);
   return type === undefined
     ? emptyStorageOwnerMembership
-    : ownersWithinStorageType(semantics, type, carriers, typeOwners);
+    : ownersWithinStorageType(
+      semantics,
+      type,
+      carriers,
+      typeOwners,
+      allOwners,
+    );
 }
 
 function invocationReceiver(source: TargetSourceProgram, call: Node): Node | undefined {

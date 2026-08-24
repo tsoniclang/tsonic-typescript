@@ -23,6 +23,7 @@ import {
   type StorageOwnerBoundaryDependencies,
   type StorageOwnerBinding,
 } from "../../storage/owner-boundaries.js";
+import { storageOwnerMembershipContains } from "../../storage/owner-types.js";
 import type { TypeScriptPlanningObserver } from "../../../../planning-observer.js";
 import type { ExactCallImplementations } from "../../callable/result-inputs.js";
 
@@ -131,9 +132,16 @@ export function createExactStorageSlotInputIndex(
       return inputs.has(expression);
     },
     isOwnerReference(expression: Node): boolean {
-      return topology?.ownersFor(expression).some((owner) =>
-        closedOwners.has(owner)
-      ) === true;
+      const membership = topology?.ownersFor(expression);
+      if (membership === undefined) {
+        return false;
+      }
+      if (membership.kind === "universal") {
+        return closedOwners.size !== 0;
+      }
+      return [...closedOwners].some((owner) =>
+        storageOwnerMembershipContains(membership, owner)
+      );
     },
   });
 }

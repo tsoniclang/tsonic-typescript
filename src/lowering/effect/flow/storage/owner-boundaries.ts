@@ -17,6 +17,8 @@ import {
   sourceBodyInspectionIsExact,
 } from "../../model/source-membership.js";
 import {
+  selectedStorageOwners,
+  storageOwnerMembershipContains,
   storageValueTypeIsClosed,
 } from "./owner-types.js";
 import { auditStorageOwnerIngress } from "./owner-ingress.js";
@@ -187,21 +189,15 @@ function auditInvocations(
     );
     const transport = transports?.transportFor(node);
     if (!exactInvocation && transport === undefined) {
-      for (const owner of resultOwners) {
-        if (!selectedOwners.has(owner)) {
-          continue;
-        }
+      for (const owner of selectedStorageOwners(resultOwners, selectedOwners)) {
         invalid.add(owner);
       }
     } else if (!exactInvocation && transport !== undefined) {
-      for (const owner of resultOwners) {
-        if (!selectedOwners.has(owner)) {
-          continue;
-        }
+      for (const owner of selectedStorageOwners(resultOwners, selectedOwners)) {
         if (
           transport.resultOriginExpressions === undefined ||
           !transport.resultOriginExpressions.some((input) =>
-            topology.ownersFor(input).includes(owner)
+            storageOwnerMembershipContains(topology.ownersFor(input), owner)
           )
         ) {
           invalid.add(owner);
@@ -209,34 +205,33 @@ function auditInvocations(
       }
     }
     for (const argument of invocation.arguments) {
-      for (const owner of argument.owners) {
-        if (!selectedOwners.has(owner)) {
-          continue;
-        }
+      for (const owner of selectedStorageOwners(argument.owners, selectedOwners)) {
         if (transport?.inputExpressions.includes(argument.expression)) {
           continue;
         }
         if (
           !exactInvocation ||
-          (!argument.contextualOwners.includes(owner) &&
+          (!storageOwnerMembershipContains(argument.contextualOwners, owner) &&
             boundaryDependencies?.allowsContextualValue(argument.expression) !==
               true)
         ) {
           invalid.add(owner);
         } else {
-          for (const resultOwner of resultOwners) {
-            if (selectedOwners.has(resultOwner)) {
-              appendOwnerDependency(dependencies, owner, resultOwner);
-            }
+          for (const resultOwner of selectedStorageOwners(
+            resultOwners,
+            selectedOwners,
+          )) {
+            appendOwnerDependency(dependencies, owner, resultOwner);
           }
         }
       }
     }
     if (!exactInvocation && transport === undefined) {
-      for (const owner of invocation.receiverOwners) {
-        if (selectedOwners.has(owner)) {
-          invalid.add(owner);
-        }
+      for (const owner of selectedStorageOwners(
+        invocation.receiverOwners,
+        selectedOwners,
+      )) {
+        invalid.add(owner);
       }
     }
   }
@@ -255,31 +250,22 @@ function auditValueFlows(
   for (const flow of topology.valueFlows) {
     const { node, owners } = flow;
     if (flow.childOwners !== undefined) {
-      for (const owner of owners) {
-        if (!selectedOwners.has(owner)) {
-          continue;
-        }
-        if (!flow.childOwners.includes(owner)) {
+      for (const owner of selectedStorageOwners(owners, selectedOwners)) {
+        if (!storageOwnerMembershipContains(flow.childOwners, owner)) {
           invalid.add(owner);
         }
       }
     }
     if (flow.transparentParentOwners !== undefined) {
-      for (const owner of owners) {
-        if (!selectedOwners.has(owner)) {
-          continue;
-        }
-        if (!flow.transparentParentOwners.includes(owner)) {
+      for (const owner of selectedStorageOwners(owners, selectedOwners)) {
+        if (!storageOwnerMembershipContains(flow.transparentParentOwners, owner)) {
           invalid.add(owner);
         }
       }
     }
     if (flow.compositeOwners !== undefined) {
-      for (const owner of owners) {
-        if (!selectedOwners.has(owner)) {
-          continue;
-        }
-        if (!flow.compositeOwners.includes(owner)) {
+      for (const owner of selectedStorageOwners(owners, selectedOwners)) {
+        if (!storageOwnerMembershipContains(flow.compositeOwners, owner)) {
           invalid.add(owner);
         }
       }
@@ -291,25 +277,18 @@ function auditValueFlows(
       storageDeclarationFor,
     );
     if (destination?.kind === "open") {
-      for (const owner of owners) {
-        if (selectedOwners.has(owner)) {
-          invalid.add(owner);
-        }
+      for (const owner of selectedStorageOwners(owners, selectedOwners)) {
+        invalid.add(owner);
       }
     } else if (destination?.kind === "closed") {
-      for (const owner of owners) {
-        if (selectedOwners.has(owner)) {
-          appendOwnerDependency(dependencies, owner, destination.owner);
-        }
+      for (const owner of selectedStorageOwners(owners, selectedOwners)) {
+        appendOwnerDependency(dependencies, owner, destination.owner);
       }
     }
     if (flow.contextualOwners !== undefined) {
-      for (const owner of owners) {
-        if (!selectedOwners.has(owner)) {
-          continue;
-        }
+      for (const owner of selectedStorageOwners(owners, selectedOwners)) {
         if (
-          !flow.contextualOwners.includes(owner) &&
+          !storageOwnerMembershipContains(flow.contextualOwners, owner) &&
           boundaryDependencies?.allowsContextualValue(node) !== true
         ) {
           invalid.add(owner);
