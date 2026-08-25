@@ -123,14 +123,14 @@ export interface CallableContext {
   readonly callableReferences: Map<Node, CallableState>;
   readonly returnedContracts: Map<Node, ReturnContractState>;
   readonly dependents: Map<CallableState, Set<CallableState>>;
-  readonly dependencies: Map<CallableState, Set<CallableState>>;
-  readonly states: CallableState[];
 }
 
 export function createGraphCallableValueFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   candidates: ReadonlySet<Node>,
+  expressionQueries: readonly Node[],
+  declarationQueries: readonly Node[],
   projections: ExactAggregateProjectionIndex,
   transports?: InvocationTransportContract,
   exactCallImplementations?: ExactCallImplementations,
@@ -207,8 +207,6 @@ export function createGraphCallableValueFlow(
     callableReferences: new Map(),
     returnedContracts: new Map(),
     dependents: new Map(),
-    dependencies: new Map(),
-    states: [],
   };
   forEachInvocationTransportInput(program, transports, (input) => {
     callableExpressionState(input, context);
@@ -282,6 +280,7 @@ export function createGraphCallableValueFlow(
       storageContractStates.length,
   });
   const graph = context.builder.seal();
+  context.dependents.clear();
   planningObserver?.("effect-callable-graph", {
     boundaries: graph.boundaries.length,
     edges: graph.edges.length,
@@ -315,9 +314,12 @@ export function createGraphCallableValueFlow(
     resolutionByComponent.set(component, resolution);
     return resolution;
   };
-  const unsafeCallableUses = collectUnsafeCallableUses(context, resolved);
+  const unsafeCallableUses = collectUnsafeCallableUses(
+    graph.vertices,
+    resolved,
+  );
   planningObserver?.("effect-callable-unsafe-uses", {
-    boundaries: unsafeCallableUses.size,
+    boundaries: unsafeCallableUses.count,
     references: context.callableReferences.size,
   });
   const expressionResolution = (
@@ -436,6 +438,23 @@ export function createGraphCallableValueFlow(
       ),
     ] as const,
   ));
+  const expressionResolutions = materializeResolutions(
+    expressionQueries,
+    context.expressions,
+    unsafeCallableUses,
+    resolutionForState,
+    (expression) => transparentExpression(source, expression) ?? expression,
+  );
+  const declarationResolutions = materializeResolutions(
+    [...declarationQueries, ...returnedCallableDeclarations],
+    context.declarations,
+    unsafeCallableUses,
+    resolutionForState,
+  );
+  planningObserver?.("effect-callable-query-resolutions", {
+    declarations: declarationResolutions.size,
+    values: expressionResolutions.size,
+  });
   planningObserver?.("effect-callable-finalization", {
     boundaries: settledReturnContracts.filter((contract) =>
       contract.sourceRequirements.some((requirement) => !requirement.resolvable)
@@ -460,10 +479,29 @@ export function createGraphCallableValueFlow(
     closedCallableReferences,
     settledReturnContracts,
     callContractRequirements,
-    expressionResolution,
-    declarationResolution,
+    expressionResolutions,
+    declarationResolutions,
+    (expression) => transparentExpression(source, expression) ?? expression,
     returnedCallableDeclarations,
     callableResultCalls,
     undefined,
   );
+}
+
+function materializeResolutions(
+  queries: readonly Node[],
+  states: ReadonlyMap<Node, CallableState>,
+  unsafe: { has(state: CallableState): boolean },
+  resolutionForState: (state: CallableState) => CallableValueResolution,
+  normalize: (node: Node) => Node = (node) => node,
+): ReadonlyMap<Node, CallableValueResolution> {
+  const resolutions = new Map<Node, CallableValueResolution>();
+  for (const query of queries) {
+    const selected = normalize(query);
+    const state = states.get(selected);
+    if (state !== undefined && !unsafe.has(state)) {
+      resolutions.set(selected, resolutionForState(state));
+    }
+  }
+  return resolutions;
 }

@@ -44,12 +44,9 @@ export function finalizeGraphCallableValueFlow(
   closedCallableReferences: ReadonlySet<Node>,
   settledReturnContracts: readonly SettledCallableReturnContract[],
   callContractRequirements: ReadonlyMap<Node, CallableCallContractRequirement>,
-  expressionResolution: (
-    expression: Node,
-  ) => CallableValueResolution | undefined,
-  declarationResolution: (
-    declaration: Node,
-  ) => CallableValueResolution | undefined,
+  expressionResolutions: ReadonlyMap<Node, CallableValueResolution>,
+  declarationResolutions: ReadonlyMap<Node, CallableValueResolution>,
+  normalizeExpression: (expression: Node) => Node,
   closedCallableDeclarations: ReadonlySet<Node>,
   callableResultCalls: ReadonlySet<Node>,
   inheritedCallableReferenceIsClosed:
@@ -73,14 +70,14 @@ export function finalizeGraphCallableValueFlow(
     ): CallableValueResolution | undefined {
       return expression === undefined
         ? undefined
-        : expressionResolution(expression);
+        : expressionResolutions.get(normalizeExpression(expression));
     },
     resolutionForDeclaration(
       declaration: Node | undefined,
     ): CallableValueResolution | undefined {
       return declaration === undefined
         ? undefined
-        : declarationResolution(declaration);
+        : declarationResolutions.get(declaration);
     },
     callReturnsCallableValue(call: Node): boolean {
       return callableResultCalls.has(call);
@@ -111,7 +108,7 @@ export function finalizeGraphCallableValueFlow(
       return inheritedCallableReferenceIsClosed?.(node) === true ||
         closedCallableReferences.has(node) ||
         closedCallableDeclarations.has(node) &&
-          declarationResolution(node)?.closed === true ||
+          declarationResolutions.get(node)?.closed === true ||
         returnContracts.allowsSource(node);
     },
     settledReturnTypes(

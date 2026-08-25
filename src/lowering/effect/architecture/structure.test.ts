@@ -382,6 +382,14 @@ test("effect flow finalizers retain only settled query capabilities", () => {
     ),
     "utf8",
   );
+  const callableState = readFileSync(
+    join(effectRoot, "flow", "callable", "provenance", "state.ts"),
+    "utf8",
+  );
+  const provenanceGraph = readFileSync(
+    join(effectRoot, "provenance", "graph.ts"),
+    "utf8",
+  );
   const indirectConstruction = readFileSync(
     join(effectRoot, "flow", "invocation", "indirect.ts"),
     "utf8",
@@ -419,9 +427,27 @@ test("effect flow finalizers retain only settled query capabilities", () => {
   );
 
   assert.match(callableConstruction, /finalizeGraphCallableValueFlow\(/u);
+  assert.match(callableConstruction, /materializeResolutions\(/u);
+  assert.match(callableConstruction, /for \(const query of queries\)/u);
+  assert.doesNotMatch(
+    callableConstruction,
+    /for \(const \[node, state\] of states\)/u,
+  );
+  assert.doesNotMatch(
+    callableConstruction,
+    /dependencies:\s*Map<CallableState/u,
+  );
+  assert.doesNotMatch(callableState, /context\.dependencies/u);
+  assert.match(callableState, /resolved\.componentDependency\(/u);
+  assert.match(provenanceGraph, /edgeKeys\.clear\(\)/u);
+  assert.match(provenanceGraph, /vertices\.length = 0/u);
   assert.doesNotMatch(
     callableFinalization,
     /CallableContext|TargetSourceProgram|EffectProvenanceGraphBuilder|resolveEffectProvenance|collectUnsafeCallableUses/u,
+  );
+  assert.match(
+    callableFinalization,
+    /expressionResolutions:\s*ReadonlyMap<Node, CallableValueResolution>/u,
   );
   assert.match(callableContractSettlement, /candidateDependencies/u);
   assert.match(callableContractSettlement, /contractDependencies/u);

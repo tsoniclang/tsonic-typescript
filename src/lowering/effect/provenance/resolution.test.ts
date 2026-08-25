@@ -29,6 +29,7 @@ test("provenance resolution closes cycles only from exact origins", () => {
 
   assert.equal(resolutions.componentCount, 2);
   assert.equal(resolutions.edgeCount, 3);
+  assert.equal(resolutions.componentIsClosed(resolutions.componentFor(first)), true);
   const componentDependencies: Array<readonly [number, number]> = [];
   const dependentComponent = resolutions.componentFor(dependent);
   for (
@@ -66,6 +67,10 @@ test("provenance resolution closes cycles only from exact origins", () => {
   assert.equal(resolutions.resolutionFor(first).closed, true);
   assert.equal(resolutions.resolutionFor(second).closed, true);
   assert.equal(resolutions.resolutionFor(dependent).closed, false);
+  assert.equal(
+    resolutions.componentIsClosed(resolutions.componentFor(dependent)),
+    false,
+  );
   const boundaries = resolutions.resolutionFor(dependent).boundaries;
   assert.equal(boundaries.length, 1);
   assert.equal(boundaries[0]?.reason, "open-result");
@@ -105,6 +110,10 @@ test("provenance graph sealing is immutable, exact, and graph-owned", () => {
   assert.throws(
     () => resolveEffectProvenance(graph).resolutionFor(foreign),
     /foreign vertex/u,
+  );
+  assert.throws(
+    () => resolveEffectProvenance(graph).componentIsClosed(2),
+    /outside its graph/u,
   );
 });
 

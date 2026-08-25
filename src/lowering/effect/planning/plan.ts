@@ -202,6 +202,11 @@ export function createClosedCooperativeEffectPlan(
     source,
     program,
     candidates,
+    callableExpressionQueries: Object.freeze(
+      providerInvocations.conditionalCalls.flatMap((call) =>
+        call.callableExpressions ?? []
+      ),
+    ),
     sourceIdentityFor,
     interfaceDispatch,
     cooperativeEffects,

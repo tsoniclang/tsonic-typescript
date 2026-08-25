@@ -434,6 +434,12 @@ The fixture must include at least two indirect result hops after the interface
 call. A single discovery pass cannot certify the contracting upper bound; the
 permissive relation must first saturate, and restoring the one-pass bound must
 fail at the monotonicity gate.
+Lifecycle inspection must reject a sealed builder that retains its evidence or
+deduplication keys, a callable-specific dependency graph parallel to the
+canonical compact component adjacency, or a finalized callable query that
+captures the transient graph context.
+The final query-map gate must also reject materializing every expression or
+declaration instead of the exact consumer-selected query domains.
 The same gate requires source-file-keyed relevance caches and rejects the
 single-current-file cache that recomputes identical type closures across
 kind-major passes. A recursive shared-tail fixture exact-checks positive and

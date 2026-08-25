@@ -82,6 +82,7 @@ export interface EffectProvenanceResolutionIndex<Reason extends string> {
   readonly componentCount: number;
   readonly edgeCount: number;
   readonly work: number;
+  componentIsClosed(component: number): boolean;
   componentFor(vertex: EffectProvenanceVertex): number;
   componentDependencyCount(component: number): number;
   componentDependency(

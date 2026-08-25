@@ -108,12 +108,20 @@ export function createEffectProvenanceGraphBuilder<Reason extends string>():
     seal(): EffectProvenanceGraph<Reason> {
       assertMutable();
       sealed = true;
-      return Object.freeze({
+      const graph = Object.freeze({
         vertices: Object.freeze([...vertices]),
         edges: Object.freeze([...edges]),
         origins: Object.freeze([...origins]),
         boundaries: Object.freeze([...boundaries]),
       });
+      vertices.length = 0;
+      edges.length = 0;
+      origins.length = 0;
+      boundaries.length = 0;
+      edgeKeys.clear();
+      originKeys.clear();
+      boundaryKeys.clear();
+      return graph;
     },
   });
 }

@@ -1051,6 +1051,13 @@ admission state die with the collection frame. Only sealed value, contract,
 closed-declaration, and exact-reference indexes enter the final capability
 object. A finalizer may not close over a collection frame or retain its
 transient maps across an indirect-closure round.
+Graph sealing transfers immutable evidence to the graph and empties the
+builder's arrays and deduplication indexes. Unsafe-use propagation consumes the
+canonical compact component adjacency rather than retaining a second state-
+object dependency graph. Final callable queries are materialized by node only
+for the provider-expression, interface-binding, and returned-declaration
+domains selected by their consumers. No returned query function captures the
+graph, resolution index, builder, or mutable collection context.
 
 Callable-reference closure is likewise one finalized fact of callable
 provenance. Removing `async` preserves function-object identity, nullishness,

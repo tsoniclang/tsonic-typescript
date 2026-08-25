@@ -39,6 +39,7 @@ export interface CooperativeEffectFlowSettlementRequest {
   readonly source: TargetSourceProgram;
   readonly program: TargetProgramIndex;
   readonly candidates: ReadonlyMap<Node, CooperativeEffectCandidate>;
+  readonly callableExpressionQueries: readonly Node[];
   readonly sourceIdentityFor: SourceIdentityResolver;
   readonly interfaceDispatch: TypeScriptInterfaceDispatchProfile;
   readonly cooperativeEffects: TypeScriptActiveCooperativeEffectProfile;
@@ -70,6 +71,7 @@ export function settleCooperativeEffectFlows(
     source,
     program,
     candidates,
+    callableExpressionQueries,
     sourceIdentityFor,
     interfaceDispatch,
     cooperativeEffects,
@@ -158,6 +160,10 @@ export function settleCooperativeEffectFlows(
       source,
       program,
       candidateDeclarations,
+      callableExpressionQueries,
+      interfaces.families.flatMap((family) =>
+        family.valueImplementationBindings
+      ),
       aggregateProjections,
       transports,
       bootstrapImplementations,

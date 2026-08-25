@@ -3,6 +3,7 @@ import type { Node } from "@tsonic/tsts";
 import type {
   EffectProvenanceEdgeKind,
   EffectProvenanceResolutionIndex,
+  EffectProvenanceVertex,
 } from "../../../provenance/model.js";
 import type {
   CallableBoundaryReason,
@@ -20,7 +21,6 @@ export function newState(
     expanded: false,
     relevant: false,
   };
-  context.states.push(state);
   return state;
 }
 
@@ -33,37 +33,55 @@ export function dependency(
 ): void {
   context.builder.addDependency(destination.vertex, source.vertex, kind, occurrence);
   append(context.dependents, source, destination);
-  append(context.dependencies, destination, source);
   if (source.relevant) {
     markRelevant(destination, context);
   }
 }
 
+export interface UnsafeCallableUseIndex {
+  readonly count: number;
+  has(state: CallableState): boolean;
+}
+
 export function collectUnsafeCallableUses(
-  context: CallableContext,
+  vertices: readonly EffectProvenanceVertex[],
   resolved: EffectProvenanceResolutionIndex<CallableBoundaryReason>,
-): ReadonlySet<CallableState> {
-  const unsafe = new Set<CallableState>();
-  const pending: CallableState[] = [];
-  for (const state of context.states) {
-    if (!resolved.resolutionFor(state.vertex).closed) {
-      unsafe.add(state);
-      pending.push(state);
+): UnsafeCallableUseIndex {
+  const unsafe = new Uint8Array(resolved.componentCount);
+  const pending = new Uint32Array(resolved.componentCount);
+  let pendingCount = 0;
+  for (let component = 0; component < resolved.componentCount; component += 1) {
+    if (!resolved.componentIsClosed(component)) {
+      unsafe[component] = 1;
+      pending[pendingCount] = component;
+      pendingCount += 1;
     }
   }
-  while (pending.length !== 0) {
-    const destination = pending.pop();
-    if (destination === undefined) {
-      continue;
-    }
-    for (const source of context.dependencies.get(destination) ?? []) {
-      if (!unsafe.has(source)) {
-        unsafe.add(source);
-        pending.push(source);
+  while (pendingCount !== 0) {
+    pendingCount -= 1;
+    const destination = requiredComponent(pending, pendingCount);
+    const dependencyCount = resolved.componentDependencyCount(destination);
+    for (let index = 0; index < dependencyCount; index += 1) {
+      const source = resolved.componentDependency(destination, index);
+      if (unsafe[source] === 0) {
+        unsafe[source] = 1;
+        pending[pendingCount] = source;
+        pendingCount += 1;
       }
     }
   }
-  return unsafe;
+  let count = 0;
+  for (const vertex of vertices) {
+    if (unsafe[resolved.componentFor(vertex)] === 1) {
+      count += 1;
+    }
+  }
+  return Object.freeze({
+    count,
+    has(state: CallableState): boolean {
+      return unsafe[resolved.componentFor(state.vertex)] === 1;
+    },
+  });
 }
 
 export function mergeDeclarations(
@@ -163,4 +181,12 @@ function append(
   } else {
     selected.add(value);
   }
+}
+
+function requiredComponent(values: Uint32Array, index: number): number {
+  const selected = values[index];
+  if (selected === undefined) {
+    throw new Error("unsafe callable component is missing");
+  }
+  return selected;
 }

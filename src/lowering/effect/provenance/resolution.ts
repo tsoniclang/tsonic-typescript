@@ -161,6 +161,10 @@ export function resolveEffectProvenance<Reason extends string>(
     componentCount,
     edgeCount: graph.edges.length,
     work,
+    componentIsClosed(component: number): boolean {
+      assertComponent(component, componentCount);
+      return hasOrigin[component] === 1 && hasBoundary[component] === 0;
+    },
     componentFor(vertex: EffectProvenanceVertex): number {
       return condensation.componentFor(vertex);
     },
@@ -242,6 +246,16 @@ export function resolveEffectProvenance<Reason extends string>(
       return resolution;
     },
   });
+}
+
+function assertComponent(component: number, componentCount: number): void {
+  if (
+    !Number.isSafeInteger(component) ||
+    component < 0 ||
+    component >= componentCount
+  ) {
+    throw new Error("effect provenance component is outside its graph");
+  }
 }
 
 function boundaryReasonComponents<Reason extends string>(
