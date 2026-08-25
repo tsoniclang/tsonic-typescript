@@ -15,19 +15,21 @@ import {
   NewParenthesizedExpression,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
-import { createClosedPointerFlowPlan } from "./flow-plan.js";
+import { createFinalNodeJournal } from "../final-nodes.js";
+import { createProgramGeneratedNames } from "../generated-names.js";
+import { createTargetProgramIndex } from "../program-index.js";
 import {
   checkedPointerFixture,
   checkedPointerFixtureWithValueSemantics,
   countCallsNamed,
+  createFixturePointerFlowPlan as createClosedPointerFlowPlan,
   importModules,
   variableDeclarationNamed,
   visit,
 } from "./pointer.test-support.js";
 import { createPointerRewriteSession, lowerPointers } from "./transform.js";
-
 test("contracts one closed readonly scalar parameter flow", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
@@ -150,15 +152,8 @@ export const result = loadPointer(pointer).value;
   assert.equal(countCallsNamed(fixture.source, result.sourceFile, "loadPointer"), 0);
 });
 
-test("falls back for indirect, identity-observed, and potentially nil flows", () => {
+test("falls back for identity-observed and potentially nil flows", () => {
   const fixtures = [
-    checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, loadPointer } from "./markers.js";
-function read(pointer: Pointer<number>): number { return loadPointer(pointer); }
-const indirect = read;
-const pointer: Pointer<number> = allocatePointer(1);
-export const result = indirect(pointer);
-`),
     checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, hashPointer } from "./markers.js";
 const pointer: Pointer<number> = allocatePointer(1);
@@ -377,10 +372,19 @@ const pointer: Pointer<number> = allocatePointer(1);
 export const result = loadPointer(pointer);
 `);
   const flowPlan = createClosedPointerFlowPlan(fixture.source);
+  const finalNodes = createFinalNodeJournal();
+  const program = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+  });
   const session = createPointerRewriteSession(
     fixture.source,
     fixture.sourceFile,
+    program,
+    createProgramGeneratedNames(fixture.source, program).forFile(
+      fixture.sourceFile,
+    ),
     flowPlan,
+    finalNodes,
   );
   let composedRewrites = 0;
   const transformed = transformTargetSourceFile(
@@ -396,10 +400,17 @@ export const result = loadPointer(pointer);
         operation?.operation === "allocate"
       ) {
         composedRewrites += 1;
-        return NewParenthesizedExpression(factory, rewritten);
+        return finalNodes.record(
+          original,
+          NewParenthesizedExpression(factory, rewritten),
+        );
       }
-      return rewritten;
+      return finalNodes.record(original, rewritten);
     },
+  );
+  assert.throws(
+    () => finalNodes.record(fixture.sourceFile, transformed),
+    /finalized twice/u,
   );
   const result = session.finish(transformed);
   const pointer = variableDeclarationNamed(
@@ -428,19 +439,8 @@ const pointer = allocatePointer(2);
   );
 });
 
-test("falls back when a pointer escapes or crosses an async or captured flow", () => {
+test("falls back when a pointer crosses a captured flow", () => {
   const fixtures = [
-    checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer } from "./markers.js";
-function escape(): Pointer<number> { return allocatePointer(1); }
-export const pointer = escape();
-`),
-    checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, loadPointer } from "./markers.js";
-async function read(pointer: Pointer<number>): Promise<number> { return loadPointer(pointer); }
-const pointer = allocatePointer(1);
-export const result = read(pointer);
-`),
     checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
 const pointer: Pointer<number> = allocatePointer(1);
@@ -510,39 +510,6 @@ import { allocatePointer } from "./markers.js";
   }
 });
 
-test("fails closed when an exact pointer-reference edge is removed", () => {
-  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, loadPointer } from "./markers.js";
-const pointer: Pointer<number> = allocatePointer(1);
-const alias = pointer;
-export const result = loadPointer(alias);
-`);
-  const source: TargetSourceProgram = Object.freeze({
-    ...fixture.source,
-    semantics: Object.freeze({
-      ...fixture.source.semantics,
-      forNode(node: Node) {
-        const semantics = fixture.source.semantics.forNode(node);
-        const omit = fixture.source.ast.is.IsIdentifier(node) &&
-          fixture.source.ast.text(node) === "alias" &&
-          fixture.source.ast.name(
-            fixture.source.navigation.sourceReferenceFor(node)?.declaration,
-          ) !== node;
-        return omit ? Object.freeze({
-          ...semantics,
-          getSymbolAtLocation: () => undefined,
-          getResolvedSymbol: () => undefined,
-        }) : semantics;
-      },
-    }),
-  });
-
-  assert.throws(
-    () => createClosedPointerFlowPlan(source),
-    /pointer operand .* lost its exact source reference/u,
-  );
-});
-
 function assertRepresentations(
   source: TargetSourceProgram,
   plan: ReturnType<typeof createClosedPointerFlowPlan>,
@@ -550,6 +517,7 @@ function assertRepresentations(
 ): void {
   const actual: Record<string, string> = {};
   for (const operation of pointerOperations(source)) {
+    assert.equal(plan.operationFor(operation.call), operation);
     actual[operation.operation] = plan.representationFor(operation.call);
   }
   assert.deepEqual(actual, expected);

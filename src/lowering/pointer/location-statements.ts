@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsBlock,
   AsCaseOrDefaultClause,
@@ -31,6 +31,9 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import type { FinalNodeLookup } from "../final-nodes.js";
+import type { GeneratedBindingName } from "../generated-names.js";
+
 import { createBoundLocationStatement } from "./bound-location-ast.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type {
@@ -45,7 +48,7 @@ export function rewriteLocationStatementOwner(
   original: Node,
   updated: Node,
   plan: PointerLoweringPlan,
-  updatedNodes: ReadonlyMap<Node, Node>,
+  finalNodes: FinalNodeLookup,
   consume: (binding: LocationBinding) => void,
 ): Node {
   const statements: Node[] = [];
@@ -55,7 +58,7 @@ export function rewriteLocationStatementOwner(
         "statement-list owner contains an absent source statement",
       );
     }
-    const updatedStatement = updatedNodes.get(originalStatement);
+    const updatedStatement = finalNodes.forOriginal(originalStatement);
     const bindings = plan.localBindingsByStatement.get(originalStatement);
     if (bindings === undefined) {
       if (updatedStatement !== undefined) {
@@ -74,7 +77,7 @@ export function rewriteLocationStatementOwner(
       updatedStatement,
       bindings,
       plan.runtimeAlias,
-      updatedNodes,
+      finalNodes,
       consume,
     ));
   }
@@ -95,7 +98,7 @@ export function wrapExpressionLocationBody(
   factory: NodeFactory,
   expression: Node,
   bindings: readonly LocationBinding[],
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
   consume: (binding: LocationBinding) => void,
 ): Node {
   const prologue = bindings.map((binding) => {
@@ -123,8 +126,8 @@ function expandVariableStatement(
   original: Node,
   updated: Node,
   bindings: readonly LocalLocationBinding[],
-  runtimeAlias: string,
-  updatedNodes: ReadonlyMap<Node, Node>,
+  runtimeAlias: GeneratedBindingName,
+  finalNodes: FinalNodeLookup,
   consume: (binding: LocationBinding) => void,
 ): readonly Node[] {
   const originalStatement = IsVariableStatement(original)
@@ -159,7 +162,7 @@ function expandVariableStatement(
         "addressed variable statement contains an absent declaration",
       );
     }
-    const updatedDeclaration = updatedNodes.get(originalDeclaration);
+    const updatedDeclaration = finalNodes.forOriginal(originalDeclaration);
     if (
       updatedDeclaration === undefined ||
       !IsVariableDeclaration(updatedDeclaration)

@@ -10,23 +10,34 @@ import type {
   RawPointerOperationFact,
   SourceFile,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
+import type { TargetProgramIndex } from "../program-index.js";
+import type {
+  GeneratedBindingName,
+  SourceFileGeneratedNames,
+} from "../generated-names.js";
 import { validateAddressableStorage } from "./addressability.js";
 import { PointerLoweringError } from "./diagnostic.js";
+import { validatePointerOperationFact } from "./operation-contract.js";
 import type {
   ClosedPointerFlowPlan,
 } from "./flow-plan.js";
-import { pointerOperationUsesRuntimeValue } from "./flow-application.js";
+import {
+  pointerOperationIsFused,
+  pointerOperationUsesRuntimeValue,
+} from "./flow-application.js";
 import { planPointerMarkerUsage } from "./marker-usage.js";
+import { pointerTypeCanBeUndefined } from "./nullability.js";
+import { validatePointerFact } from "./type-contract.js";
 
 export interface LocalLocationBinding {
   readonly kind: "variable";
   readonly declaration: Node;
   readonly addressOperands: ReadonlySet<Node>;
   readonly sourceName: string;
-  readonly locationName: string;
-  readonly writeName: string;
+  readonly locationName: GeneratedBindingName;
+  readonly writeName: GeneratedBindingName;
 }
 
 export interface ParameterLocationBinding {
@@ -35,11 +46,16 @@ export interface ParameterLocationBinding {
   readonly addressOperands: ReadonlySet<Node>;
   readonly body: Node;
   readonly sourceName: string;
-  readonly locationName: string;
-  readonly writeName: string;
+  readonly locationName: GeneratedBindingName;
+  readonly writeName: GeneratedBindingName;
 }
 
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
+
+export interface ReferenceHashPlan {
+  readonly nullable: boolean;
+  readonly parameterName?: GeneratedBindingName;
+}
 
 export interface PointerLoweringPlan {
   readonly sourceFile: SourceFile;
@@ -59,7 +75,8 @@ export interface PointerLoweringPlan {
   readonly addressBindings: ReadonlyMap<Node, LocationBinding>;
   readonly removableMarkerDeclarations: ReadonlySet<Node>;
   readonly flowPlan: ClosedPointerFlowPlan | undefined;
-  readonly runtimeAlias: string;
+  readonly runtimeAlias: GeneratedBindingName;
+  readonly referenceHashes: ReadonlyMap<Node, ReferenceHashPlan>;
   readonly usesRuntimeValue: boolean;
 }
 
@@ -74,14 +91,21 @@ interface MutableLocationBinding {
 export function createPointerLoweringPlan(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
+  program: TargetProgramIndex,
+  generatedNames: SourceFileGeneratedNames,
   flowPlan?: ClosedPointerFlowPlan,
 ): PointerLoweringPlan {
+  if (generatedNames.sourceFile !== sourceFile) {
+    throw new PointerLoweringError(
+      "pointer planning received generated names for another source file",
+    );
+  }
   if (flowPlan !== undefined && !flowPlan.owns(source)) {
     throw new PointerLoweringError(
       "pointer flow plan belongs to a different checked source program",
     );
   }
-  const nodes = collectNodes(source, sourceFile);
+  const nodes = program.nodesFor(sourceFile);
   const operations = new Map<Node, PointerOperationFact>();
   const pointerTypes = new Set<Node>();
   const rawPointerOperations = new Map<Node, RawPointerOperationFact>();
@@ -98,11 +122,14 @@ export function createPointerLoweringPlan(
           "pointer operation fact is not uniquely attached to its exact call",
         );
       }
+      validatePointerOperationFact(source, operation);
       operations.set(node, operation);
-      usesRuntimeValue ||= pointerOperationUsesRuntimeValue(
-        operation,
-        flowPlan,
-      );
+      if (!pointerOperationIsFused(flowPlan, node)) {
+        usesRuntimeValue ||= pointerOperationUsesRuntimeValue(
+          operation,
+          flowPlan,
+        );
+      }
       selectedMarkerRoots.push(requireCallTarget(source, node));
     }
     const rawPointerOperation = source.sourceFacts.getFact(
@@ -123,10 +150,9 @@ export function createPointerLoweringPlan(
       usesRuntimeValue = true;
       selectedMarkerRoots.push(requireCallTarget(source, node));
     }
-    if (
-      source.ast.is.IsTypeReferenceNode(node) &&
-      source.sourceFacts.getFact(node, pointerFactKey) !== undefined
-    ) {
+    const pointerFact = source.sourceFacts.getFact(node, pointerFactKey);
+    if (source.ast.is.IsTypeReferenceNode(node) && pointerFact !== undefined) {
+      validatePointerFact(source, node, pointerFact);
       pointerTypes.add(node);
       const typeReference = source.ast.as.AsTypeReferenceNode(node);
       if (typeReference?.TypeName === undefined) {
@@ -169,12 +195,11 @@ export function createPointerLoweringPlan(
   const localBindingsByStatement = new Map<Node, LocalLocationBinding[]>();
   const prologueBindingsByBody = new Map<Node, LocationBinding[]>();
   const addressBindings = new Map<Node, LocationBinding>();
-  const usedNames = collectIdentifierNames(source, nodes);
   const mutableBindings = [...bindingsByDeclaration.values()].sort(
     (left, right) => source.ast.pos(left.declaration) - source.ast.pos(right.declaration),
   );
   for (const binding of mutableBindings) {
-    const sealed = sealLocationBinding(source, binding, usedNames);
+    const sealed = sealLocationBinding(source, binding, generatedNames);
     if (sealed.kind === "variable") {
       localBindings.set(sealed.declaration, sealed);
       const declarationKind = source.ast.variableDeclarationKind(
@@ -230,6 +255,30 @@ export function createPointerLoweringPlan(
     nodes,
     selectedMarkerRoots,
   );
+  const runtimeAlias = generatedNames.reserve("tsonicTypeScriptRuntime");
+  const referenceHashes = new Map<Node, ReferenceHashPlan>();
+  for (const operation of operations.values()) {
+    const representation = flowPlan?.representationFor(operation.call);
+    if (
+      operation.operation === "hash-pointer" &&
+      (representation === "direct-object" || representation === "mutable-cell")
+    ) {
+      const nullable = pointerTypeCanBeUndefined(
+        source,
+        operation.pointerExpression,
+        operation.pointerType,
+      );
+      referenceHashes.set(
+        operation.call,
+        Object.freeze({
+          nullable,
+          ...(nullable
+            ? { parameterName: generatedNames.reserve("$pointer") }
+            : {}),
+        }),
+      );
+    }
+  }
   return Object.freeze({
     sourceFile,
     operations,
@@ -242,32 +291,10 @@ export function createPointerLoweringPlan(
     addressBindings,
     removableMarkerDeclarations: markerUsage.removableDeclarations,
     flowPlan,
-    runtimeAlias: selectRuntimeAlias(source, nodes),
+    runtimeAlias,
+    referenceHashes,
     usesRuntimeValue,
   });
-}
-
-function collectNodes(
-  source: TargetSourceProgram,
-  sourceFile: SourceFile,
-): readonly Node[] {
-  const nodes: Node[] = [];
-  const pending: Node[] = [sourceFile];
-  const seen = new Set<Node>();
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined || seen.has(node)) {
-      continue;
-    }
-    seen.add(node);
-    nodes.push(node);
-    for (const child of source.ast.children(node)) {
-      if (child !== undefined) {
-        pending.push(child);
-      }
-    }
-  }
-  return Object.freeze(nodes);
 }
 
 function requireCallTarget(source: TargetSourceProgram, node: Node): Node {
@@ -386,7 +413,7 @@ function valueStorageRoot(
 function sealLocationBinding(
   source: TargetSourceProgram,
   binding: MutableLocationBinding,
-  usedNames: Set<string>,
+  generatedNames: SourceFileGeneratedNames,
 ): LocationBinding {
   if (binding.kind === "variable") {
     if (binding.sourceName === undefined) {
@@ -399,14 +426,8 @@ function sealLocationBinding(
       declaration: binding.declaration,
       addressOperands: binding.addressOperands,
       sourceName: binding.sourceName,
-      locationName: selectGeneratedName(
-        `${binding.sourceName}$location`,
-        usedNames,
-      ),
-      writeName: selectGeneratedName(
-        `${binding.sourceName}$next`,
-        usedNames,
-      ),
+      locationName: generatedNames.reserve(`${binding.sourceName}$location`),
+      writeName: generatedNames.reserve(`${binding.sourceName}$next`),
     });
   }
   if (binding.body === undefined || binding.sourceName === undefined) {
@@ -427,38 +448,9 @@ function sealLocationBinding(
     addressOperands: binding.addressOperands,
     body: binding.body,
     sourceName: binding.sourceName,
-    locationName: selectGeneratedName(
-      `${binding.sourceName}$location`,
-      usedNames,
-    ),
-    writeName: selectGeneratedName(
-      `${binding.sourceName}$next`,
-      usedNames,
-    ),
+    locationName: generatedNames.reserve(`${binding.sourceName}$location`),
+    writeName: generatedNames.reserve(`${binding.sourceName}$next`),
   });
-}
-
-function collectIdentifierNames(
-  source: TargetSourceProgram,
-  nodes: readonly Node[],
-): Set<string> {
-  return new Set(nodes
-    .filter((node) => source.ast.is.IsIdentifier(node))
-    .map((node) => source.ast.text(node)));
-}
-
-function selectGeneratedName(base: string, usedNames: Set<string>): string {
-  if (!usedNames.has(base)) {
-    usedNames.add(base);
-    return base;
-  }
-  for (let suffix = 2; ; suffix += 1) {
-    const candidate = `${base}${suffix}`;
-    if (!usedNames.has(candidate)) {
-      usedNames.add(candidate);
-      return candidate;
-    }
-  }
 }
 
 function isNodeWithin(
@@ -549,25 +541,4 @@ function requireStatementListOwner(
   throw new PointerLoweringError(
     "addressed let binding requires a statement-list owner",
   );
-}
-
-function selectRuntimeAlias(
-  source: TargetSourceProgram,
-  nodes: readonly Node[],
-): string {
-  const identifiers = new Set(
-    nodes
-      .filter((node) => source.ast.is.IsIdentifier(node))
-      .map((node) => source.ast.text(node)),
-  );
-  const base = "tsonicTypeScriptRuntime";
-  if (!identifiers.has(base)) {
-    return base;
-  }
-  for (let suffix = 2; ; suffix += 1) {
-    const candidate = `${base}${suffix}`;
-    if (!identifiers.has(candidate)) {
-      return candidate;
-    }
-  }
 }

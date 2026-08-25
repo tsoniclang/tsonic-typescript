@@ -42,6 +42,13 @@ representation only when every affected definition and reference is rewritten
 and observable source behavior remains exact. An optimization that needs a
 local exception instead reopens its representation owner.
 
+The selected TSTS product expresses synchronous execution in GoToTS before
+this target runs. This target owns pointer, scalar, and representation
+projection only. It must not add an effect graph, infer callable synchrony,
+consume effect manifests, or remove `Promise`, `async`, or `await` after
+generation. Reached suspension semantics fail at their source or provider
+owner.
+
 ## Project Structure
 
 - `src/config/` owns target-specific external configuration validation.

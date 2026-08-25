@@ -9,23 +9,55 @@ import type {
 } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
-} from "@tsonic/target-api";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
+
+import { createTargetProgramIndex } from "../program-index.js";
+import {
+  createScalarRepresentationPlan,
+  type ScalarRepresentationPlan,
+  type ScalarRepresentationProfile,
+} from "./plan.js";
 
 export interface CheckedScalarFixture {
   readonly source: TargetSourceProgram;
   readonly sourceFile: SourceFile;
 }
 
+export function createFixtureScalarRepresentationPlan(
+  source: TargetSourceProgram,
+  profile: ScalarRepresentationProfile,
+): ScalarRepresentationPlan {
+  return createScalarRepresentationPlan(
+    source,
+    createTargetProgramIndex(source, {
+      bindingWrites: true,
+    }),
+    profile,
+    fixtureSourceIdentityFor(source),
+  );
+}
+
+export function fixtureSourceIdentityFor(
+  source: TargetSourceProgram,
+): (sourceFile: SourceFile) => string {
+  return (sourceFile) => {
+    const fileName = source.ast.getFileName(sourceFile);
+    return fileName.startsWith("/src/") ? fileName.slice(5) : fileName;
+  };
+}
+
 export function checkedScalarFixture(
   sourceText: string,
   options: {
     readonly experimentalDecorators?: boolean;
+    readonly additionalFiles?: Readonly<Record<string, string>>;
   } = {},
 ): CheckedScalarFixture {
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files: {
+      ...options.additionalFiles,
       "/src/index.ts": sourceText,
     },
     rootFiles: ["/src/index.ts"],

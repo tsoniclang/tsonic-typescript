@@ -3,6 +3,8 @@
 `@tsonic/target-typescript` lowers finalized Tsonic semantic facts into fast,
 ordinary TypeScript.
 
+[`docs/spec/`](docs/spec/README.md) is the governing target contract.
+
 The target transforms TSTS's exact checked TS-Go-contract AST directly. It does
 not parse source again, join by ranges, recognize marker spellings, or patch
 text. The transformed tree is encoded with the pinned TS-Go external-AST
@@ -27,6 +29,18 @@ The same provider owns the checked-source declaration profile: the bundled
 `lib.es2024.d.ts` closure and declaration contracts from installed packages.
 Callers do not inject ambient globals or rediscover the target's library set.
 
+The input program is already synchronous when its GoToTS profile disables
+concurrency. This target never infers effects, removes `Promise`, or rewrites
+`async`/`await`; encountering those constructs is source-owner evidence, not an
+invitation to recover semantics in the target.
+
+The optional target-level `execution` contract defaults to `"unrestricted"`
+for ordinary TypeScript projects. A synchronous product selects
+`"synchronous"`; the target then rejects authored `async`, `await`, `for await`,
+and `await using` nodes from the exact checked tree before any plan is built or
+the printer is invoked. The sealed optimization artifact records that selected
+execution contract separately from representation choices.
+
 ## Optimization profile
 
 All representation changes are explicit target configuration. Omitting the
@@ -34,19 +48,42 @@ profile selects the canonical, open-world-safe result:
 
 ```json
 {
+  "execution": "unrestricted",
   "optimizations": {
     "pointerFlows": "location",
-    "scalarProjections": "preserve"
+    "scalarProjections": "preserve",
+    "representationProjections": "preserve"
   }
 }
 ```
 
 An executable assembled as one closed program may select `"closed-direct"`
-for either family. The backend builds every whole-program plan before changing
+for any family. The backend builds every whole-program plan before changing
 any source, then composes all selected rewrites in one post-order traversal of
 each original TS-Go-contract AST. Every planned source and semantic fact must
 be consumed exactly once before the transaction seals; otherwise printing is
 not invoked and no artifact is published.
+
+The shared target-program index owns one source/node census, syntax-kind
+partitions, collision-safe authored names, and binding writes selected by the
+enabled families. Versioned evidence records exact source membership and a
+complete optimized-or-retained denominator for every family.
+
+## Scalar projections
+
+`scalarProjections: "closed-direct"` replaces an exact behavior-free wrapper
+projection such as `new Width(value).value` with `value` only when the selected
+constructor, readonly scalar field, binding, module boundary, and evaluation
+order are all closed. Every other occurrence remains unchanged with one named
+retention reason.
+
+## Representation projections
+
+`representationProjections: "closed-direct"` removes proved identity calls,
+inverse construct/project pairs, closed stored projections, and identity
+callable parameters. It exact-joins declarations, signatures, references,
+writes, arguments, and source ownership; it never recognizes generated names
+or structural lookalikes.
 
 ## Pointer representations
 

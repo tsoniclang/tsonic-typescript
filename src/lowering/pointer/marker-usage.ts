@@ -7,12 +7,17 @@ import type {
   Node,
   SourceMarkerFact,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { PointerLoweringError } from "./diagnostic.js";
 
 export interface PointerMarkerUsagePlan {
   readonly removableDeclarations: ReadonlySet<Node>;
+}
+
+export interface ExactPointerSelection {
+  readonly node: Node;
+  readonly marker?: SourceMarkerFact;
 }
 
 export function planPointerMarkerUsage(
@@ -25,36 +30,19 @@ export function planPointerMarkerUsage(
   const selectedNamespaceReceivers = new Set<Node>();
 
   for (const root of selectedRoots) {
-    let selectedMarkerCount = 0;
-    for (const occurrence of descendants(source, root)) {
-      const marker = source.sourceFacts.getFact(
-        occurrence,
-        sourceMarkerFactKey,
-      );
-      const selectedPointerType = source.sourceFacts.getFact(
-        occurrence,
-        pointerFactKey,
-      ) !== undefined || source.sourceFacts.getFact(
-        occurrence,
-        rawPointerFactKey,
-      ) !== undefined;
-      if (
-        (marker !== undefined && isPointerMarker(marker)) ||
-        selectedPointerType
-      ) {
-        selectedOccurrences.add(occurrence);
-        selectedMarkerCount += 1;
-      }
-      const reference = source.navigation.sourceReferenceFor(occurrence);
+    const selections = exactPointerSelections(source, root);
+    for (const selection of selections) {
+      selectedOccurrences.add(selection.node);
+      const reference = source.navigation.sourceReferenceFor(selection.node);
       if (
         reference !== undefined &&
         source.ast.is.IsNamespaceImport(reference.declaration)
       ) {
         selectedNamespaceBindings.add(reference.declaration);
-        selectedNamespaceReceivers.add(occurrence);
+        selectedNamespaceReceivers.add(selection.node);
       }
     }
-    if (selectedMarkerCount === 0) {
+    if (selections.length === 0) {
       throw new PointerLoweringError(
         "selected pointer operation has no exact source-marker occurrence",
       );
@@ -62,7 +50,25 @@ export function planPointerMarkerUsage(
   }
 
   const removableDeclarations = new Set<Node>();
+  const residualNamespaceBindings = new Set<Node>();
+  const namespaceDeclarationNames = new Set(
+    [...selectedNamespaceBindings].flatMap((binding) => {
+      const name = source.ast.name(binding);
+      return name === undefined ? [] : [name];
+    }),
+  );
   for (const node of nodes) {
+    if (
+      selectedNamespaceBindings.size !== 0 &&
+      !namespaceDeclarationNames.has(node) &&
+      !selectedNamespaceReceivers.has(node) &&
+      source.ast.is.IsIdentifier(node)
+    ) {
+      const declaration = source.navigation.sourceReferenceFor(node)?.declaration;
+      if (declaration !== undefined && selectedNamespaceBindings.has(declaration)) {
+        residualNamespaceBindings.add(declaration);
+      }
+    }
     const marker = source.sourceFacts.getFact(node, sourceMarkerFactKey);
     if (marker === undefined || !isPointerMarker(marker)) {
       continue;
@@ -88,24 +94,35 @@ export function planPointerMarkerUsage(
   }
 
   for (const binding of selectedNamespaceBindings) {
-    const declarationName = source.ast.name(binding);
-    const hasResidualReference = nodes.some((candidate) => {
-      if (
-        candidate === declarationName ||
-        selectedNamespaceReceivers.has(candidate) ||
-        !source.ast.is.IsIdentifier(candidate)
-      ) {
-        return false;
-      }
-      return source.navigation.sourceReferenceFor(candidate)?.declaration ===
-        binding;
-    });
-    if (!hasResidualReference) {
+    if (!residualNamespaceBindings.has(binding)) {
       removableDeclarations.add(binding);
     }
   }
 
   return Object.freeze({ removableDeclarations });
+}
+
+export function exactPointerSelections(
+  source: TargetSourceProgram,
+  root: Node,
+): readonly ExactPointerSelection[] {
+  const selections: ExactPointerSelection[] = [];
+  for (const node of descendants(source, root)) {
+    const marker = source.sourceFacts.getFact(node, sourceMarkerFactKey);
+    const selectedPointerType = source.sourceFacts.getFact(
+      node,
+      pointerFactKey,
+    ) !== undefined || source.sourceFacts.getFact(
+      node,
+      rawPointerFactKey,
+    ) !== undefined;
+    if (marker !== undefined && isPointerMarker(marker)) {
+      selections.push(Object.freeze({ node, marker }));
+    } else if (selectedPointerType) {
+      selections.push(Object.freeze({ node }));
+    }
+  }
+  return Object.freeze(selections);
 }
 
 function markerDeclarationOwner(
@@ -172,16 +189,7 @@ function isPointerMarker(marker: SourceMarkerFact): boolean {
     case "equal-raw-pointer":
     case "hash-raw-pointer":
       return true;
-    case "write-only-reference":
-    case "read-write-reference":
-    case "read-only-reference":
-    case "shared-borrow":
-    case "mutable-borrow":
-    case "move":
-    case "struct":
-    case "field":
-    case "attribute":
-    case "default-value":
+    default:
       return false;
   }
 }

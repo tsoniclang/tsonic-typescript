@@ -76,8 +76,10 @@ export function createExternalAstPrinter(
         timeout: 5 * 60 * 1000,
       });
       if (result.error !== undefined) {
+        const stderr = result.stderr.toString("utf8").trim();
         throw new Error(
-          `TypeScript AST printer failed to start: ${result.error.message}`,
+          `TypeScript AST printer failed: ${result.error.message}` +
+            (stderr.length === 0 ? "" : `: ${stderr}`),
         );
       }
       if (result.signal !== null) {

@@ -2,7 +2,7 @@ import type {
   Node,
   PointerOperationFact,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { PointerLoweringError } from "./diagnostic.js";
 import type {
@@ -10,6 +10,7 @@ import type {
   PointerFlowVertex,
 } from "./flow-graph.js";
 import type { PointerReferenceCensus } from "./flow-references.js";
+import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export function resolvePointerExpression(
   source: TargetSourceProgram,
@@ -29,9 +30,11 @@ export function resolvePointerExpression(
     );
   }
   const root = transparentExpression(source, expression);
-  const vertex = root !== undefined && operations.has(root)
-    ? graph.get(root)
-    : undefined;
+  const operation = root === undefined ? undefined : operations.get(root);
+  const vertex = root === undefined ||
+      operation !== undefined && !producesPointer(operation)
+    ? undefined
+    : graph.get(root);
   return blockTypeBearingWrapper(source, graph, expression, vertex);
 }
 
@@ -86,17 +89,17 @@ function blockTypeBearingWrapper(
       continue;
     }
     if (source.ast.is.IsAsExpression(current)) {
-      graph.block(vertex, "unsupported-flow");
+      graph.block(vertex, "unsupported-flow", current);
       current = source.ast.as.AsAsExpression(current)?.Expression;
       continue;
     }
     if (source.ast.is.IsTypeAssertion(current)) {
-      graph.block(vertex, "unsupported-flow");
+      graph.block(vertex, "unsupported-flow", current);
       current = source.ast.as.AsTypeAssertion(current)?.Expression;
       continue;
     }
     if (source.ast.is.IsSatisfiesExpression(current)) {
-      graph.block(vertex, "unsupported-flow");
+      graph.block(vertex, "unsupported-flow", current);
       current = source.ast.as.AsSatisfiesExpression(current)?.Expression;
       continue;
     }
@@ -106,7 +109,7 @@ function blockTypeBearingWrapper(
     }
     if (
       source.ast.is.IsBinaryExpression(current) &&
-      source.ast.operatorKindName(current) === "KindQuestionQuestionToken"
+      isNeverFallback(source, current)
     ) {
       current = source.ast.as.AsBinaryExpression(current)?.Left;
       continue;
@@ -132,9 +135,15 @@ export function addTransparentProducer(
   expression: Node | undefined,
   operations: ReadonlyMap<Node, PointerOperationFact>,
   target: Set<Node>,
+  additional?: ReadonlySet<Node>,
 ): void {
   const root = transparentExpression(source, expression);
-  if (root !== undefined && operations.has(root)) {
+  const operation = root === undefined ? undefined : operations.get(root);
+  if (
+    root !== undefined &&
+    (operation !== undefined && producesPointer(operation) ||
+      additional?.has(root) === true)
+  ) {
     target.add(root);
   }
 }
@@ -180,13 +189,31 @@ export function transparentExpression(
     }
     if (
       source.ast.is.IsBinaryExpression(current) &&
-      source.ast.operatorKindName(current) === "KindQuestionQuestionToken"
+      isNeverFallback(source, current)
     ) {
       current = source.ast.as.AsBinaryExpression(current)?.Left;
       continue;
     }
     return current;
   }
+}
+
+function isNeverFallback(
+  source: TargetSourceProgram,
+  node: Node,
+): boolean {
+  if (
+    source.ast.operatorKindName(node) !== "KindQuestionQuestionToken"
+  ) {
+    return false;
+  }
+  const fallback = source.ast.as.AsBinaryExpression(node)?.Right;
+  const fallbackType = fallback === undefined
+    ? undefined
+    : source.semantics.forNode(fallback).types.expressionType(fallback);
+  return fallback !== undefined &&
+    fallbackType !== undefined &&
+    source.semantics.forNode(fallback).types.isNever(fallbackType);
 }
 
 export function transparentExpressionRoot(
@@ -206,6 +233,7 @@ export function transparentExpressionRoot(
 export function isOptimizableFunctionDeclaration(
   source: TargetSourceProgram,
   owner: Node,
+  planning?: PointerPlanningLedger,
 ): boolean {
   const functionDeclaration = source.ast.is.IsFunctionDeclaration(owner)
     ? source.ast.as.AsFunctionDeclaration(owner)
@@ -216,8 +244,7 @@ export function isOptimizableFunctionDeclaration(
     : undefined;
   if (
     (functionDeclaration === undefined && staticMethod === undefined) ||
-    source.ast.body(owner) === undefined ||
-    source.ast.hasModifierKind(owner, "async")
+    source.ast.body(owner) === undefined
   ) {
     return false;
   }
@@ -226,6 +253,7 @@ export function isOptimizableFunctionDeclaration(
     return false;
   }
   for (const parameter of source.ast.parameters(owner)) {
+    planning?.record("flow-census");
     const parsed = source.ast.as.AsParameterDeclaration(parameter);
     if (
       parsed?.DotDotDotToken !== undefined ||
@@ -235,7 +263,7 @@ export function isOptimizableFunctionDeclaration(
       return false;
     }
   }
-  return !containsAwait(source, source.ast.body(owner));
+  return true;
 }
 
 export function isModuleAliasReference(
@@ -284,29 +312,4 @@ export function producesPointer(operation: PointerOperationFact): boolean {
     operation.operation === "allocate" ||
     operation.operation === "bind-pointer" ||
     operation.operation === "project-pointer";
-}
-
-function containsAwait(
-  source: TargetSourceProgram,
-  root: Node | undefined,
-): boolean {
-  if (root === undefined) {
-    return false;
-  }
-  const pending = [root];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined) {
-      continue;
-    }
-    if (source.ast.is.IsAwaitExpression(node)) {
-      return true;
-    }
-    for (const child of source.ast.children(node)) {
-      if (child !== undefined) {
-        pending.push(child);
-      }
-    }
-  }
-  return false;
 }

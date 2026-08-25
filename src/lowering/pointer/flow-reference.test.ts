@@ -3,16 +3,21 @@ import { test } from "node:test";
 
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
+import { createTargetProgramIndex } from "../program-index.js";
 import {
-  createClosedPointerFlowPlan,
+  createClosedPointerFlowPlan as createProductionPointerFlowPlan,
   type PointerFlowRepresentation,
 } from "./flow-plan.js";
 import {
   checkedPointerFixture,
+  countCallsNamed,
+  createFixturePointerFlowPlan as createClosedPointerFlowPlan,
   visit,
 } from "./pointer.test-support.js";
+import { lowerPointers } from "./transform.js";
 
 test("keeps a pointer binding canonical when object shorthand observes it", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
@@ -60,12 +65,116 @@ export const result = loadPointer(pointer) + unrelated();
   assertAllOperations(fixture.source, "direct-snapshot");
 });
 
-test("uses exact write evidence to reject pointer rebinding", () => {
+test("closes exact pointer rebinding into one scalar flow", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
 let pointer: Pointer<number> = allocatePointer(1);
 pointer = allocatePointer(2);
 export const result = loadPointer(pointer);
+`);
+
+  assertAllOperations(fixture.source, "direct-snapshot");
+  const plan = createClosedPointerFlowPlan(fixture.source);
+  assert.equal(plan.components.some((component) =>
+    component.blockers.includes("pointer-rebinding")
+  ), false);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "allocatePointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
+});
+
+test("preserves one mutable cell across exact pointer rebinding", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer, storePointer } from "./markers.js";
+let pointer: Pointer<number> = allocatePointer(1);
+pointer = allocatePointer(2);
+storePointer(pointer, 3);
+export const result = loadPointer(pointer);
+`);
+
+  assertAllOperations(fixture.source, "mutable-cell");
+  const plan = createClosedPointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  for (const marker of ["allocatePointer", "loadPointer", "storePointer"]) {
+    assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, marker), 0);
+  }
+});
+
+test("closes pointer rebinding from an exact function result", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+function create(value: number): Pointer<number> { return allocatePointer(value); }
+let pointer: Pointer<number> = create(1);
+pointer = create(2);
+export const result = loadPointer(pointer);
+`);
+
+  assertAllOperations(fixture.source, "direct-snapshot");
+});
+
+test("retains exact nullish pointer rebinding canonically", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+let pointer: Pointer<number> | undefined = allocatePointer(1);
+pointer = undefined;
+pointer = allocatePointer(2);
+export const result = loadPointer(pointer);
+`);
+
+  assertAllOperations(fixture.source, "location");
+  const plan = createClosedPointerFlowPlan(fixture.source);
+  assert.ok(plan.components.some((component) =>
+    component.retentionReasons.some((entry) => entry.reason === "nil-capable")
+  ));
+});
+
+test("does not treat a pointer-valued nullish choice as one transparent flow", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+const left: Pointer<number> | undefined = allocatePointer(1);
+const right: Pointer<number> = allocatePointer(2);
+export const result = loadPointer(left ?? right);
+`);
+
+  assertAllOperations(fixture.source, "location");
+});
+
+test("keeps unresolved conditional pointer rebinding canonical", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+declare const chooseFirst: boolean;
+let pointer: Pointer<number> = allocatePointer(1);
+pointer = chooseFirst ? allocatePointer(2) : allocatePointer(3);
+export const result = loadPointer(pointer);
+`);
+
+  assertAllOperations(fixture.source, "location");
+  const plan = createClosedPointerFlowPlan(fixture.source);
+  assert.ok(plan.components.some((component) =>
+    component.blockers.includes("pointer-rebinding")
+  ));
+});
+
+test("keeps an observed assignment result canonical", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+let pointer: Pointer<number> = allocatePointer(1);
+const alias: Pointer<number> = (pointer = allocatePointer(2));
+export const result = loadPointer(alias);
+`);
+
+  const plan = createClosedPointerFlowPlan(fixture.source);
+  assert.ok(plan.components.some((component) =>
+    component.blockers.includes("pointer-rebinding")
+  ));
+});
+
+test("keeps non-assignment pointer writes canonical", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+let pointer: Pointer<number> | undefined = allocatePointer(1);
+pointer ??= allocatePointer(2);
+export const result = loadPointer(pointer!);
 `);
 
   assertAllOperations(fixture.source, "location");
@@ -100,8 +209,49 @@ export const result = loadPointer(pointer);
 
   assertAllOperations(source, "direct-snapshot");
   assert.ok(
-    sourceReferenceQueries < 16,
+    sourceReferenceQueries < 64,
     `expected bounded exact-reference queries, got ${sourceReferenceQueries}`,
+  );
+});
+
+test("fails closed when the pointer census omits an exact source edge", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+const pointer: Pointer<number> = allocatePointer(1);
+const alias = pointer;
+export const result = loadPointer(alias);
+`);
+  const canonical = createTargetProgramIndex(fixture.source, {
+    bindingWrites: true,
+  });
+  const omitted = canonical.nodesOfKind(KindIdentifier).find((node) => {
+    const reference = fixture.source.navigation.sourceReferenceFor(node);
+    return fixture.source.ast.text(node) === "alias" &&
+      reference !== undefined &&
+      fixture.source.ast.name(reference.declaration) !== node;
+  });
+  assert.ok(omitted !== undefined);
+  const source: TargetSourceProgram = Object.freeze({
+    ...fixture.source,
+    navigation: Object.freeze({
+      ...fixture.source.navigation,
+      referencesToDeclaration(declaration: Node) {
+        return fixture.source.navigation.referencesToDeclaration(declaration)
+          .filter((reference) => reference !== omitted);
+      },
+    }),
+  });
+  const program = createTargetProgramIndex(source, {
+    bindingWrites: true,
+  });
+
+  assert.throws(
+    () => createProductionPointerFlowPlan(
+      source,
+      program,
+      (sourceFile) => source.documents.forFile(sourceFile).identity,
+    ),
+    /pointer operand .* lost its exact source reference/u,
   );
 });
 

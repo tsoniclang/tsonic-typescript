@@ -7,11 +7,21 @@ import type {
 export type PointerFlowBlocker =
   | "addressed-storage-may-change"
   | "captured-parameter"
+  | "checker-never"
+  | "declaration-boundary"
+  | "external-boundary"
+  | "generic-call"
+  | "generic-storage"
   | "identity-observed"
   | "indirect-call"
+  | "mixed-pointee"
+  | "non-bijective-identity"
   | "nil-capable"
   | "open-call"
+  | "pointee-replacement"
   | "pointer-rebinding"
+  | "projection-observed"
+  | "provider-binding"
   | "unsupported-flow"
   | "unsupported-pointee"
   | "unsupported-producer";
@@ -22,7 +32,7 @@ export interface PointerFlowVertex {
   readonly pointerTypes: Set<Node>;
   readonly pointees: Map<Type, Node>;
   readonly producers: Set<PointerOperationFact>;
-  readonly blockers: Set<PointerFlowBlocker>;
+  readonly blockerOccurrences: Map<PointerFlowBlocker, Set<Node>>;
 }
 
 export interface PointerFlowComponent {
@@ -32,6 +42,12 @@ export interface PointerFlowComponent {
   readonly pointees: readonly PointerPointeeEvidence[];
   readonly producers: readonly PointerOperationFact[];
   readonly blockers: readonly PointerFlowBlocker[];
+  readonly blockerEvidence: readonly PointerFlowBlockerOccurrence[];
+}
+
+export interface PointerFlowBlockerOccurrence {
+  readonly reason: PointerFlowBlocker;
+  readonly occurrences: readonly Node[];
 }
 
 export interface PointerPointeeEvidence {
@@ -42,8 +58,14 @@ export interface PointerPointeeEvidence {
 export class PointerFlowGraph {
   readonly #vertices = new Map<Node, PointerFlowVertex>();
   readonly #parents = new Map<PointerFlowVertex, PointerFlowVertex>();
+  #operationCount = 0;
+
+  get operationCount(): number {
+    return this.#operationCount;
+  }
 
   add(node: Node): PointerFlowVertex {
+    this.#operationCount += 1;
     const existing = this.#vertices.get(node);
     if (existing !== undefined) {
       return existing;
@@ -54,7 +76,7 @@ export class PointerFlowGraph {
       pointerTypes: new Set(),
       pointees: new Map(),
       producers: new Set(),
-      blockers: new Set(),
+      blockerOccurrences: new Map(),
     };
     this.#vertices.set(node, created);
     this.#parents.set(created, created);
@@ -66,6 +88,7 @@ export class PointerFlowGraph {
   }
 
   union(left: PointerFlowVertex, right: PointerFlowVertex): void {
+    this.#operationCount += 1;
     const leftRoot = this.root(left);
     const rightRoot = this.root(right);
     if (leftRoot === rightRoot) {
@@ -77,13 +100,24 @@ export class PointerFlowGraph {
   block(
     vertex: PointerFlowVertex | undefined,
     blocker: PointerFlowBlocker,
+    occurrence: Node,
   ): void {
-    vertex?.blockers.add(blocker);
+    this.#operationCount += 1;
+    if (vertex === undefined) {
+      return;
+    }
+    const existing = vertex.blockerOccurrences.get(blocker);
+    if (existing === undefined) {
+      vertex.blockerOccurrences.set(blocker, new Set([occurrence]));
+    } else {
+      existing.add(occurrence);
+    }
   }
 
   components(): readonly PointerFlowComponent[] {
     const groups = new Map<PointerFlowVertex, PointerFlowVertex[]>();
     for (const vertex of this.#vertices.values()) {
+      this.#operationCount += 1;
       const root = this.root(vertex);
       const group = groups.get(root);
       if (group === undefined) {
@@ -92,12 +126,17 @@ export class PointerFlowGraph {
         group.push(vertex);
       }
     }
-    return Object.freeze([...groups.values()].map(sealComponent));
+    return Object.freeze([...groups.values()].map((vertices) =>
+      sealComponent(vertices, () => {
+        this.#operationCount += 1;
+      })
+    ));
   }
 
   private root(vertex: PointerFlowVertex): PointerFlowVertex {
     let root = vertex;
     for (;;) {
+      this.#operationCount += 1;
       const parent = this.#parents.get(root);
       if (parent === undefined || parent === root) {
         break;
@@ -106,6 +145,7 @@ export class PointerFlowGraph {
     }
     let current = vertex;
     while (current !== root) {
+      this.#operationCount += 1;
       const parent = this.#parents.get(current);
       this.#parents.set(current, root);
       if (parent === undefined || parent === current) {
@@ -119,21 +159,38 @@ export class PointerFlowGraph {
 
 function sealComponent(
   vertices: readonly PointerFlowVertex[],
+  record: () => void,
 ): PointerFlowComponent {
   const operations = new Set<Node>();
   const pointerTypes = new Set<Node>();
   const pointees = new Map<Type, Node>();
   const producers = new Set<PointerOperationFact>();
-  const blockers = new Set<PointerFlowBlocker>();
+  const blockerOccurrences = new Map<PointerFlowBlocker, Set<Node>>();
   for (const vertex of vertices) {
-    append(operations, vertex.operations);
-    append(pointerTypes, vertex.pointerTypes);
+    record();
+    append(operations, vertex.operations, record);
+    append(pointerTypes, vertex.pointerTypes, record);
     for (const [type, anchor] of vertex.pointees) {
+      record();
       pointees.set(type, anchor);
     }
-    append(producers, vertex.producers);
-    append(blockers, vertex.blockers);
+    append(producers, vertex.producers, record);
+    for (const [reason, occurrences] of vertex.blockerOccurrences) {
+      record();
+      const existing = blockerOccurrences.get(reason);
+      if (existing === undefined) {
+        blockerOccurrences.set(reason, new Set(occurrences));
+      } else {
+        append(existing, occurrences, record);
+      }
+    }
   }
+  const blockerEvidence = [...blockerOccurrences]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([reason, occurrences]) => Object.freeze({
+      reason,
+      occurrences: Object.freeze([...occurrences]),
+    }));
   return Object.freeze({
     vertices: Object.freeze([...vertices]),
     operations: Object.freeze([...operations]),
@@ -142,12 +199,18 @@ function sealComponent(
       Object.freeze({ type, anchor })
     )),
     producers: Object.freeze([...producers]),
-    blockers: Object.freeze([...blockers].sort()),
+    blockers: Object.freeze(blockerEvidence.map((entry) => entry.reason)),
+    blockerEvidence: Object.freeze(blockerEvidence),
   });
 }
 
-function append<T>(target: Set<T>, source: ReadonlySet<T>): void {
+function append<T>(
+  target: Set<T>,
+  source: ReadonlySet<T>,
+  record: () => void,
+): void {
   for (const value of source) {
+    record();
     target.add(value);
   }
 }

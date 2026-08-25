@@ -22,14 +22,22 @@ import {
   AsVariableDeclaration,
   IsCallExpression,
   IsExportDeclaration,
+  IsIdentifier,
   IsImportClause,
   IsImportDeclaration,
   IsNamedImports,
   IsPropertyAccessExpression,
   IsVariableDeclaration,
 } from "@tsonic/tsts/target-ast";
-import { createTargetSourceProgram } from "@tsonic/target-api";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
+
+import { createTargetProgramIndex } from "../program-index.js";
+
+import {
+  createClosedPointerFlowPlan,
+  type ClosedPointerFlowPlan,
+} from "./flow-plan.js";
 
 export const pointerMarkerModule = "./markers.js";
 
@@ -82,6 +90,18 @@ export function checkedPointerFixture(
     sourceText,
     additionalFiles,
     createSourceSemanticsExtension({ modules: pointerMarkerSemantics }),
+  );
+}
+
+export function createFixturePointerFlowPlan(
+  source: TargetSourceProgram,
+): ClosedPointerFlowPlan {
+  return createClosedPointerFlowPlan(
+    source,
+    createTargetProgramIndex(source, {
+      bindingWrites: true,
+    }),
+    (sourceFile) => source.documents.forFile(sourceFile).identity,
   );
 }
 
@@ -305,9 +325,13 @@ export function countCallsNamed(
     const property = IsPropertyAccessExpression(expression)
       ? AsPropertyAccessExpression(expression)
       : undefined;
-    const actual = property?.name === undefined
-      ? source.ast.text(expression)
-      : source.ast.text(property.name);
+    const selectedName = property?.name ?? (IsIdentifier(expression)
+      ? expression
+      : undefined);
+    if (selectedName === undefined) {
+      return;
+    }
+    const actual = source.ast.text(selectedName);
     if (actual === name) {
       count += 1;
     }

@@ -1,5 +1,5 @@
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsElementAccessExpression,
   AsPropertyAccessExpression,
@@ -8,6 +8,8 @@ import {
   NewStringLiteral,
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
+
+import type { FinalNodeLookup } from "../final-nodes.js";
 
 import { PointerLoweringError } from "./diagnostic.js";
 import { locationBindingExpression } from "./location-binding.js";
@@ -20,7 +22,7 @@ export function lowerAddressOf(
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
   updatedStorage: Node,
   plan: PointerLoweringPlan,
-  updatedNodes: ReadonlyMap<Node, Node>,
+  finalNodes: FinalNodeLookup,
 ): Node {
   if (source.ast.is.IsIdentifier(operation.storageExpression)) {
     const binding = plan.addressBindings.get(operation.storageExpression);
@@ -59,7 +61,7 @@ export function lowerAddressOf(
       originalProperty.Expression,
       property.Expression,
       plan,
-      updatedNodes,
+      finalNodes,
     );
     return runtimeCall(
       factory,
@@ -105,7 +107,7 @@ export function lowerAddressOf(
       originalElement.Expression,
       element.Expression,
       plan,
-      updatedNodes,
+      finalNodes,
     );
     return runtimeCall(
       factory,
@@ -128,7 +130,7 @@ function lowerValueParentLocation(
   original: Node | undefined,
   updated: Node,
   plan: PointerLoweringPlan,
-  updatedNodes: ReadonlyMap<Node, Node>,
+  finalNodes: FinalNodeLookup,
 ): Node | undefined {
   if (original === undefined) {
     throw new PointerLoweringError(
@@ -143,7 +145,7 @@ function lowerValueParentLocation(
   }
   const operation = plan.operations.get(original);
   if (operation?.operation === "load") {
-    const pointer = updatedNodes.get(operation.pointerExpression);
+    const pointer = finalNodes.forOriginal(operation.pointerExpression);
     if (pointer === undefined) {
       throw new PointerLoweringError(
         "addressed pointer-load parent lacks its exact transformed pointer",
@@ -171,7 +173,7 @@ function lowerValueParentLocation(
       originalProperty.Expression,
       updatedProperty.Expression,
       plan,
-      updatedNodes,
+      finalNodes,
     );
     const key = requiredNode(
       NewStringLiteral(factory, source.ast.text(originalProperty.name), 0),
@@ -208,7 +210,7 @@ function lowerValueParentLocation(
     originalElement.Expression,
     updatedElement.Expression,
     plan,
-    updatedNodes,
+    finalNodes,
   );
   return runtimeCall(
     factory,

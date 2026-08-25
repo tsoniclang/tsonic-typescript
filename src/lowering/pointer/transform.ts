@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsExportDeclaration,
   AsImportClause,
@@ -21,6 +21,19 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
+import {
+  createFinalNodeJournal,
+  type FinalNodeLookup,
+} from "../final-nodes.js";
+import {
+  createProgramGeneratedNames,
+  type SourceFileGeneratedNames,
+} from "../generated-names.js";
+import {
+  createTargetProgramIndex,
+  type TargetProgramIndex,
+} from "../program-index.js";
+
 import { PointerLoweringError } from "./diagnostic.js";
 import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 import { pointerFlowRepresentation, pointerLoweringPlanUsesRuntime } from "./flow-application.js";
@@ -41,6 +54,7 @@ import {
   lowerOptimizedPointerOperation,
   lowerOptimizedPointerType,
 } from "./representation-ast.js";
+import { lowerPointerProjectionFusion } from "./projection-fusion-ast.js";
 import {
   prependRuntimeImport,
 } from "./runtime-ast.js";
@@ -60,7 +74,18 @@ export function lowerPointers(
   sourceFile: SourceFile,
   flowPlan?: ClosedPointerFlowPlan,
 ): PointerLoweringResult {
-  const plan = createPointerLoweringPlan(source, sourceFile, flowPlan);
+  const program = createTargetProgramIndex(source, {
+    bindingWrites: false,
+  });
+  const generatedNames = createProgramGeneratedNames(source, program)
+    .forFile(sourceFile);
+  const plan = createPointerLoweringPlan(
+    source,
+    sourceFile,
+    program,
+    generatedNames,
+    flowPlan,
+  );
   return applyPointerLoweringPlan(source, plan);
 }
 
@@ -96,10 +121,14 @@ function applyPointerLoweringPlan(
       runtimeAlias: undefined,
     });
   }
-  const session = createPointerRewriteSessionForPlan(source, plan);
+  const finalNodes = createFinalNodeJournal();
+  const session = createPointerRewriteSessionForPlan(source, plan, finalNodes);
   const transformed = transformTargetSourceFile(
     sourceFile,
-    session.rewrite,
+    (original, updated, factory) => finalNodes.record(
+      original,
+      session.rewrite(original, updated, factory),
+    ),
   );
   return session.finish(transformed);
 }
@@ -107,17 +136,28 @@ function applyPointerLoweringPlan(
 export function createPointerRewriteSession(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
-  flowPlan?: ClosedPointerFlowPlan,
+  program: TargetProgramIndex,
+  generatedNames: SourceFileGeneratedNames,
+  flowPlan: ClosedPointerFlowPlan | undefined,
+  finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
   return createPointerRewriteSessionForPlan(
     source,
-    createPointerLoweringPlan(source, sourceFile, flowPlan),
+    createPointerLoweringPlan(
+      source,
+      sourceFile,
+      program,
+      generatedNames,
+      flowPlan,
+    ),
+    finalNodes,
   );
 }
 
 function createPointerRewriteSessionForPlan(
   source: TargetSourceProgram,
   plan: PointerLoweringPlan,
+  finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
   const consumed = createConsumptionState();
   let finished = false;
@@ -133,13 +173,11 @@ function createPointerRewriteSessionForPlan(
       source,
       plan,
       consumed,
+      finalNodes,
       original,
       updated,
       factory,
     );
-    if (rewritten !== undefined) {
-      consumed.updatedNodes.set(original, rewritten);
-    }
     return rewritten;
   };
   return Object.freeze({
@@ -168,7 +206,7 @@ function pointerLoweringResult(
     rawPointerOperationCount: consumed.rawPointerOperations.size,
     rawPointerTypeCount: consumed.rawPointerTypes.size,
     locationBindingCount: consumed.locationBindings.size,
-    runtimeAlias: usesRuntime ? plan.runtimeAlias : undefined,
+    runtimeAlias: usesRuntime ? plan.runtimeAlias.text : undefined,
   });
 }
 
@@ -179,7 +217,6 @@ interface ConsumptionState {
   readonly rawPointerTypes: Set<Node>;
   readonly locationBindings: Set<Node>;
   readonly removableMarkerDeclarations: Set<Node>;
-  readonly updatedNodes: Map<Node, Node>;
 }
 
 function createConsumptionState(): ConsumptionState {
@@ -190,7 +227,6 @@ function createConsumptionState(): ConsumptionState {
     rawPointerTypes: new Set(),
     locationBindings: new Set(),
     removableMarkerDeclarations: new Set(),
-    updatedNodes: new Map(),
   };
 }
 
@@ -198,6 +234,7 @@ function rewriteNode(
   source: TargetSourceProgram,
   plan: PointerLoweringPlan,
   consumed: ConsumptionState,
+  finalNodes: FinalNodeLookup,
   original: Node,
   updated: Node,
   factory: NodeFactory,
@@ -251,11 +288,26 @@ function rewriteNode(
   const operation = plan.operations.get(original);
   if (operation !== undefined) {
     consumed.operations.add(original);
+    const projectionFusion = plan.flowPlan?.projectionFusionFor(original);
+    if (projectionFusion !== undefined) {
+      return lowerPointerProjectionFusion(
+        source,
+        factory,
+        projectionFusion,
+        finalNodes,
+      );
+    }
+    if (plan.flowPlan?.ownsFusedProjection(original) === true) {
+      return updated;
+    }
     const optimized = lowerOptimizedPointerOperation(
+      source,
       factory,
       operation,
       updated,
       pointerFlowRepresentation(plan, original),
+      plan.runtimeAlias,
+      plan.referenceHashes.get(original),
     );
     if (optimized !== undefined) {
       return optimized;
@@ -266,7 +318,7 @@ function rewriteNode(
       operation,
       updated,
       plan,
-      consumed.updatedNodes,
+      finalNodes,
     );
   }
 
@@ -314,7 +366,7 @@ function rewriteNode(
       original,
       structuralResult,
       plan,
-      consumed.updatedNodes,
+      finalNodes,
       (binding) => consumed.locationBindings.add(binding.declaration),
     );
   } else {

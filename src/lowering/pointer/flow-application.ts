@@ -18,6 +18,9 @@ export function pointerLoweringPlanUsesRuntime(
     }
   }
   for (const operation of plan.operations.values()) {
+    if (pointerOperationIsFused(plan.flowPlan, operation.call)) {
+      continue;
+    }
     if (
       operationNeedsRuntime(
         operation,
@@ -28,6 +31,14 @@ export function pointerLoweringPlanUsesRuntime(
     }
   }
   return false;
+}
+
+export function pointerOperationIsFused(
+  flowPlan: ClosedPointerFlowPlan | undefined,
+  node: Node,
+): boolean {
+  return flowPlan?.projectionFusionFor(node) !== undefined ||
+    flowPlan?.ownsFusedProjection(node) === true;
 }
 
 export function pointerFlowRepresentation(
@@ -58,9 +69,11 @@ function operationUsesRuntimeValue(
   operation: PointerOperationFact,
   representation: PointerFlowRepresentation,
 ): boolean {
-  return representation === "location" &&
-    operation.operation !== "load" &&
-    operation.operation !== "store";
+  return representation === "direct-object" || representation === "mutable-cell"
+    ? operation.operation === "hash-pointer"
+    : representation === "location" &&
+      operation.operation !== "load" &&
+      operation.operation !== "store";
 }
 
 function operationNeedsRuntime(

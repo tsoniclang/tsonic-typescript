@@ -2,8 +2,12 @@ import type { TargetSelection } from "@tsonic/target-api";
 
 import {
   canonicalTypeScriptOptimizationProfile,
+  createTypeScriptOptimizationProfile,
   type TypeScriptOptimizationProfile,
 } from "../lowering/profile.js";
+import type {
+  TypeScriptSourceExecutionProfile,
+} from "../source-contract/execution.js";
 
 export interface TypeScriptAstPrinterOptions {
   readonly executable: string;
@@ -12,6 +16,7 @@ export interface TypeScriptAstPrinterOptions {
 
 export interface TypeScriptTargetOptions {
   readonly printer: TypeScriptAstPrinterOptions;
+  readonly execution: TypeScriptSourceExecutionProfile;
   readonly optimizations: TypeScriptOptimizationProfile;
 }
 
@@ -24,25 +29,44 @@ export function readTypeScriptTargetOptions(
   }
   rejectUnknownKeys(
     options,
-    new Set(["printer", "optimizations"]),
+    new Set(["printer", "execution", "optimizations"]),
     "TypeScript target options",
   );
-  const printer = options["printer"];
-  if (!isRecord(printer)) {
+  return Object.freeze({
+    printer: readPrinter(options["printer"]),
+    execution: readExecution(options["execution"]),
+    optimizations: readOptimizationOptions(options["optimizations"]),
+  });
+}
+
+function readExecution(value: unknown): TypeScriptSourceExecutionProfile {
+  if (value === undefined || value === "unrestricted") {
+    return "unrestricted";
+  }
+  if (value === "synchronous") {
+    return value;
+  }
+  throw new Error(
+    "TypeScript target option 'execution' must be 'unrestricted' or 'synchronous'",
+  );
+}
+
+function readPrinter(value: unknown): TypeScriptAstPrinterOptions {
+  if (!isRecord(value)) {
     throw new Error("TypeScript target option 'printer' must be an object");
   }
   rejectUnknownKeys(
-    printer,
+    value,
     new Set(["executable", "arguments"]),
     "TypeScript target printer",
   );
-  const executable = printer["executable"];
+  const executable = value["executable"];
   if (typeof executable !== "string" || executable.length === 0) {
     throw new Error(
       "TypeScript target printer 'executable' must be a non-empty string",
     );
   }
-  const rawArguments = printer["arguments"];
+  const rawArguments = value["arguments"];
   if (rawArguments !== undefined && !Array.isArray(rawArguments)) {
     throw new Error("TypeScript target printer 'arguments' must be an array");
   }
@@ -56,13 +80,9 @@ export function readTypeScriptTargetOptions(
       }
       return argument;
     });
-  const optimizations = readOptimizationOptions(options["optimizations"]);
   return Object.freeze({
-    printer: Object.freeze({
-      executable,
-      arguments: Object.freeze(arguments_),
-    }),
-    optimizations,
+    executable,
+    arguments: Object.freeze(arguments_),
   });
 }
 
@@ -75,10 +95,14 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
   }
   rejectUnknownKeys(
     value,
-    new Set(["pointerFlows", "scalarProjections"]),
+    new Set([
+      "pointerFlows",
+      "scalarProjections",
+      "representationProjections",
+    ]),
     "TypeScript target optimizations",
   );
-  return Object.freeze({
+  return createTypeScriptOptimizationProfile({
     pointerFlows: readClosedChoice(
       value["pointerFlows"],
       "pointerFlows",
@@ -87,6 +111,11 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
     scalarProjections: readClosedChoice(
       value["scalarProjections"],
       "scalarProjections",
+      "preserve",
+    ),
+    representationProjections: readClosedChoice(
+      value["representationProjections"],
+      "representationProjections",
       "preserve",
     ),
   });

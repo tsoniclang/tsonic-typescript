@@ -1,5 +1,5 @@
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsCallExpression,
   AsTypeReferenceNode,
@@ -11,6 +11,9 @@ import {
   NewVoidExpression,
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
+
+import type { FinalNodeLookup } from "../final-nodes.js";
+import type { GeneratedBindingName } from "../generated-names.js";
 
 import { lowerAddressOf } from "./address.js";
 import { PointerLoweringError } from "./diagnostic.js";
@@ -24,7 +27,7 @@ import {
 export function lowerLocationPointerType(
   factory: NodeFactory,
   updated: Node,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node {
   const typeReference = IsTypeReferenceNode(updated)
     ? AsTypeReferenceNode(updated)
@@ -52,7 +55,7 @@ export function lowerLocationPointerOperation(
   operation: PointerOperationFact,
   updated: Node,
   plan: PointerLoweringPlan,
-  updatedNodes: ReadonlyMap<Node, Node>,
+  finalNodes: FinalNodeLookup,
 ): Node {
   const call = IsCallExpression(updated) ? AsCallExpression(updated) : undefined;
   if (call === undefined) {
@@ -141,7 +144,7 @@ export function lowerLocationPointerOperation(
         operation,
         requiredElement(arguments_, 0),
         plan,
-        updatedNodes,
+        finalNodes,
       );
   }
 }
@@ -150,7 +153,7 @@ function explicitLocationType(
   factory: NodeFactory,
   operation: PointerOperationFact,
   call: NonNullable<ReturnType<typeof AsCallExpression>>,
-  runtimeAlias: string,
+  runtimeAlias: GeneratedBindingName,
 ): Node | undefined {
   if (operation.explicitPointeeTypeNode === undefined) {
     return undefined;

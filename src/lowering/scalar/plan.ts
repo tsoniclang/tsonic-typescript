@@ -1,11 +1,10 @@
 import type {
   Node,
   SourceFile,
-  Type,
 } from "@tsonic/tsts";
 import type {
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 import {
   AsClassDeclaration,
   AsConstructorDeclaration,
@@ -27,9 +26,46 @@ import {
   IsSemicolonClassElement,
   IsSetAccessorDeclaration,
   IsSpreadElement,
+  KindPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
+import type { TargetProgramIndex } from "../program-index.js";
+import type { SourceIdentityResolver } from "../occurrence.js";
+import {
+  createOptimizationRetentionLedger,
+  type BoundedOptimizationReasonEvidence,
+} from "../retention-evidence.js";
+import {
+  portableScalarKind,
+  scalarPrimitiveKind,
+  type ScalarPrimitiveKind,
+} from "./portable-type.js";
+import {
+  createScalarClassFlowPlan,
+  type ScalarClassRetentionReason,
+  type ScalarClassRewrite,
+} from "./class-flow.js";
+
+export type { ScalarPrimitiveKind } from "./portable-type.js";
 
 export type ScalarRepresentationProfile = "preserve" | "closed-direct";
+
+export const scalarProjectionRetentionReasons = Object.freeze([
+  "profile-preserved",
+  "open-constructor-target",
+  "mutable-class-binding",
+  "observable-construction",
+  "nonreadonly-scalar-field",
+  "non-scalar-value",
+  "nonportable-cross-module-type",
+  "open-call-or-projection",
+] as const);
+
+export type ScalarProjectionRetentionReason =
+  typeof scalarProjectionRetentionReasons[number];
+
+export type ScalarProjectionResultType =
+  | { readonly kind: "authored"; readonly node: Node }
+  | { readonly kind: "primitive"; readonly primitive: ScalarPrimitiveKind };
 
 export interface ScalarProjectionPlan {
   readonly access: Node;
@@ -39,7 +75,21 @@ export interface ScalarProjectionPlan {
   readonly classDeclaration: Node;
   readonly constructorDeclaration: Node;
   readonly fieldDeclaration: Node;
-  readonly resultTypeNode: Node;
+  readonly resultType: ScalarProjectionResultType;
+}
+
+type ScalarProjectionDecision =
+  | {
+      readonly kind: "optimized";
+      readonly access: Node;
+      readonly projection: ScalarProjectionPlan;
+    }
+  | ScalarProjectionRetention;
+
+interface ScalarProjectionRetention {
+  readonly kind: "retained";
+  readonly access: Node;
+  readonly reason: ScalarProjectionRetentionReason;
 }
 
 export interface ScalarRepresentationPlan {
@@ -48,46 +98,103 @@ export interface ScalarRepresentationPlan {
   readonly syntacticProjectionCount: number;
   readonly projectionCount: number;
   readonly retainedProjectionCount: number;
+  readonly fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    ScalarProjectionRetentionReason
+  >[];
+  readonly scalarClassCandidateCount: number;
+  readonly loweredScalarClassCount: number;
+  readonly retainedScalarClassCount: number;
+  readonly scalarClassFallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    ScalarClassRetentionReason
+  >[];
+  owns(source: TargetSourceProgram): boolean;
   projectionFor(access: Node): ScalarProjectionPlan | undefined;
   projectionsFor(sourceFile: SourceFile): readonly ScalarProjectionPlan[];
+  scalarClassRewriteFor(node: Node): ScalarClassRewrite | undefined;
+  scalarClassRewritesFor(sourceFile: SourceFile): readonly Node[];
 }
 
 interface TransparentClassProof {
   readonly constructorDeclaration: Node;
   readonly parameterDeclaration: Node;
-  readonly selectedType: Type;
   readonly resultTypeNode: Node;
+  readonly portableResultType?: ScalarPrimitiveKind;
 }
+
+type TransparentClassResolution =
+  | { readonly kind: "proved"; readonly proof: TransparentClassProof }
+  | { readonly kind: "retained"; readonly reason: ScalarProjectionRetentionReason };
 
 const noProjections = Object.freeze([]) as readonly ScalarProjectionPlan[];
 
 export function createScalarRepresentationPlan(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   profile: ScalarRepresentationProfile,
+  sourceIdentityFor: SourceIdentityResolver,
 ): ScalarRepresentationPlan {
   if (profile !== "preserve" && profile !== "closed-direct") {
     throw new Error(`unsupported scalar representation profile '${String(profile)}'`);
   }
   let syntacticProjectionCount = 0;
-  const classProofs = new Map<Node, TransparentClassProof | undefined>();
+  const classProofs = new Map<Node, TransparentClassResolution>();
+  const portableScalarKinds = new Map<Node, ScalarPrimitiveKind | undefined>();
+  const resolveClass = (declaration: Node): TransparentClassResolution => {
+    let resolution = classProofs.get(declaration);
+    if (resolution === undefined) {
+      resolution = proveTransparentClass(
+        source,
+        program,
+        declaration,
+        portableScalarKinds,
+      );
+      classProofs.set(declaration, resolution);
+    }
+    return resolution;
+  };
   const projections: ScalarProjectionPlan[] = [];
-  forEachProgramNode(source, (node) => {
+  const retentions = createOptimizationRetentionLedger(
+    source,
+    sourceIdentityFor,
+    scalarProjectionRetentionReasons,
+  );
+  for (const node of program.nodesOfKind(KindPropertyAccessExpression)) {
     if (!isSyntacticProjection(node)) {
-      return;
+      continue;
     }
     syntacticProjectionCount += 1;
-    if (profile === "closed-direct") {
-      const projection = resolveProjection(source, node, classProofs);
-      if (projection !== undefined) {
-        projections.push(projection);
-      }
+    const decision = profile === "closed-direct"
+      ? resolveProjection(
+        source,
+        program,
+        node,
+        classProofs,
+        portableScalarKinds,
+      )
+      : retainProjection(node, "profile-preserved");
+    if (decision.kind === "optimized") {
+      projections.push(decision.projection);
+    } else {
+      retentions.record(decision.reason, decision.access);
     }
-  });
+  }
+  const scalarClasses = createScalarClassFlowPlan(
+    source,
+    program,
+    profile,
+    resolveClass,
+    new Set(projections.map((projection) => projection.construction)),
+    new Set(projections.map((projection) => projection.access)),
+    sourceIdentityFor,
+  );
   return sealPlan(
     source,
     profile,
     syntacticProjectionCount,
     projections,
+    retentions.count,
+    retentions.seal(),
+    scalarClasses,
   );
 }
 
@@ -96,12 +203,22 @@ function sealPlan(
   profile: ScalarRepresentationProfile,
   syntacticProjectionCount: number,
   projections: readonly ScalarProjectionPlan[],
+  retainedProjectionCount: number,
+  fallbackReasons: readonly BoundedOptimizationReasonEvidence<
+    ScalarProjectionRetentionReason
+  >[],
+  scalarClasses: ReturnType<typeof createScalarClassFlowPlan>,
 ): ScalarRepresentationPlan {
+  if (projections.length + retainedProjectionCount !== syntacticProjectionCount) {
+    throw new Error(
+      `scalar decision mismatch: candidates ${syntacticProjectionCount}, decisions ${projections.length + retainedProjectionCount}`,
+    );
+  }
   const byAccess = new Map<Node, ScalarProjectionPlan>();
   const byFile = new Map<SourceFile, ScalarProjectionPlan[]>();
   for (const projection of projections) {
     if (byAccess.has(projection.access)) {
-      throw new Error("one scalar projection cannot be planned twice");
+      throw new Error("one scalar projection cannot be decided twice");
     }
     byAccess.set(projection.access, projection);
     const sourceFile = source.ast.getSourceFile(projection.access);
@@ -115,6 +232,13 @@ function sealPlan(
       fileProjections.push(projection);
     }
   }
+  if (
+    projections.length + retainedProjectionCount !== syntacticProjectionCount ||
+    fallbackReasons.reduce((sum, row) => sum + row.count, 0) !==
+      retainedProjectionCount
+  ) {
+    throw new Error("scalar decisions do not partition the exact denominator");
+  }
   const sealedByFile = new Map<SourceFile, readonly ScalarProjectionPlan[]>();
   for (const [sourceFile, fileProjections] of byFile) {
     sealedByFile.set(sourceFile, Object.freeze([...fileProjections]));
@@ -124,37 +248,28 @@ function sealPlan(
     moduleBoundary: profile === "closed-direct" ? "closed" : "open",
     syntacticProjectionCount,
     projectionCount: projections.length,
-    retainedProjectionCount: syntacticProjectionCount - projections.length,
+    retainedProjectionCount,
+    fallbackReasons,
+    scalarClassCandidateCount: scalarClasses.candidateCount,
+    loweredScalarClassCount: scalarClasses.loweredCount,
+    retainedScalarClassCount: scalarClasses.retainedCount,
+    scalarClassFallbackReasons: scalarClasses.fallbackReasons,
+    owns(candidate: TargetSourceProgram): boolean {
+      return candidate === source;
+    },
     projectionFor(access: Node): ScalarProjectionPlan | undefined {
       return byAccess.get(access);
     },
     projectionsFor(sourceFile: SourceFile): readonly ScalarProjectionPlan[] {
       return sealedByFile.get(sourceFile) ?? noProjections;
     },
+    scalarClassRewriteFor(node: Node): ScalarClassRewrite | undefined {
+      return scalarClasses.rewriteFor(node);
+    },
+    scalarClassRewritesFor(sourceFile: SourceFile): readonly Node[] {
+      return scalarClasses.rewritesFor(sourceFile);
+    },
   });
-}
-
-function forEachProgramNode(
-  source: TargetSourceProgram,
-  visit: (node: Node) => void,
-): void {
-  for (const sourceFile of source.sourceFiles) {
-    const pending: Node[] = [sourceFile];
-    while (pending.length > 0) {
-      const node = pending.pop();
-      if (node === undefined) {
-        continue;
-      }
-      visit(node);
-      const children = source.ast.children(node);
-      for (let index = children.length - 1; index >= 0; index -= 1) {
-        const child = children[index];
-        if (child !== undefined) {
-          pending.push(child);
-        }
-      }
-    }
-  }
 }
 
 function isSyntacticProjection(node: Node): boolean {
@@ -179,9 +294,11 @@ function isSyntacticProjection(node: Node): boolean {
 
 function resolveProjection(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   node: Node,
-  classProofs: Map<Node, TransparentClassProof | undefined>,
-): ScalarProjectionPlan | undefined {
+  classProofs: Map<Node, TransparentClassResolution>,
+  portableScalarKinds: Map<Node, ScalarPrimitiveKind | undefined>,
+): ScalarProjectionDecision {
   const access = AsPropertyAccessExpression(node);
   const construction = access?.Expression === undefined
     ? undefined
@@ -195,37 +312,60 @@ function resolveProjection(
     argument === undefined ||
     !IsIdentifier(constructorTarget)
   ) {
-    return undefined;
+    return retainProjection(node, "open-constructor-target");
   }
   const reference = source.navigation.sourceReferenceFor(constructorTarget);
   if (
     reference === undefined ||
     !reference.project ||
-    !IsClassDeclaration(reference.declaration) ||
-    source.ast.getSourceFile(reference.declaration) !==
-      source.ast.getSourceFile(node)
+    !IsClassDeclaration(reference.declaration)
   ) {
-    return undefined;
+    return retainProjection(node, "open-constructor-target");
   }
   const classDeclaration = reference.declaration;
-  const sourceFile = source.ast.getSourceFile(classDeclaration);
-  if (
-    sourceFile === undefined ||
-    source.navigation.bindingWritesWithin(reference.symbol, sourceFile).length !== 0
-  ) {
-    return undefined;
+  const classSourceFile = source.ast.getSourceFile(classDeclaration);
+  const useSourceFile = source.ast.getSourceFile(node);
+  if (classSourceFile === undefined || useSourceFile === undefined) {
+    return retainProjection(node, "open-constructor-target");
   }
-  let classProof = classProofs.get(classDeclaration);
+  const sameSourceFile = classSourceFile === useSourceFile;
+  let classResolution = classProofs.get(classDeclaration);
   if (!classProofs.has(classDeclaration)) {
-    classProof = proveTransparentClass(source, classDeclaration);
-    classProofs.set(classDeclaration, classProof);
+    classResolution = proveTransparentClass(
+      source,
+      program,
+      classDeclaration,
+      portableScalarKinds,
+    );
+    classProofs.set(classDeclaration, classResolution);
   }
-  if (classProof === undefined) {
-    return undefined;
+  if (classResolution === undefined) {
+    throw new Error("scalar class proof cache lost its exact decision");
+  }
+  if (classResolution.kind === "retained") {
+    return retainProjection(node, classResolution.reason);
+  }
+  const classProof = classResolution.proof;
+  let resultType: ScalarProjectionResultType;
+  if (sameSourceFile) {
+    resultType = Object.freeze({
+      kind: "authored",
+      node: classProof.resultTypeNode,
+    });
+  } else {
+    const portable = classProof.portableResultType;
+    if (portable === undefined) {
+      return retainProjection(node, "nonportable-cross-module-type");
+    }
+    resultType = Object.freeze({ kind: "primitive", primitive: portable });
   }
 
   const semantics = source.semantics.forNode(node);
-  const property = semantics.getResolvedPropertyAccessInfo(node);
+  const property = semantics.operations.propertyAccess(node);
+  const call = semantics.operations.call(construction);
+  const selectedParameter = call?.sourceSelectedSignatureParameters[0];
+  const argumentBinding = call?.sourceArgumentBindings[0];
+  const sourceArgument = call?.sourceArguments[0];
   if (
     property === undefined ||
     property.expression !== node ||
@@ -234,22 +374,38 @@ function resolveProjection(
     property.accessMode !== "read" ||
     property.optionalChain ||
     property.callCallee ||
-    semantics.getTypeRelationship(
+    call?.outcome !== "applicable" ||
+    call.call !== construction ||
+    call.optionalChain ||
+    call.sourceSelectedSignatureKind !== "resolved" ||
+    semantics.declarations.signatureDeclaration(call.selectedSignature) !==
+      classProof.constructorDeclaration ||
+    call.sourceSelectedSignatureParameters.length !== 1 ||
+    selectedParameter === undefined ||
+    selectedParameter.parameterIndex !== 0 ||
+    selectedParameter.parameterDeclaration !== classProof.parameterDeclaration ||
+    selectedParameter.authoredTypeNode !== classProof.resultTypeNode ||
+    call.sourceArguments.length !== 1 ||
+    sourceArgument?.expression !== argument ||
+    call.sourceArgumentBindings.length !== 1 ||
+    argumentBinding === undefined ||
+    argumentBinding.sourceArgumentIndex !== 0 ||
+    argumentBinding.effectiveArgumentIndex !== 0 ||
+    argumentBinding.sourceForm !== "value" ||
+    argumentBinding.sourceParameterIndex !== 0 ||
+    argumentBinding.sourceParameterForm !== "parameter" ||
+    semantics.types.relationship(
       property.sourceReadType,
-      classProof.selectedType,
+      selectedParameter.selectedType,
+    ) !== "identical" ||
+    semantics.types.relationship(
+      argumentBinding.selectedParameterType,
+      selectedParameter.selectedType,
     ) !== "identical"
   ) {
-    return undefined;
+    return retainProjection(node, "open-call-or-projection");
   }
-  const signature = semantics.getResolvedSignature(construction);
-  if (
-    signature === undefined ||
-    semantics.getSignatureDeclaration(signature) !==
-      classProof.constructorDeclaration
-  ) {
-    return undefined;
-  }
-  return Object.freeze({
+  const projection: ScalarProjectionPlan = Object.freeze({
     access: node,
     construction,
     constructorTarget,
@@ -257,31 +413,55 @@ function resolveProjection(
     classDeclaration,
     constructorDeclaration: classProof.constructorDeclaration,
     fieldDeclaration: classProof.parameterDeclaration,
-    resultTypeNode: classProof.resultTypeNode,
+    resultType,
+  });
+  return Object.freeze({
+    kind: "optimized",
+    access: node,
+    projection,
   });
 }
 
 function proveTransparentClass(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   declaration: Node,
-): TransparentClassProof | undefined {
+  portableScalarKinds: Map<Node, ScalarPrimitiveKind | undefined>,
+): TransparentClassResolution {
   const classDeclaration = AsClassDeclaration(declaration);
   if (
     classDeclaration === undefined ||
-    classDeclaration.name === undefined ||
+    classDeclaration.name === undefined
+  ) {
+    return retainClass("open-constructor-target");
+  }
+  if (
     source.ast.extendsHeritageElements(declaration).length !== 0 ||
     hasDecorator(source, declaration) ||
     source.ast.hasModifierKind(declaration, "abstract") ||
     source.ast.hasModifierKind(declaration, "ambient") ||
     !classMembersAreProjectionSafe(source, declaration)
   ) {
-    return undefined;
+    return retainClass("observable-construction");
+  }
+  const classReference = source.navigation.sourceReferenceFor(
+    classDeclaration.name,
+  );
+  if (
+    classReference === undefined ||
+    !classReference.project ||
+    classReference.declaration !== declaration
+  ) {
+    return retainClass("open-constructor-target");
+  }
+  if (program.bindingWritesFor(declaration).length !== 0) {
+    return retainClass("mutable-class-binding");
   }
   const constructors = source.ast.members(declaration).filter((member) =>
     member !== undefined && IsConstructorDeclaration(member)
   );
   if (constructors.length !== 1) {
-    return undefined;
+    return retainClass("observable-construction");
   }
   const constructorDeclaration = constructors[0];
   const constructor = AsConstructorDeclaration(constructorDeclaration);
@@ -295,7 +475,7 @@ function proveTransparentClass(
     source.ast.statements(body).length !== 0 ||
     parameters.length !== 1
   ) {
-    return undefined;
+    return retainClass("observable-construction");
   }
   const parameterDeclaration = parameters[0];
   const parameter = AsParameterDeclaration(parameterDeclaration);
@@ -310,7 +490,7 @@ function proveTransparentClass(
     !source.ast.hasModifierKind(parameterDeclaration, "readonly") ||
     hasDecorator(source, parameterDeclaration)
   ) {
-    return undefined;
+    return retainClass("nonreadonly-scalar-field");
   }
   const constructorsEvidence = source.navigation.classConstructors(declaration);
   if (
@@ -319,7 +499,7 @@ function proveTransparentClass(
     constructorsEvidence.declaration !== declaration ||
     constructorsEvidence.signatures.length !== 1
   ) {
-    return undefined;
+    return retainClass("open-call-or-projection");
   }
   const signature = constructorsEvidence.signatures[0];
   const selectedParameter = signature?.parameters[0];
@@ -331,17 +511,32 @@ function proveTransparentClass(
     selectedParameter.parameterDeclaration !== parameterDeclaration ||
     selectedParameter.authoredTypeNode !== parameter.Type
   ) {
-    return undefined;
+    return retainClass("open-call-or-projection");
   }
   const semantics = source.semantics.forNode(declaration);
-  if (!isScalarType(semantics, selectedParameter.selectedType)) {
-    return undefined;
+  const scalarKind = scalarPrimitiveKind(
+    semantics,
+    selectedParameter.selectedType,
+  );
+  if (scalarKind === undefined) {
+    return retainClass("non-scalar-value");
   }
+  const portableKind = portableScalarKind(
+    source,
+    parameter.Type,
+    portableScalarKinds,
+  );
+  const portableResultType = portableKind === scalarKind
+    ? portableKind
+    : undefined;
   return Object.freeze({
-    constructorDeclaration,
-    parameterDeclaration,
-    selectedType: selectedParameter.selectedType,
-    resultTypeNode: parameter.Type,
+    kind: "proved",
+    proof: Object.freeze({
+      constructorDeclaration,
+      parameterDeclaration,
+      resultTypeNode: parameter.Type,
+      ...(portableResultType === undefined ? {} : { portableResultType }),
+    }),
   });
 }
 
@@ -381,14 +576,17 @@ function classMembersAreProjectionSafe(
   return true;
 }
 
-function isScalarType(
-  semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
-  type: Type,
-): boolean {
-  return semantics.isNumberLike(type) ||
-    semantics.isStringLike(type) ||
-    semantics.isBooleanLike(type) ||
-    semantics.isBigIntLike(type);
+function retainProjection(
+  access: Node,
+  reason: ScalarProjectionRetentionReason,
+): ScalarProjectionRetention {
+  return Object.freeze({ kind: "retained", access, reason });
+}
+
+function retainClass(
+  reason: ScalarProjectionRetentionReason,
+): TransparentClassResolution {
+  return Object.freeze({ kind: "retained", reason });
 }
 
 function hasDecorator(source: TargetSourceProgram, node: Node): boolean {

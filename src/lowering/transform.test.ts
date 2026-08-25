@@ -41,7 +41,9 @@ test("composes pointer and scalar lowering in one target-AST traversal", () => {
     {
       pointerFlows: "closed-direct",
       scalarProjections: "closed-direct",
+      representationProjections: "closed-direct",
     },
+    sourceIdentity(fixture),
   ));
   const results = files.map((sourceFile) => transaction.lower(sourceFile));
   transaction.finish();
@@ -73,6 +75,7 @@ test("canonical transaction is byte-identical to canonical pointer lowering", ()
     fixture.source,
     files,
     canonicalTypeScriptOptimizationProfile(),
+    sourceIdentity(fixture),
   ));
   let transformed: SourceFile | undefined;
   for (const sourceFile of files) {
@@ -98,6 +101,7 @@ test("requires one exact complete source membership", () => {
       fixture.source,
       files.slice(1),
       canonicalTypeScriptOptimizationProfile(),
+      sourceIdentity(fixture),
     ),
     /every exact checked project source file once/,
   );
@@ -106,6 +110,7 @@ test("requires one exact complete source membership", () => {
       fixture.source,
       [...files, files[0] as SourceFile],
       canonicalTypeScriptOptimizationProfile(),
+      sourceIdentity(fixture),
     ),
     /every exact checked project source file once/,
   );
@@ -148,7 +153,14 @@ function newTransaction(
     fixture.source,
     files,
     canonicalTypeScriptOptimizationProfile(),
+    sourceIdentity(fixture),
   ));
+}
+
+function sourceIdentity(
+  fixture: ReturnType<typeof checkedPointerFixture>,
+): (sourceFile: SourceFile) => string {
+  return (sourceFile) => fixture.source.ast.getFileName(sourceFile);
 }
 
 function requireTransaction(

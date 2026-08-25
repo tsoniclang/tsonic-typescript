@@ -1,109 +1,107 @@
 import { isAbsolute, relative } from "node:path";
 
-import type {
-  TargetArtifact,
-  TargetBackend,
-  TargetCompileInput,
-  TargetCompileResult,
-} from "@tsonic/target-api";
+import type { TargetCompileInput } from "@tsonic/target-api";
+import {
+  rejectedTargetStage,
+  resolvedTargetStage,
+  type TargetArtifact,
+  type TargetCompileResult,
+} from "@tsonic/target-api/artifacts";
 import {
   encodeTargetSourceFileForPrinting,
   TargetAstEncodingError,
 } from "@tsonic/tsts/target-ast";
+import type { SourceFile } from "@tsonic/tsts";
 
 import {
   canonicalTypeScriptOptimizationProfile,
-  type TypeScriptOptimizationProfile,
+  createTypeScriptOptimizationProfile,
+  type TypeScriptOptimizationProfileInput,
 } from "../lowering/profile.js";
+import type { TypeScriptOptimizationEvidence } from "../lowering/evidence.js";
+import type {
+  TypeScriptSourceExecutionProfile,
+} from "../source-contract/execution.js";
 import {
   prepareTypeScriptLowering,
+  type TypeScriptLoweringTransaction,
 } from "../lowering/transform.js";
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { createTypeScriptProjectArtifact } from "./project-artifact.js";
+import { createOptimizationEvidenceArtifact } from "./optimization-evidence-artifact.js";
 import {
   printEncodedTypeScriptSources,
   type EncodedTypeScriptSource,
 } from "./source-artifact-batches.js";
 import { compareSourceDocumentIdentities } from "./source-order.js";
 
-export function createTypeScriptBackend(
+export function compileTypeScriptTarget(
+  input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
-  profile: TypeScriptOptimizationProfile = canonicalTypeScriptOptimizationProfile(),
-): TargetBackend {
-  return {
-    compile(input: TargetCompileInput): TargetCompileResult {
-      try {
-        const compiled = compileSourceArtifacts(input, printer, profile);
-        if (compiled.diagnostics.length > 0) {
-          return {
-            artifacts: [],
-            diagnostics: compiled.diagnostics,
-          };
-        }
-        return {
-          artifacts: Object.freeze([
-            createTypeScriptProjectArtifact(
-              input.runtimeReferences,
-              compiled.usesRuntime,
-            ),
-            ...compiled.artifacts,
-          ]),
-          diagnostics: [],
-        };
-      } catch (error) {
-        return {
-          artifacts: [],
-          diagnostics: [{
-            code: "TYPESCRIPT_TARGET_LOWERING",
-            category: "error",
-            source: "@tsonic/target-typescript",
-            message: error instanceof Error ? error.message : String(error),
-          }],
-        };
-      }
-    },
-  };
+  profileInput: TypeScriptOptimizationProfileInput = canonicalTypeScriptOptimizationProfile(),
+  execution: TypeScriptSourceExecutionProfile = "unrestricted",
+): TargetCompileResult {
+  const profile = createTypeScriptOptimizationProfile(profileInput);
+  try {
+    const compiled = compileSourceArtifacts(input, printer, profile, execution);
+    if (compiled.kind === "rejected") {
+      return rejectedTargetStage(compiled.diagnostics);
+    }
+    return resolvedTargetStage(Object.freeze({
+      artifacts: Object.freeze([
+        createTypeScriptProjectArtifact(
+          input.runtimeReferences,
+          compiled.usesRuntime,
+        ),
+        createOptimizationEvidenceArtifact(compiled.evidence),
+        ...compiled.artifacts,
+      ]),
+    }));
+  } catch (error) {
+    return rejectedTargetStage([Object.freeze({
+      code: "TYPESCRIPT_TARGET_LOWERING",
+      category: "error",
+      source: "@tsonic/target-typescript",
+      message: error instanceof Error ? error.message : String(error),
+    })]);
+  }
 }
 
 function compileSourceArtifacts(
   input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
-  profile: TypeScriptOptimizationProfile,
-): {
-  readonly artifacts: readonly TargetArtifact[];
-  readonly diagnostics: TargetCompileResult["diagnostics"];
-  readonly usesRuntime: boolean;
-} {
-  const prepared = prepareSourceArtifacts(input, profile);
-  if (prepared.diagnostics.length > 0) {
-    return Object.freeze({
-      artifacts: [],
-      diagnostics: prepared.diagnostics,
-      usesRuntime: false,
-    });
+  profile: TypeScriptOptimizationProfileInput,
+  execution: TypeScriptSourceExecutionProfile,
+): CompiledSourceArtifacts {
+  const prepared = prepareSourceArtifacts(input, profile, execution);
+  if (prepared.kind === "rejected") {
+    return prepared;
   }
+  const publication: SourcePublicationState = {
+    finished: false,
+    usesRuntime: false,
+  };
   const artifacts = printEncodedTypeScriptSources(
-    prepared.artifacts,
+    encodePreparedSources(prepared, publication),
     printer,
   );
+  if (!publication.finished) {
+    throw new Error("TypeScript source publication did not consume every planned source");
+  }
   return Object.freeze({
+    kind: "ready",
     artifacts,
-    diagnostics: [],
-    usesRuntime: prepared.usesRuntime,
+    usesRuntime: publication.usesRuntime,
+    evidence: prepared.transaction.evidence,
   });
 }
 
 function prepareSourceArtifacts(
   input: TargetCompileInput,
-  profile: TypeScriptOptimizationProfile,
-): {
-  readonly artifacts: readonly EncodedTypeScriptSource[];
-  readonly diagnostics: TargetCompileResult["diagnostics"];
-  readonly usesRuntime: boolean;
-} {
-  const artifacts: EncodedTypeScriptSource[] = [];
+  profile: TypeScriptOptimizationProfileInput,
+  execution: TypeScriptSourceExecutionProfile,
+): PreparedSourceArtifacts {
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
-  let usesRuntime = false;
   const sourceFiles = [...input.source.navigation.sourceFiles].sort(
     (left, right) => compareSourceDocumentIdentities(
       input.source.documents.forFile(left).identity,
@@ -120,7 +118,7 @@ function prepareSourceArtifacts(
       }
       return [Object.freeze({
         sourceFile,
-        document,
+        fileName: document.fileName,
         path: sourceArtifactPath(input, document.fileName),
       })];
     } catch (error) {
@@ -130,46 +128,92 @@ function prepareSourceArtifacts(
   });
   if (diagnostics.length !== 0) {
     return Object.freeze({
-      artifacts: [],
+      kind: "rejected",
       diagnostics: Object.freeze(diagnostics),
-      usesRuntime: false,
     });
   }
   const preparation = prepareTypeScriptLowering(
     input.source,
     sourceFiles,
     profile,
+    (sourceFile) => sourceArtifactPath(
+      input,
+      input.source.documents.forFile(sourceFile).fileName,
+    ),
+    execution,
   );
   if (preparation.kind === "rejected") {
     return Object.freeze({
-      artifacts: [],
+      kind: "rejected",
       diagnostics: Object.freeze(preparation.failures.map((failure) =>
         loweringDiagnostic(
           input.source.documents.forFile(failure.sourceFile).fileName,
           failure.message,
         )
       )),
-      usesRuntime: false,
     });
   }
-  for (const selected of selectedSources) {
+  return Object.freeze({
+    kind: "ready",
+    sources: Object.freeze(selectedSources),
+    transaction: preparation.transaction,
+  });
+}
+
+function* encodePreparedSources(
+  prepared: Extract<PreparedSourceArtifacts, { readonly kind: "ready" }>,
+  publication: SourcePublicationState,
+): Iterable<EncodedTypeScriptSource> {
+  for (const selected of prepared.sources) {
     try {
-      const lowered = preparation.transaction.lower(selected.sourceFile);
-      artifacts.push(Object.freeze({
+      const lowered = prepared.transaction.lower(selected.sourceFile);
+      publication.usesRuntime ||= lowered.pointer.runtimeAlias !== undefined;
+      yield Object.freeze({
         path: selected.path,
         encoded: encodeTargetSourceFile(lowered.sourceFile),
-      }));
-      usesRuntime ||= lowered.pointer.runtimeAlias !== undefined;
+      });
     } catch (error) {
-      diagnostics.push(loweringDiagnostic(selected.document.fileName, error));
+      throw new Error(
+        `${selected.fileName}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
     }
   }
-  preparation.transaction.finish();
-  return Object.freeze({
-    artifacts: Object.freeze(artifacts),
-    diagnostics: Object.freeze(diagnostics),
-    usesRuntime,
-  });
+  prepared.transaction.finish();
+  publication.finished = true;
+}
+
+type CompiledSourceArtifacts =
+  | RejectedSourceArtifacts
+  | {
+      readonly kind: "ready";
+      readonly artifacts: readonly TargetArtifact[];
+      readonly usesRuntime: boolean;
+      readonly evidence: TypeScriptOptimizationEvidence;
+    };
+
+type PreparedSourceArtifacts =
+  | RejectedSourceArtifacts
+  | {
+      readonly kind: "ready";
+      readonly sources: readonly PreparedTypeScriptSource[];
+      readonly transaction: TypeScriptLoweringTransaction;
+    };
+
+interface PreparedTypeScriptSource {
+  readonly sourceFile: SourceFile;
+  readonly fileName: string;
+  readonly path: string;
+}
+
+interface SourcePublicationState {
+  finished: boolean;
+  usesRuntime: boolean;
+}
+
+interface RejectedSourceArtifacts {
+  readonly kind: "rejected";
+  readonly diagnostics: TargetCompileResult["diagnostics"];
 }
 
 function loweringDiagnostic(

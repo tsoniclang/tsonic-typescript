@@ -1,22 +1,24 @@
-export { createTypeScriptBackend } from "./backend/typescript-backend.js";
-export {
-  readTypeScriptTargetOptions,
-} from "./config/options.js";
+export { compileTypeScriptTarget } from "./backend/typescript-backend.js";
+export { readTypeScriptTargetOptions } from "./config/options.js";
 export type {
   TypeScriptAstPrinterOptions,
   TypeScriptTargetOptions,
 } from "./config/options.js";
+export type {
+  TypeScriptSourceExecutionProfile,
+} from "./source-contract/execution.js";
 export {
   canonicalTypeScriptOptimizationProfile,
+  createTypeScriptOptimizationProfile,
 } from "./lowering/profile.js";
 export type {
   TypeScriptOptimizationProfile,
+  TypeScriptOptimizationProfileInput,
   TypeScriptPointerFlowProfile,
+  TypeScriptRepresentationProjectionProfile,
   TypeScriptScalarProjectionProfile,
 } from "./lowering/profile.js";
-export {
-  prepareTypeScriptLowering,
-} from "./lowering/transform.js";
+export { prepareTypeScriptLowering } from "./lowering/transform.js";
 export type {
   TypeScriptLoweringPreparation,
   TypeScriptLoweringTransaction,
@@ -24,9 +26,7 @@ export type {
   TypeScriptSourcePlanningFailure,
 } from "./lowering/transform.js";
 export { PointerLoweringError } from "./lowering/pointer/diagnostic.js";
-export {
-  createClosedPointerFlowPlan,
-} from "./lowering/pointer/flow-plan.js";
+export { createClosedPointerFlowPlan } from "./lowering/pointer/flow-plan.js";
 export type {
   ClosedPointerFlowPlan,
   PointerFlowBlocker,
@@ -43,9 +43,11 @@ export type {
 } from "./lowering/pointer/transform.js";
 export {
   createScalarRepresentationPlan,
+  scalarProjectionRetentionReasons,
 } from "./lowering/scalar/plan.js";
 export type {
   ScalarProjectionPlan,
+  ScalarProjectionRetentionReason,
   ScalarRepresentationPlan,
   ScalarRepresentationProfile,
 } from "./lowering/scalar/plan.js";
