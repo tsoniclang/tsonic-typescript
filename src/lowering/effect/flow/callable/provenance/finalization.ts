@@ -10,6 +10,10 @@ import type {
   CallableCallContractRequirement,
   CallableContractSourceRequirement,
 } from "./contract-settlement.js";
+import {
+  finalizeCallableInterfaceEvidence,
+  type CallableInterfaceEvidence,
+} from "./interface-evidence.js";
 
 export interface SettledCallableReturnContract {
   readonly rewrite: CallableReturnRewrite;
@@ -36,6 +40,26 @@ export interface GraphCallableValueFlow {
   settledReturnTypes(
     optimized: ReadonlySet<Node>,
   ): readonly CallableReturnRewrite[];
+}
+
+export function finalizeGraphCallableInterfaceEvidence(
+  callResolutions: ReadonlyMap<Node, CallableValueResolution>,
+  closedCallableReferences: ReadonlySet<Node>,
+  settledReturnContracts: readonly SettledCallableReturnContract[],
+  declarationResolutions: ReadonlyMap<Node, CallableValueResolution>,
+  closedCallableDeclarations: ReadonlySet<Node>,
+  inheritedCallableReferenceIsClosed:
+    ((reference: Node) => boolean) | undefined,
+): CallableInterfaceEvidence {
+  const returnContracts = finalizeReturnContracts(settledReturnContracts);
+  return finalizeCallableInterfaceEvidence(
+    callResolutions,
+    closedCallableReferences,
+    declarationResolutions,
+    closedCallableDeclarations,
+    returnContracts.settledSources,
+    inheritedCallableReferenceIsClosed,
+  );
 }
 
 export function finalizeGraphCallableValueFlow(
@@ -125,6 +149,7 @@ export function finalizeGraphCallableValueFlow(
 
 interface FinalizedReturnContracts {
   readonly rewrites: readonly CallableReturnRewrite[];
+  readonly settledSources: ReadonlySet<Node>;
   allowsSource(source: Node): boolean;
   resolutionFor(targets: readonly Node[]): CallableValueResolution;
 }
@@ -212,14 +237,18 @@ function finalizeReturnContracts(
     resolutions.set(target, result);
     return result;
   };
+  const settledSources = new Set(
+    [...sourceTargets].flatMap(([source, targets]) =>
+      [...targets].every((target) => settled.has(target)) ? [source] : []
+    ),
+  );
   return Object.freeze({
     rewrites: Object.freeze(contracts.flatMap((contract) =>
       settled.has(contract.rewrite.target) ? [contract.rewrite] : []
     )),
+    settledSources,
     allowsSource(source: Node): boolean {
-      const targets = sourceTargets.get(source);
-      return targets !== undefined &&
-        [...targets].every((target) => settled.has(target));
+      return settledSources.has(source);
     },
     resolutionFor(targets: readonly Node[]): CallableValueResolution {
       if (targets.length === 0) {

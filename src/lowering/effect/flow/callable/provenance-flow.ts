@@ -34,7 +34,6 @@ import {
 import { indexDeclarationSymbols } from "./input-reference.js";
 import { typeMayBeCallable } from "../../model/synchronous.js";
 import type { CallableReturnRewrite } from "../../model/callable-contract.js";
-import { collectCallableProjectionCandidates } from "./projection-candidates.js";
 import {
   createExactCallableValueResolution,
   type CallableValueResolution,
@@ -59,10 +58,12 @@ import {
   selectOriginOccurrences,
 } from "../../provenance/origin-index.js";
 import {
+  finalizeGraphCallableInterfaceEvidence,
   finalizeGraphCallableValueFlow,
   type GraphCallableValueFlow,
   type SettledCallableReturnContract,
 } from "./provenance/finalization.js";
+import type { CallableInterfaceEvidence } from "./provenance/interface-evidence.js";
 import {
   callableCallContractRequirement,
   callableContractSourceRequirement,
@@ -125,32 +126,74 @@ export interface CallableContext {
   readonly dependents: Map<CallableState, Set<CallableState>>;
 }
 
+export interface GraphCallableValueAnalysisRequest {
+  readonly source: TargetSourceProgram;
+  readonly program: TargetProgramIndex;
+  readonly candidates: ReadonlySet<Node>;
+  readonly projectionCandidates: readonly Node[];
+  readonly expressionQueries: readonly Node[];
+  readonly declarationQueries: readonly Node[];
+  readonly projections: ExactAggregateProjectionIndex;
+  readonly transports: InvocationTransportContract | undefined;
+  readonly exactCallImplementations: ExactCallImplementations | undefined;
+  readonly invocationInputs: ExactInvocationInputIndex | undefined;
+  readonly exactContractImplementations: ExactCallImplementations | undefined;
+  readonly objectProjections: ExactObjectPropertyProjectionIndex | undefined;
+  readonly callableReferenceIsClosed:
+    ((reference: Node) => boolean) | undefined;
+  readonly callableFields: CallableFields | undefined;
+  readonly storageOwners: ClosedStorageOwnerAnalysis | undefined;
+  readonly boundaryDependencies: StorageOwnerBoundaryDependencies | undefined;
+  readonly planningObserver: TypeScriptPlanningObserver | undefined;
+  readonly bodyInspectionIsCertified: ExactCallableBodyInspection | undefined;
+  readonly cooperativeEffects: TypeScriptActiveCooperativeEffectProfile;
+}
+
 export function createGraphCallableValueFlow(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  candidates: ReadonlySet<Node>,
-  expressionQueries: readonly Node[],
-  declarationQueries: readonly Node[],
-  projections: ExactAggregateProjectionIndex,
-  transports?: InvocationTransportContract,
-  exactCallImplementations?: ExactCallImplementations,
-  invocationInputs?: ExactInvocationInputIndex,
-  exactContractImplementations?: ExactCallImplementations,
-  objectProjections?: ExactObjectPropertyProjectionIndex,
-  callableReferenceIsClosed?: (reference: Node) => boolean,
-  callableFields?: CallableFields,
-  storageOwners?: ClosedStorageOwnerAnalysis,
-  boundaryDependencies?: StorageOwnerBoundaryDependencies,
-  planningObserver?: TypeScriptPlanningObserver,
-  bodyInspectionIsCertified?: ExactCallableBodyInspection,
-  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+  request: GraphCallableValueAnalysisRequest,
 ): GraphCallableValueFlow {
-  const projectionCandidates = collectCallableProjectionCandidates(
+  return createGraphCallableValueAnalysis(request, "complete");
+}
+
+export function createGraphCallableInterfaceEvidence(
+  request: GraphCallableValueAnalysisRequest,
+): CallableInterfaceEvidence {
+  return createGraphCallableValueAnalysis(request, "interface-evidence");
+}
+
+function createGraphCallableValueAnalysis(
+  request: GraphCallableValueAnalysisRequest,
+  finalization: "complete",
+): GraphCallableValueFlow;
+function createGraphCallableValueAnalysis(
+  request: GraphCallableValueAnalysisRequest,
+  finalization: "interface-evidence",
+): CallableInterfaceEvidence;
+function createGraphCallableValueAnalysis(
+  request: GraphCallableValueAnalysisRequest,
+  finalization: "complete" | "interface-evidence",
+): GraphCallableValueFlow | CallableInterfaceEvidence {
+  const {
     source,
     program,
+    candidates,
+    projectionCandidates,
+    expressionQueries,
+    declarationQueries,
+    projections,
+    transports,
+    exactCallImplementations,
+    invocationInputs,
+    exactContractImplementations,
+    objectProjections,
+    callableReferenceIsClosed,
+    callableFields,
+    storageOwners,
+    boundaryDependencies,
     planningObserver,
     bodyInspectionIsCertified,
-  );
+    cooperativeEffects,
+  } = request;
   const results = createCallableResultInputs(
     source,
     program,
@@ -391,12 +434,6 @@ export function createGraphCallableValueFlow(
   ]) {
     appendReturnTypeContract(returnTypes, rewrite, state, sources);
   }
-  const signatureFamilies = Object.freeze(contractStates.flatMap(({ state }) => {
-    const resolution = resolutionForState(state);
-    return resolution.closed && resolution.dependencyCount !== 0
-      ? [Object.freeze([...resolution.dependencyNodes()])]
-      : [];
-  }));
   const closedCallableReferences = new Set(
     [...context.callableReferences].flatMap(([reference]) =>
       inputs.referenceConsumerIsClosed(reference) ? [reference] : []
@@ -404,12 +441,6 @@ export function createGraphCallableValueFlow(
   );
   const returnedCallableDeclarations = new Set(
     [...context.returnedContracts.values()].flatMap(({ sources }) => sources),
-  );
-  const callableResultCalls = new Set(
-    program.nodesOfKind(KindCallExpression).filter((call) =>
-      expressionHasExactCallableType(source, call) ||
-      invocationTransportResultOrigins(call, transports) !== undefined
-    ),
   );
   const settledReturnContracts: readonly SettledCallableReturnContract[] = Object.freeze(
     [...returnTypes.values()].map(({ rewrite, states, sources }) => Object.freeze({
@@ -426,6 +457,40 @@ export function createGraphCallableValueFlow(
         )
       )),
     })),
+  );
+  const declarationResolutions = materializeResolutions(
+    [...declarationQueries, ...returnedCallableDeclarations],
+    context.declarations,
+    unsafeCallableUses,
+    resolutionForState,
+  );
+  if (finalization === "interface-evidence") {
+    planningObserver?.("effect-callable-interface-evidence", {
+      calls: callResolutions.size,
+      contracts: settledReturnContracts.length,
+      declarations: declarationResolutions.size,
+      references: closedCallableReferences.size,
+    });
+    return finalizeGraphCallableInterfaceEvidence(
+      callResolutions,
+      closedCallableReferences,
+      settledReturnContracts,
+      declarationResolutions,
+      returnedCallableDeclarations,
+      undefined,
+    );
+  }
+  const signatureFamilies = Object.freeze(contractStates.flatMap(({ state }) => {
+    const resolution = resolutionForState(state);
+    return resolution.closed && resolution.dependencyCount !== 0
+      ? [Object.freeze([...resolution.dependencyNodes()])]
+      : [];
+  }));
+  const callableResultCalls = new Set(
+    program.nodesOfKind(KindCallExpression).filter((call) =>
+      expressionHasExactCallableType(source, call) ||
+      invocationTransportResultOrigins(call, transports) !== undefined
+    ),
   );
   const callContractRequirements = new Map([...callResolutions.keys()].map(
     (call) => [
@@ -444,12 +509,6 @@ export function createGraphCallableValueFlow(
     unsafeCallableUses,
     resolutionForState,
     (expression) => transparentExpression(source, expression) ?? expression,
-  );
-  const declarationResolutions = materializeResolutions(
-    [...declarationQueries, ...returnedCallableDeclarations],
-    context.declarations,
-    unsafeCallableUses,
-    resolutionForState,
   );
   planningObserver?.("effect-callable-query-resolutions", {
     declarations: declarationResolutions.size,

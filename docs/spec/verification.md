@@ -488,6 +488,16 @@ must be distinct frames, and a structural mutation that creates the final
 capability inside the transient census frame fails. Round-state mutations
 change only a reference path while leaving implementation sets equal and must
 still prevent publication until both dimensions stabilize.
+The fixed-point lifecycle gate additionally requires post-validation to consume
+a detached callable interface-evidence snapshot rather than the complete
+provisional callable flow. A focused mutation clears and rewrites every source
+map, set, and iterable after snapshot creation; call implementations,
+declaration resolutions, and admitted references must remain exact. Structural
+inspection rejects a post-validation parameter of the complete callable-flow
+type or an evidence finalizer that imports the source program, callable context,
+or provenance graph. The guarded product run must complete the second
+interface-origin transaction under the unchanged memory bound. Retaining the
+provisional flow or raising the heap is a failing mutation.
 An optional callable fixture includes an exact `undefined` reset behind its
 nullish guard; the absence closes storage but never appears in the resolved
 implementation multiset. Replacing it with any non-nullish non-callable value

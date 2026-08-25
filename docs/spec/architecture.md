@@ -1051,6 +1051,19 @@ admission state die with the collection frame. Only sealed value, contract,
 closed-declaration, and exact-reference indexes enter the final capability
 object. A finalizer may not close over a collection frame or retain its
 transient maps across an indirect-closure round.
+An interface/callable fixed-point round publishes a narrower immutable
+interface-evidence snapshot before post-validation begins. That snapshot owns
+only detached call-to-implementation rows, queried declaration resolutions,
+and admitted callable-reference identities. It retains no callable provenance
+graph, origin index, call-contract ledger, source program, or complete callable
+flow. Post-validation consumes and discards that snapshot. The complete
+callable flow is materialized exactly once, after interface settlement is
+stable, and must reproduce the certified declaration resolution. Retaining a
+complete provisional callable flow while rebuilding interface-origin evidence,
+or increasing the heap instead of enforcing this lifetime split, is forbidden.
+The callable projection-candidate census is immutable and is collected once
+outside the fixed-point loop. Provisional evidence and the final callable flow
+consume that same census; neither may restart source-sized candidate discovery.
 Graph sealing transfers immutable evidence to the graph and empties the
 builder's arrays and deduplication indexes. Unsafe-use propagation consumes the
 canonical compact component adjacency rather than retaining a second state-

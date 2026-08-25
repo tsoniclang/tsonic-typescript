@@ -1,25 +1,31 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
-import type { InvocationTransportContract } from "../../../invocation-transport.js";
 import type { TargetProgramIndex } from "../../../program-index.js";
-import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
-import type { ExactInvocationInputIndex } from "../invocation/inputs.js";
-import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
 import type { CallableReturnRewrite } from "../../model/callable-contract.js";
 import {
+  createGraphCallableInterfaceEvidence,
   createGraphCallableValueFlow,
+  type GraphCallableValueAnalysisRequest,
 } from "./provenance-flow.js";
 import type { CallableValueResolution } from "./value-resolution.js";
-import type {
-  ExactCallableBodyInspection,
-  ExactCallImplementations,
-} from "./result-inputs.js";
-import type { CallableFields } from "../storage/fields.js";
+import type { ExactCallableBodyInspection } from "./result-inputs.js";
+import type { CallableInterfaceEvidence } from "./provenance/interface-evidence.js";
 import type { TypeScriptPlanningObserver } from "../../../planning-observer.js";
-import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
-import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
-import type { TypeScriptActiveCooperativeEffectProfile } from "../../../profile.js";
+import {
+  collectCallableProjectionCandidates,
+} from "./projection-candidates.js";
+
+export interface CallableValueCensus {
+  readonly projectionCandidates: readonly Node[];
+}
+
+export type CallableValueFlowRequest = Omit<
+  GraphCallableValueAnalysisRequest,
+  "projectionCandidates"
+> & {
+  readonly census: CallableValueCensus;
+};
 
 export type { CallableValueResolution } from "./value-resolution.js";
 
@@ -43,44 +49,40 @@ export interface CallableValueFlow {
   ): readonly CallableReturnRewrite[];
 }
 
-export function createCallableValueFlow(
+export function collectCallableValueCensus(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
-  candidates: ReadonlySet<Node>,
-  expressionQueries: readonly Node[],
-  declarationQueries: readonly Node[],
-  projections: ExactAggregateProjectionIndex,
-  transports?: InvocationTransportContract,
-  exactCallImplementations?: ExactCallImplementations,
-  invocationInputs?: ExactInvocationInputIndex,
-  exactContractImplementations?: ExactCallImplementations,
-  objectProjections?: ExactObjectPropertyProjectionIndex,
-  callableReferenceIsClosed?: (reference: Node) => boolean,
-  callableFields?: CallableFields,
-  storageOwners?: ClosedStorageOwnerAnalysis,
-  boundaryDependencies?: StorageOwnerBoundaryDependencies,
   planningObserver?: TypeScriptPlanningObserver,
   bodyInspectionIsCertified?: ExactCallableBodyInspection,
-  cooperativeEffects: TypeScriptActiveCooperativeEffectProfile = "closed-direct",
+): CallableValueCensus {
+  return Object.freeze({
+    projectionCandidates: collectCallableProjectionCandidates(
+      source,
+      program,
+      planningObserver,
+      bodyInspectionIsCertified,
+    ),
+  });
+}
+
+export function createCallableValueFlow(
+  request: CallableValueFlowRequest,
 ): CallableValueFlow {
-  return createGraphCallableValueFlow(
-    source,
-    program,
-    candidates,
-    expressionQueries,
-    declarationQueries,
-    projections,
-    transports,
-    exactCallImplementations,
-    invocationInputs,
-    exactContractImplementations,
-    objectProjections,
-    callableReferenceIsClosed,
-    callableFields,
-    storageOwners,
-    boundaryDependencies,
-    planningObserver,
-    bodyInspectionIsCertified,
-    cooperativeEffects,
-  );
+  return createGraphCallableValueFlow(graphRequest(request));
+}
+
+export function createCallableInterfaceEvidence(
+  request: CallableValueFlowRequest,
+): CallableInterfaceEvidence {
+  return createGraphCallableInterfaceEvidence(graphRequest(request));
+}
+
+function graphRequest(
+  request: CallableValueFlowRequest,
+): GraphCallableValueAnalysisRequest {
+  const { census, ...analysis } = request;
+  return Object.freeze({
+    ...analysis,
+    projectionCandidates: census.projectionCandidates,
+  });
 }
