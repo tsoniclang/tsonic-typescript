@@ -32,6 +32,10 @@ import {
   type InterfaceOriginContractDomain,
   type InterfaceOriginContractSet,
 } from "./resolution/contract-set.js";
+import {
+  createInterfaceOriginWorkQueue,
+  type InterfaceOriginWorkQueue,
+} from "./resolution/work-queue.js";
 
 export type InterfaceOriginBoundaryReason =
   | "opaque-call-transport"
@@ -82,7 +86,7 @@ interface OriginGraphSharedContext {
   readonly facts: InterfaceOriginFacts;
   readonly values: Map<Node, OriginState>;
   readonly containers: Map<Node, OriginState>;
-  readonly pending: OriginState[];
+  readonly pending: InterfaceOriginWorkQueue<OriginState>;
 }
 
 export interface OriginGraphContext extends OriginGraphSharedContext {
@@ -119,7 +123,7 @@ export function resolveInterfaceOrigins(
     facts: createInterfaceOriginFacts(ingress),
     values: new Map(),
     containers: new Map(),
-    pending: [],
+    pending: createInterfaceOriginWorkQueue<OriginState>(),
   };
   const roots = new Map<Node, Map<Node, OriginState>>();
   let rootCount = 0;
@@ -161,6 +165,10 @@ export function resolveInterfaceOrigins(
     closed,
     contractExpansions: factMeasurements.contractExpansions,
     contractQueries: factMeasurements.contractQueries,
+    frontier: Math.max(
+      resolutions.measurements.frontier,
+      shared.pending.highWaterMark,
+    ),
     roots: rootCount,
     valueExpansions: factMeasurements.valueExpansions,
     valueQueries: factMeasurements.valueQueries,
@@ -205,14 +213,17 @@ function schedule(
     : context.domain.union(state.pending, added);
   if (!state.queued) {
     state.queued = true;
-    context.pending.push(state);
+    context.pending.enqueue(state);
   }
 }
 
 function drainOriginExpansions(context: OriginGraphSharedContext): void {
-  for (let next = 0; next < context.pending.length; next += 1) {
-    const state = context.pending[next];
-    if (state === undefined || state.pending === undefined) {
+  for (;;) {
+    const state = context.pending.dequeue();
+    if (state === undefined) {
+      return;
+    }
+    if (state.pending === undefined) {
       throw new Error("interface origin expansion lost a pending state");
     }
     const active = state.pending;

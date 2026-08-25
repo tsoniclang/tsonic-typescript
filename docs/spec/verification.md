@@ -473,6 +473,13 @@ origin, boundary, closed-root, and fact query/expansion counts.
 The same gate requires root results to flow directly to the requirements
 consumer before the transaction returns. Restoring a contract-to-root result
 map or publishing a queryable resolution index fails the lifecycle gate.
+The interface-origin worklist mutation replaces each circular live-frontier
+queue with the prior append-only processed-history array; structural inspection
+must reject it. A wraparound-and-growth fixture preserves exact dequeue order,
+proves consumed references are cleared, and reports a high-water mark bounded
+by the live frontier. Contract-graph inspection also rejects restoring one
+copied contract mask per dependency edge. The guarded product run must report
+the frontier and complete both origin transactions under the unchanged heap.
 The object and aggregate forms additionally route the implementation through a
 callable owner whose parameter carries another callback. The closed provenance
 path must admit that exact owner reference and settle the nested callback;

@@ -63,6 +63,7 @@ test("resolves shared cyclic topology independently for each contract", () => {
   assert.equal(resolutions.measurements.contracts, 2);
   assert.equal(resolutions.measurements.vertices, 4);
   assert.equal(resolutions.measurements.edges, 4);
+  assert.ok(resolutions.measurements.frontier <= 4);
   assert.equal(resolutions.measurements.steps, 2);
   assert.throws(() => builder.seal(), /already sealed/u);
 });

@@ -516,6 +516,12 @@ Root decisions are consumed inside that same resolution transaction. The
 resolver publishes only scalar measurements after consumption; materializing a
 second contract-to-root result map and retaining it beyond the transaction is
 forbidden.
+Interface-origin expansion and contract-evidence propagation retain only their
+live queue frontier. Consumed entries are cleared immediately and circular
+storage is reused; retaining an append-only history of every revisited state or
+vertex is forbidden. Dependency edges share their immutable contract masks
+rather than copying one typed mask per edge. Origin-phase measurements report
+the maximum live frontier, not cumulative dequeue work.
 Exact successful-value and checked type/contract decisions are cached for the
 transaction by checked source-file identity, checker type identity, and exact
 contract node. A source spelling, type string, or cross-checker identity is

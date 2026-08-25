@@ -105,6 +105,7 @@ export const typeScriptPlanningMeasurementNames = Object.freeze([
   "contracts",
   "declarations",
   "edges",
+  "frontier",
   "origins",
   "opaqueExpansions",
   "opaqueQueries",

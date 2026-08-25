@@ -7,6 +7,7 @@ import {
   type InterfaceOriginContractSet,
   contractSet,
 } from "./contract-set.js";
+import { createInterfaceOriginWorkQueue } from "./work-queue.js";
 
 export interface InterfaceOriginVertex {
   readonly index: number;
@@ -16,6 +17,7 @@ export interface InterfaceOriginContractGraphMeasurements {
   readonly boundaries: number;
   readonly contracts: number;
   readonly edges: number;
+  readonly frontier: number;
   readonly origins: number;
   readonly steps: number;
   readonly vertices: number;
@@ -126,7 +128,7 @@ export function createInterfaceOriginContractGraph(
       }
       const existing = destinations.get(destination.index);
       if (existing === undefined) {
-        destinations.set(destination.index, contracts.slice() as InterfaceOriginContractSet);
+        destinations.set(destination.index, contracts);
         edgeCount += 1;
       } else {
         destinations.set(destination.index, domain.union(existing, contracts));
@@ -169,6 +171,7 @@ export function createInterfaceOriginContractGraph(
         boundaries: boundaryCount,
         contracts: domain.contracts.length,
         edges: edgeCount,
+        frontier: resolved.frontier,
         origins: originCount,
         steps: stepCount,
         vertices: vertices.length,
@@ -201,28 +204,31 @@ function resolveContractEvidence(
   origins: ContractMasks,
   boundaries: ContractMasks,
   opaqueBoundaries: ContractMasks,
-): { flagsFor(vertex: number, contract: number): number } {
+): {
+  readonly frontier: number;
+  flagsFor(vertex: number, contract: number): number;
+} {
   const reachableOrigins = cloneMasks(origins, vertexCount);
   const reachableBoundaries = cloneMasks(boundaries, vertexCount);
   const reachableOpaqueBoundaries = cloneMasks(opaqueBoundaries, vertexCount);
   const sentOrigins: ContractMasks = [];
   const sentBoundaries: ContractMasks = [];
   const sentOpaqueBoundaries: ContractMasks = [];
-  const pending: number[] = [];
+  const pending = createInterfaceOriginWorkQueue<number>();
   const queued = new Uint8Array(vertexCount);
   for (let vertex = 0; vertex < vertexCount; vertex += 1) {
     if (
       reachableOrigins[vertex] !== undefined ||
       reachableBoundaries[vertex] !== undefined
     ) {
-      pending.push(vertex);
+      pending.enqueue(vertex);
       queued[vertex] = 1;
     }
   }
-  for (let next = 0; next < pending.length; next += 1) {
-    const source = pending[next];
+  for (;;) {
+    const source = pending.dequeue();
     if (source === undefined) {
-      throw new Error("interface origin propagation lost a pending vertex");
+      break;
     }
     queued[source] = 0;
     for (const [destination, contracts] of dependents.get(source) ?? []) {
@@ -253,7 +259,7 @@ function resolveContractEvidence(
         );
       if (changed !== 0 && queued[destination] === 0) {
         queued[destination] = 1;
-        pending.push(destination);
+        pending.enqueue(destination);
       }
     }
     copyMask(sentOrigins, reachableOrigins, source, domain.wordCount);
@@ -266,6 +272,7 @@ function resolveContractEvidence(
     );
   }
   return Object.freeze({
+    frontier: pending.highWaterMark,
     flagsFor(vertex: number, contract: number): number {
       let flags = 0;
       if (domain.has(reachableOrigins[vertex] ?? domain.empty(), contract)) {
