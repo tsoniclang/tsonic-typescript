@@ -49,26 +49,11 @@ import {
   resolveInterfaceValueImplementations,
   sameInterfaceFamilyResolutions,
 } from "./dispatch/family-resolution.js";
+import type {
+  DeclaredInterfaceDispatchFamily,
+  DeclaredInterfaceImplementationSelection,
+} from "./dispatch/model.js";
 import type { ExactCallableBodyInspection } from "../callable/result-inputs.js";
-
-export interface DeclaredInterfaceDispatchFamily {
-  readonly component: InterfaceContractComponent;
-  readonly implementationSelections: readonly DeclaredInterfaceImplementationSelection[];
-  readonly contractDeclarations: readonly Node[];
-  readonly calls: readonly Node[];
-  readonly implementations: readonly Node[];
-  readonly valueImplementationBindings: readonly Node[];
-  readonly candidates: readonly CooperativeEffectCandidate[];
-  readonly coordinator?: CooperativeEffectCandidate;
-  readonly returnRewrites: readonly CallableReturnRewrite[];
-  readonly returnContractBlockers: readonly Node[];
-}
-
-export interface DeclaredInterfaceImplementationSelection {
-  readonly declaration: Node;
-  readonly implementations: readonly Node[];
-  readonly valueImplementationBindings: readonly Node[];
-}
 
 export interface DeclaredInterfaceDispatch {
   readonly profile: TypeScriptInterfaceDispatchProfile;

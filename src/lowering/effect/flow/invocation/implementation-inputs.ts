@@ -6,7 +6,7 @@ import {
 } from "./call-binding.js";
 import type { ExactAggregateProjectionIndex } from "../aggregate/projection.js";
 import {
-  selectRestElementInputs,
+  materializeExactInvocationInputIndex,
   type ExactInvocationInputIndex,
 } from "./inputs.js";
 import { isFunctionLike } from "../../model/syntax.js";
@@ -23,11 +23,7 @@ export function extendExactInvocationInputIndex(
   projections?: ExactAggregateProjectionIndex,
   invalidImplementations: ReadonlySet<Node> = new Set(),
 ): ExactInvocationInputIndex {
-  const values = new Map<Node, Node[]>();
-  const inputGroups = new Map<Node, (readonly Node[])[]>();
-  const destinations = new Map<Node, Node[]>();
-  const observed = new Set<Node>();
-  const invalid = new Set<Node>();
+  const state = snapshotInvocationInputs(direct);
   for (const entry of sources) {
     for (const implementation of entry.implementations) {
       if (!isFunctionLike(source, implementation)) {
@@ -40,7 +36,8 @@ export function extendExactInvocationInputIndex(
       );
       if (invalidImplementations.has(implementation)) {
         for (const parameter of parameters) {
-          invalid.add(parameter);
+          state.invalid.add(parameter);
+          state.parameters.add(parameter);
         }
       }
       for (const call of entry.calls) {
@@ -49,95 +46,68 @@ export function extendExactInvocationInputIndex(
           call,
           implementation,
           projections,
-          values,
-          inputGroups,
-          destinations,
-          observed,
-          invalid,
+          state,
         );
       }
     }
   }
-  const sealedValues = seal(values);
-  const sealedDestinations = seal(destinations);
-  const sealedInputGroups = new Map<Node, readonly (readonly Node[])[]>(
-    [...observed].map((parameter) => [
-      parameter,
-      Object.freeze([...(inputGroups.get(parameter) ?? [])]),
-    ]),
-  );
-  const parameters = Object.freeze([
-    ...new Set([
-      ...direct.parameters(),
-      ...observed,
-      ...invalid,
-    ]),
-  ]);
-  return Object.freeze({
-    parameters(): Iterable<Node> {
-      return parameters;
-    },
-    inputsFor(parameter: Node): readonly Node[] | undefined {
-      return combine(direct.inputsFor(parameter), sealedValues.get(parameter));
-    },
-    inputGroupsFor(
-      parameter: Node,
-    ): readonly (readonly Node[])[] | undefined {
-      const directGroups = direct.inputGroupsFor(parameter);
-      const selectedGroups = sealedInputGroups.get(parameter);
-      return directGroups === undefined
-        ? selectedGroups
-        : selectedGroups === undefined
-        ? directGroups
-        : mergeInputGroups(directGroups, selectedGroups);
-    },
-    restElementInputsFor(
-      parameter: Node,
-      index: number,
-    ): readonly Node[] | undefined {
-      if (direct.isInvalid(parameter) || invalid.has(parameter)) {
-        return undefined;
-      }
-      const inputs: Node[] = [];
-      let hasEvidence = false;
-      if (direct.isClosed(parameter)) {
-        hasEvidence = true;
-        const selected = direct.restElementInputsFor(parameter, index);
-        if (selected === undefined) {
-          return undefined;
-        }
-        inputs.push(...selected);
-      }
-      if (observed.has(parameter)) {
-        hasEvidence = true;
-        const selected = selectRestElementInputs(
-          source,
-          parameter,
-          index,
-          inputGroups.get(parameter) ?? [],
-        );
-        if (selected === undefined) {
-          return undefined;
-        }
-        inputs.push(...selected);
-      }
-      return hasEvidence ? Object.freeze([...new Set(inputs)]) : undefined;
-    },
-    parametersFor(input: Node): readonly Node[] | undefined {
-      return combine(
-        direct.parametersFor(input),
-        sealedDestinations.get(input),
-      );
-    },
-    isInvalid(parameter: Node): boolean {
-      return direct.isInvalid(parameter) || invalid.has(parameter);
-    },
-    isClosed(parameter: Node): boolean {
-      return !direct.isInvalid(parameter) &&
-        !invalid.has(parameter) &&
-        (direct.isClosed(parameter) || observed.has(parameter));
-    },
+  return materializeExactInvocationInputIndex(source, {
+    parameters: state.parameters,
+    inputs: state.values,
+    inputGroups: state.inputGroups,
+    destinations: state.destinations,
+    invalid: state.invalid,
+    closed: state.closed,
   });
+}
+
+interface MutableInvocationInputs {
+  readonly parameters: Set<Node>;
+  readonly values: Map<Node, Node[]>;
+  readonly inputGroups: Map<Node, (readonly Node[])[]>;
+  readonly destinations: Map<Node, Node[]>;
+  readonly invalid: Set<Node>;
+  readonly closed: Set<Node>;
+}
+
+function snapshotInvocationInputs(
+  direct: ExactInvocationInputIndex,
+): MutableInvocationInputs {
+  const state: MutableInvocationInputs = {
+    parameters: new Set(direct.parameters()),
+    values: new Map(),
+    inputGroups: new Map(),
+    destinations: new Map(),
+    invalid: new Set(),
+    closed: new Set(),
+  };
+  const inputs = new Set<Node>();
+  for (const parameter of state.parameters) {
+    const selected = direct.inputsFor(parameter);
+    if (selected !== undefined) {
+      state.values.set(parameter, [...selected]);
+      for (const input of selected) {
+        inputs.add(input);
+      }
+    }
+    const groups = direct.inputGroupsFor(parameter);
+    if (groups !== undefined) {
+      state.inputGroups.set(parameter, groups.map((group) => [...group]));
+    }
+    if (direct.isInvalid(parameter)) {
+      state.invalid.add(parameter);
+    }
+    if (direct.isClosed(parameter)) {
+      state.closed.add(parameter);
+    }
+  }
+  for (const input of inputs) {
+    const destinations = direct.parametersFor(input);
+    if (destinations !== undefined) {
+      state.destinations.set(input, [...destinations]);
+    }
+  }
+  return state;
 }
 
 function collectImplementationInputs(
@@ -145,11 +115,7 @@ function collectImplementationInputs(
   call: Node,
   implementation: Node,
   projections: ExactAggregateProjectionIndex | undefined,
-  values: Map<Node, Node[]>,
-  inputGroups: Map<Node, (readonly Node[])[]>,
-  destinations: Map<Node, Node[]>,
-  observed: Set<Node>,
-  invalid: Set<Node>,
+  state: MutableInvocationInputs,
 ): void {
   const parameters = source.ast.parameters(implementation).filter(
     (parameter): parameter is Node => parameter !== undefined,
@@ -162,42 +128,26 @@ function collectImplementationInputs(
   );
   if (resolved === undefined) {
     for (const parameter of parameters) {
-      invalid.add(parameter);
+      state.invalid.add(parameter);
+      state.parameters.add(parameter);
     }
     return;
   }
   for (const [parameter, inputs] of resolved.inputs) {
-    observed.add(parameter);
-    ensure(values, parameter);
-    appendGroup(inputGroups, parameter, inputs);
+    state.parameters.add(parameter);
+    state.closed.add(parameter);
+    ensure(state.values, parameter);
+    ensureGroups(state.inputGroups, parameter);
+    appendGroup(state.inputGroups, parameter, inputs);
     for (const input of inputs) {
-      appendUnique(values, parameter, input);
-      appendUnique(destinations, input, parameter);
+      appendUnique(state.values, parameter, input);
+      appendUnique(state.destinations, input, parameter);
     }
   }
   for (const parameter of resolved.unresolvedParameters) {
-    observed.add(parameter);
-    invalid.add(parameter);
+    state.parameters.add(parameter);
+    state.invalid.add(parameter);
   }
-}
-
-function seal(values: ReadonlyMap<Node, readonly Node[]>):
-  ReadonlyMap<Node, readonly Node[]> {
-  return new Map([...values].map(([node, entries]) => [
-    node,
-    Object.freeze([...entries]),
-  ]));
-}
-
-function combine(
-  left: readonly Node[] | undefined,
-  right: readonly Node[] | undefined,
-): readonly Node[] | undefined {
-  return left === undefined
-    ? right
-    : right === undefined
-    ? left
-    : Object.freeze([...new Set([...left, ...right])]);
 }
 
 function appendUnique(
@@ -219,6 +169,15 @@ function ensure(target: Map<Node, Node[]>, key: Node): void {
   }
 }
 
+function ensureGroups(
+  target: Map<Node, (readonly Node[])[]>,
+  key: Node,
+): void {
+  if (!target.has(key)) {
+    target.set(key, []);
+  }
+}
+
 function appendGroup(
   target: Map<Node, (readonly Node[])[]>,
   parameter: Node,
@@ -231,19 +190,6 @@ function appendGroup(
   } else if (!selected.some((existing) => sameNodeSequence(existing, group))) {
     selected.push(group);
   }
-}
-
-function mergeInputGroups(
-  left: readonly (readonly Node[])[],
-  right: readonly (readonly Node[])[],
-): readonly (readonly Node[])[] {
-  const merged = [...left];
-  for (const group of right) {
-    if (!merged.some((existing) => sameNodeSequence(existing, group))) {
-      merged.push(group);
-    }
-  }
-  return Object.freeze(merged);
 }
 
 function sameNodeSequence(

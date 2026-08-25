@@ -1067,6 +1067,16 @@ callable flow is materialized exactly once, after interface settlement is
 stable, and must reproduce the certified declaration resolution. Retaining a
 complete provisional callable flow while rebuilding interface-origin evidence,
 or increasing the heap instead of enforcing this lifetime split, is forbidden.
+The same transaction detaches the provisional interface dispatch before
+post-validation. It retains only exact family-resolution rows, a forward-only
+invocation-input snapshot, call-to-implementation rows, and scalar domain
+counts needed for the monotonic exact join. The prior dispatch, reverse indexes,
+and graph-owned closures must be unreachable before the next interface-origin
+transaction begins.
+Every invocation-input extension materializes one standalone canonical index.
+Its query capability may not close over a predecessor index or form a chain of
+incremental wrappers across indirect/interface rounds; predecessor rows are
+copied once into the new sealed index and the predecessor lifecycle ends.
 The callable projection-candidate census is immutable and is collected once
 outside the fixed-point loop. Provisional evidence and the final callable flow
 consume that same census; neither may restart source-sized candidate discovery.

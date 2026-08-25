@@ -35,6 +35,26 @@ export interface ExactInvocationInputIndex {
   isClosed(parameter: Node): boolean;
 }
 
+export interface ExactInvocationInputIndexSnapshot {
+  matches(index: ExactInvocationInputIndex): boolean;
+}
+
+interface ExactInvocationInputSnapshotEntry {
+  readonly inputs?: readonly Node[];
+  readonly inputGroups?: readonly (readonly Node[])[];
+  readonly invalid: boolean;
+  readonly closed: boolean;
+}
+
+export interface MaterializedExactInvocationInputs {
+  readonly parameters: Iterable<Node>;
+  readonly inputs: ReadonlyMap<Node, readonly Node[]>;
+  readonly inputGroups: ReadonlyMap<Node, readonly (readonly Node[])[]>;
+  readonly destinations: ReadonlyMap<Node, readonly Node[]>;
+  readonly invalid: ReadonlySet<Node>;
+  readonly closed: ReadonlySet<Node>;
+}
+
 export function createExactInvocationInputIndex(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
@@ -144,44 +164,46 @@ export function createExactInvocationInputIndex(
       }
     }
   }
-  const sealedInputs = new Map<Node, readonly Node[]>(
-    [...inputs].map(([parameter, values]) => [
-      parameter,
-      Object.freeze(values),
-    ]),
-  );
-  const sealedParameters = new Map<Node, readonly Node[]>(
-    [...destinations].map(([input, selected]) => [
-      input,
-      Object.freeze(selected),
-    ]),
-  );
-  const sealedInputGroups = new Map<Node, readonly (readonly Node[])[]>(
-    [...inputs].map(([parameter]) => [
-      parameter,
-      Object.freeze([...(inputGroups.get(parameter) ?? [])]),
-    ]),
-  );
-  const parameters = Object.freeze([
-    ...new Set([...inputs.keys(), ...invalid]),
-  ]);
+  for (const parameter of inputs.keys()) {
+    ensureGroups(inputGroups, parameter);
+  }
+  return materializeExactInvocationInputIndex(source, {
+    parameters: [...inputs.keys(), ...invalid],
+    inputs,
+    inputGroups,
+    destinations,
+    invalid,
+    closed: new Set(inputs.keys()),
+  });
+}
+
+export function materializeExactInvocationInputIndex(
+  source: TargetSourceProgram,
+  evidence: MaterializedExactInvocationInputs,
+): ExactInvocationInputIndex {
+  const inputs = sealNodeLists(evidence.inputs);
+  const inputGroups = sealInputGroups(evidence.inputGroups);
+  const destinations = sealNodeLists(evidence.destinations);
+  const invalid = new Set(evidence.invalid);
+  const closed = new Set(evidence.closed);
+  const parameters = Object.freeze([...new Set(evidence.parameters)]);
   return Object.freeze({
     parameters(): Iterable<Node> {
       return parameters;
     },
     inputsFor(parameter: Node): readonly Node[] | undefined {
-      return sealedInputs.get(parameter);
+      return inputs.get(parameter);
     },
     inputGroupsFor(
       parameter: Node,
     ): readonly (readonly Node[])[] | undefined {
-      return sealedInputGroups.get(parameter);
+      return inputGroups.get(parameter);
     },
     restElementInputsFor(
       parameter: Node,
       index: number,
     ): readonly Node[] | undefined {
-      return sealedInputs.has(parameter) && !invalid.has(parameter)
+      return closed.has(parameter) && !invalid.has(parameter)
         ? selectRestElementInputs(
           source,
           parameter,
@@ -191,15 +213,90 @@ export function createExactInvocationInputIndex(
         : undefined;
     },
     parametersFor(input: Node): readonly Node[] | undefined {
-      return sealedParameters.get(input);
+      return destinations.get(input);
     },
     isInvalid(parameter: Node): boolean {
       return invalid.has(parameter);
     },
     isClosed(parameter: Node): boolean {
-      return sealedInputs.has(parameter) && !invalid.has(parameter);
+      return closed.has(parameter) && !invalid.has(parameter);
     },
   });
+}
+
+export function snapshotExactInvocationInputIndex(
+  index: ExactInvocationInputIndex,
+): ExactInvocationInputIndexSnapshot {
+  const parameters = Object.freeze([...index.parameters()]);
+  const entries = new Map<Node, ExactInvocationInputSnapshotEntry>();
+  for (const parameter of parameters) {
+    const inputs = index.inputsFor(parameter);
+    const inputGroups = index.inputGroupsFor(parameter);
+    entries.set(parameter, Object.freeze({
+      ...(inputs === undefined ? {} : { inputs: Object.freeze([...inputs]) }),
+      ...(inputGroups === undefined
+        ? {}
+        : {
+          inputGroups: Object.freeze(inputGroups.map((group) =>
+            Object.freeze([...group])
+          )),
+        }),
+      invalid: index.isInvalid(parameter),
+      closed: index.isClosed(parameter),
+    }));
+  }
+  return Object.freeze({
+    matches(selected: ExactInvocationInputIndex): boolean {
+      return invocationInputSnapshotMatches(parameters, entries, selected);
+    },
+  });
+}
+
+export function sameExactInvocationInputIndexSnapshot(
+  snapshot: ExactInvocationInputIndexSnapshot,
+  index: ExactInvocationInputIndex,
+): boolean {
+  return snapshot.matches(index);
+}
+
+function invocationInputSnapshotMatches(
+  snapshotParameters: readonly Node[],
+  snapshotEntries: ReadonlyMap<Node, ExactInvocationInputSnapshotEntry>,
+  index: ExactInvocationInputIndex,
+): boolean {
+  const parameters = new Set(index.parameters());
+  if (
+    parameters.size !== snapshotParameters.length ||
+    snapshotParameters.some((parameter) => !parameters.has(parameter))
+  ) {
+    return false;
+  }
+  return snapshotParameters.every((parameter) => {
+    const entry = snapshotEntries.get(parameter);
+    return entry !== undefined &&
+      entry.invalid === index.isInvalid(parameter) &&
+      entry.closed === index.isClosed(parameter) &&
+      sameNodeSet(entry.inputs, index.inputsFor(parameter)) &&
+      sameInputGroups(entry.inputGroups, index.inputGroupsFor(parameter));
+  });
+}
+
+function sealNodeLists(
+  values: ReadonlyMap<Node, readonly Node[]>,
+): ReadonlyMap<Node, readonly Node[]> {
+  return new Map([...values].map(([node, entries]) => [
+    node,
+    Object.freeze([...entries]),
+  ]));
+}
+
+function sealInputGroups(
+  values: ReadonlyMap<Node, readonly (readonly Node[])[]>,
+): ReadonlyMap<Node, readonly (readonly Node[])[]> {
+  return new Map([...values].map(([node, groups]) => [
+    node,
+    Object.freeze(groups.map((group) => Object.freeze([...group]))),
+  ]));
 }
 
 export function sameExactInvocationInputIndexes(
@@ -341,6 +438,15 @@ function appendGroup(
     target.set(parameter, [group]);
   } else {
     selected.push(group);
+  }
+}
+
+function ensureGroups(
+  target: Map<Node, (readonly Node[])[]>,
+  parameter: Node,
+): void {
+  if (!target.has(parameter)) {
+    target.set(parameter, []);
   }
 }
 

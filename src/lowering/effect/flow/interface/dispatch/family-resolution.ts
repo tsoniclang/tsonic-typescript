@@ -7,7 +7,8 @@ import type { InterfaceContractComponent } from "../graph.js";
 import type {
   DeclaredInterfaceDispatchFamily,
   DeclaredInterfaceImplementationSelection,
-} from "../dispatch.js";
+  InterfaceFamilyResolution,
+} from "./model.js";
 import type { InterfaceDispatchRejectionReason } from "../decision.js";
 import {
   sourceBodyInspectionIsExact,
@@ -125,8 +126,8 @@ export function resolveInterfaceValueImplementations(
 }
 
 export function sameInterfaceFamilyResolutions(
-  left: readonly DeclaredInterfaceDispatchFamily[],
-  right: readonly DeclaredInterfaceDispatchFamily[],
+  left: readonly InterfaceFamilyResolution[],
+  right: readonly InterfaceFamilyResolution[],
 ): boolean {
   if (left.length !== right.length) {
     return false;
@@ -151,15 +152,15 @@ export function sameInterfaceFamilyResolutions(
         selected.returnContractBlockers,
       ) &&
       sameNodes(
-        family.candidates.map((candidate) => candidate.declaration),
-        selected.candidates.map((candidate) => candidate.declaration),
+        family.candidateDeclarations,
+        selected.candidateDeclarations,
       ) && sameReturnRewrites(family.returnRewrites, selected.returnRewrites);
   });
 }
 
 export function interfaceFamilyResolutionsRefine(
-  current: readonly DeclaredInterfaceDispatchFamily[],
-  previous: readonly DeclaredInterfaceDispatchFamily[],
+  current: readonly InterfaceFamilyResolution[],
+  previous: readonly InterfaceFamilyResolution[],
 ): boolean {
   if (current.length > previous.length) {
     return false;
@@ -180,8 +181,8 @@ export function interfaceFamilyResolutionsRefine(
       ) &&
       nodesAreSubset(prior.implementations, family.implementations) &&
       nodesAreSubset(
-        prior.candidates.map((candidate) => candidate.declaration),
-        family.candidates.map((candidate) => candidate.declaration),
+        prior.candidateDeclarations,
+        family.candidateDeclarations,
       ) &&
       sameNodes(family.returnContractBlockers, prior.returnContractBlockers) &&
       sameReturnRewrites(family.returnRewrites, prior.returnRewrites);
@@ -189,9 +190,9 @@ export function interfaceFamilyResolutionsRefine(
 }
 
 function indexFamiliesByContract(
-  families: readonly DeclaredInterfaceDispatchFamily[],
-): ReadonlyMap<Node, DeclaredInterfaceDispatchFamily> {
-  const result = new Map<Node, DeclaredInterfaceDispatchFamily>();
+  families: readonly InterfaceFamilyResolution[],
+): ReadonlyMap<Node, InterfaceFamilyResolution> {
+  const result = new Map<Node, InterfaceFamilyResolution>();
   for (const family of families) {
     for (const contract of family.contractDeclarations) {
       const existing = result.get(contract);
@@ -207,9 +208,9 @@ function indexFamiliesByContract(
 }
 
 function matchingFamily(
-  family: DeclaredInterfaceDispatchFamily,
-  byContract: ReadonlyMap<Node, DeclaredInterfaceDispatchFamily>,
-): DeclaredInterfaceDispatchFamily | undefined {
+  family: InterfaceFamilyResolution,
+  byContract: ReadonlyMap<Node, InterfaceFamilyResolution>,
+): InterfaceFamilyResolution | undefined {
   const first = family.contractDeclarations[0];
   if (first === undefined) {
     throw new Error("interface dispatch family has no contract declaration");
@@ -252,6 +253,9 @@ function admittedFamily(
       valueImplementationBindings: Object.freeze([
         ...valueImplementationBindings,
       ]),
+      candidateDeclarations: Object.freeze(candidateList.map((candidate) =>
+        candidate.declaration
+      )),
       candidates: candidateList,
       ...(candidateList[0] === undefined
         ? {}

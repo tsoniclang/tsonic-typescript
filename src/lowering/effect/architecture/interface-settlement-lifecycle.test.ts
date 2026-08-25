@@ -67,3 +67,34 @@ test("interface post-validation consumes detached callable evidence", () => {
     /valueFlow: CallableValueFlow/u,
   );
 });
+
+test("interface rounds sever predecessor dispatch and invocation indexes", () => {
+  const settlement = readFileSync(
+    join(effectRoot, "flow", "settlement", "program.ts"),
+    "utf8",
+  );
+  const snapshot = readFileSync(
+    join(effectRoot, "flow", "interface", "settlement-snapshot.ts"),
+    "utf8",
+  );
+  const extension = readFileSync(
+    join(effectRoot, "flow", "invocation", "implementation-inputs.ts"),
+    "utf8",
+  );
+
+  assert.match(settlement, /detachInterfaceSettlement\(resolvedInterfaces\)/u);
+  assert.match(
+    settlement,
+    /interfaces = undefined;[\s\S]{0,500}postValidateInterfaceDispatch\(/u,
+  );
+  assert.doesNotMatch(
+    settlement.slice(settlement.indexOf("function postValidateInterfaceDispatch(")),
+    /provisional: DeclaredInterfaceDispatch/u,
+  );
+  assert.match(snapshot, /snapshotExactInvocationInputIndex/u);
+  assert.match(snapshot, /detachInterfaceFamilyResolutions/u);
+  assert.doesNotMatch(snapshot, /\.component|\.candidates\b/u);
+  assert.match(extension, /snapshotInvocationInputs\(direct\)/u);
+  assert.match(extension, /materializeExactInvocationInputIndex\(source/u);
+  assert.doesNotMatch(extension, /return Object\.freeze\(\{[\s\S]*direct\./u);
+});

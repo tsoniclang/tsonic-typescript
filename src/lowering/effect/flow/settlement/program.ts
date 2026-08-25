@@ -23,6 +23,12 @@ import {
   createDeclaredInterfaceDispatch,
   type DeclaredInterfaceDispatch,
 } from "../interface/dispatch.js";
+import {
+  detachInterfaceSettlement,
+  interfaceDispatchMatchesSnapshot,
+  interfaceDispatchRefinesSnapshot,
+  type DetachedInterfaceSettlement,
+} from "../interface/settlement-snapshot.js";
 import type { ExactObjectPropertyProjectionIndex } from "../object/projection.js";
 import type { ClosedStorageOwnerAnalysis } from "../storage/analysis.js";
 import type { StorageOwnerBoundaryDependencies } from "../storage/owner-boundaries.js";
@@ -114,28 +120,29 @@ export function settleCooperativeEffectFlows(
   );
   const preliminaryFacts = preliminaryAnalysis.finalize();
   planningObserver?.("effect-indirect-invocations");
-  let interfaces = createDeclaredInterfaceDispatch(
-    source,
-    program,
-    candidates,
-    interfaceDispatch,
-    factOwnedTransports,
-    sourceIdentityFor,
-    Object.freeze({
-      invocationInputs: preliminaryFacts.invocationInputs,
-      exactCallImplementations: composeExactCallImplementations([
-        sourceInvocations.implementationsFor,
-        preliminaryFacts.implementationsFor,
-      ]),
-      callableReferenceIsClosed: preliminaryFacts.allowsCallableReference,
-      aggregateProjections,
-      objectProjections,
-      storageOwners,
-      bodyInspectionIsCertified: sourceInvocations.bodyInspectionIsCertified,
-    }),
-    cooperativeEffects,
-    planningObserver,
-  );
+  let interfaces: DeclaredInterfaceDispatch | undefined =
+    createDeclaredInterfaceDispatch(
+      source,
+      program,
+      candidates,
+      interfaceDispatch,
+      factOwnedTransports,
+      sourceIdentityFor,
+      Object.freeze({
+        invocationInputs: preliminaryFacts.invocationInputs,
+        exactCallImplementations: composeExactCallImplementations([
+          sourceInvocations.implementationsFor,
+          preliminaryFacts.implementationsFor,
+        ]),
+        callableReferenceIsClosed: preliminaryFacts.allowsCallableReference,
+        aggregateProjections,
+        objectProjections,
+        storageOwners,
+        bodyInspectionIsCertified: sourceInvocations.bodyInspectionIsCertified,
+      }),
+      cooperativeEffects,
+      planningObserver,
+    );
   planningObserver?.("effect-interface-dispatch");
   const callableValueCensus = collectCallableValueCensus(
     source,
@@ -149,59 +156,37 @@ export function settleCooperativeEffectFlows(
   const maximumRounds = program.nodes.length + candidates.size +
     interfaces.consideredFamilyCount + 1;
   for (let round = 0; round <= maximumRounds; round += 1) {
-    const transports = composeInvocationTransportContracts([
-      factOwnedTransports,
-      interfaces.invocationTransports,
-    ]);
-    const indirectInvocations = refineIndirectInvocations(
-      interfaceDispatch,
+    const preparation = prepareInterfaceSettlementRound(
+      request,
       preliminaryAnalysis,
       preliminaryFacts,
-      interfaces,
-      transports,
-      sourceInvocations.implementationsFor,
-      planningObserver,
+      requireInterfaceDispatch(interfaces),
+      candidateDeclarations,
+      callableValueCensus,
     );
-    const bootstrapImplementations = composeExactCallImplementations([
-      sourceInvocations.implementationsFor,
-      indirectInvocations.implementationsFor,
-      interfaces.implementationsForCall,
-    ]);
-    const callableEvidence = createCallableInterfaceEvidence(
-      createRoundCallableValueRequest(
-        request,
-        candidateDeclarations,
-        callableValueCensus,
-        interfaces,
-        indirectInvocations,
-        transports,
-        bootstrapImplementations,
-      ),
-    );
-    const resolvedInterfaces = interfaces.resolveValueImplementations(
-      callableEvidence.resolutionForDeclaration,
-    );
-    if (!resolvedInterfaces.refines(interfaces)) {
-      throw new Error(
-        "interface value-implementation settlement is not monotonic",
-      );
-    }
-    if (!resolvedInterfaces.sameResolution(interfaces)) {
-      interfaces = resolvedInterfaces;
+    interfaces = undefined;
+    if (preparation.kind === "refined") {
+      interfaces = preparation.interfaces;
       continue;
     }
     const validatedInterfaces = postValidateInterfaceDispatch(
       request,
-      resolvedInterfaces,
-      indirectInvocations,
-      callableEvidence,
+      preparation.indirectInvocations,
+      preparation.callableEvidence,
+      preparation.settlement,
     );
-    if (!validatedInterfaces.refines(resolvedInterfaces)) {
+    if (!interfaceDispatchRefinesSnapshot(
+      validatedInterfaces,
+      preparation.settlement.snapshot,
+    )) {
       throw new Error(
         "post-validated interface settlement exceeded its provisional domain",
       );
     }
-    if (!validatedInterfaces.sameResolution(resolvedInterfaces)) {
+    if (!interfaceDispatchMatchesSnapshot(
+      validatedInterfaces,
+      preparation.settlement.snapshot,
+    )) {
       interfaces = validatedInterfaces;
       continue;
     }
@@ -212,7 +197,7 @@ export function settleCooperativeEffectFlows(
     ]);
     const finalBootstrapImplementations = composeExactCallImplementations([
       sourceInvocations.implementationsFor,
-      indirectInvocations.implementationsFor,
+      preparation.indirectInvocations.implementationsFor,
       interfaces.implementationsForCall,
     ]);
     const valueFlow = createCallableValueFlow(
@@ -221,7 +206,7 @@ export function settleCooperativeEffectFlows(
         candidateDeclarations,
         callableValueCensus,
         interfaces,
-        indirectInvocations,
+        preparation.indirectInvocations,
         finalTransports,
         finalBootstrapImplementations,
       ),
@@ -234,7 +219,7 @@ export function settleCooperativeEffectFlows(
         "final callable flow disagrees with certified interface settlement",
       );
     }
-    settledInvocations = indirectInvocations;
+    settledInvocations = preparation.indirectInvocations;
     settledValueFlow = valueFlow;
     settledTransports = finalTransports;
     break;
@@ -248,10 +233,10 @@ export function settleCooperativeEffectFlows(
     sourceInvocations.implementationsFor,
     settledInvocations.implementationsFor,
     callableFlowImplementations(settledValueFlow),
-    interfaces.implementationsForCall,
+    requireInterfaceDispatch(interfaces).implementationsForCall,
   ]);
   return Object.freeze({
-    interfaces,
+    interfaces: requireInterfaceDispatch(interfaces),
     indirectInvocations: settledInvocations,
     valueFlow: settledValueFlow,
     ...(settledTransports === undefined
@@ -261,11 +246,88 @@ export function settleCooperativeEffectFlows(
   });
 }
 
+type InterfaceSettlementRoundPreparation =
+  | {
+      readonly kind: "refined";
+      readonly interfaces: DeclaredInterfaceDispatch;
+    }
+  | {
+      readonly kind: "validation";
+      readonly indirectInvocations: ExactIndirectInvocationFacts;
+      readonly callableEvidence: CallableInterfaceEvidence;
+      readonly settlement: DetachedInterfaceSettlement;
+    };
+
+function prepareInterfaceSettlementRound(
+  request: CooperativeEffectFlowSettlementRequest,
+  preliminaryAnalysis: ExactIndirectInvocationAnalysis,
+  preliminaryFacts: ExactIndirectInvocationFacts,
+  interfaces: DeclaredInterfaceDispatch,
+  candidateDeclarations: ReadonlySet<Node>,
+  callableValueCensus: CallableValueCensus,
+): InterfaceSettlementRoundPreparation {
+  const transports = composeInvocationTransportContracts([
+    request.factOwnedTransports,
+    interfaces.invocationTransports,
+  ]);
+  const indirectInvocations = refineIndirectInvocations(
+    request.interfaceDispatch,
+    preliminaryAnalysis,
+    preliminaryFacts,
+    interfaces,
+    transports,
+    request.sourceInvocations.implementationsFor,
+    request.planningObserver,
+  );
+  const bootstrapImplementations = composeExactCallImplementations([
+    request.sourceInvocations.implementationsFor,
+    indirectInvocations.implementationsFor,
+    interfaces.implementationsForCall,
+  ]);
+  const callableEvidence = createCallableInterfaceEvidence(
+    createRoundCallableValueRequest(
+      request,
+      candidateDeclarations,
+      callableValueCensus,
+      interfaces,
+      indirectInvocations,
+      transports,
+      bootstrapImplementations,
+    ),
+  );
+  const resolvedInterfaces = interfaces.resolveValueImplementations(
+    callableEvidence.resolutionForDeclaration,
+  );
+  if (!resolvedInterfaces.refines(interfaces)) {
+    throw new Error(
+      "interface value-implementation settlement is not monotonic",
+    );
+  }
+  if (!resolvedInterfaces.sameResolution(interfaces)) {
+    return Object.freeze({ kind: "refined", interfaces: resolvedInterfaces });
+  }
+  return Object.freeze({
+    kind: "validation",
+    indirectInvocations,
+    callableEvidence,
+    settlement: detachInterfaceSettlement(resolvedInterfaces),
+  });
+}
+
+function requireInterfaceDispatch(
+  interfaces: DeclaredInterfaceDispatch | undefined,
+): DeclaredInterfaceDispatch {
+  if (interfaces === undefined) {
+    throw new Error("interface settlement lost its current exact resolution");
+  }
+  return interfaces;
+}
+
 function postValidateInterfaceDispatch(
   request: CooperativeEffectFlowSettlementRequest,
-  provisional: DeclaredInterfaceDispatch,
   indirectInvocations: ExactIndirectInvocationFacts,
   callableEvidence: CallableInterfaceEvidence,
+  provisional: DetachedInterfaceSettlement,
 ): DeclaredInterfaceDispatch {
   const {
     source,

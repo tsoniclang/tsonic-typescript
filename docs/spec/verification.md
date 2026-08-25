@@ -505,6 +505,14 @@ type or an evidence finalizer that imports the source program, callable context,
 or provenance graph. The guarded product run must complete the second
 interface-origin transaction under the unchanged memory bound. Retaining the
 provisional flow or raising the heap is a failing mutation.
+The same gate requires the provisional interface dispatch to be replaced by a
+detached settlement snapshot before post-validation starts. A mutation that
+keeps the dispatch variable live, passes its query methods into post-validation,
+or retains its reverse invocation index fails structural inspection. Invocation-
+input extension is tested with a predecessor whose every method becomes a
+failing trap immediately after construction; every query on the extended index
+must remain exact, proving no predecessor-wrapper chain survives. The guarded
+product run must complete both origin transactions without changing the heap.
 An optional callable fixture includes an exact `undefined` reset behind its
 nullish guard; the absence closes storage but never appears in the resolved
 implementation multiset. Replacing it with any non-nullish non-callable value
