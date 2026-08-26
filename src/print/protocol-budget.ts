@@ -6,7 +6,7 @@ export interface PrinterProtocolLimits {
 
 export const printerProtocolLimits: PrinterProtocolLimits = Object.freeze({
   maximumFileCount: 100_000,
-  maximumFrameBytes: 64 * 1024 * 1024,
+  maximumFrameBytes: 128 * 1024 * 1024,
   maximumPayloadBytes: 256 * 1024 * 1024,
 });
 

@@ -6,6 +6,7 @@ import {
   encodePrinterRequest,
   TypeScriptPrinterBatchBuilder,
 } from "./ast-printer.js";
+import { printerProtocolLimits } from "./protocol-budget.js";
 
 test("printer framing preserves exact binary inputs and UTF-8 outputs", () => {
   const request = Buffer.from(encodePrinterRequest([
@@ -63,7 +64,10 @@ test("printer response rejects malformed framing and invalid UTF-8", () => {
   invalidMagic[0] = 0;
   const invalidUtf8 = framedBinaryResponse([Buffer.from([0xc3, 0x28])]);
   const oversizedFrame = Buffer.from(framedResponse([""]));
-  oversizedFrame.writeUInt32LE(64 * 1024 * 1024 + 1, 12);
+  oversizedFrame.writeUInt32LE(
+    printerProtocolLimits.maximumFrameBytes + 1,
+    12,
+  );
 
   const cases: readonly [Uint8Array, RegExp][] = [
     [invalidMagic, /invalid magic/u],

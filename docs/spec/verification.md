@@ -29,6 +29,9 @@ The backend must prove:
 - a failed source, rewrite, encoding, printer batch, file count, or order emits
   zero artifacts;
 - successful sources are encoded and printed under one finite batch budget;
+- the production budget admits a 96 MiB single official-AST frame, rejects one
+  byte above 128 MiB without allocating that payload, and never exceeds the
+  256 MiB request ceiling;
 - source-to-artifact order and membership exact-join; and
 - every planned fact and generated name is consumed exactly once.
 

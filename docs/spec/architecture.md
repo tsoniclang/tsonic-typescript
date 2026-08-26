@@ -45,6 +45,14 @@ No source artifact is printed until every source plan succeeds. A planning,
 rewrite, encoding, printer, count, or ordering failure publishes no partial
 target result.
 
+The printer transport admits at most 128 MiB for one official external-AST
+file and 256 MiB for one complete request. The single-file ceiling is global,
+path-independent, and no larger than half the request ceiling; batching remains
+the only aggregate-growth mechanism. It is calibrated above the largest
+selected full-product frame while preserving a finite fail-closed boundary.
+A larger source file is rejected before that frame is sent rather than split
+by text, assigned a privileged path, or sent through an unbounded request.
+
 ## Selected Program Index
 
 One immutable owner may census selected nodes, syntax kinds, authored visible
