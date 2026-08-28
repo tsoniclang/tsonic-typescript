@@ -57,6 +57,51 @@ test("elides exact project-pointer forwarding callables at their semantic owner"
   assert.equal(propertyText(fixture, arguments_[2]), "Box.to");
 });
 
+test("elides exact forwarding callables through module imports", () => {
+  const fixture = checkedPointerFixture(
+    `
+import type { Pointer } from "./markers.js";
+import { bindPointer, hashPointer, projectPointer } from "./markers.js";
+import { Box as ImportedBox, Storage } from "./public.js";
+let storage = new Storage(41);
+const source: Pointer<Storage> = bindPointer(
+  {},
+  () => storage,
+  next => { storage = next; },
+);
+const projected = projectPointer<Storage, ImportedBox>(
+  source,
+  value => ImportedBox.from(value),
+  value => ImportedBox.to(value),
+)!;
+export const result = hashPointer(projected);
+`,
+    {
+      "/src/box.ts": `
+export class Storage { constructor(readonly value: number) {} }
+export class Box {
+  constructor(readonly storage: Storage) {}
+  static from(storage: Storage): Box { return new Box(storage); }
+  static to(box: Box): Storage { return box.storage; }
+}
+`,
+      "/src/public.ts": `export { Box, Storage } from "./box.js";`,
+    },
+  );
+  const lowered = lowerPointers(
+    fixture.source,
+    fixture.sourceFile,
+    createFixturePointerFlowPlan(fixture.source),
+  );
+  const call = callNamed(fixture, lowered.sourceFile, "projectLocation");
+  const arguments_ = AsCallExpression(call)?.Arguments?.Nodes ?? [];
+
+  assert.equal(IsArrowFunction(arguments_[1]), false);
+  assert.equal(IsArrowFunction(arguments_[2]), false);
+  assert.equal(propertyText(fixture, arguments_[1]), "ImportedBox.from");
+  assert.equal(propertyText(fixture, arguments_[2]), "ImportedBox.to");
+});
+
 test("accounts for exact forwarding decisions in immutable evidence", () => {
   const fixture = checkedPointerFixture(exactProjection);
   const prepared = prepareTypeScriptLowering(

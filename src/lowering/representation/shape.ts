@@ -554,23 +554,13 @@ function isModuleForwardingReference(
   source: TargetSourceProgram,
   reference: Node,
 ): boolean {
-  let current: Node | undefined = reference;
-  while (current !== undefined) {
-    if (
-      source.ast.is.IsImportSpecifier(current) ||
-      source.ast.is.IsExportSpecifier(current)
-    ) {
-      return true;
-    }
-    if (
-      !source.ast.is.IsNamedImports(current) &&
-      !source.ast.is.IsNamedExports(current)
-    ) {
-      return false;
-    }
-    current = source.ast.parent(current);
-  }
-  return false;
+  const parent = source.ast.parent(reference);
+  return source.ast.is.IsImportSpecifier(reference) ||
+    source.ast.is.IsExportSpecifier(reference) ||
+    parent !== undefined && (
+      source.ast.is.IsImportSpecifier(parent) ||
+      source.ast.is.IsExportSpecifier(parent)
+    );
 }
 
 function hasDecorator(source: TargetSourceProgram, node: Node): boolean {
