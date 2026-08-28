@@ -134,7 +134,7 @@ export function lowerLocationPointerOperation(
           call.TypeArguments?.Nodes ?? [],
           `${operation.operation} type arguments`,
         ),
-        arguments_,
+        projectionArguments(arguments_, operation, plan, finalNodes),
       );
     case "address-of":
       requireArity(operation.operation, arguments_, 1);
@@ -147,6 +147,41 @@ export function lowerLocationPointerOperation(
         finalNodes,
       );
   }
+}
+
+function projectionArguments(
+  arguments_: readonly Node[],
+  operation: Extract<PointerOperationFact, { readonly operation: "project-pointer" }>,
+  plan: PointerLoweringPlan,
+  finalNodes: FinalNodeLookup,
+): readonly Node[] {
+  const selected = plan.projectionCallables.targetsFor(operation.call);
+  if (selected === undefined) {
+    return arguments_;
+  }
+  return Object.freeze([
+    requiredElement(arguments_, 0),
+    selected.fromSource === undefined
+      ? requiredElement(arguments_, 1)
+      : requiredFinalNode(finalNodes, selected.fromSource, "from-source converter"),
+    selected.toSource === undefined
+      ? requiredElement(arguments_, 2)
+      : requiredFinalNode(finalNodes, selected.toSource, "to-source converter"),
+  ]);
+}
+
+function requiredFinalNode(
+  finalNodes: FinalNodeLookup,
+  original: Node,
+  subject: string,
+): Node {
+  const selected = finalNodes.forOriginal(original);
+  if (selected === undefined) {
+    throw new PointerLoweringError(
+      `pointer projection lost its exact ${subject}`,
+    );
+  }
+  return selected;
 }
 
 function explicitLocationType(

@@ -29,6 +29,7 @@ import {
 } from "./flow-application.js";
 import { planPointerMarkerUsage } from "./marker-usage.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
+import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
 import { validatePointerFact } from "./type-contract.js";
 
 export interface LocalLocationBinding {
@@ -75,6 +76,7 @@ export interface PointerLoweringPlan {
   readonly addressBindings: ReadonlyMap<Node, LocationBinding>;
   readonly removableMarkerDeclarations: ReadonlySet<Node>;
   readonly flowPlan: ClosedPointerFlowPlan | undefined;
+  readonly projectionCallables: PointerProjectionCallablePlan;
   readonly runtimeAlias: GeneratedBindingName;
   readonly referenceHashes: ReadonlyMap<Node, ReferenceHashPlan>;
   readonly usesRuntimeValue: boolean;
@@ -93,7 +95,8 @@ export function createPointerLoweringPlan(
   sourceFile: SourceFile,
   program: TargetProgramIndex,
   generatedNames: SourceFileGeneratedNames,
-  flowPlan?: ClosedPointerFlowPlan,
+  flowPlan: ClosedPointerFlowPlan | undefined,
+  projectionCallables: PointerProjectionCallablePlan,
 ): PointerLoweringPlan {
   if (generatedNames.sourceFile !== sourceFile) {
     throw new PointerLoweringError(
@@ -103,6 +106,11 @@ export function createPointerLoweringPlan(
   if (flowPlan !== undefined && !flowPlan.owns(source)) {
     throw new PointerLoweringError(
       "pointer flow plan belongs to a different checked source program",
+    );
+  }
+  if (!projectionCallables.owns(source)) {
+    throw new PointerLoweringError(
+      "pointer projection-callable plan belongs to a different checked source program",
     );
   }
   const nodes = program.nodesFor(sourceFile);
@@ -291,6 +299,7 @@ export function createPointerLoweringPlan(
     addressBindings,
     removableMarkerDeclarations: markerUsage.removableDeclarations,
     flowPlan,
+    projectionCallables,
     runtimeAlias,
     referenceHashes,
     usesRuntimeValue,

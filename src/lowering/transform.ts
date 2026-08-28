@@ -14,6 +14,7 @@ import { createProgramGeneratedNames } from "./generated-names.js";
 import {
   createClosedPointerFlowPlan,
 } from "./pointer/flow-plan.js";
+import { createPointerProjectionCallablePlan } from "./pointer/projection-callable-plan.js";
 import {
   createPointerRewriteSession,
   type PointerLoweringResult,
@@ -116,6 +117,12 @@ export function prepareTypeScriptLowering(
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
     ? createClosedPointerFlowPlan(source, program, identities.forFile)
     : undefined;
+  const pointerProjectionCallables = createPointerProjectionCallablePlan(
+    source,
+    program,
+    profile.pointerFlows,
+    identities.forFile,
+  );
   const scalarPlan = createScalarRepresentationPlan(
     source,
     program,
@@ -134,6 +141,7 @@ export function prepareTypeScriptLowering(
     identities.membership,
     program.operations,
     pointerFlowPlan,
+    pointerProjectionCallables,
     scalarPlan,
     representationPlan,
   );
@@ -150,6 +158,7 @@ export function prepareTypeScriptLowering(
           program,
           generatedNames.forFile(sourceFile),
           pointerFlowPlan,
+          pointerProjectionCallables,
           finalNodes,
         ),
         scalar: createScalarRepresentationRewriter(scalarPlan, sourceFile),

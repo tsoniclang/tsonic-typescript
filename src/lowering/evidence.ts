@@ -3,6 +3,10 @@ import type {
   ClosedPointerFlowPlan,
   PointerFlowRepresentation,
 } from "./pointer/flow-plan.js";
+import type {
+  PointerProjectionCallablePlan,
+  ProjectionCallableRetentionReason,
+} from "./pointer/projection-callable-plan.js";
 import type { OptimizationOccurrence } from "./occurrence.js";
 import type { TypeScriptOptimizationProfile } from "./profile.js";
 import type {
@@ -37,6 +41,7 @@ export type PointerOptimizationEvidence =
   | {
       readonly profile: "location";
       readonly analyzed: false;
+      readonly projectionCallables: ProjectionCallableOptimizationEvidence;
     }
   | {
       readonly profile: "closed-direct";
@@ -55,7 +60,17 @@ export type PointerOptimizationEvidence =
       readonly familyFallbackReasons: readonly OptimizationReasonEvidence<
         PointerFlowBlocker
       >[];
+      readonly projectionCallables: ProjectionCallableOptimizationEvidence;
     };
+
+export interface ProjectionCallableOptimizationEvidence {
+  readonly candidateCount: number;
+  readonly optimizedCount: number;
+  readonly retainedCount: number;
+  readonly fallbackReasons: readonly OptimizationReasonEvidence<
+    ProjectionCallableRetentionReason
+  >[];
+}
 
 export interface ScalarOptimizationEvidence {
   readonly profile: TypeScriptOptimizationProfile["scalarProjections"];
@@ -98,7 +113,7 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 23;
+  readonly schemaVersion: 24;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -114,16 +129,21 @@ export function createTypeScriptOptimizationEvidence(
   sourceMembership: readonly string[],
   programIndex: TargetProgramIndexOperations,
   pointerPlan: ClosedPointerFlowPlan | undefined,
+  pointerProjectionCallables: PointerProjectionCallablePlan,
   scalarPlan: ScalarRepresentationPlan,
   representationPlan: RepresentationProjectionPlan,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 23 as const,
+    schemaVersion: 24 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
-    pointer: pointerEvidence(profile, pointerPlan),
+    pointer: pointerEvidence(
+      profile,
+      pointerPlan,
+      pointerProjectionCallables,
+    ),
     scalar: scalarEvidence(profile, scalarPlan),
     representationProjections: representationEvidence(
       profile,
@@ -226,14 +246,23 @@ function scalarEvidence(
 function pointerEvidence(
   profile: TypeScriptOptimizationProfile,
   plan: ClosedPointerFlowPlan | undefined,
+  projectionCallables: PointerProjectionCallablePlan,
 ): PointerOptimizationEvidence {
+  const callables = projectionCallableEvidence(
+    profile,
+    projectionCallables,
+  );
   if (profile.pointerFlows === "location") {
     if (plan !== undefined) {
       throw new Error(
         "canonical pointer profile cannot carry a closed-flow plan",
       );
     }
-    return Object.freeze({ profile: "location", analyzed: false });
+    return Object.freeze({
+      profile: "location",
+      analyzed: false,
+      projectionCallables: callables,
+    });
   }
   if (plan === undefined) {
     throw new Error("closed pointer profile requires a closed-flow plan");
@@ -251,6 +280,27 @@ function pointerEvidence(
     ),
     fallbackReasons: plan.fallbackReasons,
     familyFallbackReasons: plan.familyFallbackReasons,
+    projectionCallables: callables,
+  });
+}
+
+function projectionCallableEvidence(
+  profile: TypeScriptOptimizationProfile,
+  plan: PointerProjectionCallablePlan,
+): ProjectionCallableOptimizationEvidence {
+  if (
+    plan.profile !== profile.pointerFlows ||
+    plan.optimizedCount + plan.retainedCount !== plan.candidateCount ||
+    plan.fallbackReasons.reduce((sum, row) => sum + row.count, 0) !==
+      plan.retainedCount
+  ) {
+    throw new Error("pointer projection-callable evidence is incoherent");
+  }
+  return Object.freeze({
+    candidateCount: plan.candidateCount,
+    optimizedCount: plan.optimizedCount,
+    retainedCount: plan.retainedCount,
+    fallbackReasons: plan.fallbackReasons,
   });
 }
 

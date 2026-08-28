@@ -6,6 +6,7 @@ import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createTargetProgramIndex } from "../program-index.js";
 import { createScalarRepresentationPlan } from "./plan.js";
 import { createRepresentationProjectionPlan } from "../representation/plan.js";
+import { createPointerProjectionCallablePlan } from "../pointer/projection-callable-plan.js";
 import {
   checkedScalarFixture,
   fixtureSourceIdentityFor,
@@ -44,6 +45,12 @@ export const result = new Scalar({ amount: 1 }).value;
     ["index.ts"],
     program.operations,
     undefined,
+    createPointerProjectionCallablePlan(
+      fixture.source,
+      program,
+      profile.pointerFlows,
+      fixtureSourceIdentityFor(fixture.source),
+    ),
     plan,
     representationPlan,
   );

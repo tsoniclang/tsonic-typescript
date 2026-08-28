@@ -10,6 +10,7 @@ import { createTargetProgramIndex } from "../program-index.js";
 import { createTypeScriptOptimizationEvidence } from "../evidence.js";
 import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createScalarRepresentationPlan } from "../scalar/plan.js";
+import { createPointerProjectionCallablePlan } from "../pointer/projection-callable-plan.js";
 import {
   checkedScalarFixture,
   fixtureSourceIdentityFor,
@@ -195,11 +196,17 @@ test("accounts for every representation candidate in immutable evidence", () => 
     ["index.ts"],
     program.operations,
     undefined,
+    createPointerProjectionCallablePlan(
+      fixture.source,
+      program,
+      profile.pointerFlows,
+      fixtureSourceIdentityFor(fixture.source),
+    ),
     scalar,
     representation,
   );
 
-  assert.equal(evidence.schemaVersion, 23);
+  assert.equal(evidence.schemaVersion, 24);
   assert.equal(evidence.sourceExecution, "unrestricted");
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",

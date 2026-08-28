@@ -20,6 +20,62 @@ export interface ProjectionCallShape {
   readonly storageDeclaration: Node;
 }
 
+export type ForwardingCallableShapeResult =
+  | { readonly kind: "unrelated" }
+  | {
+      readonly kind: "retained";
+      readonly reason: "open-call" | "unstable-binding";
+    }
+  | { readonly kind: "proved"; readonly target: Node };
+
+export function forwardingCallableTarget(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  expression: Node,
+): ForwardingCallableShapeResult {
+  if (
+    !source.ast.is.IsArrowFunction(expression) ||
+    source.ast.hasModifierKind(expression, "async")
+  ) {
+    return { kind: "unrelated" };
+  }
+  const parameters = source.ast.parameters(expression).filter(
+    (parameter): parameter is Node => parameter !== undefined,
+  );
+  const parameter = parameters[0];
+  const returned = returnedExpression(source, expression);
+  if (returned === undefined || !source.ast.is.IsCallExpression(returned)) {
+    return { kind: "unrelated" };
+  }
+  const call = source.ast.as.AsCallExpression(returned);
+  const arguments_ = call?.Arguments?.Nodes ?? [];
+  const argument = arguments_[0];
+  if (
+    parameters.length !== 1 || parameter === undefined ||
+    !plainRequiredParameter(source, parameter) || call?.Expression === undefined ||
+    call.QuestionDotToken !== undefined || arguments_.length !== 1 ||
+    argument === undefined || source.ast.is.IsSpreadElement(argument) ||
+    !referencesDeclaration(source, argument, parameter)
+  ) {
+    return { kind: "unrelated" };
+  }
+  const declaration = directTargetDeclaration(source, call.Expression);
+  const selected = source.semantics.forNode(returned).operations.call(returned);
+  if (
+    declaration === undefined || selected?.outcome !== "applicable" ||
+    selected.sourceSelectedSignatureKind !== "resolved" || selected.optionalChain ||
+    source.semantics.forNode(returned).declarations.signatureDeclaration(
+      selected.selectedSignature,
+    ) !== declaration
+  ) {
+    return { kind: "retained", reason: "open-call" };
+  }
+  if (!stableCallable(source, program, declaration)) {
+    return { kind: "retained", reason: "unstable-binding" };
+  }
+  return Object.freeze({ kind: "proved" as const, target: call.Expression });
+}
+
 export function identityCallArgument(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
@@ -270,13 +326,22 @@ function soleReturnedExpression(
   source: TargetSourceProgram,
   declaration: Node,
 ): Node | undefined {
+  return returnedExpression(source, declaration);
+}
+
+function returnedExpression(
+  source: TargetSourceProgram,
+  declaration: Node,
+): Node | undefined {
   const body = source.ast.body(declaration);
   if (body === undefined) {
     return undefined;
   }
+  if (!source.ast.is.IsBlock(body)) {
+    return body;
+  }
   const statements = source.ast.statements(body);
-  return statements.length === 1 &&
-      statements[0] !== undefined &&
+  return statements.length === 1 && statements[0] !== undefined &&
       source.ast.is.IsReturnStatement(statements[0])
     ? source.ast.as.AsReturnStatement(statements[0])?.Expression
     : undefined;

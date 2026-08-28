@@ -13,6 +13,7 @@ import {
 } from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";
 import { createPointerLoweringPlan } from "./plan.js";
+import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
 
 test("reserves the nullable hash binding against authored source names", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
@@ -73,6 +74,12 @@ export const result = hashPointer(nextPointer());
     program,
     generatedNames,
     flowPlan,
+    createPointerProjectionCallablePlan(
+      fixture.source,
+      program,
+      "closed-direct",
+      (selected) => fixture.source.documents.forFile(selected).identity,
+    ),
   );
 
   const hash = [...pointerPlan.referenceHashes.values()][0];

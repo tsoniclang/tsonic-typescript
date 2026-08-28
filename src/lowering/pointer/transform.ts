@@ -49,6 +49,10 @@ import {
   createPointerLoweringPlan,
   type PointerLoweringPlan,
 } from "./plan.js";
+import {
+  createPointerProjectionCallablePlan,
+  type PointerProjectionCallablePlan,
+} from "./projection-callable-plan.js";
 import { lowerRawPointerOperation, lowerRawPointerType } from "./raw.js";
 import {
   lowerOptimizedPointerOperation,
@@ -75,16 +79,23 @@ export function lowerPointers(
   flowPlan?: ClosedPointerFlowPlan,
 ): PointerLoweringResult {
   const program = createTargetProgramIndex(source, {
-    bindingWrites: false,
+    bindingWrites: true,
   });
   const generatedNames = createProgramGeneratedNames(source, program)
     .forFile(sourceFile);
+  const projectionCallables = createPointerProjectionCallablePlan(
+    source,
+    program,
+    flowPlan === undefined ? "location" : "closed-direct",
+    (selected) => source.documents.forFile(selected).identity,
+  );
   const plan = createPointerLoweringPlan(
     source,
     sourceFile,
     program,
     generatedNames,
     flowPlan,
+    projectionCallables,
   );
   return applyPointerLoweringPlan(source, plan);
 }
@@ -139,6 +150,7 @@ export function createPointerRewriteSession(
   program: TargetProgramIndex,
   generatedNames: SourceFileGeneratedNames,
   flowPlan: ClosedPointerFlowPlan | undefined,
+  projectionCallables: PointerProjectionCallablePlan,
   finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
   return createPointerRewriteSessionForPlan(
@@ -149,6 +161,7 @@ export function createPointerRewriteSession(
       program,
       generatedNames,
       flowPlan,
+      projectionCallables,
     ),
     finalNodes,
   );
