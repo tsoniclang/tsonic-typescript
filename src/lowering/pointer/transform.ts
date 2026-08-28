@@ -58,6 +58,7 @@ import {
   lowerOptimizedPointerOperation,
   lowerOptimizedPointerType,
 } from "./representation-ast.js";
+import { applyPointerInferenceStabilization } from "./inference-stabilization.js";
 import { lowerPointerProjectionFusion } from "./projection-fusion-ast.js";
 import {
   prependRuntimeImport,
@@ -70,6 +71,7 @@ export interface PointerLoweringResult {
   readonly rawPointerOperationCount: number;
   readonly rawPointerTypeCount: number;
   readonly locationBindingCount: number;
+  readonly inferenceStabilizationCount: number;
   readonly runtimeAlias: string | undefined;
 }
 
@@ -129,6 +131,7 @@ function applyPointerLoweringPlan(
       rawPointerOperationCount: 0,
       rawPointerTypeCount: 0,
       locationBindingCount: 0,
+      inferenceStabilizationCount: 0,
       runtimeAlias: undefined,
     });
   }
@@ -219,6 +222,7 @@ function pointerLoweringResult(
     rawPointerOperationCount: consumed.rawPointerOperations.size,
     rawPointerTypeCount: consumed.rawPointerTypes.size,
     locationBindingCount: consumed.locationBindings.size,
+    inferenceStabilizationCount: consumed.inferenceStabilizations.size,
     runtimeAlias: usesRuntime ? plan.runtimeAlias.text : undefined,
   });
 }
@@ -230,6 +234,7 @@ interface ConsumptionState {
   readonly rawPointerTypes: Set<Node>;
   readonly locationBindings: Set<Node>;
   readonly removableMarkerDeclarations: Set<Node>;
+  readonly inferenceStabilizations: Set<Node>;
 }
 
 function createConsumptionState(): ConsumptionState {
@@ -240,6 +245,7 @@ function createConsumptionState(): ConsumptionState {
     rawPointerTypes: new Set(),
     locationBindings: new Set(),
     removableMarkerDeclarations: new Set(),
+    inferenceStabilizations: new Set(),
   };
 }
 
@@ -365,6 +371,18 @@ function rewriteNode(
     return lowerRawPointerType(factory, updated, plan.runtimeAlias);
   }
 
+  const stabilization = plan.inferenceStabilizations.get(original);
+  if (stabilization !== undefined) {
+    consumed.inferenceStabilizations.add(original);
+    return applyPointerInferenceStabilization(
+      factory,
+      original,
+      updated,
+      stabilization,
+      finalNodes,
+    );
+  }
+
   let structuralResult = updated;
   if (
     IsSourceFile(original) ||
@@ -443,6 +461,11 @@ function assertCompleteConsumption(
     "removable marker declarations",
     consumed.removableMarkerDeclarations,
     plan.removableMarkerDeclarations.size,
+  );
+  assertCount(
+    "pointer inference stabilizations",
+    consumed.inferenceStabilizations,
+    plan.inferenceStabilizations.size,
   );
 }
 

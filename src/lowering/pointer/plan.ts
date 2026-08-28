@@ -24,6 +24,10 @@ import type {
   ClosedPointerFlowPlan,
 } from "./flow-plan.js";
 import {
+  planPointerInferenceStabilizations,
+  type PointerInferenceStabilization,
+} from "./inference-stabilization.js";
+import {
   pointerOperationIsFused,
   pointerOperationUsesRuntimeValue,
 } from "./flow-application.js";
@@ -79,6 +83,10 @@ export interface PointerLoweringPlan {
   readonly projectionCallables: PointerProjectionCallablePlan;
   readonly runtimeAlias: GeneratedBindingName;
   readonly referenceHashes: ReadonlyMap<Node, ReferenceHashPlan>;
+  readonly inferenceStabilizations: ReadonlyMap<
+    Node,
+    PointerInferenceStabilization
+  >;
   readonly usesRuntimeValue: boolean;
 }
 
@@ -287,6 +295,12 @@ export function createPointerLoweringPlan(
       );
     }
   }
+  const inferenceStabilizations = planPointerInferenceStabilizations(
+    source,
+    sourceFile,
+    operations,
+    flowPlan,
+  );
   return Object.freeze({
     sourceFile,
     operations,
@@ -302,6 +316,7 @@ export function createPointerLoweringPlan(
     projectionCallables,
     runtimeAlias,
     referenceHashes,
+    inferenceStabilizations,
     usesRuntimeValue,
   });
 }
