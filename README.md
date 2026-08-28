@@ -121,6 +121,12 @@ connected pointer-flow component. A canonical or unstable component never
 suppresses an independent proved component of the same class, and no store is
 rewritten unless that exact component selects the replacement.
 
+Pointer equality and hashing admit an addressed object only when its exact
+storage declaration is never rebound and its initializer recursively proves a
+fresh project construction. Exact project function factories and exact static
+class factories may carry that proof; shared, reassigned, recursive, indirect,
+or otherwise open factories retain canonical locations.
+
 Object shape is never representation evidence. Arrays, interfaces,
 declaration-file classes, and structural wrapper shapes therefore remain
 `Location<T>`. A project class may carry value semantics because canonical

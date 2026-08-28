@@ -32,7 +32,15 @@ export function nonBijectiveIdentityOccurrences(
   const failures: Node[] = [];
   for (const operation of operationsList) {
     ledger.record("direct-family");
-    if (operation.operation === "address-of") {
+    if (
+      operation.operation === "address-of" &&
+      !isFreshAddressedStorage(
+        source,
+        familyIdentity,
+        operation,
+        proof,
+      )
+    ) {
       failures.push(operation.call);
     } else if (
       operation.operation === "allocate" &&
@@ -47,6 +55,24 @@ export function nonBijectiveIdentityOccurrences(
     }
   }
   return Object.freeze(failures);
+}
+
+function isFreshAddressedStorage(
+  source: TargetSourceProgram,
+  familyIdentity: Node,
+  operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
+  proof: FreshFamilyProof,
+): boolean {
+  proof.ledger.record("direct-family");
+  const declaration = operation.storageDeclaration;
+  const variable = declaration === undefined
+    ? undefined
+    : source.ast.as.AsVariableDeclaration(declaration);
+  const initializer = variable?.Initializer;
+  return declaration !== undefined &&
+    initializer !== undefined &&
+    !proof.hasBindingWrite(declaration) &&
+    isFreshFamilyValue(source, familyIdentity, initializer, proof);
 }
 
 interface FreshFamilyProof {
@@ -149,6 +175,21 @@ function isFreshFactoryCall(
   proof.ledger.record("direct-family");
   const call = source.ast.as.AsCallExpression(callNode);
   const target = transparentExpression(source, call?.Expression);
+  const directReference = source.navigation.sourceReferenceFor(target);
+  if (
+    target !== undefined &&
+    directReference?.project === true &&
+    directReference.declaration !== undefined &&
+    source.ast.is.IsFunctionDeclaration(directReference.declaration)
+  ) {
+    return isFreshFactoryDeclaration(
+      source,
+      familyIdentity,
+      callNode,
+      directReference.declaration,
+      proof,
+    );
+  }
   if (
     target === undefined ||
     !source.ast.is.IsPropertyAccessExpression(target)
@@ -177,8 +218,28 @@ function isFreshFactoryCall(
   ) {
     return false;
   }
-  const method = source.ast.as.AsMethodDeclaration(methodReference.declaration);
-  const body = source.ast.body(methodReference.declaration);
+  return isFreshFactoryDeclaration(
+    source,
+    familyIdentity,
+    callNode,
+    methodReference.declaration,
+    proof,
+  );
+}
+
+function isFreshFactoryDeclaration(
+  source: TargetSourceProgram,
+  familyIdentity: Node,
+  callNode: Node,
+  declaration: Node,
+  proof: FreshFamilyProof,
+): boolean {
+  const callable = source.ast.is.IsFunctionDeclaration(declaration)
+    ? source.ast.as.AsFunctionDeclaration(declaration)
+    : source.ast.is.IsMethodDeclaration(declaration)
+    ? source.ast.as.AsMethodDeclaration(declaration)
+    : undefined;
+  const body = source.ast.body(declaration);
   const statements = source.ast.statements(body);
   proof.ledger.record("direct-family");
   const returnStatement = statements.length === 1 && statements[0] !== undefined &&
@@ -189,32 +250,35 @@ function isFreshFactoryCall(
   const semantics = source.semantics.forNode(callNode);
   const callInfo = semantics.operations.call(callNode);
   if (
-    method === undefined ||
-    method.AsteriskToken !== undefined ||
+    callable === undefined ||
+    callable.AsteriskToken !== undefined ||
     body === undefined ||
     returned === undefined ||
+    source.ast.hasModifierKind(declaration, "async") ||
+    source.ast.modifiers(declaration).some((modifier) => IsDecorator(modifier)) ||
+    proof.hasBindingWrite(declaration) ||
     callInfo?.outcome !== "applicable" ||
     callInfo.sourceSelectedSignatureKind !== "resolved" ||
     callInfo.optionalChain ||
     semantics.declarations.signatureDeclaration(callInfo.selectedSignature) !==
-      methodReference.declaration ||
-    proof.activeFactories.has(methodReference.declaration)
+      declaration ||
+    proof.activeFactories.has(declaration)
   ) {
     return false;
   }
-  const cached = proof.factoryResults.get(methodReference.declaration);
-  if (cached !== undefined || proof.factoryResults.has(methodReference.declaration)) {
+  const cached = proof.factoryResults.get(declaration);
+  if (cached !== undefined || proof.factoryResults.has(declaration)) {
     return cached ?? false;
   }
-  proof.activeFactories.add(methodReference.declaration);
+  proof.activeFactories.add(declaration);
   const fresh = isFreshFamilyValue(
     source,
     familyIdentity,
     returned,
     proof,
   );
-  proof.activeFactories.delete(methodReference.declaration);
-  proof.factoryResults.set(methodReference.declaration, fresh);
+  proof.activeFactories.delete(declaration);
+  proof.factoryResults.set(declaration, fresh);
   return fresh;
 }
 
