@@ -21,6 +21,11 @@ foil, and generated-name collision. Scalar and representation mutations must cov
 open consumer, observable nominal identity, missed store, mismatched AST kind,
 duplicate plan consumption, and omitted call-site rewrite.
 
+Replacement proof must also combine two disconnected flows of one exact class:
+one unstable component remains canonical while one stable addressed component
+uses the replacement. Suppressing the stable component because of its sibling,
+or optimizing the unstable sibling, must fail at the focused planner gate.
+
 ## Transaction Proof
 
 The backend must prove:

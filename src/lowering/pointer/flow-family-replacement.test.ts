@@ -293,6 +293,52 @@ export const result = loadPointer(addressed).value + loadPointer(allocated).valu
   ), 0);
 });
 
+test("admits stable replacement beside an unstable component of the same class", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+class Box { constructor(public value: number) {} }
+let stable = new Box(1);
+const stablePointer: Pointer<Box> = addressOf(stable);
+storePointer(stablePointer, new Box(2));
+let unstable = new Box(3);
+const unstablePointer: Pointer<Box> = addressOf(unstable);
+unstable = new Box(4);
+export const result = [
+  loadPointer(stablePointer).value,
+  loadPointer(unstablePointer).value,
+];
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const operations = pointerOperations(fixture.source);
+  const stableStore = operations.find((operation) =>
+    operation.operation === "store"
+  );
+  assert.ok(stableStore !== undefined);
+
+  assert.equal(plan.directObjectReplacementCount, 1);
+  assert.equal(plan.representationFor(stableStore.call), "direct-object");
+  assert.deepEqual(
+    plan.components
+      .filter((component) => component.operationCount > 0)
+      .map((component) => component.representation)
+      .sort(),
+    ["direct-object", "location"],
+  );
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  assert.equal(lowered.directObjectReplacementCount, 1);
+  assert.equal(countCallsNamed(
+    fixture.source,
+    lowered.sourceFile,
+    "$tsonicReplace",
+  ), 1);
+  assert.equal(countCallsNamed(
+    fixture.source,
+    lowered.sourceFile,
+    "storePointer",
+  ), 0);
+  assert.ok(lowered.runtimeAlias !== undefined);
+});
+
 test("keeps replaceable object cells canonical across an ambient boundary", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer, storePointer } from "./markers.js";

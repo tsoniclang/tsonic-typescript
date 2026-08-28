@@ -26,6 +26,7 @@ export function selectPointerFlowRepresentation(
   source: TargetSourceProgram,
   component: PointerFlowComponent,
   facts: PointerTypedFactLedger,
+  hasDirectObjectReplacement: (storeCall: Node) => boolean,
   ledger: PointerPlanningLedger,
 ): PointerFlowDecision {
   if (component.blockers.length !== 0) {
@@ -82,7 +83,7 @@ export function selectPointerFlowRepresentation(
       }),
     );
   }
-  const hasStore = operations.some((operation) => {
+  const stores = operations.filter((operation) => {
     ledger.record("representation");
     return operation?.operation === "store";
   });
@@ -101,26 +102,32 @@ export function selectPointerFlowRepresentation(
       }),
     );
   }
-  if (hasStore) {
-    const representation = component.producers.every(
+  if (stores.length !== 0) {
+    const allocatedCell = component.producers.every(
         (producer) => {
           ledger.record("representation");
           return producer.operation === "allocate";
         },
-      ) && (category === "scalar" || category === "direct-reference")
-      ? "mutable-cell"
-      : "location";
-    return representation === "location"
-      ? locationDecision(
+      ) && (category === "scalar" || category === "direct-reference");
+    if (allocatedCell) {
+      return optimizedDecision("mutable-cell");
+    }
+    const replaceableAddressedObject = category === "direct-reference" &&
+      stores.every((operation) => {
+        ledger.record("representation");
+        return operation !== undefined &&
+          hasDirectObjectReplacement(operation.call);
+      });
+    return replaceableAddressedObject
+      ? optimizedDecision("direct-object")
+      : locationDecision(
           component,
           ledger,
           "unsupported-flow",
-          component.operations.filter((node) => {
-            ledger.record("representation");
-            return facts.operationFor(node)?.operation === "store";
-          }),
-        )
-      : optimizedDecision(representation);
+          stores.flatMap((operation) =>
+            operation === undefined ? [] : [operation.call]
+          ),
+        );
   }
   return optimizedDecision(
     category === "scalar" ? "direct-snapshot" : "direct-object",

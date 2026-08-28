@@ -112,6 +112,11 @@ The closed planner can select only these exact representations:
   exact public constructor-property set, and become one collision-free
   generated replacement method that copies those fields in place.
 
+The replacement shape belongs to the class, but admission belongs to each
+connected pointer-flow component. A canonical or unstable component never
+suppresses an independent proved component of the same class, and no store is
+rewritten unless that exact component selects the replacement.
+
 Object shape is never representation evidence. Arrays, interfaces,
 declaration-file classes, and structural wrapper shapes therefore remain
 `Location<T>`. A project class may carry value semantics because canonical

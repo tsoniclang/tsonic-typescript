@@ -80,6 +80,9 @@ closed component may select:
   every mutable instance field as a public constructor property. The target
   then adds one collision-free instance replacement method and rewrites every
   admitted store to that method, preserving object identity for all aliases.
+  The shape capability is class-owned while admission is component-owned: a
+  blocker in one disconnected component retains that component canonically but
+  cannot erase the proved capability for another component of the same class.
 
 Every definition, reference, assignment, argument, result, and storage member
 in the component changes atomically. A local exception invalidates the

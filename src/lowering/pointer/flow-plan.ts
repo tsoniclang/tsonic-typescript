@@ -134,6 +134,8 @@ export function createClosedPointerFlowPlan(
       source,
       component,
       census.facts,
+      (storeCall) =>
+        familyPlan.directObjectReplacementForStore(storeCall) !== undefined,
       ledger,
     );
     const representation = finalComponentRepresentation(

@@ -38,6 +38,7 @@ import type { PointerPlanningLedger } from "./planning-ledger.js";
 export interface DirectReferenceFamilyPlan {
   readonly representations: ReadonlyMap<Node, DirectReferenceFamilyDecision>;
   canonicalRetentionFor(node: Node): readonly PointerFlowBlockerOccurrence[] | undefined;
+  directObjectReplacementForStore(node: Node): DirectObjectReplacement | undefined;
   readonly directObjectReplacements: readonly DirectObjectReplacement[];
   readonly familyCount: number;
   readonly fallbackReasons: readonly DirectReferenceFamilyFallback[];
@@ -109,10 +110,26 @@ export function planDirectReferenceFamilies(
   >();
   const fallbackReasons: FamilyFallbackLedger = new Map();
   const directObjectReplacements: DirectObjectReplacement[] = [];
+  const directObjectReplacementsByStore = new Map<
+    Node,
+    DirectObjectReplacement
+  >();
   let familyCount = 0;
   for (const family of families.values()) {
     ledger.record("direct-family");
     const representation = familyRepresentations.get(family);
+    const replacement = replacementCandidates.get(family);
+    if (replacement !== undefined) {
+      directObjectReplacements.push(replacement);
+      for (const storeCall of replacement.storeCalls) {
+        if (directObjectReplacementsByStore.has(storeCall)) {
+          throw new Error(
+            "direct-object store belongs to multiple class families",
+          );
+        }
+        directObjectReplacementsByStore.set(storeCall, replacement);
+      }
+    }
     if (family.blockers.size !== 0) {
       appendFamilyFallback(fallbackReasons, family.blockers, ledger);
       for (const node of family.canonicalNodes.keys()) {
@@ -131,14 +148,12 @@ export function planDirectReferenceFamilies(
     if (representation === undefined) {
       throw new Error("unblocked pointer family has no representation");
     }
-    const replacement = replacementCandidates.get(family);
     if (replacement !== undefined) {
       if (representation !== "direct-object") {
         throw new Error(
           "direct-object replacement selected a non-object representation",
         );
       }
-      directObjectReplacements.push(replacement);
     }
     familyCount += 1;
     for (const pointerType of family.pointerTypes) {
@@ -154,6 +169,9 @@ export function planDirectReferenceFamilies(
     representations,
     canonicalRetentionFor(node: Node): readonly PointerFlowBlockerOccurrence[] | undefined {
       return canonicalRetentions.get(node);
+    },
+    directObjectReplacementForStore(node: Node): DirectObjectReplacement | undefined {
+      return directObjectReplacementsByStore.get(node);
     },
     directObjectReplacements: Object.freeze(directObjectReplacements),
     familyCount,
