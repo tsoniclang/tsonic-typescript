@@ -21,6 +21,10 @@ import {
   planDirectReferenceFamilies,
   type DirectReferenceFamilyPlan,
 } from "./flow-families.js";
+import {
+  retainedDirectReferenceFamilyHotspots,
+  type PointerFlowFamilyHotspot,
+} from "./flow-family-hotspots.js";
 import type { DirectReferenceFamilyFallback } from "./flow-family-evidence.js";
 import type {
   PointerFlowBlocker,
@@ -90,6 +94,8 @@ export interface ClosedPointerFlowPlan {
   readonly components: readonly PointerFlowComponentSummary[];
   readonly optimizedComponentCount: number;
   readonly optimizedFamilyCount: number;
+  readonly retainedFamilyCount: number;
+  readonly retainedFamilyHotspots: readonly PointerFlowFamilyHotspot[];
   readonly directObjectReplacementCount: number;
   readonly optimizedProjectionReadCount: number;
   readonly optimizedProjectionStoreCount: number;
@@ -202,6 +208,12 @@ export function createClosedPointerFlowPlan(
     familyPlan.fallbackReasons,
     ledger,
   );
+  const retainedFamilyHotspots = retainedDirectReferenceFamilyHotspots(
+    source,
+    sourceIdentityFor,
+    familyPlan.retainedFamilies,
+    ledger,
+  );
   const planningOperations = ledger.snapshot();
   return Object.freeze({
     owns(candidate: TargetSourceProgram): boolean {
@@ -240,6 +252,8 @@ export function createClosedPointerFlowPlan(
     components: frozenSummaries,
     optimizedComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
+    retainedFamilyCount: familyPlan.retainedFamilies.length,
+    retainedFamilyHotspots,
     directObjectReplacementCount: directObjectReplacements.count,
     optimizedProjectionReadCount: projectionFusions.readCount,
     optimizedProjectionStoreCount: projectionFusions.storeCount,

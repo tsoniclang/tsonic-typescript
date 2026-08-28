@@ -42,6 +42,14 @@ export interface DirectReferenceFamilyPlan {
   readonly directObjectReplacements: readonly DirectObjectReplacement[];
   readonly familyCount: number;
   readonly fallbackReasons: readonly DirectReferenceFamilyFallback[];
+  readonly retainedFamilies: readonly DirectReferenceFamilyRetention[];
+}
+
+export interface DirectReferenceFamilyRetention {
+  readonly identity: Node;
+  readonly pointerTypeCount: number;
+  readonly operationCount: number;
+  readonly blockerEvidence: readonly PointerFlowBlockerOccurrence[];
 }
 
 export function planDirectReferenceFamilies(
@@ -114,6 +122,7 @@ export function planDirectReferenceFamilies(
     Node,
     DirectObjectReplacement
   >();
+  const retainedFamilies: DirectReferenceFamilyRetention[] = [];
   let familyCount = 0;
   for (const family of families.values()) {
     ledger.record("direct-family");
@@ -132,6 +141,7 @@ export function planDirectReferenceFamilies(
     }
     if (family.blockers.size !== 0) {
       appendFamilyFallback(fallbackReasons, family.blockers, ledger);
+      retainedFamilies.push(sealRetainedFamily(family, ledger));
       for (const node of family.canonicalNodes.keys()) {
         ledger.record("direct-family");
         if (!family.pointerTypes.has(node) && !family.operations.has(node)) {
@@ -176,6 +186,31 @@ export function planDirectReferenceFamilies(
     directObjectReplacements: Object.freeze(directObjectReplacements),
     familyCount,
     fallbackReasons: sealFamilyFallback(fallbackReasons, ledger),
+    retainedFamilies: Object.freeze(retainedFamilies),
+  });
+}
+
+function sealRetainedFamily(
+  family: MutableDirectReferenceFamily,
+  ledger: PointerPlanningLedger,
+): DirectReferenceFamilyRetention {
+  const blockerEvidence = [...family.blockers]
+    .sort(([left], [right]) => {
+      ledger.record("evidence");
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
+    .map(([reason, occurrences]) => {
+      ledger.record("evidence");
+      return Object.freeze({
+        reason,
+        occurrences: Object.freeze([...occurrences]),
+      });
+    });
+  return Object.freeze({
+    identity: family.identity,
+    pointerTypeCount: family.pointerTypes.size,
+    operationCount: family.operations.size,
+    blockerEvidence: Object.freeze(blockerEvidence),
   });
 }
 

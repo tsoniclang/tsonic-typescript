@@ -104,7 +104,7 @@ test("emits deterministic immutable optimization evidence", () => {
   assert.ok(artifact !== undefined);
   assert.equal(artifact.kind, "asset");
   assert.deepEqual(JSON.parse(artifact.text), {
-    schemaVersion: 25,
+    schemaVersion: 26,
     sourceExecution: "unrestricted",
     profileIdentity:
       "typescript-optimization-v4/pointer=closed-direct/scalar=closed-direct/representations=preserve",
@@ -124,6 +124,8 @@ test("emits deterministic immutable optimization evidence", () => {
       componentCount: 1,
       optimizedComponentCount: 1,
       optimizedFamilyCount: 0,
+      retainedFamilyCount: 0,
+      retainedFamilyHotspots: [],
       directObjectReplacementCount: 0,
       optimizedProjectionReadCount: 0,
       optimizedProjectionStoreCount: 0,
@@ -265,12 +267,36 @@ export const same = equalPointer(left, right);
           syntaxKind?: string;
         }>;
       }>;
+      retainedFamilyCount?: number;
+      retainedFamilyHotspots?: Array<{
+        identity?: { documentIdentity?: string; syntaxKind?: string };
+        pointerTypeCount?: number;
+        operationCount?: number;
+        reasons?: Array<{
+          reason?: string;
+          occurrenceCount?: number;
+          examples?: unknown[];
+        }>;
+      }>;
     };
   };
   const identity = evidence.pointer?.familyFallbackReasons?.find((reason) =>
     reason.reason === "non-bijective-identity"
   );
   assert.equal(identity?.count, 1);
+  assert.equal(evidence.pointer?.retainedFamilyCount, 1);
+  const hotspot = evidence.pointer?.retainedFamilyHotspots?.[0];
+  assert.equal(hotspot?.identity?.documentIdentity, "index.ts");
+  assert.equal(hotspot?.identity?.syntaxKind, "KindClassDeclaration");
+  assert.equal(hotspot?.pointerTypeCount, 2);
+  assert.equal(hotspot?.operationCount, 3);
+  assert.deepEqual(
+    hotspot?.reasons?.map(({ reason, occurrenceCount }) => ({
+      reason,
+      occurrenceCount,
+    })),
+    [{ reason: "non-bijective-identity", occurrenceCount: 2 }],
+  );
   const firstAllocation = sourceText.indexOf("allocatePointer(box)");
   assert.ok(identity?.examples?.some((example) =>
     example.documentIdentity === "index.ts" &&

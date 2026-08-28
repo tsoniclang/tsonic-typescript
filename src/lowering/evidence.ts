@@ -3,6 +3,7 @@ import type {
   ClosedPointerFlowPlan,
   PointerFlowRepresentation,
 } from "./pointer/flow-plan.js";
+import type { PointerFlowFamilyHotspot } from "./pointer/flow-family-hotspots.js";
 import type {
   PointerProjectionCallablePlan,
   ProjectionCallableRetentionReason,
@@ -49,6 +50,8 @@ export type PointerOptimizationEvidence =
       readonly componentCount: number;
       readonly optimizedComponentCount: number;
       readonly optimizedFamilyCount: number;
+      readonly retainedFamilyCount: number;
+      readonly retainedFamilyHotspots: readonly PointerFlowFamilyHotspot[];
       readonly directObjectReplacementCount: number;
       readonly optimizedProjectionReadCount: number;
       readonly optimizedProjectionStoreCount: number;
@@ -114,7 +117,7 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 25;
+  readonly schemaVersion: 26;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -135,7 +138,7 @@ export function createTypeScriptOptimizationEvidence(
   representationPlan: RepresentationProjectionPlan,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 25 as const,
+    schemaVersion: 26 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
@@ -274,6 +277,8 @@ function pointerEvidence(
     componentCount: plan.components.length,
     optimizedComponentCount: plan.optimizedComponentCount,
     optimizedFamilyCount: plan.optimizedFamilyCount,
+    retainedFamilyCount: plan.retainedFamilyCount,
+    retainedFamilyHotspots: plan.retainedFamilyHotspots,
     directObjectReplacementCount: plan.directObjectReplacementCount,
     optimizedProjectionReadCount: plan.optimizedProjectionReadCount,
     optimizedProjectionStoreCount: plan.optimizedProjectionStoreCount,

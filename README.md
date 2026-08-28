@@ -68,6 +68,10 @@ The shared target-program index owns one source/node census, syntax-kind
 partitions, collision-safe authored names, and binding writes selected by the
 enabled families. Versioned evidence records exact source membership and a
 complete optimized-or-retained denominator for every family.
+Closed pointer evidence also reports the 32 largest retained class families by
+exact declaration identity, pointer-type and operation counts, and bounded
+blocker occurrences. This diagnostic is deterministic and cannot influence a
+representation decision.
 
 ## Scalar projections
 
