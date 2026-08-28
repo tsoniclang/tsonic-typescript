@@ -367,12 +367,69 @@ export function classValueReferencesAreClosed(
   program: TargetProgramIndex,
   classDeclaration: Node,
 ): boolean {
+  return classStaticSurfaceIsClosed(source, program, classDeclaration);
+}
+
+function classReferenceUsesAreClosed(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  classDeclaration: Node,
+): boolean {
   return source.navigation.referencesToDeclaration(classDeclaration).every((reference) =>
     isModuleForwardingReference(source, reference) ||
     plainTypeReference(source, reference) ||
     exactConstructionTarget(source, reference) ||
-    exactStaticCallTarget(source, reference, classDeclaration)
+    exactStaticMethodRead(source, program, reference, classDeclaration)
   );
+}
+
+function classStaticSurfaceIsClosed(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  classDeclaration: Node,
+): boolean {
+  return !hasDecorator(source, classDeclaration) &&
+    source.ast.members(classDeclaration).every((member) =>
+      member !== undefined &&
+      !hasDecorator(source, member) &&
+      !source.ast.is.IsClassStaticBlockDeclaration(member) &&
+      !staticPropertyHasInitializer(source, member) &&
+      !staticMemberObservesClassReceiver(source, member)
+    ) &&
+    classReferenceUsesAreClosed(source, program, classDeclaration);
+}
+
+function staticMemberObservesClassReceiver(
+  source: TargetSourceProgram,
+  member: Node,
+): boolean {
+  if (!source.ast.hasModifierKind(member, "static")) {
+    return false;
+  }
+  let observed = false;
+  const visit = (node: Node): void => {
+    const kind = source.ast.kindName(node);
+    if (kind === "KindThisKeyword" || kind === "KindSuperKeyword") {
+      observed = true;
+      return;
+    }
+    source.ast.forEachChild(node, (child) => {
+      if (!observed && child !== undefined) {
+        visit(child);
+      }
+    });
+  };
+  visit(member);
+  return observed;
+}
+
+function staticPropertyHasInitializer(
+  source: TargetSourceProgram,
+  member: Node,
+): boolean {
+  return source.ast.is.IsPropertyDeclaration(member) &&
+    source.ast.hasModifierKind(member, "static") &&
+    source.ast.as.AsPropertyDeclaration(member)?.Initializer !== undefined;
 }
 
 function exactConstructionTarget(
@@ -385,8 +442,9 @@ function exactConstructionTarget(
     source.ast.as.AsNewExpression(parent)?.Expression === reference;
 }
 
-function exactStaticCallTarget(
+function exactStaticMethodRead(
   source: TargetSourceProgram,
+  program: TargetProgramIndex,
   reference: Node,
   classDeclaration: Node,
 ): boolean {
@@ -398,21 +456,16 @@ function exactStaticCallTarget(
   ) {
     return false;
   }
-  const call = source.ast.parent(access);
-  if (
-    call === undefined ||
-    !source.ast.is.IsCallExpression(call) ||
-    source.ast.as.AsCallExpression(call)?.Expression !== access
-  ) {
-    return false;
-  }
   const member = source.navigation.sourceReferenceFor(
     source.ast.as.AsPropertyAccessExpression(access)?.name,
   )?.declaration;
+  const use = source.ast.parent(access);
   return member !== undefined &&
     source.ast.is.IsMethodDeclaration(member) &&
     source.ast.hasModifierKind(member, "static") &&
-    source.ast.parent(member) === classDeclaration;
+    source.ast.parent(member) === classDeclaration &&
+    source.ast.kindName(use) !== "KindDeleteExpression" &&
+    !program.hasBindingWrite(member);
 }
 
 function plainTypeReference(

@@ -51,6 +51,28 @@ test("eliminates exact identity and inverse representation calls", () => {
   assert.deepEqual(callTargets(fixture, result.sourceFile), ["next"]);
 });
 
+test("admits immutable reads of exact static converter methods", () => {
+  const fixture = checkedScalarFixture(`class Box<T> {
+    constructor(private readonly storage: T) {}
+    static from<T>(storage: T): Box<T> { return new Box(storage); }
+    static to<T>(box: Box<T>): T { return box.storage; }
+  }
+  export const converter = Box.from;
+  export const result = Box.to(Box.from(41));
+  `);
+  const plan = createRepresentationProjectionPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, { bindingWrites: true }),
+    "closed-direct",
+    fixtureSourceIdentityFor(fixture.source),
+  );
+  const result = lowerRepresentationProjections(fixture.sourceFile, plan);
+
+  assert.equal(plan.inverseCandidateCount, 1);
+  assert.equal(plan.optimizedCount, 1);
+  assert.deepEqual(callTargets(fixture, result.sourceFile), []);
+});
+
 test("preserves each representation candidate unless selected", () => {
   const fixture = checkedScalarFixture(exactRepresentations);
   const program = createTargetProgramIndex(fixture.source, {
