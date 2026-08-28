@@ -81,6 +81,7 @@ export function connectPointerCalls(census: PointerCensus): void {
       continue;
     }
     const boundParameters = new Set<Node>();
+    const transportedParameters = census.representationTransportCalls.get(node);
     const selectedDeclaration = semantics.declarations.signatureDeclaration(
       info.selectedSignature,
     );
@@ -135,6 +136,34 @@ export function connectPointerCalls(census: PointerCensus): void {
         source.ast.parent(parameterDeclaration) !== selectedDeclaration ||
         census.optimizableFunctions.get(selectedDeclaration) !== true
       ) {
+        if (
+          parameterDeclaration !== undefined &&
+          transportedParameters?.has(parameterDeclaration) === true &&
+          argument !== undefined &&
+          argumentVertex !== undefined &&
+          binding.sourceParameterForm === "parameter" &&
+          parameter?.rest !== true &&
+          parameter?.acceptsOmission !== true &&
+          selectedDeclaration !== undefined &&
+          selectedDeclaration === directDeclaration &&
+          source.ast.parent(parameterDeclaration) === selectedDeclaration
+        ) {
+          boundParameters.add(parameterDeclaration);
+          addTransparentReference(
+            source,
+            argument,
+            census.allowedPointerReferences,
+          );
+          addTransparentProducer(
+            source,
+            argument,
+            operations,
+            census.allowedProducerUses,
+            census.resultExpressions,
+          );
+          allowFunctionTarget(census, call.Expression);
+          continue;
+        }
         const blocker = callBoundaryBlocker(source, selectedDeclaration);
         graph.block(argumentVertex, blocker, node);
         graph.block(parameterVertex, blocker, node);

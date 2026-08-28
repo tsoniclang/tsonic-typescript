@@ -23,6 +23,10 @@ import type {
   TypeScriptSourceExecutionProfile,
 } from "../source-contract/execution.js";
 import {
+  canonicalRepresentationTransportContract,
+  type RepresentationTransportContract,
+} from "../lowering/representation/transport-contract.js";
+import {
   prepareTypeScriptLowering,
   type TypeScriptLoweringTransaction,
 } from "../lowering/transform.js";
@@ -40,10 +44,18 @@ export function compileTypeScriptTarget(
   printer: TypeScriptAstPrinter,
   profileInput: TypeScriptOptimizationProfileInput = canonicalTypeScriptOptimizationProfile(),
   execution: TypeScriptSourceExecutionProfile = "unrestricted",
+  representationTransports: RepresentationTransportContract =
+    canonicalRepresentationTransportContract(),
 ): TargetCompileResult {
   const profile = createTypeScriptOptimizationProfile(profileInput);
   try {
-    const compiled = compileSourceArtifacts(input, printer, profile, execution);
+    const compiled = compileSourceArtifacts(
+      input,
+      printer,
+      profile,
+      execution,
+      representationTransports,
+    );
     if (compiled.kind === "rejected") {
       return rejectedTargetStage(compiled.diagnostics);
     }
@@ -72,8 +84,14 @@ function compileSourceArtifacts(
   printer: TypeScriptAstPrinter,
   profile: TypeScriptOptimizationProfileInput,
   execution: TypeScriptSourceExecutionProfile,
+  representationTransports: RepresentationTransportContract,
 ): CompiledSourceArtifacts {
-  const prepared = prepareSourceArtifacts(input, profile, execution);
+  const prepared = prepareSourceArtifacts(
+    input,
+    profile,
+    execution,
+    representationTransports,
+  );
   if (prepared.kind === "rejected") {
     return prepared;
   }
@@ -100,6 +118,7 @@ function prepareSourceArtifacts(
   input: TargetCompileInput,
   profile: TypeScriptOptimizationProfileInput,
   execution: TypeScriptSourceExecutionProfile,
+  representationTransports: RepresentationTransportContract,
 ): PreparedSourceArtifacts {
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
   const sourceFiles = [...input.source.navigation.sourceFiles].sort(
@@ -141,6 +160,7 @@ function prepareSourceArtifacts(
       input.source.documents.forFile(sourceFile).fileName,
     ),
     execution,
+    representationTransports,
   );
   if (preparation.kind === "rejected") {
     return Object.freeze({

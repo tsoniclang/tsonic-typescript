@@ -53,7 +53,8 @@ profile selects the canonical, open-world-safe result:
     "pointerFlows": "location",
     "scalarProjections": "preserve",
     "representationProjections": "preserve"
-  }
+  },
+  "representationTransports": []
 }
 ```
 
@@ -72,6 +73,16 @@ Closed pointer evidence also reports the 32 largest retained class families by
 exact declaration identity, pointer-type and operation counts, and bounded
 blocker occurrences. This diagnostic is deterministic and cannot influence a
 representation decision.
+
+A closed product may additionally supply certified generic-kernel callable
+identities through `representationTransports`. The pointer planner exact-joins
+the imported module, exported declaration, selected signature, and only those
+parameters whose authored type refers to that kernel declaration's own type
+parameters. Such generic-owned values are opaque representation transport;
+concrete parameters of the same callable remain ordinary external boundaries.
+The target never infers this permission from a function name or implementation
+body, and sealed evidence records the contract digest, callable denominator,
+and exact selected-call count.
 
 ## Scalar projections
 

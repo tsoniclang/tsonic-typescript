@@ -8,6 +8,10 @@ import {
 import type {
   TypeScriptSourceExecutionProfile,
 } from "../source-contract/execution.js";
+import type {
+  RepresentationTransportContract,
+} from "../lowering/representation/transport-contract.js";
+import { readRepresentationTransportContract } from "./representation-transports.js";
 
 export interface TypeScriptAstPrinterOptions {
   readonly executable: string;
@@ -18,6 +22,7 @@ export interface TypeScriptTargetOptions {
   readonly printer: TypeScriptAstPrinterOptions;
   readonly execution: TypeScriptSourceExecutionProfile;
   readonly optimizations: TypeScriptOptimizationProfile;
+  readonly representationTransports: RepresentationTransportContract;
 }
 
 export function readTypeScriptTargetOptions(
@@ -29,13 +34,21 @@ export function readTypeScriptTargetOptions(
   }
   rejectUnknownKeys(
     options,
-    new Set(["printer", "execution", "optimizations"]),
+    new Set([
+      "printer",
+      "execution",
+      "optimizations",
+      "representationTransports",
+    ]),
     "TypeScript target options",
   );
   return Object.freeze({
     printer: readPrinter(options["printer"]),
     execution: readExecution(options["execution"]),
     optimizations: readOptimizationOptions(options["optimizations"]),
+    representationTransports: readRepresentationTransportContract(
+      options["representationTransports"],
+    ),
   });
 }
 

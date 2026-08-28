@@ -31,6 +31,10 @@ import {
 } from "../source-contract/execution.js";
 import { createRepresentationProjectionPlan } from "./representation/plan.js";
 import {
+  canonicalRepresentationTransportContract,
+  type RepresentationTransportContract,
+} from "./representation/transport-contract.js";
+import {
   createRepresentationProjectionRewriter,
   type RepresentationProjectionRewriter,
   type RepresentationProjectionRewriteResult,
@@ -88,6 +92,8 @@ export function prepareTypeScriptLowering(
   profileInput: TypeScriptOptimizationProfileInput,
   sourceIdentityFor: (sourceFile: SourceFile) => string,
   execution: TypeScriptSourceExecutionProfile = "unrestricted",
+  representationTransports: RepresentationTransportContract =
+    canonicalRepresentationTransportContract(),
 ): TypeScriptLoweringPreparation {
   assertExactSourceMembership(source, sourceFiles);
   const profile = createTypeScriptOptimizationProfile(profileInput);
@@ -120,6 +126,7 @@ export function prepareTypeScriptLowering(
         program,
         generatedNames,
         identities.forFile,
+        representationTransports,
       )
     : undefined;
   const pointerProjectionCallables = createPointerProjectionCallablePlan(
@@ -149,6 +156,7 @@ export function prepareTypeScriptLowering(
     pointerProjectionCallables,
     scalarPlan,
     representationPlan,
+    representationTransports,
   );
   const plans = new Map<SourceFile, SourceRewritePlan>();
   const failures: TypeScriptSourcePlanningFailure[] = [];

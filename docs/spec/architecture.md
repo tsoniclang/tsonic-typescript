@@ -65,6 +65,23 @@ Source references, selected declarations, types, and operations come from the
 canonical Tsonic source API. The target does not retain a duplicate reference
 index.
 
+## Certified Representation Transport
+
+A selected product may provide one immutable, versioned set of certified
+generic-kernel callable identities. Selection exact-joins the import module,
+export, resolved declaration, and selected signature from the checked tree.
+The certificate admits only a parameter whose authored type structurally
+refers to a type parameter owned by that same selected kernel declaration.
+Concrete parameters on the same callable remain external boundaries.
+
+This contract says only that the generic-owned shape transports the caller's
+already-selected representation through its caller-owned operation facets. It
+does not grant the kernel authority to choose a representation, expose a
+concrete provider carrier, or make an arbitrary external call transparent.
+Missing, stale, duplicate, ambiguously imported, same-spelled, or non-generic
+evidence retains canonical lowering. No kernel body, path suffix, or spelling
+heuristic is inspected by the target.
+
 ## Representation Families
 
 ### Pointers
@@ -122,8 +139,9 @@ Every enabled family reports exact optimized and retained denominators.
 Retained entries carry bounded typed reasons and authored occurrence identity.
 Evidence is immutable and emitted only after the complete lowering
 transaction seals. It records the selected source-execution contract, exact
-source membership, and representation-family denominators. It contains no
-cooperative-effect schema.
+source membership, representation-family denominators, and the selected
+representation-transport contract digest, denominator, and selected-call
+count. It contains no cooperative-effect schema.
 
 ## Deleted Architecture
 

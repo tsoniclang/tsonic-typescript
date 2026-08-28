@@ -14,6 +14,10 @@ import {
 import type { TargetProgramIndex } from "../program-index.js";
 import type { ProgramGeneratedNames } from "../generated-names.js";
 import {
+  canonicalRepresentationTransportContract,
+  type RepresentationTransportContract,
+} from "../representation/transport-contract.js";
+import {
   censusPointerFlows,
 } from "./flow-census.js";
 import type { DirectObjectReplacement } from "./direct-object-replacement.js";
@@ -99,6 +103,7 @@ export interface ClosedPointerFlowPlan {
   readonly directObjectReplacementCount: number;
   readonly optimizedProjectionReadCount: number;
   readonly optimizedProjectionStoreCount: number;
+  readonly representationTransportCallCount: number;
   readonly planningOperationCount: number;
   readonly planningOperations: PointerPlanningOperations;
   readonly planningCandidates: PointerPlanningCandidateCounts;
@@ -112,9 +117,16 @@ export function createClosedPointerFlowPlan(
   program: TargetProgramIndex,
   generatedNames: ProgramGeneratedNames,
   sourceIdentityFor: SourceIdentityResolver,
+  representationTransports: RepresentationTransportContract =
+    canonicalRepresentationTransportContract(),
 ): ClosedPointerFlowPlan {
   const ledger = new PointerPlanningLedger();
-  const census = censusPointerFlows(source, program, ledger);
+  const census = censusPointerFlows(
+    source,
+    program,
+    ledger,
+    representationTransports,
+  );
   const components = census.components;
   const familyPlan = planDirectReferenceFamilies(
     source,
@@ -257,6 +269,7 @@ export function createClosedPointerFlowPlan(
     directObjectReplacementCount: directObjectReplacements.count,
     optimizedProjectionReadCount: projectionFusions.readCount,
     optimizedProjectionStoreCount: projectionFusions.storeCount,
+    representationTransportCallCount: census.representationTransportCallCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,
     planningCandidates: ledger.candidateSnapshot(),

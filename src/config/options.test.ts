@@ -34,6 +34,11 @@ test("validates and freezes the canonical printer and optimization profile", () 
   assert.ok(Object.isFrozen(result.printer));
   assert.ok(Object.isFrozen(result.printer.arguments));
   assert.ok(Object.isFrozen(result.optimizations));
+  assert.equal(result.representationTransports.schemaVersion, 1);
+  assert.deepEqual(result.representationTransports.callables, []);
+  assert.match(result.representationTransports.digest, /^[0-9a-f]{64}$/u);
+  assert.ok(Object.isFrozen(result.representationTransports));
+  assert.ok(Object.isFrozen(result.representationTransports.callables));
 });
 
 test("selects the exact closed three-family profile", () => {
@@ -47,6 +52,11 @@ test("selects the exact closed three-family profile", () => {
         scalarProjections: "closed-direct",
         representationProjections: "closed-direct",
       },
+      representationTransports: [{
+        kind: "generic-kernel",
+        moduleSpecifier: "@provider/kernel.js",
+        exportName: "Kernel",
+      }],
     },
   });
 
@@ -58,6 +68,11 @@ test("selects the exact closed three-family profile", () => {
     scalarProjections: "closed-direct",
     representationProjections: "closed-direct",
   });
+  assert.deepEqual(result.representationTransports.callables, [{
+    kind: "generic-kernel",
+    moduleSpecifier: "@provider/kernel.js",
+    exportName: "Kernel",
+  }]);
 });
 
 test("fails closed on absent, unknown, malformed, and effect-era options", () => {
@@ -118,5 +133,27 @@ test("fails closed on absent, unknown, malformed, and effect-era options", () =>
       diagnostics: { planningPhases: true },
     }),
     /unsupported field 'diagnostics'/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer" },
+      representationTransports: "kernel",
+    }),
+    /must be an array/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer" },
+      representationTransports: [{
+        kind: "generic-kernel",
+        moduleSpecifier: "@provider/z.js",
+        exportName: "Z",
+      }, {
+        kind: "generic-kernel",
+        moduleSpecifier: "@provider/a.js",
+        exportName: "A",
+      }],
+    }),
+    /uniquely and canonically ordered/u,
   );
 });

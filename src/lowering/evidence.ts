@@ -10,6 +10,10 @@ import type {
 } from "./pointer/projection-callable-plan.js";
 import type { OptimizationOccurrence } from "./occurrence.js";
 import type { TypeScriptOptimizationProfile } from "./profile.js";
+import {
+  canonicalRepresentationTransportContract,
+  type RepresentationTransportContract,
+} from "./representation/transport-contract.js";
 import type {
   TypeScriptSourceExecutionProfile,
 } from "../source-contract/execution.js";
@@ -117,7 +121,7 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 26;
+  readonly schemaVersion: 27;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -125,6 +129,11 @@ export interface TypeScriptOptimizationEvidence {
   readonly pointer: PointerOptimizationEvidence;
   readonly scalar: ScalarOptimizationEvidence;
   readonly representationProjections: RepresentationProjectionOptimizationEvidence;
+  readonly representationTransports: {
+    readonly digest: string;
+    readonly contractCount: number;
+    readonly selectedCallCount: number;
+  };
 }
 
 export function createTypeScriptOptimizationEvidence(
@@ -136,9 +145,11 @@ export function createTypeScriptOptimizationEvidence(
   pointerProjectionCallables: PointerProjectionCallablePlan,
   scalarPlan: ScalarRepresentationPlan,
   representationPlan: RepresentationProjectionPlan,
+  representationTransports: RepresentationTransportContract =
+    canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 26 as const,
+    schemaVersion: 27 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
@@ -153,6 +164,11 @@ export function createTypeScriptOptimizationEvidence(
       profile,
       representationPlan,
     ),
+    representationTransports: Object.freeze({
+      digest: representationTransports.digest,
+      contractCount: representationTransports.callables.length,
+      selectedCallCount: pointerPlan?.representationTransportCallCount ?? 0,
+    }),
   });
 }
 

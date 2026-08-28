@@ -60,6 +60,7 @@ export function createTypeScriptCompilationSession(
         printer,
         options.optimizations,
         options.execution,
+        options.representationTransports,
       );
     },
     close(): void {
