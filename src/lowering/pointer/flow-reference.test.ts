@@ -7,6 +7,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
 import { createTargetProgramIndex } from "../program-index.js";
+import { createProgramGeneratedNames } from "../generated-names.js";
 import {
   createClosedPointerFlowPlan as createProductionPointerFlowPlan,
   type PointerFlowRepresentation,
@@ -249,6 +250,7 @@ export const result = loadPointer(alias);
     () => createProductionPointerFlowPlan(
       source,
       program,
+      createProgramGeneratedNames(source, program),
       (sourceFile) => source.documents.forFile(sourceFile).identity,
     ),
     /pointer operand .* lost its exact source reference/u,

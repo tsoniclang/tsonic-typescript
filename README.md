@@ -107,19 +107,24 @@ The closed planner can select only these exact representations:
 - a read-only scalar pointer becomes the scalar snapshot;
 - a closed mutable scalar alias component becomes one `{ value: T }` cell;
 - a class-represented pointee becomes the object itself only when its checked
-  type symbol has a primary project `ClassDeclaration` and the complete flow
-  neither replaces nor observes the pointer location.
+  type symbol has a primary project `ClassDeclaration`; whole-pointee stores
+  are admitted only for a closed class whose complete mutable state is the
+  exact public constructor-property set, and become one collision-free
+  generated replacement method that copies those fields in place.
 
 Object shape is never representation evidence. Arrays, interfaces,
 declaration-file classes, and structural wrapper shapes therefore remain
 `Location<T>`. A project class may carry value semantics because canonical
 `Location<T>.value` also returns that same represented object; generated copy
-operations remain outside pointer lowering. `addressOf(x)` can become a scalar
-snapshot only when `x` has one exact local storage identity and the checked
-navigation graph proves that storage cannot change. Repeated addresses of the
-same storage are one component. Nullable authored types and `value ?? panic()`
-guards are contracted only when all exact assignments and calls prove the
-component non-null.
+operations remain outside pointer lowering. Replacing an object pointee never
+changes its object identity, so aliases continue to denote the same Go pointer.
+Classes with inheritance, accessors, computed members, omitted mutable state,
+decorators, open boundaries, or mutable class bindings retain `Location<T>`.
+`addressOf(x)` can become a scalar snapshot only when `x` has one exact local
+storage identity and the checked navigation graph proves that storage cannot
+change. Repeated addresses of the same storage are one component. Nullable
+authored types retain `value ?? panic()`; a nil guard is contracted only when
+the checked left operand itself cannot be undefined.
 
 Planning uses original checked-node identities. `createPointerRewriteSession`
 exposes the node rewrite for composition with other semantic lowerers in one

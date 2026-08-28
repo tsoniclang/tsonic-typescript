@@ -1,6 +1,7 @@
 import type {
   PointerOperationFact,
   Node,
+  SourceFile,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
@@ -11,9 +12,11 @@ import {
   type SourceIdentityResolver,
 } from "../occurrence.js";
 import type { TargetProgramIndex } from "../program-index.js";
+import type { ProgramGeneratedNames } from "../generated-names.js";
 import {
   censusPointerFlows,
 } from "./flow-census.js";
+import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import {
   planDirectReferenceFamilies,
   type DirectReferenceFamilyPlan,
@@ -43,6 +46,14 @@ import { closePointerValueEvidence } from "./value-evidence.js";
 
 export type { PointerFlowBlocker } from "./flow-graph.js";
 export type { PointerFlowRepresentation } from "./flow-representation.js";
+
+const noReplacements = Object.freeze([]) as readonly DirectObjectReplacement[];
+
+interface SelectedDirectObjectReplacements {
+  readonly byNode: ReadonlyMap<Node, DirectObjectReplacement>;
+  readonly byFile: ReadonlyMap<SourceFile, readonly DirectObjectReplacement[]>;
+  readonly count: number;
+}
 
 export interface PointerFlowComponentSummary {
   readonly representation: PointerFlowRepresentation;
@@ -74,9 +85,12 @@ export interface ClosedPointerFlowPlan {
   componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined;
   projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
   ownsFusedProjection(node: Node): boolean;
+  directObjectReplacementFor(node: Node): DirectObjectReplacement | undefined;
+  directObjectReplacementsFor(sourceFile: SourceFile): readonly DirectObjectReplacement[];
   readonly components: readonly PointerFlowComponentSummary[];
   readonly optimizedComponentCount: number;
   readonly optimizedFamilyCount: number;
+  readonly directObjectReplacementCount: number;
   readonly optimizedProjectionReadCount: number;
   readonly optimizedProjectionStoreCount: number;
   readonly planningOperationCount: number;
@@ -90,6 +104,7 @@ export interface ClosedPointerFlowPlan {
 export function createClosedPointerFlowPlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  generatedNames: ProgramGeneratedNames,
   sourceIdentityFor: SourceIdentityResolver,
 ): ClosedPointerFlowPlan {
   const ledger = new PointerPlanningLedger();
@@ -98,6 +113,7 @@ export function createClosedPointerFlowPlan(
   const familyPlan = planDirectReferenceFamilies(
     source,
     program,
+    generatedNames,
     components,
     census.facts,
     ledger,
@@ -159,6 +175,10 @@ export function createClosedPointerFlowPlan(
     }
     appendFallbackEvidence(summary.retentionReasons, fallbackReasons, ledger);
   }
+  const directObjectReplacements = selectDirectObjectReplacements(
+    familyPlan.directObjectReplacements,
+    representations,
+  );
   const projectionFusions = planPointerProjectionFusions(
     source,
     census.facts,
@@ -207,9 +227,18 @@ export function createClosedPointerFlowPlan(
     ownsFusedProjection(node: Node): boolean {
       return projectionFusions.ownsProjection(node);
     },
+    directObjectReplacementFor(node: Node): DirectObjectReplacement | undefined {
+      return directObjectReplacements.byNode.get(node);
+    },
+    directObjectReplacementsFor(
+      sourceFile: SourceFile,
+    ): readonly DirectObjectReplacement[] {
+      return directObjectReplacements.byFile.get(sourceFile) ?? noReplacements;
+    },
     components: frozenSummaries,
     optimizedComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
+    directObjectReplacementCount: directObjectReplacements.count,
     optimizedProjectionReadCount: projectionFusions.readCount,
     optimizedProjectionStoreCount: projectionFusions.storeCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
@@ -219,6 +248,49 @@ export function createClosedPointerFlowPlan(
     fallbackReasons: sealedFallbackReasons,
     familyFallbackReasons: sealedFamilyFallbackReasons,
   });
+}
+
+function selectDirectObjectReplacements(
+  candidates: readonly DirectObjectReplacement[],
+  representations: ReadonlyMap<Node, PointerFlowRepresentation>,
+): SelectedDirectObjectReplacements {
+  const byNode = new Map<Node, DirectObjectReplacement>();
+  const mutableByFile = new Map<SourceFile, DirectObjectReplacement[]>();
+  let count = 0;
+  for (const candidate of candidates) {
+    const storeCalls = candidate.storeCalls.filter((storeCall) =>
+      representations.get(storeCall) === "direct-object"
+    );
+    if (storeCalls.length === 0) {
+      continue;
+    }
+    const replacement: DirectObjectReplacement = Object.freeze({
+      ...candidate,
+      storeCalls: Object.freeze(storeCalls),
+    });
+    if (byNode.has(replacement.classDeclaration)) {
+      throw new Error("direct-object class selected multiple replacement plans");
+    }
+    byNode.set(replacement.classDeclaration, replacement);
+    for (const storeCall of replacement.storeCalls) {
+      if (byNode.has(storeCall)) {
+        throw new Error("direct-object store selected multiple replacement plans");
+      }
+      byNode.set(storeCall, replacement);
+    }
+    const selected = mutableByFile.get(replacement.sourceFile);
+    if (selected === undefined) {
+      mutableByFile.set(replacement.sourceFile, [replacement]);
+    } else {
+      selected.push(replacement);
+    }
+    count += 1;
+  }
+  const byFile = new Map<SourceFile, readonly DirectObjectReplacement[]>();
+  for (const [sourceFile, replacements] of mutableByFile) {
+    byFile.set(sourceFile, Object.freeze([...replacements]));
+  }
+  return Object.freeze({ byNode, byFile, count });
 }
 
 function sealFamilyFallbackEvidence(

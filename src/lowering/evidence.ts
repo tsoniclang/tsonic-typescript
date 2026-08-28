@@ -49,6 +49,7 @@ export type PointerOptimizationEvidence =
       readonly componentCount: number;
       readonly optimizedComponentCount: number;
       readonly optimizedFamilyCount: number;
+      readonly directObjectReplacementCount: number;
       readonly optimizedProjectionReadCount: number;
       readonly optimizedProjectionStoreCount: number;
       readonly representations: readonly OptimizationCount<
@@ -113,7 +114,7 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 24;
+  readonly schemaVersion: 25;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -134,7 +135,7 @@ export function createTypeScriptOptimizationEvidence(
   representationPlan: RepresentationProjectionPlan,
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 24 as const,
+    schemaVersion: 25 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
@@ -273,6 +274,7 @@ function pointerEvidence(
     componentCount: plan.components.length,
     optimizedComponentCount: plan.optimizedComponentCount,
     optimizedFamilyCount: plan.optimizedFamilyCount,
+    directObjectReplacementCount: plan.directObjectReplacementCount,
     optimizedProjectionReadCount: plan.optimizedProjectionReadCount,
     optimizedProjectionStoreCount: plan.optimizedProjectionStoreCount,
     representations: countValues(

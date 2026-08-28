@@ -18,6 +18,7 @@ import type {
   SourceFileGeneratedNames,
 } from "../generated-names.js";
 import { validateAddressableStorage } from "./addressability.js";
+import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import { validatePointerOperationFact } from "./operation-contract.js";
 import type {
@@ -87,6 +88,7 @@ export interface PointerLoweringPlan {
     Node,
     PointerInferenceStabilization
   >;
+  readonly directObjectReplacements: ReadonlyMap<Node, DirectObjectReplacement>;
   readonly usesRuntimeValue: boolean;
 }
 
@@ -128,9 +130,22 @@ export function createPointerLoweringPlan(
   const rawPointerTypes = new Set<Node>();
   const selectedMarkerRoots: Node[] = [];
   const bindingsByDeclaration = new Map<Node, MutableLocationBinding>();
+  const directObjectReplacements = new Map<Node, DirectObjectReplacement>();
   let usesRuntimeValue = false;
 
   for (const node of nodes) {
+    const directObjectReplacement = flowPlan?.directObjectReplacementFor(node);
+    if (directObjectReplacement !== undefined) {
+      if (
+        directObjectReplacement.classDeclaration !== node &&
+        !directObjectReplacement.storeCalls.includes(node)
+      ) {
+        throw new PointerLoweringError(
+          "direct-object replacement is attached outside its exact class or store",
+        );
+      }
+      directObjectReplacements.set(node, directObjectReplacement);
+    }
     const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
     if (operation !== undefined) {
       if (operation.call !== node || operations.has(node)) {
@@ -317,6 +332,7 @@ export function createPointerLoweringPlan(
     runtimeAlias,
     referenceHashes,
     inferenceStabilizations,
+    directObjectReplacements,
     usesRuntimeValue,
   });
 }

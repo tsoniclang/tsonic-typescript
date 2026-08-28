@@ -270,7 +270,7 @@ export const result = loadPointer(pointer!);
   ));
 });
 
-test("removes a disproved nil guard from a complete scalar call flow", () => {
+test("retains a nil guard while the authored pointer type remains nullable", () => {
   const fixture = checkedPointerFixture(`
 import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
@@ -287,6 +287,24 @@ export const result = read(pointer) + 1;
   for (const operation of pointerOperations(fixture.source)) {
     assert.equal(plan.representationFor(operation.call), "direct-snapshot");
   }
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "panic"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
+});
+
+test("removes a nil guard only from a checked nonnullable pointer operand", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+function panic(): never { throw new Error("nil"); }
+function read(pointer: Pointer<number>): number {
+  return loadPointer(pointer ?? panic());
+}
+const pointer = allocatePointer(41);
+export const result = read(pointer) + 1;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "panic"), 0);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
 });

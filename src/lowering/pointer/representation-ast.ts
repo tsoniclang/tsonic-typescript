@@ -34,8 +34,13 @@ import type { NodeFactory } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { GeneratedBindingName } from "../generated-names.js";
+import {
+  lowerDirectObjectReplacementStore,
+} from "./direct-object-replacement-ast.js";
+import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type { PointerFlowRepresentation } from "./flow-plan.js";
+import { pointerTypeCanBeUndefined } from "./nullability.js";
 import type { ReferenceHashPlan } from "./plan.js";
 import { runtimeCall } from "./runtime-ast.js";
 
@@ -92,6 +97,7 @@ export function lowerOptimizedPointerOperation(
   operation: PointerOperationFact,
   updated: Node,
   representation: PointerFlowRepresentation,
+  directObjectReplacement: DirectObjectReplacement | undefined,
   runtimeAlias: GeneratedBindingName,
   referenceHash: ReferenceHashPlan | undefined,
 ): Node | undefined {
@@ -145,6 +151,19 @@ export function lowerOptimizedPointerOperation(
       case "load":
         requireArity(operation.operation, values, 1);
         return values[0];
+      case "store":
+        requireArity(operation.operation, values, 2);
+        if (directObjectReplacement === undefined) {
+          throw new PointerLoweringError(
+            "direct-object store has no exact replacement plan",
+          );
+        }
+        return lowerDirectObjectReplacementStore(
+          factory,
+          requiredValue(values, 0),
+          requiredValue(values, 1),
+          directObjectReplacement,
+        );
       default:
         throw new PointerLoweringError(
           `direct-object cannot lower ${operation.operation}`,
@@ -219,16 +238,25 @@ function disprovedNilGuardValue(
   }
   const originalBinary = source.ast.as.AsBinaryExpression(original);
   const updatedBinary = source.ast.as.AsBinaryExpression(updated);
+  const left = originalBinary?.Left;
   const fallback = originalBinary?.Right;
   const fallbackType = fallback === undefined
     ? undefined
     : source.semantics.forNode(fallback).types.expressionType(fallback);
   if (
     fallback === undefined ||
+    left === undefined ||
     fallbackType === undefined ||
     !source.semantics.forNode(fallback).types.isNever(fallbackType) ||
     source.ast.operatorKindName(updated) !== "KindQuestionQuestionToken" ||
     updatedBinary?.Left === undefined
+  ) {
+    return updated;
+  }
+  const leftType = source.semantics.forNode(left).types.expressionType(left);
+  if (
+    leftType === undefined ||
+    pointerTypeCanBeUndefined(source, left, leftType)
   ) {
     return updated;
   }

@@ -14,9 +14,10 @@ with:
 7. bounded construction-operation counts; and
 8. broad searches proving no sibling decision path survives.
 
-Pointer mutations must cover an unproved snapshot, missed mutation, object
-replacement, nullable flow, identity observation, marker-spelling foil, and
-generated-name collision. Scalar and representation mutations must cover an
+Pointer mutations must cover an unproved snapshot, missed mutation, exact
+in-place object replacement, an omitted mutable field, a same-named generated
+member, nullable nil-guard retention, identity observation, marker-spelling
+foil, and generated-name collision. Scalar and representation mutations must cover an
 open consumer, observable nominal identity, missed store, mismatched AST kind,
 duplicate plan consumption, and omitted call-site rewrite.
 

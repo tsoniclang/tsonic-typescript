@@ -33,6 +33,7 @@ import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { createTargetProgramIndex } from "../program-index.js";
+import { createProgramGeneratedNames } from "../generated-names.js";
 
 import {
   createClosedPointerFlowPlan,
@@ -96,11 +97,13 @@ export function checkedPointerFixture(
 export function createFixturePointerFlowPlan(
   source: TargetSourceProgram,
 ): ClosedPointerFlowPlan {
+  const program = createTargetProgramIndex(source, {
+    bindingWrites: true,
+  });
   return createClosedPointerFlowPlan(
     source,
-    createTargetProgramIndex(source, {
-      bindingWrites: true,
-    }),
+    program,
+    createProgramGeneratedNames(source, program),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
   );
 }

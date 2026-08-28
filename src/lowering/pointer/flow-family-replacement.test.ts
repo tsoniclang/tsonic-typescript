@@ -4,7 +4,10 @@ import { test } from "node:test";
 import { pointerOperationFactKey, transpileModule } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import {
+  AsClassDeclaration,
   AsBinaryExpression,
+  IsClassDeclaration,
+  IsMethodDeclaration,
   IsObjectLiteralExpression,
   KindEqualsEqualsEqualsToken,
 } from "@tsonic/tsts/target-ast";
@@ -18,6 +21,139 @@ import {
   visit,
 } from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";
+
+test("replaces an addressed class value without retaining a location wrapper", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+class Box {
+  declare private readonly $goType: void;
+  constructor(public value: number, public label: string) {}
+  declare private readonly then?: never;
+}
+function panic(): never { throw new Error("nil pointer"); }
+function reset(pointer: Pointer<Box> | undefined): void {
+  storePointer(pointer ?? panic(), new Box(2, "updated"));
+}
+let box = new Box(1, "original");
+const pointer: Pointer<Box> = addressOf(box);
+const alias = pointer;
+reset(alias);
+export const result = [loadPointer(pointer).value, loadPointer(alias).label];
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+
+  assert.equal(plan.optimizedFamilyCount, 1);
+  assert.equal(plan.directObjectReplacementCount, 1);
+  assertRepresentations(fixture.source, plan, "direct-object");
+  assert.equal(
+    plan.familyFallbackReasons.some((entry) =>
+      entry.reason === "pointee-replacement"
+    ),
+    false,
+  );
+
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  const boxClass = classDeclarationNamed(
+    fixture.source,
+    lowered.sourceFile,
+    "Box",
+  );
+  const replacementMethods = fixture.source.ast.members(boxClass).filter(
+    (member) =>
+      member !== undefined &&
+      IsMethodDeclaration(member) &&
+      fixture.source.ast.text(fixture.source.ast.name(member)) ===
+        "$tsonicReplace",
+  );
+  assert.equal(replacementMethods.length, 1);
+  assert.equal(countCallsNamed(
+    fixture.source,
+    lowered.sourceFile,
+    "$tsonicReplace",
+  ), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "panic"), 1);
+  for (const marker of ["addressOf", "loadPointer", "storePointer"]) {
+    assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, marker), 0);
+  }
+});
+
+test("allocates a collision-free replacement member name", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+class Box {
+  constructor(public value: number) {}
+  $tsonicReplace(value: Box): void { this.value = value.value + 100; }
+}
+let box = new Box(1);
+const pointer: Pointer<Box> = addressOf(box);
+storePointer(pointer, new Box(2));
+export const result = loadPointer(pointer).value;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+
+  assert.equal(plan.directObjectReplacementCount, 1);
+  assert.equal(countCallsNamed(
+    fixture.source,
+    lowered.sourceFile,
+    "$tsonicReplace2",
+  ), 1);
+  const boxClass = classDeclarationNamed(
+    fixture.source,
+    lowered.sourceFile,
+    "Box",
+  );
+  assert.deepEqual(
+    fixture.source.ast.members(boxClass)
+      .filter((member) => member !== undefined && IsMethodDeclaration(member))
+      .map((member) => fixture.source.ast.text(fixture.source.ast.name(member)))
+      .filter((name) => name.startsWith("$tsonicReplace"))
+      .sort(),
+    ["$tsonicReplace", "$tsonicReplace2"],
+  );
+});
+
+test("retains canonical locations when class state is not exactly replaceable", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+class Box {
+  constructor(public value: number) {}
+  get doubled(): number { return this.value * 2; }
+}
+let box = new Box(1);
+const pointer: Pointer<Box> = addressOf(box);
+storePointer(pointer, new Box(2));
+export const result = loadPointer(pointer).doubled;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+
+  assert.equal(plan.directObjectReplacementCount, 0);
+  assertRepresentations(fixture.source, plan, "location");
+  assert.ok(plan.familyFallbackReasons.some((entry) =>
+    entry.reason === "pointee-replacement"
+  ));
+});
+
+test("rejects mutable instance state outside constructor properties", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+class Box {
+  public omitted = 0;
+  constructor(public value: number) {}
+}
+let box = new Box(1);
+const pointer: Pointer<Box> = addressOf(box);
+storePointer(pointer, new Box(2));
+export const result = loadPointer(pointer).omitted;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+
+  assert.equal(plan.directObjectReplacementCount, 0);
+  assertRepresentations(fixture.source, plan, "location");
+  assert.ok(plan.familyFallbackReasons.some((entry) =>
+    entry.reason === "pointee-replacement"
+  ));
+});
 
 test("uses one exact mutable cell for a replaceable object family", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
@@ -134,10 +270,11 @@ export const result = loadPointer(addressed).value + loadPointer(allocated).valu
 `);
   const plan = createFixturePointerFlowPlan(fixture.source);
 
-  assert.equal(plan.optimizedFamilyCount, 0);
-  assert.ok(plan.familyFallbackReasons.some((entry) =>
+  assert.equal(plan.optimizedFamilyCount, 1);
+  assert.equal(plan.directObjectReplacementCount, 0);
+  assert.equal(plan.familyFallbackReasons.some((entry) =>
     entry.reason === "pointee-replacement"
-  ));
+  ), false);
   const operations = pointerOperations(fixture.source);
   const address = operations.find((operation) =>
     operation.operation === "address-of"
@@ -147,9 +284,13 @@ export const result = loadPointer(addressed).value + loadPointer(allocated).valu
   assert.ok(store !== undefined);
   assert.equal(plan.representationFor(address.call), "direct-object");
   assert.equal(plan.representationFor(store.call), "mutable-cell");
-  assert.doesNotThrow(() =>
-    lowerPointers(fixture.source, fixture.sourceFile, plan)
-  );
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  assert.equal(lowered.directObjectReplacementCount, 0);
+  assert.equal(countCallsNamed(
+    fixture.source,
+    lowered.sourceFile,
+    "$tsonicReplace",
+  ), 0);
 });
 
 test("keeps replaceable object cells canonical across an ambient boundary", () => {
@@ -204,10 +345,53 @@ export const result = [left.value.value, left === alias, left === right];
   assert.deepEqual(loweredModule["result"], canonicalModule["result"]);
 });
 
+test("matches canonical addressed replacement and nil behavior", async () => {
+  const canonical = `class Location<T> {
+  constructor(public value: T) {}
+}
+class Box { constructor(public value: number, public label: string) {} }
+function panic(): never { throw new Error("nil pointer"); }
+function reset(pointer: Location<Box> | undefined): void {
+  (pointer ?? panic()).value = new Box(2, "updated");
+}
+const pointer = new Location(new Box(1, "original"));
+const alias = pointer;
+reset(alias);
+let nilFailure = "";
+try { reset(undefined); } catch (error) { nilFailure = (error as Error).message; }
+export const result = [pointer.value.value, alias.value.label, pointer === alias, nilFailure];
+`;
+  const lowered = `class Box {
+  constructor(public value: number, public label: string) {}
+  $tsonicReplace(value: Box): void {
+    this.value = value.value;
+    this.label = value.label;
+  }
+}
+function panic(): never { throw new Error("nil pointer"); }
+function reset(pointer: Box | undefined): void {
+  (pointer ?? panic()).$tsonicReplace(new Box(2, "updated"));
+}
+const pointer = new Box(1, "original");
+const alias = pointer;
+reset(alias);
+let nilFailure = "";
+try { reset(undefined); } catch (error) { nilFailure = (error as Error).message; }
+export const result = [pointer.value, alias.label, pointer === alias, nilFailure];
+`;
+
+  const [canonicalModule, loweredModule] = await Promise.all([
+    executeTypeScript(canonical, "canonical-addressed-replacement"),
+    executeTypeScript(lowered, "lowered-addressed-replacement"),
+  ]);
+  assert.deepEqual(canonicalModule["result"], [2, "updated", true, "nil pointer"]);
+  assert.deepEqual(loweredModule["result"], canonicalModule["result"]);
+});
+
 function assertRepresentations(
   source: TargetSourceProgram,
   plan: ReturnType<typeof createFixturePointerFlowPlan>,
-  expected: "location" | "mutable-cell",
+  expected: "location" | "mutable-cell" | "direct-object",
 ): void {
   const operations = pointerOperations(source);
   assert.ok(operations.length > 0);
@@ -218,6 +402,25 @@ function assertRepresentations(
       operation.operation,
     );
   }
+}
+
+function classDeclarationNamed(
+  source: TargetSourceProgram,
+  root: Node,
+  name: string,
+): Node {
+  let found: Node | undefined;
+  visit(source, root, (node) => {
+    if (!IsClassDeclaration(node)) {
+      return;
+    }
+    const declaration = AsClassDeclaration(node);
+    if (source.ast.text(declaration?.name) === name) {
+      found = node;
+    }
+  });
+  assert.ok(found !== undefined, `Missing class declaration '${name}'.`);
+  return found;
 }
 
 function pointerOperations(

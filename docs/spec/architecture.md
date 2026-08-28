@@ -75,12 +75,22 @@ closed component may select:
 
 - a scalar snapshot when no write can be observed;
 - one mutable cell when scalar alias mutation is required; or
-- the represented object when replacement, nilness, and pointer identity are
-  unobservable.
+- the represented object when the complete flow is closed. Whole-pointee
+  replacement is allowed only when one exact class-shape proof accounts for
+  every mutable instance field as a public constructor property. The target
+  then adds one collision-free instance replacement method and rewrites every
+  admitted store to that method, preserving object identity for all aliases.
 
 Every definition, reference, assignment, argument, result, and storage member
 in the component changes atomically. A local exception invalidates the
 optimization and retains the canonical pointer representation.
+
+The replacement proof rejects inheritance, heritage consumers, decorators,
+accessors, computed or private state, nonempty constructors, omitted mutable
+fields, declaration boundaries, and mutable class bindings. Ambient readonly
+type sentinels carry no runtime state and are excluded explicitly. Nullable
+pointer operands retain their source nil guard; only a checked non-nullable
+left operand permits guard contraction.
 
 ### Scalars
 

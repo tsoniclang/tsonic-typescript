@@ -35,6 +35,9 @@ import {
 } from "../program-index.js";
 
 import { PointerLoweringError } from "./diagnostic.js";
+import {
+  appendDirectObjectReplacementMethod,
+} from "./direct-object-replacement-ast.js";
 import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 import { pointerFlowRepresentation, pointerLoweringPlanUsesRuntime } from "./flow-application.js";
 import {
@@ -72,6 +75,7 @@ export interface PointerLoweringResult {
   readonly rawPointerTypeCount: number;
   readonly locationBindingCount: number;
   readonly inferenceStabilizationCount: number;
+  readonly directObjectReplacementCount: number;
   readonly runtimeAlias: string | undefined;
 }
 
@@ -132,6 +136,7 @@ function applyPointerLoweringPlan(
       rawPointerTypeCount: 0,
       locationBindingCount: 0,
       inferenceStabilizationCount: 0,
+      directObjectReplacementCount: 0,
       runtimeAlias: undefined,
     });
   }
@@ -223,6 +228,7 @@ function pointerLoweringResult(
     rawPointerTypeCount: consumed.rawPointerTypes.size,
     locationBindingCount: consumed.locationBindings.size,
     inferenceStabilizationCount: consumed.inferenceStabilizations.size,
+    directObjectReplacementCount: consumed.directObjectReplacements.size,
     runtimeAlias: usesRuntime ? plan.runtimeAlias.text : undefined,
   });
 }
@@ -235,6 +241,7 @@ interface ConsumptionState {
   readonly locationBindings: Set<Node>;
   readonly removableMarkerDeclarations: Set<Node>;
   readonly inferenceStabilizations: Set<Node>;
+  readonly directObjectReplacements: Set<Node>;
 }
 
 function createConsumptionState(): ConsumptionState {
@@ -246,6 +253,7 @@ function createConsumptionState(): ConsumptionState {
     locationBindings: new Set(),
     removableMarkerDeclarations: new Set(),
     inferenceStabilizations: new Set(),
+    directObjectReplacements: new Set(),
   };
 }
 
@@ -325,6 +333,7 @@ function rewriteNode(
       operation,
       updated,
       pointerFlowRepresentation(plan, original),
+      plan.directObjectReplacements.get(original),
       plan.runtimeAlias,
       plan.referenceHashes.get(original),
     );
@@ -384,6 +393,18 @@ function rewriteNode(
   }
 
   let structuralResult = updated;
+  const directObjectReplacement = plan.directObjectReplacements.get(original);
+  if (
+    directObjectReplacement !== undefined &&
+    directObjectReplacement.classDeclaration === original
+  ) {
+    consumed.directObjectReplacements.add(original);
+    structuralResult = appendDirectObjectReplacementMethod(
+      factory,
+      structuralResult,
+      directObjectReplacement,
+    );
+  }
   if (
     IsSourceFile(original) ||
     IsBlock(original) ||
@@ -466,6 +487,11 @@ function assertCompleteConsumption(
     "pointer inference stabilizations",
     consumed.inferenceStabilizations,
     plan.inferenceStabilizations.size,
+  );
+  assertCount(
+    "direct-object replacements",
+    consumed.directObjectReplacements,
+    plan.flowPlan?.directObjectReplacementsFor(plan.sourceFile).length ?? 0,
   );
 }
 

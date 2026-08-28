@@ -115,7 +115,12 @@ export function prepareTypeScriptLowering(
   }
   const generatedNames = createProgramGeneratedNames(source, program);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
-    ? createClosedPointerFlowPlan(source, program, identities.forFile)
+    ? createClosedPointerFlowPlan(
+        source,
+        program,
+        generatedNames,
+        identities.forFile,
+      )
     : undefined;
   const pointerProjectionCallables = createPointerProjectionCallablePlan(
     source,
