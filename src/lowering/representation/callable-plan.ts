@@ -12,7 +12,7 @@ import {
   type BoundedOptimizationReasonEvidence,
 } from "../retention-evidence.js";
 import type { RepresentationProjectionProfile } from "./plan.js";
-import { classValueReferencesAreClosed } from "./shape.js";
+import type { RepresentationBindingProof } from "./binding-proof.js";
 
 export const identityCallableRetentionReasons = Object.freeze([
   "profile-preserved",
@@ -55,6 +55,7 @@ const noSpecializations = Object.freeze([]) as readonly IdentityCallableSpeciali
 export function createIdentityCallablePlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   profile: RepresentationProjectionProfile,
   blockedCalls: ReadonlySet<Node>,
   sourceIdentityFor: SourceIdentityResolver,
@@ -70,7 +71,7 @@ export function createIdentityCallablePlan(
     KindFunctionDeclaration,
     KindMethodDeclaration,
   ])) {
-    if (!supportedOwner(source, program, owner)) {
+    if (!supportedOwner(source, program, bindingProof, owner)) {
       continue;
     }
     const parameters = source.ast.parameters(owner).filter(
@@ -293,6 +294,7 @@ function groupSpecializations<Key extends Node>(
 function supportedOwner(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   owner: Node,
 ): boolean {
   if (
@@ -320,7 +322,7 @@ function supportedOwner(
     source.ast.is.IsClassDeclaration(parent) &&
     source.ast.extendsHeritageElements(parent).length === 0 &&
     !program.hasBindingWrite(parent) &&
-    classValueReferencesAreClosed(source, program, parent);
+    bindingProof.classValueReferencesAreClosed(parent);
 }
 
 function isCallableParameter(

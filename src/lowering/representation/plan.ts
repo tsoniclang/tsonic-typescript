@@ -12,6 +12,7 @@ import {
   createIdentityCallablePlan,
   type IdentityCallablePlan,
 } from "./callable-plan.js";
+import { createRepresentationBindingProof } from "./binding-proof.js";
 import {
   identityCallArgument,
   inverseProjectionArgument,
@@ -69,6 +70,7 @@ export function createRepresentationProjectionPlan(
   if (profile !== "preserve" && profile !== "closed-direct") {
     throw new Error(`unsupported representation projection profile '${String(profile)}'`);
   }
+  const bindingProof = createRepresentationBindingProof(source, program);
   const rewrites: RepresentationProjectionRewrite[] = [];
   const retentions = createOptimizationRetentionLedger(
     source,
@@ -79,7 +81,7 @@ export function createRepresentationProjectionPlan(
   let identityCandidateCount = 0;
   let inverseCandidateCount = 0;
   for (const call of program.nodesOfKind(KindCallExpression)) {
-    const identity = identityCallArgument(source, program, call);
+    const identity = identityCallArgument(source, program, bindingProof, call);
     if (identity.kind !== "unrelated") {
       identityCandidateCount += 1;
       if (profile === "preserve") {
@@ -91,7 +93,7 @@ export function createRepresentationProjectionPlan(
       }
       continue;
     }
-    const projection = projectionCallShape(source, program, call);
+    const projection = projectionCallShape(source, program, bindingProof, call);
     if (projection.kind === "unrelated") {
       continue;
     }
@@ -107,6 +109,7 @@ export function createRepresentationProjectionPlan(
     const inverse = inverseProjectionArgument(
       source,
       program,
+      bindingProof,
       projection,
     );
     if (inverse.kind === "proved") {
@@ -120,6 +123,7 @@ export function createRepresentationProjectionPlan(
   const storedFlows = createStoredRepresentationFlowPlan(
     source,
     program,
+    bindingProof,
     storedCandidates,
   );
   for (const projection of storedCandidates) {
@@ -144,6 +148,7 @@ export function createRepresentationProjectionPlan(
     createIdentityCallablePlan(
       source,
       program,
+      bindingProof,
       profile,
       new Set(rewrites.map((rewrite) => rewrite.call)),
       sourceIdentityFor,

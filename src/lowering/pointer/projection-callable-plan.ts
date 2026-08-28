@@ -12,6 +12,7 @@ import {
   createOptimizationRetentionLedger,
   type BoundedOptimizationReasonEvidence,
 } from "../retention-evidence.js";
+import { createRepresentationBindingProof } from "../representation/binding-proof.js";
 import { forwardingCallableTarget } from "../representation/shape.js";
 
 export const projectionCallableRetentionReasons = Object.freeze([
@@ -46,6 +47,7 @@ export function createPointerProjectionCallablePlan(
   profile: TypeScriptPointerFlowProfile,
   sourceIdentityFor: SourceIdentityResolver,
 ): PointerProjectionCallablePlan {
+  const bindingProof = createRepresentationBindingProof(source, program);
   const retentions = createOptimizationRetentionLedger(
     source,
     sourceIdentityFor,
@@ -90,7 +92,7 @@ export function createPointerProjectionCallablePlan(
   });
 
   function decide(expression: Node): Node | undefined {
-    const shape = forwardingCallableTarget(source, program, expression);
+    const shape = forwardingCallableTarget(source, program, bindingProof, expression);
     if (shape.kind === "unrelated") {
       return undefined;
     }

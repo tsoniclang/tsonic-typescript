@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { RepresentationProjectionRetentionReason } from "./plan.js";
+import type { RepresentationBindingProof } from "./binding-proof.js";
 
 export type RepresentationShapeResult =
   | { readonly kind: "unrelated" }
@@ -31,6 +32,7 @@ export type ForwardingCallableShapeResult =
 export function forwardingCallableTarget(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   expression: Node,
 ): ForwardingCallableShapeResult {
   if (
@@ -70,7 +72,7 @@ export function forwardingCallableTarget(
   ) {
     return { kind: "retained", reason: "open-call" };
   }
-  if (!stableCallable(source, program, declaration)) {
+  if (!bindingProof.stableCallable(declaration)) {
     return { kind: "retained", reason: "unstable-binding" };
   }
   return Object.freeze({ kind: "proved" as const, target: call.Expression });
@@ -79,6 +81,7 @@ export function forwardingCallableTarget(
 export function identityCallArgument(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   callNode: Node,
 ): RepresentationShapeResult {
   const selected = directCallCandidate(source, callNode);
@@ -96,7 +99,7 @@ export function identityCallArgument(
   if (!selected.exact || selected.argument === undefined) {
     return { kind: "retained", reason: "open-call" };
   }
-  if (!stableCallable(source, program, selected.declaration)) {
+  if (!bindingProof.stableCallable(selected.declaration)) {
     return { kind: "retained", reason: "unstable-binding" };
   }
   return { kind: "proved", argument: selected.argument };
@@ -105,6 +108,7 @@ export function identityCallArgument(
 export function projectionCallShape(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   callNode: Node,
 ): ProjectionCallShape | Exclude<RepresentationShapeResult, { readonly kind: "proved" }> {
   const selected = directCallCandidate(source, callNode);
@@ -132,7 +136,7 @@ export function projectionCallShape(
   if (!selected.exact || selected.argument === undefined) {
     return { kind: "retained", reason: "open-call" };
   }
-  if (!stableCallable(source, program, selected.declaration)) {
+  if (!bindingProof.stableCallable(selected.declaration)) {
     return { kind: "retained", reason: "unstable-binding" };
   }
   return Object.freeze({
@@ -147,6 +151,7 @@ export function projectionCallShape(
 export function inverseProjectionArgument(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   projection: ProjectionCallShape,
 ): RepresentationShapeResult {
   const outer = source.ast.as.AsCallExpression(projection.call);
@@ -154,12 +159,13 @@ export function inverseProjectionArgument(
   if (innerNode === undefined || !source.ast.is.IsCallExpression(innerNode)) {
     return { kind: "retained", reason: "unpaired-projection" };
   }
-  return representationFactoryArgument(source, program, innerNode, projection);
+  return representationFactoryArgument(source, program, bindingProof, innerNode, projection);
 }
 
 export function representationFactoryArgument(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   callNode: Node,
   projection: ProjectionCallShape,
 ): RepresentationShapeResult {
@@ -170,7 +176,7 @@ export function representationFactoryArgument(
   if (!factory.exact || factory.argument === undefined) {
     return { kind: "retained", reason: "open-call" };
   }
-  if (!stableCallable(source, program, factory.declaration)) {
+  if (!bindingProof.stableCallable(factory.declaration)) {
     return { kind: "retained", reason: "unstable-binding" };
   }
   const returned = soleReturnedExpression(source, factory.declaration);
@@ -195,6 +201,7 @@ export function representationFactoryArgument(
     !transparentStorageConstructor(
       source,
       program,
+      bindingProof,
       returned,
       classDeclaration,
       projection.storageDeclaration,
@@ -289,39 +296,6 @@ function directTargetDeclaration(
     : undefined;
 }
 
-function stableCallable(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  declaration: Node,
-): boolean {
-  const parsed = source.ast.is.IsFunctionDeclaration(declaration)
-    ? source.ast.as.AsFunctionDeclaration(declaration)
-    : source.ast.is.IsMethodDeclaration(declaration)
-    ? source.ast.as.AsMethodDeclaration(declaration)
-    : undefined;
-  const parent = source.ast.parent(declaration);
-  const stableClass = source.ast.is.IsFunctionDeclaration(declaration) ||
-    parent !== undefined &&
-      source.ast.is.IsClassDeclaration(parent) &&
-      classValueReferencesAreClosed(source, program, parent);
-  return parsed !== undefined &&
-    parsed.AsteriskToken === undefined &&
-    !source.ast.hasModifierKind(declaration, "async") &&
-    !source.ast.modifiers(declaration).some((modifier) =>
-      source.ast.is.IsDecorator(modifier)
-    ) &&
-    !program.hasBindingWrite(declaration) &&
-    stableClass &&
-    (source.ast.is.IsFunctionDeclaration(declaration) ||
-      parent !== undefined &&
-        source.ast.is.IsClassDeclaration(parent) &&
-        source.ast.extendsHeritageElements(parent).length === 0 &&
-        !source.ast.modifiers(parent).some((modifier) =>
-          source.ast.is.IsDecorator(modifier)
-        ) &&
-        !program.hasBindingWrite(parent));
-}
-
 function soleReturnedExpression(
   source: TargetSourceProgram,
   declaration: Node,
@@ -350,6 +324,7 @@ function returnedExpression(
 function transparentStorageConstructor(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   construction: Node,
   classDeclaration: Node,
   storageDeclaration: Node,
@@ -378,7 +353,7 @@ function transparentStorageConstructor(
     body !== undefined &&
     source.ast.statements(body).length === 0 &&
     classMembersAreConstructionTransparent(source, classDeclaration) &&
-    classValueReferencesAreClosed(source, program, classDeclaration) &&
+    bindingProof.classValueReferencesAreClosed(classDeclaration) &&
     signature !== undefined &&
     source.semantics.forNode(construction).declarations.signatureDeclaration(signature) ===
       constructor &&
@@ -425,142 +400,6 @@ function classMembersAreConstructionTransparent(
     return false;
   }
   return true;
-}
-
-export function classValueReferencesAreClosed(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  classDeclaration: Node,
-): boolean {
-  return classStaticSurfaceIsClosed(source, program, classDeclaration);
-}
-
-function classReferenceUsesAreClosed(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  classDeclaration: Node,
-): boolean {
-  return source.navigation.referencesToDeclaration(classDeclaration).every((reference) =>
-    isModuleForwardingReference(source, reference) ||
-    plainTypeReference(source, reference) ||
-    exactConstructionTarget(source, reference) ||
-    exactStaticMethodRead(source, program, reference, classDeclaration)
-  );
-}
-
-function classStaticSurfaceIsClosed(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  classDeclaration: Node,
-): boolean {
-  return !hasDecorator(source, classDeclaration) &&
-    source.ast.members(classDeclaration).every((member) =>
-      member !== undefined &&
-      !hasDecorator(source, member) &&
-      !source.ast.is.IsClassStaticBlockDeclaration(member) &&
-      !staticPropertyHasInitializer(source, member) &&
-      !staticMemberObservesClassReceiver(source, member)
-    ) &&
-    classReferenceUsesAreClosed(source, program, classDeclaration);
-}
-
-function staticMemberObservesClassReceiver(
-  source: TargetSourceProgram,
-  member: Node,
-): boolean {
-  if (!source.ast.hasModifierKind(member, "static")) {
-    return false;
-  }
-  let observed = false;
-  const visit = (node: Node): void => {
-    const kind = source.ast.kindName(node);
-    if (kind === "KindThisKeyword" || kind === "KindSuperKeyword") {
-      observed = true;
-      return;
-    }
-    source.ast.forEachChild(node, (child) => {
-      if (!observed && child !== undefined) {
-        visit(child);
-      }
-    });
-  };
-  visit(member);
-  return observed;
-}
-
-function staticPropertyHasInitializer(
-  source: TargetSourceProgram,
-  member: Node,
-): boolean {
-  return source.ast.is.IsPropertyDeclaration(member) &&
-    source.ast.hasModifierKind(member, "static") &&
-    source.ast.as.AsPropertyDeclaration(member)?.Initializer !== undefined;
-}
-
-function exactConstructionTarget(
-  source: TargetSourceProgram,
-  reference: Node,
-): boolean {
-  const parent = source.ast.parent(reference);
-  return parent !== undefined &&
-    source.ast.is.IsNewExpression(parent) &&
-    source.ast.as.AsNewExpression(parent)?.Expression === reference;
-}
-
-function exactStaticMethodRead(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  reference: Node,
-  classDeclaration: Node,
-): boolean {
-  const access = source.ast.parent(reference);
-  if (
-    access === undefined ||
-    !source.ast.is.IsPropertyAccessExpression(access) ||
-    source.ast.as.AsPropertyAccessExpression(access)?.Expression !== reference
-  ) {
-    return false;
-  }
-  const member = source.navigation.sourceReferenceFor(
-    source.ast.as.AsPropertyAccessExpression(access)?.name,
-  )?.declaration;
-  const use = source.ast.parent(access);
-  return member !== undefined &&
-    source.ast.is.IsMethodDeclaration(member) &&
-    source.ast.hasModifierKind(member, "static") &&
-    source.ast.parent(member) === classDeclaration &&
-    source.ast.kindName(use) !== "KindDeleteExpression" &&
-    !program.hasBindingWrite(member);
-}
-
-function plainTypeReference(
-  source: TargetSourceProgram,
-  reference: Node,
-): boolean {
-  let current: Node | undefined = reference;
-  while (current !== undefined) {
-    if (source.ast.is.IsTypeQueryNode(current)) {
-      return false;
-    }
-    if (source.ast.is.IsTypeReferenceNode(current)) {
-      return true;
-    }
-    current = source.ast.parent(current);
-  }
-  return false;
-}
-
-function isModuleForwardingReference(
-  source: TargetSourceProgram,
-  reference: Node,
-): boolean {
-  const parent = source.ast.parent(reference);
-  return source.ast.is.IsImportSpecifier(reference) ||
-    source.ast.is.IsExportSpecifier(reference) ||
-    parent !== undefined && (
-      source.ast.is.IsImportSpecifier(parent) ||
-      source.ast.is.IsExportSpecifier(parent)
-    );
 }
 
 function hasDecorator(source: TargetSourceProgram, node: Node): boolean {
