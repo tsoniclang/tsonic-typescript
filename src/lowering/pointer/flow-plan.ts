@@ -126,6 +126,7 @@ export function createClosedPointerFlowPlan(
     program,
     ledger,
     representationTransports,
+    sourceIdentityFor,
   );
   const components = census.components;
   const familyPlan = planDirectReferenceFamilies(

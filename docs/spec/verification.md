@@ -34,6 +34,10 @@ module, wrong export, local same-spelled callable, duplicate contract entry,
 noncanonical order, absent type parameter, and ambiguous ownership mutations
 must fail or retain the boundary. The sealed contract digest, callable count,
 and nonzero selected-call count are independently joined by product assembly.
+Generated-kernel proof additionally covers exact module-function and
+class/member declarations, wrong source identity, wrong declaration name,
+wrong member name, and two calls on one line. A declaration selected only by a
+`$kernel`-like spelling is a failing mutation, never positive evidence.
 
 ## Transaction Proof
 

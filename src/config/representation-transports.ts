@@ -27,28 +27,65 @@ function readCallable(
   }
   rejectUnknownKeys(
     value,
-    new Set(["kind", "moduleSpecifier", "exportName"]),
+    new Set(["kind", "moduleSpecifier", "sourcePath", "exportName", "memberName"]),
     `representation transport callable ${index}`,
   );
   const kind = value["kind"];
-  const moduleSpecifier = value["moduleSpecifier"];
-  const exportName = value["exportName"];
-  if (kind !== "generic-kernel") {
+  const exportName = requireText(
+    value["exportName"],
+    `representation transport callable ${index} exportName`,
+  );
+  if (kind === "generic-kernel") {
+    const moduleSpecifier = requireText(
+      value["moduleSpecifier"],
+      `representation transport callable ${index} moduleSpecifier`,
+    );
+    rejectPresent(value, ["sourcePath", "memberName"], index);
+    return Object.freeze({ kind, moduleSpecifier, exportName });
+  }
+  if (kind === "generated-generic-function-kernel") {
+    const sourcePath = requireText(
+      value["sourcePath"],
+      `representation transport callable ${index} sourcePath`,
+    );
+    rejectPresent(value, ["moduleSpecifier", "memberName"], index);
+    return Object.freeze({ kind, sourcePath, exportName });
+  }
+  if (kind === "generated-generic-member-kernel") {
+    const sourcePath = requireText(
+      value["sourcePath"],
+      `representation transport callable ${index} sourcePath`,
+    );
+    const memberName = requireText(
+      value["memberName"],
+      `representation transport callable ${index} memberName`,
+    );
+    rejectPresent(value, ["moduleSpecifier"], index);
+    return Object.freeze({ kind, sourcePath, exportName, memberName });
+  }
+  throw new Error(
+    `representation transport callable ${index} kind is unsupported`,
+  );
+}
+
+function requireText(value: unknown, subject: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${subject} must be non-empty`);
+  }
+  return value;
+}
+
+function rejectPresent(
+  value: Readonly<Record<string, unknown>>,
+  fields: readonly string[],
+  index: number,
+): void {
+  const present = fields.find((field) => value[field] !== undefined);
+  if (present !== undefined) {
     throw new Error(
-      `representation transport callable ${index} kind must be 'generic-kernel'`,
+      `representation transport callable ${index} field '${present}' is invalid for its kind`,
     );
   }
-  if (typeof moduleSpecifier !== "string" || moduleSpecifier.length === 0) {
-    throw new Error(
-      `representation transport callable ${index} moduleSpecifier must be non-empty`,
-    );
-  }
-  if (typeof exportName !== "string" || exportName.length === 0) {
-    throw new Error(
-      `representation transport callable ${index} exportName must be non-empty`,
-    );
-  }
-  return Object.freeze({ kind, moduleSpecifier, exportName });
 }
 
 function rejectUnknownKeys(
