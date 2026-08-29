@@ -74,12 +74,16 @@ kernel exact-joins its selected source identity and either its module-function
 declaration or class/member declaration before matching the selected call
 signature. The source identity is supplied by the same artifact-path owner used
 for output membership; filesystem suffixes and ambient roots are not accepted.
-The certificate admits only a parameter whose authored type structurally
-refers to a type parameter owned by that selected kernel declaration. For a
+The certificate admits only a parameter whose authored type is exactly a type
+parameter owned by that selected kernel declaration. A container, pointer,
+callable, or other composite that merely contains the type parameter is not a
+transport value. For a
 generated class member, the enclosing selected class's type parameters are
 owned by the member kernel as well; no other lexical or inherited type
-parameter is admitted. Concrete parameters on the same callable remain
-external boundaries.
+parameter is admitted. The selected concrete pointer family for an admitted
+transport value is conserved through every nested capability, receiver, and
+result occurrence at that same exact call. Other nested pointer families and
+concrete parameters on the same callable remain external boundaries.
 
 This contract says only that the generic-owned shape transports the caller's
 already-selected representation through its caller-owned operation facets. It

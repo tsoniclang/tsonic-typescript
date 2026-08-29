@@ -31,7 +31,11 @@ with one certified generic kernel. The exact module, export, declaration,
 selected signature, and generic-owned parameter become transparent while a
 concrete pointer parameter on that same callable remains canonical. Generated
 member proof must include a nongeneric method whose transported parameter is
-owned by its enclosing generic class. Wrong
+owned by its enclosing generic class. A `T` value instantiated as a pointer
+must conserve one representation through its concrete wrapper, explicit type
+argument, capabilities, receiver storage, and result. A `Pointer<T>` parameter
+must remain a foil: it expresses pointer semantics over `T`, not transport of
+`T`. Wrong
 module, wrong export, local same-spelled callable, duplicate contract entry,
 noncanonical order, absent type parameter, and ambiguous ownership mutations
 must fail or retain the boundary. The sealed contract digest, callable count,

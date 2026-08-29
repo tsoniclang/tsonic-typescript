@@ -283,49 +283,11 @@ function referencesOwnedTypeParameter(
   if (root === undefined) {
     return false;
   }
-  const evidence = inspectTypeParameterReferences(
-    source,
-    root,
-    typeParameterNames,
-    ledger,
-  );
-  return evidence.owned && !evidence.nestedDeclaration;
-}
-
-interface TypeParameterReferenceEvidence {
-  readonly owned: boolean;
-  readonly nestedDeclaration: boolean;
-}
-
-function inspectTypeParameterReferences(
-  source: TargetSourceProgram,
-  root: Node,
-  typeParameterNames: ReadonlySet<string>,
-  ledger: PointerPlanningLedger,
-): TypeParameterReferenceEvidence {
   ledger.record("flow-census");
-  let owned = false;
-  let nestedDeclaration = source.ast.is.IsTypeParameterDeclaration(root);
-  if (source.ast.is.IsTypeReferenceNode(root)) {
-    const typeName = source.ast.as.AsTypeReferenceNode(root)?.TypeName;
-    owned =
-      typeName !== undefined &&
-      source.ast.is.IsIdentifier(typeName) &&
-      typeParameterNames.has(source.ast.text(typeName));
-  }
-  for (const child of source.ast.children(root)) {
-    if (child !== undefined) {
-      const childEvidence = inspectTypeParameterReferences(
-        source,
-        child,
-        typeParameterNames,
-        ledger,
-      );
-      owned ||= childEvidence.owned;
-      nestedDeclaration ||= childEvidence.nestedDeclaration;
-    }
-  }
-  return { owned, nestedDeclaration };
+  const typeName = source.ast.as.AsTypeReferenceNode(root)?.TypeName;
+  return typeName !== undefined &&
+    source.ast.is.IsIdentifier(typeName) &&
+    typeParameterNames.has(source.ast.text(typeName));
 }
 
 function collectNamespaceModules(

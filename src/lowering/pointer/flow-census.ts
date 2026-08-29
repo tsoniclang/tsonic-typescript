@@ -77,6 +77,7 @@ export interface PointerCensus {
 export interface PointerFlowCensusResult {
   readonly components: readonly PointerFlowComponent[];
   readonly facts: PointerTypedFactLedger;
+  readonly representationTransportCalls: ReadonlyMap<Node, ReadonlySet<Node>>;
   readonly representationTransportCallCount: number;
 }
 
@@ -229,6 +230,7 @@ export function censusPointerFlows(
   return Object.freeze({
     components,
     facts,
+    representationTransportCalls,
     representationTransportCallCount: representationTransportCalls.size,
   });
 }

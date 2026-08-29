@@ -58,6 +58,7 @@ export function planDirectReferenceFamilies(
   generatedNames: ProgramGeneratedNames,
   components: readonly PointerFlowComponent[],
   facts: PointerTypedFactLedger,
+  representationTransportCalls: ReadonlyMap<Node, ReadonlySet<Node>>,
   ledger: PointerPlanningLedger,
 ): DirectReferenceFamilyPlan {
   const families = new Map<Node, MutableDirectReferenceFamily>();
@@ -82,6 +83,7 @@ export function planDirectReferenceFamilies(
     facts,
     families,
     operationFamilies,
+    representationTransportCalls,
     ledger,
   );
   applyCheckerBoundaries(source, operationFamilies, facts, ledger);
