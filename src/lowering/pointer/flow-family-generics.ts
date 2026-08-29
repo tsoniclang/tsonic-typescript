@@ -28,7 +28,6 @@ export function applyGenericPointerBoundaries(
   facts: PointerTypedFactLedger,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
   operationFamilies: ReadonlyMap<Node, MutableDirectReferenceFamily>,
-  representationTransportCalls: ReadonlyMap<Node, ReadonlySet<Node>>,
   ledger: PointerPlanningLedger,
 ): void {
   for (const [operationNode, family] of operationFamilies) {
@@ -74,14 +73,6 @@ export function applyGenericPointerBoundaries(
     if (call?.sourceSelectedSignatureKind !== "resolved") {
       continue;
     }
-    const transportedFamilies = selectedTransportFamilies(
-      source,
-      node,
-      call,
-      representationTransportCalls.get(node),
-      families,
-      ledger,
-    );
     for (const binding of call.sourceArgumentBindings) {
       ledger.record("direct-family");
       const parameter = call.sourceSelectedSignatureParameters[
@@ -104,7 +95,6 @@ export function applyGenericPointerBoundaries(
         node,
         binding.selectedParameterType,
         families,
-        transportedFamilies,
         "generic-call",
         ledger,
       );
@@ -113,7 +103,6 @@ export function applyGenericPointerBoundaries(
         node,
         binding.selectedArgumentType,
         families,
-        transportedFamilies,
         "generic-call",
         ledger,
       );
@@ -139,7 +128,6 @@ export function applyGenericPointerBoundaries(
         node,
         call.sourceResultType,
         families,
-        transportedFamilies,
         "generic-call",
         ledger,
       );
@@ -194,7 +182,6 @@ function blockSelectedPointerFamilies(
   anchor: Node,
   type: Type | undefined,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
-  excluded: ReadonlySet<MutableDirectReferenceFamily>,
   blocker: PointerFlowBlocker,
   ledger: PointerPlanningLedger,
 ): void {
@@ -209,101 +196,8 @@ function blockSelectedPointerFamilies(
     ledger,
   )) {
     ledger.record("direct-family");
-    if (excluded.has(family)) {
-      continue;
-    }
     blockDirectReferenceFamily(family, blocker, anchor);
   }
-}
-
-function selectedTransportFamilies(
-  source: TargetSourceProgram,
-  anchor: Node,
-  call: {
-    readonly sourceArgumentBindings: readonly {
-      readonly sourceParameterIndex: number;
-      readonly selectedParameterType?: Type;
-      readonly selectedArgumentType?: Type;
-    }[];
-    readonly sourceSelectedSignatureParameters: readonly {
-      readonly parameterDeclaration?: Node;
-    }[];
-  },
-  transportedParameters: ReadonlySet<Node> | undefined,
-  families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
-  ledger: PointerPlanningLedger,
-): ReadonlySet<MutableDirectReferenceFamily> {
-  const result = new Set<MutableDirectReferenceFamily>();
-  if (transportedParameters === undefined) {
-    return result;
-  }
-  for (const binding of call.sourceArgumentBindings) {
-    ledger.record("direct-family");
-    const parameter = call.sourceSelectedSignatureParameters[
-      binding.sourceParameterIndex
-    ];
-    if (
-      parameter?.parameterDeclaration === undefined ||
-      !transportedParameters.has(parameter.parameterDeclaration)
-    ) {
-      continue;
-    }
-    for (const type of [binding.selectedParameterType, binding.selectedArgumentType]) {
-      const family = directSelectedPointerFamily(
-        source,
-        anchor,
-        type,
-        families,
-        ledger,
-      );
-      if (family !== undefined) {
-        result.add(family);
-      }
-    }
-  }
-  return result;
-}
-
-function directSelectedPointerFamily(
-  source: TargetSourceProgram,
-  anchor: Node,
-  type: Type | undefined,
-  families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
-  ledger: PointerPlanningLedger,
-): MutableDirectReferenceFamily | undefined {
-  if (type === undefined) {
-    return undefined;
-  }
-  const semantics = source.semantics.forNode(anchor);
-  let selected = type;
-  if (semantics.types.isUnion(selected)) {
-    const nonNullish = semantics.types.unionOrIntersectionTypes(selected)
-      .filter((candidate) => !semantics.types.isNullish(candidate));
-    if (nonNullish.length !== 1 || nonNullish[0] === undefined) {
-      return undefined;
-    }
-    selected = nonNullish[0];
-  }
-  ledger.record("direct-family");
-  if (
-    semantics.types.isIntersection(selected) ||
-    !selectedTypeIsPointer(
-      source,
-      semantics.facts.typeSubjects(selected),
-      ledger,
-    )
-  ) {
-    return undefined;
-  }
-  const arguments_ = semantics.types.effectiveTypeArguments(selected);
-  const pointee = arguments_?.length === 1 ? arguments_[0] : undefined;
-  const description = pointee === undefined
-    ? undefined
-    : describePointerPointee(source, anchor, pointee);
-  return description?.category === "direct-reference" &&
-      typeof description.identity !== "string"
-    ? families.get(description.identity)
-    : undefined;
 }
 
 function selectedPointerFamilies(

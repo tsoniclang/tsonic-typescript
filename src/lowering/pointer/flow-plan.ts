@@ -126,7 +126,6 @@ export function createClosedPointerFlowPlan(
     program,
     ledger,
     representationTransports,
-    sourceIdentityFor,
   );
   const components = census.components;
   const familyPlan = planDirectReferenceFamilies(
@@ -135,7 +134,6 @@ export function createClosedPointerFlowPlan(
     generatedNames,
     components,
     census.facts,
-    census.representationTransportCalls,
     ledger,
   );
   const representations = new Map<Node, PointerFlowRepresentation>(

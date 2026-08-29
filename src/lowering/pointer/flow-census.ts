@@ -1,7 +1,6 @@
 import type {
   Node,
   PointerOperationFact,
-  SourceFile,
 } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
@@ -77,7 +76,6 @@ export interface PointerCensus {
 export interface PointerFlowCensusResult {
   readonly components: readonly PointerFlowComponent[];
   readonly facts: PointerTypedFactLedger;
-  readonly representationTransportCalls: ReadonlyMap<Node, ReadonlySet<Node>>;
   readonly representationTransportCallCount: number;
 }
 
@@ -87,8 +85,6 @@ export function censusPointerFlows(
   ledger: PointerPlanningLedger,
   representationTransports: RepresentationTransportContract =
     canonicalRepresentationTransportContract(),
-  sourceIdentityFor: (sourceFile: SourceFile) => string =
-    (sourceFile) => source.documents.forFile(sourceFile).identity,
 ): PointerFlowCensusResult {
   const graph = new PointerFlowGraph();
   const facts = buildPointerTypedFactLedger(source, program, ledger);
@@ -127,7 +123,6 @@ export function censusPointerFlows(
     program,
     representationTransports,
     ledger,
-    sourceIdentityFor,
   );
   const functionParameters = groupFunctionParameters(
     source,
@@ -230,7 +225,6 @@ export function censusPointerFlows(
   return Object.freeze({
     components,
     facts,
-    representationTransportCalls,
     representationTransportCallCount: representationTransportCalls.size,
   });
 }

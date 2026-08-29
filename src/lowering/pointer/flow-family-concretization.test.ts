@@ -22,8 +22,6 @@ import {
 } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
-import { createRepresentationTransportContract } from "../representation/transport-contract.js";
-
 import {
   checkedPointerFixture,
   createFixturePointerFlowPlan,
@@ -237,85 +235,6 @@ export class GenericKernel {
   assert.equal(loweredKernel.pointerTypeCount, 5);
   assert.equal(countTypeLiterals(source, loweredKernel.sourceFile), 0);
   assert.equal(countQualifiedLocationTypes(source, loweredKernel.sourceFile), 5);
-
-  const transported = createFixturePointerFlowPlan(
-    source,
-    createRepresentationTransportContract([{
-      kind: "generated-generic-member-kernel",
-      sourcePath: "/src/kernel.ts",
-      exportName: "GenericKernel",
-      memberName: "lookup",
-    }]),
-  );
-  assert.deepEqual(
-    transported.familyFallbackReasons
-      .filter((entry) => entry.reason === "generic-call")
-      .map((entry) => entry.count),
-    [1],
-  );
-  assert.equal(transported.representationTransportCallCount, 0);
-});
-
-test("transports only an exact generic pointer value across its kernel family", () => {
-  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, loadPointer, storePointer } from "./markers.js";
-import { Kernel } from "./kernel.js";
-import { Coder } from "./model.js";
-
-export function wrapper(value: Pointer<Coder>): Pointer<Coder> {
-  return Kernel<Pointer<Coder>>((selected) => selected, value);
-}
-
-const pointer = allocatePointer(new Coder());
-storePointer(pointer, new Coder());
-export const result = loadPointer(wrapper(pointer)).value;
-`, {
-    "/src/kernel.ts": `export function Kernel<T>(copy: (value: T) => T, value: T): T {
-  return copy(value);
-}
-`,
-    "/src/model.ts": `export class Coder { value = 1; }
-`,
-  });
-  const { source } = fixture;
-  const kernelCall = uniqueExplicitGenericCall(source);
-  const call = source.semantics.forNode(kernelCall).operations.call(kernelCall);
-  const explicitType = call?.sourceSelectedMethodTypeArguments?.[0]?.explicitTypeNode;
-  assert.ok(explicitType !== undefined);
-  const pointer = source.sourceFacts.getFact(explicitType, pointerFactKey);
-  const pointee = pointer === undefined
-    ? undefined
-    : source.semantics.forNode(explicitType).types.authoredType(pointer.pointee);
-  const declaration = directReferenceDeclaration(source, kernelCall, pointee);
-  assert.ok(declaration !== undefined);
-  const pointers = collectConcretePointerTypes(source, declaration);
-  assert.equal(pointers.length, 3);
-
-  const canonical = createFixturePointerFlowPlan(source);
-  assert.deepEqual(
-    canonical.familyFallbackReasons
-      .filter((entry) => entry.reason === "generic-call")
-      .map((entry) => entry.count),
-    [],
-  );
-  const transported = createFixturePointerFlowPlan(
-    source,
-    createRepresentationTransportContract([{
-      kind: "generated-generic-function-kernel",
-      sourcePath: "/src/kernel.ts",
-      exportName: "Kernel",
-    }]),
-  );
-  assert.equal(transported.representationTransportCallCount, 1);
-  assert.deepEqual(
-    transported.familyFallbackReasons
-      .filter((entry) => entry.reason === "generic-call"),
-    [],
-  );
-  assert.deepEqual(
-    new Set(pointers.map((node) => transported.representationFor(node))),
-    new Set(["mutable-cell"]),
-  );
 });
 
 test("isolates selected generic contracts from disjoint direct operations", () => {

@@ -29,21 +29,11 @@ or optimizing the unstable sibling, must fail at the focused planner gate.
 Representation-transport proof must compare the canonical external boundary
 with one certified generic kernel. The exact module, export, declaration,
 selected signature, and generic-owned parameter become transparent while a
-concrete pointer parameter on that same callable remains canonical. Generated
-member proof must include a nongeneric method whose transported parameter is
-owned by its enclosing generic class. A `T` value instantiated as a pointer
-must conserve one representation through its concrete wrapper, explicit type
-argument, capabilities, receiver storage, and result. A `Pointer<T>` parameter
-must remain a foil: it expresses pointer semantics over `T`, not transport of
-`T`. Wrong
+concrete pointer parameter on that same callable remains canonical. Wrong
 module, wrong export, local same-spelled callable, duplicate contract entry,
 noncanonical order, absent type parameter, and ambiguous ownership mutations
 must fail or retain the boundary. The sealed contract digest, callable count,
 and nonzero selected-call count are independently joined by product assembly.
-Generated-kernel proof additionally covers exact module-function and
-class/member declarations, wrong source identity, wrong declaration name,
-wrong member name, and two calls on one line. A declaration selected only by a
-`$kernel`-like spelling is a failing mutation, never positive evidence.
 
 ## Transaction Proof
 

@@ -68,28 +68,17 @@ index.
 ## Certified Representation Transport
 
 A selected product may provide one immutable, versioned set of certified
-generic-kernel callable identities. A provider kernel exact-joins its import
-module, export, resolved declaration, and selected signature. A generated
-kernel exact-joins its selected source identity and either its module-function
-declaration or class/member declaration before matching the selected call
-signature. The source identity is supplied by the same artifact-path owner used
-for output membership; filesystem suffixes and ambient roots are not accepted.
-The certificate admits only a parameter whose authored type is exactly a type
-parameter owned by that selected kernel declaration. A container, pointer,
-callable, or other composite that merely contains the type parameter is not a
-transport value. For a
-generated class member, the enclosing selected class's type parameters are
-owned by the member kernel as well; no other lexical or inherited type
-parameter is admitted. The selected concrete pointer family for an admitted
-transport value is conserved through every nested capability, receiver, and
-result occurrence at that same exact call. Other nested pointer families and
-concrete parameters on the same callable remain external boundaries.
+generic-kernel callable identities. Selection exact-joins the import module,
+export, resolved declaration, and selected signature from the checked tree.
+The certificate admits only a parameter whose authored type structurally
+refers to a type parameter owned by that same selected kernel declaration.
+Concrete parameters on the same callable remain external boundaries.
 
 This contract says only that the generic-owned shape transports the caller's
 already-selected representation through its caller-owned operation facets. It
 does not grant the kernel authority to choose a representation, expose a
 concrete provider carrier, or make an arbitrary external call transparent.
-Missing, stale, duplicate, ambiguously imported, wrong-source, same-spelled, or non-generic
+Missing, stale, duplicate, ambiguously imported, same-spelled, or non-generic
 evidence retains canonical lowering. No kernel body, path suffix, or spelling
 heuristic is inspected by the target.
 
