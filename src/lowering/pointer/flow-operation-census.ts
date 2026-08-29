@@ -4,7 +4,6 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { PointerCensus } from "./flow-census.js";
 import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type { PointerPlanningLedger } from "./planning-ledger.js";
-import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
 import {
   PointerFlowGraph,
   type PointerFlowVertex,
@@ -21,7 +20,6 @@ export function collectPointerOperations(
   facts: PointerTypedFactLedger,
   graph: PointerFlowGraph,
   planning: PointerPlanningLedger,
-  projectionCallables: PointerProjectionCallablePlan,
 ): ReadonlyMap<Node, PointerOperationFact> {
   const operations = new Map<Node, PointerOperationFact>();
   for (const { node, fact: operation } of facts.operationEntries) {
@@ -38,10 +36,7 @@ export function collectPointerOperations(
     }
     if (operation.operation === "bind-pointer") {
       graph.block(vertex, "provider-binding", operation.call);
-    } else if (
-      operation.operation === "project-pointer" &&
-      projectionCallables.exactProjectionFor(operation.call) === undefined
-    ) {
+    } else if (operation.operation === "project-pointer") {
       graph.block(vertex, "projection-observed", operation.call);
     }
   }
@@ -164,14 +159,6 @@ export function attachPointerOperations(census: PointerCensus): void {
         );
         if (sourceVertex === undefined) {
           graph.block(operationVertex, "unsupported-flow", operation.call);
-        } else if (
-          census.projectionCallables.exactProjectionFor(operation.call) !== undefined
-        ) {
-          census.projectionDependencies.push(Object.freeze({
-            operation,
-            source: sourceVertex,
-            target: operationVertex,
-          }));
         } else {
           graph.union(operationVertex, sourceVertex);
         }

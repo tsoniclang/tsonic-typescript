@@ -1,4 +1,4 @@
-import type { Node, PointerOperationFact, SourceFile } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsExportDeclaration,
@@ -89,13 +89,12 @@ export function lowerPointers(
   });
   const generatedNames = createProgramGeneratedNames(source, program)
     .forFile(sourceFile);
-  const projectionCallables = flowPlan?.projectionCallables ??
-    createPointerProjectionCallablePlan(
-      source,
-      program,
-      "location",
-      (selected) => source.documents.forFile(selected).identity,
-    );
+  const projectionCallables = createPointerProjectionCallablePlan(
+    source,
+    program,
+    flowPlan === undefined ? "location" : "closed-direct",
+    (selected) => source.documents.forFile(selected).identity,
+  );
   const plan = createPointerLoweringPlan(
     source,
     sourceFile,
@@ -337,7 +336,6 @@ function rewriteNode(
       plan.directObjectReplacements.get(original),
       plan.runtimeAlias,
       plan.referenceHashes.get(original),
-      directProjectionTarget(plan, operation, finalNodes),
     );
     if (optimized !== undefined) {
       return optimized;
@@ -451,29 +449,6 @@ function rewriteNode(
     ) : sourceFile;
   }
   return structuralResult;
-}
-
-function directProjectionTarget(
-  plan: PointerLoweringPlan,
-  operation: PointerOperationFact,
-  finalNodes: FinalNodeLookup,
-): Node | undefined {
-  if (
-    operation.operation !== "project-pointer" ||
-    pointerFlowRepresentation(plan, operation.call) === "location"
-  ) {
-    return undefined;
-  }
-  const projection = plan.projectionCallables.exactProjectionFor(operation.call);
-  const target = projection === undefined
-    ? undefined
-    : finalNodes.forOriginal(projection.fromSourceTarget);
-  if (target === undefined) {
-    throw new PointerLoweringError(
-      "direct projected pointer lost its finalized from-source target",
-    );
-  }
-  return target;
 }
 
 function assertCompleteConsumption(

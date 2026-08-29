@@ -84,24 +84,18 @@ test("keeps an identity-observed projection canonical", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { addressOf, hashPointer, projectPointer } from "./markers.js";
 class Storage { constructor(public value: number) {} }
-class Box {
-  constructor(readonly storage: Storage) {}
-  static fromStorage(value: Storage): Box { return new Box(value); }
-  static toStorage(value: Box): Storage { return value.storage; }
-}
+class Box { constructor(readonly storage: Storage) {} }
 let storage = new Storage(1);
 const source: Pointer<Storage> = addressOf(storage);
 const projected: Pointer<Box> = projectPointer<Storage, Box>(
   source,
-  (value) => Box.fromStorage(value),
-  (value) => Box.toStorage(value),
+  (value) => new Box(value),
+  (value) => value.storage,
 )!;
 export const result = hashPointer(projected);
 `);
 
   const plan = createFixturePointerFlowPlan(fixture.source);
-  assert.equal(plan.projectionCallables.exactProjectionCount, 1);
-  assert.equal(plan.optimizedStoredProjectionCount, 0);
   assert.equal(plan.optimizedProjectionReadCount, 0);
   assert.equal(plan.optimizedProjectionStoreCount, 0);
   const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
@@ -214,126 +208,21 @@ test("keeps a stored projection live and canonical", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { addressOf, loadPointer, projectPointer } from "./markers.js";
 class Storage { constructor(public value: number) {} }
-class Box {
-  constructor(readonly storage: Storage) {}
-  static fromStorage(value: Storage): Box { return new Box(value); }
-  static toStorage(value: Box): Storage { return value.storage; }
-}
+class Box { constructor(readonly storage: Storage) {} }
 let storage = new Storage(1);
 const source: Pointer<Storage> = addressOf(storage);
 const projected: Pointer<Box> = projectPointer<Storage, Box>(
   source,
-  (value) => Box.fromStorage(value),
-  (value) => Box.toStorage(value),
+  (value) => new Box(value),
+  (value) => value.storage,
 )!;
 storage = new Storage(2);
 export const result = loadPointer(projected).storage.value;
 `);
   const plan = createFixturePointerFlowPlan(fixture.source);
 
-  assert.equal(plan.projectionCallables.exactProjectionCount, 1);
-  assert.equal(plan.optimizedStoredProjectionCount, 0);
   assert.equal(plan.optimizedProjectionReadCount, 0);
   assert.equal(plan.optimizedProjectionStoreCount, 0);
-  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "projectLocation"), 1);
-});
-
-test("contracts an exact stored read-only projection over stable storage", () => {
-  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { addressOf, loadPointer, projectPointer } from "./markers.js";
-class Storage { constructor(public value: number) {} }
-class Box {
-  constructor(readonly storage: Storage) {}
-  static fromStorage(value: Storage): Box { return new Box(value); }
-  static toStorage(value: Box): Storage { return value.storage; }
-}
-function read(projected: Pointer<Box>): number {
-  return loadPointer(projected).storage.value;
-}
-let storage = new Storage(1);
-const source: Pointer<Storage> = addressOf(storage);
-const projected: Pointer<Box> = projectPointer<Storage, Box>(
-  source,
-  (value) => Box.fromStorage(value),
-  (value) => Box.toStorage(value),
-)!;
-export const result = read(projected);
-`);
-  const plan = createFixturePointerFlowPlan(fixture.source);
-
-  assert.equal(plan.projectionCallables.exactProjectionCount, 1);
-  assert.equal(plan.optimizedStoredProjectionCount, 1);
-  assertRepresentation(fixture.source, plan, "project-pointer", "direct-object");
-  assertRepresentation(fixture.source, plan, "load", "direct-object");
-  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "projectLocation"), 0);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
-});
-
-test("settles chained exact projections in source dependency order", () => {
-  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { addressOf, loadPointer, projectPointer } from "./markers.js";
-class Storage { constructor(public value: number) {} }
-class Box {
-  constructor(readonly storage: Storage) {}
-  static fromStorage(value: Storage): Box { return new Box(value); }
-  static toStorage(value: Box): Storage { return value.storage; }
-}
-class Outer {
-  constructor(readonly box: Box) {}
-  static fromBox(value: Box): Outer { return new Outer(value); }
-  static toBox(value: Outer): Box { return value.box; }
-}
-function read(projected: Pointer<Outer>): number {
-  return loadPointer(projected).box.storage.value;
-}
-let storage = new Storage(1);
-const source: Pointer<Storage> = addressOf(storage);
-const box: Pointer<Box> = projectPointer<Storage, Box>(
-  source,
-  (value) => Box.fromStorage(value),
-  (value) => Box.toStorage(value),
-)!;
-const outer: Pointer<Outer> = projectPointer<Box, Outer>(
-  box,
-  (value) => Outer.fromBox(value),
-  (value) => Outer.toBox(value),
-)!;
-export const result = read(outer);
-`);
-  const plan = createFixturePointerFlowPlan(fixture.source);
-
-  assert.equal(plan.projectionCallables.exactProjectionCount, 2);
-  assert.equal(plan.optimizedStoredProjectionCount, 2);
-  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "projectLocation"), 0);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
-});
-
-test("keeps an observable projected constructor canonical", () => {
-  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { addressOf, loadPointer, projectPointer } from "./markers.js";
-class Storage { constructor(public value: number) {} }
-class Box {
-  static created = 0;
-  constructor(readonly storage: Storage) { Box.created += 1; }
-  static fromStorage(value: Storage): Box { return new Box(value); }
-  static toStorage(value: Box): Storage { return value.storage; }
-}
-let storage = new Storage(1);
-const source: Pointer<Storage> = addressOf(storage);
-const projected: Pointer<Box> = projectPointer<Storage, Box>(
-  source,
-  (value) => Box.fromStorage(value),
-  (value) => Box.toStorage(value),
-)!;
-export const result = loadPointer(projected).storage.value;
-`);
-  const plan = createFixturePointerFlowPlan(fixture.source);
-
-  assert.equal(plan.projectionCallables.exactProjectionCount, 0);
-  assert.equal(plan.optimizedStoredProjectionCount, 0);
   const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "projectLocation"), 1);
 });

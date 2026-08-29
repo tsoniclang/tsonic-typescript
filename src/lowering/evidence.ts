@@ -59,7 +59,6 @@ export type PointerOptimizationEvidence =
       readonly directObjectReplacementCount: number;
       readonly optimizedProjectionReadCount: number;
       readonly optimizedProjectionStoreCount: number;
-      readonly optimizedStoredProjectionCount: number;
       readonly representations: readonly OptimizationCount<
         PointerFlowRepresentation
       >[];
@@ -76,7 +75,6 @@ export interface ProjectionCallableOptimizationEvidence {
   readonly candidateCount: number;
   readonly optimizedCount: number;
   readonly retainedCount: number;
-  readonly exactProjectionCount: number;
   readonly fallbackReasons: readonly OptimizationReasonEvidence<
     ProjectionCallableRetentionReason
   >[];
@@ -123,7 +121,7 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 28;
+  readonly schemaVersion: 27;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -151,7 +149,7 @@ export function createTypeScriptOptimizationEvidence(
     canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 28 as const,
+    schemaVersion: 27 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
@@ -300,7 +298,6 @@ function pointerEvidence(
     directObjectReplacementCount: plan.directObjectReplacementCount,
     optimizedProjectionReadCount: plan.optimizedProjectionReadCount,
     optimizedProjectionStoreCount: plan.optimizedProjectionStoreCount,
-    optimizedStoredProjectionCount: plan.optimizedStoredProjectionCount,
     representations: countValues(
       plan.components.map((component) => component.representation),
     ),
@@ -326,7 +323,6 @@ function projectionCallableEvidence(
     candidateCount: plan.candidateCount,
     optimizedCount: plan.optimizedCount,
     retainedCount: plan.retainedCount,
-    exactProjectionCount: plan.exactProjectionCount,
     fallbackReasons: plan.fallbackReasons,
   });
 }

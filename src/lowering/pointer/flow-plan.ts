@@ -36,13 +36,10 @@ import type {
   PointerFlowComponent,
 } from "./flow-graph.js";
 import {
+  selectPointerFlowRepresentation,
   type PointerFlowDecision,
   type PointerFlowRepresentation,
 } from "./flow-representation.js";
-import {
-  componentRepresentationNodes,
-  settlePointerComponents,
-} from "./flow-settlement.js";
 import {
   planPointerProjectionFusions,
   type PointerProjectionFusion,
@@ -54,7 +51,6 @@ import {
   type PointerPlanningOperations,
 } from "./planning-ledger.js";
 import { closePointerValueEvidence } from "./value-evidence.js";
-import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
 
 export type { PointerFlowBlocker } from "./flow-graph.js";
 export type { PointerFlowRepresentation } from "./flow-representation.js";
@@ -88,7 +84,6 @@ export interface PointerFlowFallbackEvidence {
 }
 
 export interface ClosedPointerFlowPlan {
-  readonly projectionCallables: PointerProjectionCallablePlan;
   owns(source: TargetSourceProgram): boolean;
   operationFor(node: Node | undefined): PointerOperationFact | undefined;
   valueRepresentationFor(
@@ -108,7 +103,6 @@ export interface ClosedPointerFlowPlan {
   readonly directObjectReplacementCount: number;
   readonly optimizedProjectionReadCount: number;
   readonly optimizedProjectionStoreCount: number;
-  readonly optimizedStoredProjectionCount: number;
   readonly representationTransportCallCount: number;
   readonly planningOperationCount: number;
   readonly planningOperations: PointerPlanningOperations;
@@ -123,7 +117,6 @@ export function createClosedPointerFlowPlan(
   program: TargetProgramIndex,
   generatedNames: ProgramGeneratedNames,
   sourceIdentityFor: SourceIdentityResolver,
-  projectionCallables: PointerProjectionCallablePlan,
   representationTransports: RepresentationTransportContract =
     canonicalRepresentationTransportContract(),
 ): ClosedPointerFlowPlan {
@@ -132,7 +125,6 @@ export function createClosedPointerFlowPlan(
     source,
     program,
     ledger,
-    projectionCallables,
     representationTransports,
   );
   const components = census.components;
@@ -143,7 +135,6 @@ export function createClosedPointerFlowPlan(
     components,
     census.facts,
     ledger,
-    projectionCallables,
   );
   const representations = new Map<Node, PointerFlowRepresentation>(
     familyPlan.representations,
@@ -154,24 +145,23 @@ export function createClosedPointerFlowPlan(
     PointerFlowBlocker,
     { count: number; examples: OptimizationOccurrence[] }
   >();
-  const settlements = settlePointerComponents(
-    source,
-    components,
-    census.projectionDependencies,
-    census.facts,
-    familyPlan,
-    representations,
-    ledger,
-  );
   let optimizedComponentCount = 0;
-  let optimizedStoredProjectionCount = 0;
   for (const component of components) {
     ledger.record("representation");
-    const settlement = settlements.get(component);
-    if (settlement === undefined) {
-      throw new Error("pointer component was not settled exactly once");
-    }
-    const { decision, representation } = settlement;
+    const decision = selectPointerFlowRepresentation(
+      source,
+      component,
+      census.facts,
+      (storeCall) =>
+        familyPlan.directObjectReplacementForStore(storeCall) !== undefined,
+      ledger,
+    );
+    const representation = finalComponentRepresentation(
+      component,
+      decision,
+      representations,
+      ledger,
+    );
     for (const node of componentNodes(component)) {
       ledger.record("representation");
       representations.set(node, representation);
@@ -179,7 +169,6 @@ export function createClosedPointerFlowPlan(
     if (representation !== "location") {
       optimizedComponentCount += 1;
     }
-    optimizedStoredProjectionCount += settlement.directProjectionCount;
     const retention = representation === "location"
       ? componentRetentionEvidence(component, decision, familyPlan, ledger)
       : Object.freeze([]);
@@ -239,7 +228,6 @@ export function createClosedPointerFlowPlan(
   );
   const planningOperations = ledger.snapshot();
   return Object.freeze({
-    projectionCallables,
     owns(candidate: TargetSourceProgram): boolean {
       return candidate === source;
     },
@@ -281,7 +269,6 @@ export function createClosedPointerFlowPlan(
     directObjectReplacementCount: directObjectReplacements.count,
     optimizedProjectionReadCount: projectionFusions.readCount,
     optimizedProjectionStoreCount: projectionFusions.storeCount,
-    optimizedStoredProjectionCount,
     representationTransportCallCount: census.representationTransportCallCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,
@@ -357,11 +344,53 @@ function sealFamilyFallbackEvidence(
   }));
 }
 
+function componentRepresentationNodes(
+  component: PointerFlowComponent,
+): readonly Node[] {
+  return [...component.operations, ...component.pointerTypes];
+}
+
 function componentNodes(component: PointerFlowComponent): readonly Node[] {
   return [
     ...component.vertices.map((vertex) => vertex.node),
     ...componentRepresentationNodes(component),
   ];
+}
+
+function finalComponentRepresentation(
+  component: PointerFlowComponent,
+  decision: PointerFlowDecision,
+  representations: ReadonlyMap<Node, PointerFlowRepresentation>,
+  ledger: PointerPlanningLedger,
+): PointerFlowRepresentation {
+  const selected = new Set<PointerFlowRepresentation>();
+  for (const node of componentRepresentationNodes(component)) {
+    ledger.record("representation");
+    const representation = representations.get(node);
+    if (representation !== undefined) {
+      selected.add(representation);
+    }
+  }
+  if (
+    decision.representation !== "location" &&
+    !selected.has("location")
+  ) {
+    return decision.representation;
+  }
+  if (selected.size === 0) {
+    return decision.representation;
+  }
+  if (selected.has("location")) {
+    return "location";
+  }
+  if (selected.size !== 1) {
+    throw new Error("pointer component selected multiple representations");
+  }
+  const representation = [...selected][0];
+  if (representation === undefined) {
+    throw new Error("pointer component lost its selected representation");
+  }
+  return representation;
 }
 
 function componentRetentionEvidence(

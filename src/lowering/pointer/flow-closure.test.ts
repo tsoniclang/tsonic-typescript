@@ -25,7 +25,6 @@ import {
   checkedPointerFixture,
   countCallsNamed,
   createFixturePointerFlowPlan,
-  createFixturePointerProjectionCallablePlan,
   visit,
 } from "./pointer.test-support.js";
 import { createTargetProgramIndex } from "../program-index.js";
@@ -129,7 +128,6 @@ export const result = values.length;
     fixture.source,
     program,
     new PointerPlanningLedger(),
-    createFixturePointerProjectionCallablePlan(fixture.source, program),
   );
   const omitted = expected.values().next().value;
   assert.ok(omitted !== undefined);
@@ -178,7 +176,6 @@ export const result = loadPointer(pointer);
     fixture.source,
     program,
     new PointerPlanningLedger(),
-    createFixturePointerProjectionCallablePlan(fixture.source, program),
   );
   const omitted = expected.values().next().value;
   assert.ok(omitted !== undefined);

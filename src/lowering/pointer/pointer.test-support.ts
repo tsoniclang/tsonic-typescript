@@ -32,10 +32,7 @@ import {
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
-import {
-  createTargetProgramIndex,
-  type TargetProgramIndex,
-} from "../program-index.js";
+import { createTargetProgramIndex } from "../program-index.js";
 import { createProgramGeneratedNames } from "../generated-names.js";
 import type {
   RepresentationTransportContract,
@@ -45,7 +42,6 @@ import {
   createClosedPointerFlowPlan,
   type ClosedPointerFlowPlan,
 } from "./flow-plan.js";
-import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
 
 export const pointerMarkerModule = "./markers.js";
 
@@ -108,37 +104,13 @@ export function createFixturePointerFlowPlan(
   const program = createTargetProgramIndex(source, {
     bindingWrites: true,
   });
-  const sourceIdentityFor = fixtureSourceIdentityResolver(source);
-  const projectionCallables = createFixturePointerProjectionCallablePlan(
-    source,
-    program,
-  );
   return createClosedPointerFlowPlan(
     source,
     program,
     createProgramGeneratedNames(source, program),
-    sourceIdentityFor,
-    projectionCallables,
+    (sourceFile) => source.documents.forFile(sourceFile).identity,
     representationTransports,
   );
-}
-
-export function createFixturePointerProjectionCallablePlan(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-): ReturnType<typeof createPointerProjectionCallablePlan> {
-  return createPointerProjectionCallablePlan(
-    source,
-    program,
-    "closed-direct",
-    fixtureSourceIdentityResolver(source),
-  );
-}
-
-function fixtureSourceIdentityResolver(
-  source: TargetSourceProgram,
-): (sourceFile: SourceFile) => string {
-  return (sourceFile) => source.documents.forFile(sourceFile).identity;
 }
 
 export function checkedPointerFixtureWithValueSemantics(
