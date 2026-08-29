@@ -68,12 +68,17 @@ import {
   lowerProjectedPropertyLocation,
 } from "./projected-property-ast.js";
 import {
-  assertCanonicalPointerKeyMapConsumption,
-  createCanonicalPointerKeyMapConsumption,
+  insertStaticPropertyLocationClasses,
+} from "./property-location/ast.js";
+import {
   insertCanonicalPointerKeyMapStorage,
   rewriteCanonicalPointerKeyMapNode,
-  type CanonicalPointerKeyMapConsumption,
 } from "./map/transform.js";
+import {
+  assertCompletePointerLoweringConsumption,
+  createPointerLoweringConsumption,
+  type PointerLoweringConsumption,
+} from "./consumption.js";
 import {
   prependRuntimeImport,
 } from "./runtime-ast.js";
@@ -87,6 +92,8 @@ export interface PointerLoweringResult {
   readonly locationBindingCount: number;
   readonly inferenceStabilizationCount: number;
   readonly directObjectReplacementCount: number;
+  readonly staticPropertyLocationCount: number;
+  readonly staticPropertyLocationClassCount: number;
   readonly runtimeAlias: string | undefined;
 }
 
@@ -118,6 +125,8 @@ export function lowerPointers(
 }
 
 export interface PointerRewriteSession {
+  readonly staticPropertyLocationCount: number;
+  readonly staticPropertyLocationClassCount: number;
   rewrite(
     original: Node,
     updated: Node,
@@ -148,6 +157,8 @@ function applyPointerLoweringPlan(
       locationBindingCount: 0,
       inferenceStabilizationCount: 0,
       directObjectReplacementCount: 0,
+      staticPropertyLocationCount: 0,
+      staticPropertyLocationClassCount: 0,
       runtimeAlias: undefined,
     });
   }
@@ -191,7 +202,7 @@ function createPointerRewriteSessionForPlan(
   plan: PointerLoweringPlan,
   finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
-  const consumed = createConsumptionState();
+  const consumed = createPointerLoweringConsumption();
   let finished = false;
   const rewrite = (
     original: Node,
@@ -213,13 +224,15 @@ function createPointerRewriteSessionForPlan(
     return rewritten;
   };
   return Object.freeze({
+    staticPropertyLocationCount: plan.staticPropertyLocations.size,
+    staticPropertyLocationClassCount: plan.staticPropertyLocationClasses.length,
     rewrite,
     finish(transformed: SourceFile): PointerLoweringResult {
       if (finished) {
         throw new PointerLoweringError("pointer rewrite session was sealed twice");
       }
       finished = true;
-      assertCompleteConsumption(plan, consumed);
+      assertCompletePointerLoweringConsumption(plan, consumed);
       return pointerLoweringResult(plan, consumed, transformed);
     },
   });
@@ -227,7 +240,7 @@ function createPointerRewriteSessionForPlan(
 
 function pointerLoweringResult(
   plan: PointerLoweringPlan,
-  consumed: ConsumptionState,
+  consumed: PointerLoweringConsumption,
   transformed: SourceFile,
 ): PointerLoweringResult {
   const usesRuntime = pointerLoweringPlanUsesRuntime(plan);
@@ -240,42 +253,16 @@ function pointerLoweringResult(
     locationBindingCount: consumed.locationBindings.size,
     inferenceStabilizationCount: consumed.inferenceStabilizations.size,
     directObjectReplacementCount: consumed.directObjectReplacements.size,
+    staticPropertyLocationCount: plan.staticPropertyLocations.size,
+    staticPropertyLocationClassCount: plan.staticPropertyLocationClasses.length,
     runtimeAlias: usesRuntime ? plan.runtimeAlias.text : undefined,
   });
-}
-
-interface ConsumptionState {
-  readonly operations: Set<Node>;
-  readonly pointerTypes: Set<Node>;
-  readonly rawPointerOperations: Set<Node>;
-  readonly rawPointerTypes: Set<Node>;
-  readonly locationBindings: Set<Node>;
-  readonly removableMarkerDeclarations: Set<Node>;
-  readonly inferenceStabilizations: Set<Node>;
-  readonly directObjectReplacements: Set<Node>;
-  readonly pointerKeyMaps: CanonicalPointerKeyMapConsumption;
-  projectedPropertyLocationClassInserted: boolean;
-}
-
-function createConsumptionState(): ConsumptionState {
-  return {
-    operations: new Set(),
-    pointerTypes: new Set(),
-    rawPointerOperations: new Set(),
-    rawPointerTypes: new Set(),
-    locationBindings: new Set(),
-    removableMarkerDeclarations: new Set(),
-    inferenceStabilizations: new Set(),
-    directObjectReplacements: new Set(),
-    pointerKeyMaps: createCanonicalPointerKeyMapConsumption(),
-    projectedPropertyLocationClassInserted: false,
-  };
 }
 
 function rewriteNode(
   source: TargetSourceProgram,
   plan: PointerLoweringPlan,
-  consumed: ConsumptionState,
+  consumed: PointerLoweringConsumption,
   finalNodes: FinalNodeLookup,
   original: Node,
   updated: Node,
@@ -381,7 +368,15 @@ function rewriteNode(
       plan.referenceHashes.get(original),
     );
     if (optimized !== undefined) {
+      if (plan.staticPropertyLocations.has(original)) {
+        throw new PointerLoweringError(
+          "static property-location operation changed representation",
+        );
+      }
       return optimized;
+    }
+    if (plan.staticPropertyLocations.has(original)) {
+      consumed.staticPropertyLocations.add(original);
     }
     return lowerLocationPointerOperation(
       source,
@@ -504,8 +499,23 @@ function rewriteNode(
       plan.flowPlan?.pointerKeyMapsFor(plan.sourceFile) ?? [],
       consumed.pointerKeyMaps,
     );
+    if (
+      plan.staticPropertyLocationClasses.length !== 0 &&
+      consumed.staticPropertyLocationClassesInserted
+    ) {
+      throw new PointerLoweringError(
+        "static property-location classes were inserted twice",
+      );
+    }
+    const withStaticPropertyLocations = insertStaticPropertyLocationClasses(
+      factory,
+      withPointerMapStorage,
+      plan.staticPropertyLocationClasses,
+    );
+    consumed.staticPropertyLocationClassesInserted =
+      plan.staticPropertyLocationClasses.length !== 0;
     if (plan.projectedPropertyLocationClassName === undefined) {
-      return withPointerMapStorage;
+      return withStaticPropertyLocations;
     }
     if (consumed.projectedPropertyLocationClassInserted) {
       throw new PointerLoweringError(
@@ -515,77 +525,9 @@ function rewriteNode(
     consumed.projectedPropertyLocationClassInserted = true;
     return insertProjectedPropertyLocationClass(
       factory,
-      withPointerMapStorage,
+      withStaticPropertyLocations,
       plan.projectedPropertyLocationClassName,
     );
   }
   return structuralResult;
-}
-
-function assertCompleteConsumption(
-  plan: PointerLoweringPlan,
-  consumed: ConsumptionState,
-): void {
-  assertCount("pointer operations", consumed.operations, plan.operations.size);
-  assertCount("pointer types", consumed.pointerTypes, plan.pointerTypes.size);
-  assertCount(
-    "raw-pointer operations",
-    consumed.rawPointerOperations,
-    plan.rawPointerOperations.size,
-  );
-  assertCanonicalPointerKeyMapConsumption(
-    plan.flowPlan?.pointerKeyMapsFor(plan.sourceFile) ?? [],
-    consumed.pointerKeyMaps,
-  );
-  assertCount(
-    "raw-pointer types",
-    consumed.rawPointerTypes,
-    plan.rawPointerTypes.size,
-  );
-  const parameterCount = [...plan.prologueBindingsByBody.values()].reduce(
-    (count, bindings) => count + bindings.filter(
-      (binding) => binding.kind === "parameter",
-    ).length,
-    0,
-  );
-  assertCount(
-    "location bindings",
-    consumed.locationBindings,
-    plan.localBindings.size + parameterCount,
-  );
-  assertCount(
-    "removable marker declarations",
-    consumed.removableMarkerDeclarations,
-    plan.removableMarkerDeclarations.size,
-  );
-  assertCount(
-    "pointer inference stabilizations",
-    consumed.inferenceStabilizations,
-    plan.inferenceStabilizations.size,
-  );
-  assertCount(
-    "direct-object replacements",
-    consumed.directObjectReplacements,
-    plan.flowPlan?.directObjectReplacementsFor(plan.sourceFile).length ?? 0,
-  );
-  if (
-    consumed.projectedPropertyLocationClassInserted !==
-      (plan.projectedPropertyLocationClassName !== undefined)
-  ) {
-    throw new PointerLoweringError(
-      "projected-property class insertion was not consumed exactly once",
-    );
-  }
-}
-
-function assertCount(
-  subject: string,
-  consumed: ReadonlySet<Node>,
-  expected: number,
-): void {
-  if (consumed.size !== expected) {
-    throw new PointerLoweringError(
-      `consumed ${consumed.size} ${subject}, expected ${expected}`,
-    );
-  }
 }

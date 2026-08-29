@@ -156,3 +156,9 @@ Planning uses original checked-node identities. `createPointerRewriteSession`
 exposes the node rewrite for composition with other semantic lowerers in one
 canonical target-AST traversal; it seals only after every planned fact has
 been consumed. No pass is keyed to cloned nodes.
+
+For retained direct property pointers, the closed profile may partition a
+repeated static-key family into one collision-safe module-local location class.
+This keeps the exact `Location<T>` contract while avoiding one shared
+megamorphic getter. Dynamic keys, nested storage, and families below the fixed
+cost gate continue to use the canonical runtime class.

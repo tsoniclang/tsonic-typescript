@@ -26,6 +26,13 @@ one unstable component remains canonical while one stable addressed component
 uses the replacement. Suppressing the stable component because of its sibling,
 or optimizing the unstable sibling, must fail at the focused planner gate.
 
+Static-key location specialization must prove admission at the exact frequency
+threshold, retention one operation below it, canonical-profile retention,
+dynamic-key and nested-location foils, live read-after-replacement,
+write-through, pointer identity, source evaluation order, and collision-safe
+generated names. Immutable evidence must exact-join selected operations and
+classes; a regressing full-product A/B deletes the feature.
+
 Representation-transport proof must compare the canonical external boundary
 with one certified generic kernel. The exact module, export, declaration,
 selected signature, and generic-owned parameter become transparent while a

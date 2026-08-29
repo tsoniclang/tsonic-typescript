@@ -60,6 +60,8 @@ export type PointerOptimizationEvidence =
       readonly optimizedProjectionReadCount: number;
       readonly optimizedProjectionStoreCount: number;
       readonly optimizedProjectedPropertyLocationCount: number;
+      readonly optimizedStaticPropertyLocationCount: number;
+      readonly staticPropertyLocationClassCount: number;
       readonly optimizedPointerKeyMapCount: number;
       readonly representations: readonly OptimizationCount<
         PointerFlowRepresentation
@@ -122,8 +124,13 @@ export interface RepresentationProjectionOptimizationEvidence {
   };
 }
 
+export interface PointerLoweringPlanEvidence {
+  readonly staticPropertyLocationCount: number;
+  readonly staticPropertyLocationClassCount: number;
+}
+
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 29;
+  readonly schemaVersion: 30;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -144,6 +151,7 @@ export function createTypeScriptOptimizationEvidence(
   sourceMembership: readonly string[],
   programIndex: TargetProgramIndexOperations,
   pointerPlan: ClosedPointerFlowPlan | undefined,
+  pointerLowering: PointerLoweringPlanEvidence,
   pointerProjectionCallables: PointerProjectionCallablePlan,
   scalarPlan: ScalarRepresentationPlan,
   representationPlan: RepresentationProjectionPlan,
@@ -151,7 +159,7 @@ export function createTypeScriptOptimizationEvidence(
     canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 29 as const,
+    schemaVersion: 30 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
@@ -159,6 +167,7 @@ export function createTypeScriptOptimizationEvidence(
     pointer: pointerEvidence(
       profile,
       pointerPlan,
+      pointerLowering,
       pointerProjectionCallables,
     ),
     scalar: scalarEvidence(profile, scalarPlan),
@@ -268,6 +277,7 @@ function scalarEvidence(
 function pointerEvidence(
   profile: TypeScriptOptimizationProfile,
   plan: ClosedPointerFlowPlan | undefined,
+  lowering: PointerLoweringPlanEvidence,
   projectionCallables: PointerProjectionCallablePlan,
 ): PointerOptimizationEvidence {
   const callables = projectionCallableEvidence(
@@ -275,9 +285,13 @@ function pointerEvidence(
     projectionCallables,
   );
   if (profile.pointerFlows === "location") {
-    if (plan !== undefined) {
+    if (
+      plan !== undefined ||
+      lowering.staticPropertyLocationCount !== 0 ||
+      lowering.staticPropertyLocationClassCount !== 0
+    ) {
       throw new Error(
-        "canonical pointer profile cannot carry a closed-flow plan",
+        "canonical pointer profile cannot carry a closed-flow lowering plan",
       );
     }
     return Object.freeze({
@@ -302,6 +316,10 @@ function pointerEvidence(
     optimizedProjectionStoreCount: plan.optimizedProjectionStoreCount,
     optimizedProjectedPropertyLocationCount:
       plan.optimizedProjectedPropertyLocationCount,
+    optimizedStaticPropertyLocationCount:
+      lowering.staticPropertyLocationCount,
+    staticPropertyLocationClassCount:
+      lowering.staticPropertyLocationClassCount,
     optimizedPointerKeyMapCount: plan.optimizedPointerKeyMapCount,
     representations: countValues(
       plan.components.map((component) => component.representation),

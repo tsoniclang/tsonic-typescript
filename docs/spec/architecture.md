@@ -105,6 +105,16 @@ Every definition, reference, assignment, argument, result, and storage member
 in the component changes atomically. A local exception invalidates the
 optimization and retains the canonical pointer representation.
 
+A retained direct property location may use a module-local class specialized
+for one exact static property key when the selected closed profile proves that
+its parent is not itself a location and the per-file family crosses the
+declared cost threshold. This partitions the shared runtime getter without
+changing `storageIdentity`, `storageKey`, live reads or writes, equality,
+hashing, nil behavior, or evaluation order. Dynamic keys, nested locations,
+and smaller families remain on the canonical runtime class. Selection uses
+operation facts and checked nodes only; property spelling is output, never
+semantic evidence.
+
 The replacement proof rejects inheritance, heritage consumers, decorators,
 accessors, computed or private state, nonempty constructors, omitted mutable
 fields, declaration boundaries, and mutable class bindings. Ambient readonly
@@ -141,7 +151,8 @@ Evidence is immutable and emitted only after the complete lowering
 transaction seals. It records the selected source-execution contract, exact
 source membership, representation-family denominators, and the selected
 representation-transport contract digest, denominator, and selected-call
-count. It contains no cooperative-effect schema.
+count. Retained static-key location specialization reports both exact operation
+and generated-class denominators. It contains no cooperative-effect schema.
 
 ## Deleted Architecture
 
