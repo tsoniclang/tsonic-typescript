@@ -11,7 +11,6 @@ export interface PointerReferenceCensus {
   readonly nodes: readonly Node[];
   referenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
   tracks(declaration: Node | undefined): boolean;
-  hasWrite(declaration: Node | undefined): boolean;
   writesFor(declaration: Node | undefined): readonly Node[];
 }
 
@@ -95,9 +94,6 @@ export function censusPointerReferences(
     },
     tracks(declaration: Node | undefined) {
       return declaration !== undefined && trackedDeclarations.has(declaration);
-    },
-    hasWrite(declaration: Node | undefined) {
-      return declaration !== undefined && writesByDeclaration.has(declaration);
     },
     writesFor(declaration: Node | undefined) {
       return declaration === undefined
