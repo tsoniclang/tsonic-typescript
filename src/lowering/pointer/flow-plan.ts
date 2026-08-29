@@ -49,6 +49,11 @@ import {
   type ProjectedPropertyLocationFusion,
 } from "./projected-property.js";
 import {
+  planCanonicalPointerKeyMaps,
+  type CanonicalPointerKeyMapPlan,
+  type CanonicalPointerKeyMapRewrite,
+} from "./map/plan.js";
+import {
   PointerPlanningLedger,
   totalPointerPlanningOperations,
   type PointerPlanningCandidateCounts,
@@ -103,6 +108,8 @@ export interface ClosedPointerFlowPlan {
   ownsProjectedPropertyAddress(node: Node): boolean;
   directObjectReplacementFor(node: Node): DirectObjectReplacement | undefined;
   directObjectReplacementsFor(sourceFile: SourceFile): readonly DirectObjectReplacement[];
+  pointerKeyMapRewriteFor(node: Node): CanonicalPointerKeyMapRewrite | undefined;
+  pointerKeyMapsFor(sourceFile: SourceFile): readonly CanonicalPointerKeyMapPlan[];
   readonly components: readonly PointerFlowComponentSummary[];
   readonly optimizedComponentCount: number;
   readonly optimizedFamilyCount: number;
@@ -112,6 +119,7 @@ export interface ClosedPointerFlowPlan {
   readonly optimizedProjectionReadCount: number;
   readonly optimizedProjectionStoreCount: number;
   readonly optimizedProjectedPropertyLocationCount: number;
+  readonly optimizedPointerKeyMapCount: number;
   readonly representationTransportCallCount: number;
   readonly planningOperationCount: number;
   readonly planningOperations: PointerPlanningOperations;
@@ -217,8 +225,19 @@ export function createClosedPointerFlowPlan(
   const projectedPropertyLocations = planProjectedPropertyLocations(
     source,
     census.facts,
-    (node) => representations.get(node) ?? "location",
+    (node) => node === undefined
+      ? "location"
+      : representations.get(node) ?? "location",
     projectionFusions.ownsProjection,
+    ledger,
+  );
+  const pointerKeyMaps = planCanonicalPointerKeyMaps(
+    source,
+    census.facts,
+    generatedNames,
+    (node) => node === undefined
+      ? "location"
+      : representations.get(node) ?? "location",
     ledger,
   );
   const frozenSummaries = Object.freeze(summaries);
@@ -285,6 +304,16 @@ export function createClosedPointerFlowPlan(
     ): readonly DirectObjectReplacement[] {
       return directObjectReplacements.byFile.get(sourceFile) ?? noReplacements;
     },
+    pointerKeyMapRewriteFor(
+      node: Node,
+    ): CanonicalPointerKeyMapRewrite | undefined {
+      return pointerKeyMaps.rewriteFor(node);
+    },
+    pointerKeyMapsFor(
+      sourceFile: SourceFile,
+    ): readonly CanonicalPointerKeyMapPlan[] {
+      return pointerKeyMaps.classesFor(sourceFile);
+    },
     components: frozenSummaries,
     optimizedComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
@@ -294,6 +323,7 @@ export function createClosedPointerFlowPlan(
     optimizedProjectionReadCount: projectionFusions.readCount,
     optimizedProjectionStoreCount: projectionFusions.storeCount,
     optimizedProjectedPropertyLocationCount: projectedPropertyLocations.count,
+    optimizedPointerKeyMapCount: pointerKeyMaps.count,
     representationTransportCallCount: census.representationTransportCallCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,

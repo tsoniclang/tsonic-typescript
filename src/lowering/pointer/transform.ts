@@ -68,6 +68,13 @@ import {
   lowerProjectedPropertyLocation,
 } from "./projected-property-ast.js";
 import {
+  assertCanonicalPointerKeyMapConsumption,
+  createCanonicalPointerKeyMapConsumption,
+  insertCanonicalPointerKeyMapStorage,
+  rewriteCanonicalPointerKeyMapNode,
+  type CanonicalPointerKeyMapConsumption,
+} from "./map/transform.js";
+import {
   prependRuntimeImport,
 } from "./runtime-ast.js";
 
@@ -246,6 +253,7 @@ interface ConsumptionState {
   readonly removableMarkerDeclarations: Set<Node>;
   readonly inferenceStabilizations: Set<Node>;
   readonly directObjectReplacements: Set<Node>;
+  readonly pointerKeyMaps: CanonicalPointerKeyMapConsumption;
   projectedPropertyLocationClassInserted: boolean;
 }
 
@@ -259,6 +267,7 @@ function createConsumptionState(): ConsumptionState {
     removableMarkerDeclarations: new Set(),
     inferenceStabilizations: new Set(),
     directObjectReplacements: new Set(),
+    pointerKeyMaps: createCanonicalPointerKeyMapConsumption(),
     projectedPropertyLocationClassInserted: false,
   };
 }
@@ -275,6 +284,18 @@ function rewriteNode(
   if (plan.removableMarkerDeclarations.has(original)) {
     consumed.removableMarkerDeclarations.add(original);
     return undefined;
+  }
+
+  const pointerKeyMapRewrite = plan.flowPlan?.pointerKeyMapRewriteFor(original);
+  if (pointerKeyMapRewrite !== undefined) {
+    return rewriteCanonicalPointerKeyMapNode(
+      factory,
+      original,
+      updated,
+      pointerKeyMapRewrite,
+      finalNodes,
+      consumed.pointerKeyMaps,
+    );
   }
 
   const namedImports = IsNamedImports(updated) ? AsNamedImports(updated) : undefined;
@@ -477,8 +498,14 @@ function rewriteNode(
         "pointer lowering lost its source-file receiver",
       );
     }
+    const withPointerMapStorage = insertCanonicalPointerKeyMapStorage(
+      factory,
+      withRuntime,
+      plan.flowPlan?.pointerKeyMapsFor(plan.sourceFile) ?? [],
+      consumed.pointerKeyMaps,
+    );
     if (plan.projectedPropertyLocationClassName === undefined) {
-      return withRuntime;
+      return withPointerMapStorage;
     }
     if (consumed.projectedPropertyLocationClassInserted) {
       throw new PointerLoweringError(
@@ -488,7 +515,7 @@ function rewriteNode(
     consumed.projectedPropertyLocationClassInserted = true;
     return insertProjectedPropertyLocationClass(
       factory,
-      withRuntime,
+      withPointerMapStorage,
       plan.projectedPropertyLocationClassName,
     );
   }
@@ -505,6 +532,10 @@ function assertCompleteConsumption(
     "raw-pointer operations",
     consumed.rawPointerOperations,
     plan.rawPointerOperations.size,
+  );
+  assertCanonicalPointerKeyMapConsumption(
+    plan.flowPlan?.pointerKeyMapsFor(plan.sourceFile) ?? [],
+    consumed.pointerKeyMaps,
   );
   assertCount(
     "raw-pointer types",
