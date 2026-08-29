@@ -115,6 +115,20 @@ test("reserves the module helper against every authored binding", () => {
   );
 });
 
+test("accepts the checked no-argument construction with omitted parentheses", () => {
+  const source = pointerMapSource().replace(
+    "new Map<number, [Key, number][]>(),",
+    "new Map<number, [Key, number][]>,",
+  );
+  const fixture = checkedPointerFixture(source);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+
+  assert.equal(plan.optimizedPointerKeyMapCount, 1);
+  assert.doesNotThrow(() =>
+    lowerPointers(fixture.source, fixture.sourceFile, plan)
+  );
+});
+
 function classNames(
   source: ReturnType<typeof checkedPointerFixture>["source"],
   root: Node,

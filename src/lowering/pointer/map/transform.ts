@@ -250,7 +250,7 @@ function rewriteStorageConstruction(
     arguments_.length !== 2 ||
     bucketType === undefined ||
     keyType === undefined ||
-    construction.Arguments?.Nodes.length !== 0
+    (construction.Arguments?.Nodes.length ?? 0) !== 0
   ) {
     throw new PointerLoweringError(
       "canonical pointer-key map construction lost its exact bucket shape",
