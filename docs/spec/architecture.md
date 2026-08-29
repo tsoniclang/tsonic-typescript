@@ -75,8 +75,11 @@ declaration or class/member declaration before matching the selected call
 signature. The source identity is supplied by the same artifact-path owner used
 for output membership; filesystem suffixes and ambient roots are not accepted.
 The certificate admits only a parameter whose authored type structurally
-refers to a type parameter owned by that same selected kernel declaration.
-Concrete parameters on the same callable remain external boundaries.
+refers to a type parameter owned by that selected kernel declaration. For a
+generated class member, the enclosing selected class's type parameters are
+owned by the member kernel as well; no other lexical or inherited type
+parameter is admitted. Concrete parameters on the same callable remain
+external boundaries.
 
 This contract says only that the generic-owned shape transports the caller's
 already-selected representation through its caller-owned operation facets. It

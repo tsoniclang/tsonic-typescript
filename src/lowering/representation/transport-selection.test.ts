@@ -98,22 +98,23 @@ const owner = new Owner(new Box(41));
 export const functionResult = ReadFunction(addressOf(owner.box));
 export const memberResult = ReadMember(addressOf(owner.box));
 `, {
-    "/src/concrete.ts": `import type { Pointer } from "./markers.js";
+"/src/concrete.ts": `import type { Pointer } from "./markers.js";
 import type { Box } from "./box.js";
 import { FunctionKernel, KernelOwner } from "./generated-kernels.js";
+const kernelOwner = new KernelOwner<Pointer<Box>>();
 export function ReadFunction(value: Pointer<Box>): number {
   return FunctionKernel(value);
 }
 export function ReadMember(value: Pointer<Box>): number {
-  return KernelOwner.MemberKernel(value);
+  return kernelOwner.MemberKernel(value);
 }
 `,
     "/src/box.ts": `export class Box { constructor(readonly value: number) {} }`,
     "/src/generated-kernels.ts": `export function FunctionKernel<T>(value: T): number {
   return value === undefined ? 0 : 1;
 }
-export class KernelOwner {
-  static MemberKernel<T>(value: T): number {
+export class KernelOwner<T> {
+  MemberKernel(value: T): number {
     return value === undefined ? 0 : 1;
   }
 }`,
@@ -147,6 +148,9 @@ export const value = 1;`, {
 export function Ordinary(value: number): number { return value; }
 export class KernelOwner {
   static MemberKernel<T>(value: T): T { return value; }
+}
+export class OrdinaryOwner {
+  MemberKernel(value: number): number { return value; }
 }`,
   });
   const contract = createRepresentationTransportContract([{
@@ -175,6 +179,12 @@ export class KernelOwner {
       exportName: "KernelOwner",
       memberName: "Missing",
     }, /resolved 0 declarations/u],
+    [{
+      kind: "generated-generic-member-kernel" as const,
+      sourcePath: "/src/generated-kernels.ts",
+      exportName: "OrdinaryOwner",
+      memberName: "MemberKernel",
+    }, /is not generic/u],
   ] as const) {
     assert.throws(
       () => createFixturePointerFlowPlan(

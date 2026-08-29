@@ -29,7 +29,9 @@ or optimizing the unstable sibling, must fail at the focused planner gate.
 Representation-transport proof must compare the canonical external boundary
 with one certified generic kernel. The exact module, export, declaration,
 selected signature, and generic-owned parameter become transparent while a
-concrete pointer parameter on that same callable remains canonical. Wrong
+concrete pointer parameter on that same callable remains canonical. Generated
+member proof must include a nongeneric method whose transported parameter is
+owned by its enclosing generic class. Wrong
 module, wrong export, local same-spelled callable, duplicate contract entry,
 noncanonical order, absent type parameter, and ambiguous ownership mutations
 must fail or retain the boundary. The sealed contract digest, callable count,

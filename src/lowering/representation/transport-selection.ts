@@ -162,7 +162,7 @@ function collectGeneratedTransportDeclarations(
       callable,
       ledger,
     );
-    if (source.ast.typeParameters(declaration).length === 0) {
+    if (representationTransportTypeParameterNames(source, declaration).size === 0) {
       throw new Error(
         `generated representation transport '${callable.exportName}' is not generic`,
       );
@@ -219,12 +219,10 @@ function representationTransportParameters(
   parameters: readonly (Node | undefined)[],
   ledger: PointerPlanningLedger,
 ): ReadonlySet<Node> {
-  const typeParameterNames = new Set<string>();
-  for (const parameter of source.ast.typeParameters(selectedDeclaration)) {
-    if (parameter !== undefined) {
-      typeParameterNames.add(source.ast.text(source.ast.name(parameter)));
-    }
-  }
+  const typeParameterNames = representationTransportTypeParameterNames(
+    source,
+    selectedDeclaration,
+  );
   if (typeParameterNames.size === 0) {
     return new Set<Node>();
   }
@@ -245,6 +243,35 @@ function representationTransportParameters(
     }
   }
   return result;
+}
+
+function representationTransportTypeParameterNames(
+  source: TargetSourceProgram,
+  declaration: Node,
+): ReadonlySet<string> {
+  const names = new Set<string>();
+  recordTypeParameterNames(source, declaration, names);
+  const parent = source.ast.parent(declaration);
+  if (
+    source.ast.is.IsMethodDeclaration(declaration) &&
+    parent !== undefined &&
+    source.ast.is.IsClassDeclaration(parent)
+  ) {
+    recordTypeParameterNames(source, parent, names);
+  }
+  return names;
+}
+
+function recordTypeParameterNames(
+  source: TargetSourceProgram,
+  declaration: Node,
+  names: Set<string>,
+): void {
+  for (const parameter of source.ast.typeParameters(declaration)) {
+    if (parameter !== undefined) {
+      names.add(source.ast.text(source.ast.name(parameter)));
+    }
+  }
 }
 
 function referencesOwnedTypeParameter(
