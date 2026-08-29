@@ -38,7 +38,9 @@ export function pointerOperationIsFused(
   node: Node,
 ): boolean {
   return flowPlan?.projectionFusionFor(node) !== undefined ||
-    flowPlan?.ownsFusedProjection(node) === true;
+    flowPlan?.ownsFusedProjection(node) === true ||
+    flowPlan?.projectedPropertyLocationFor(node) !== undefined ||
+    flowPlan?.ownsProjectedPropertyAddress(node) === true;
 }
 
 export function pointerFlowRepresentation(

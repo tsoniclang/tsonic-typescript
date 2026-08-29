@@ -64,6 +64,10 @@ import {
 import { applyPointerInferenceStabilization } from "./inference-stabilization.js";
 import { lowerPointerProjectionFusion } from "./projection-fusion-ast.js";
 import {
+  insertProjectedPropertyLocationClass,
+  lowerProjectedPropertyLocation,
+} from "./projected-property-ast.js";
+import {
   prependRuntimeImport,
 } from "./runtime-ast.js";
 
@@ -242,6 +246,7 @@ interface ConsumptionState {
   readonly removableMarkerDeclarations: Set<Node>;
   readonly inferenceStabilizations: Set<Node>;
   readonly directObjectReplacements: Set<Node>;
+  projectedPropertyLocationClassInserted: boolean;
 }
 
 function createConsumptionState(): ConsumptionState {
@@ -254,6 +259,7 @@ function createConsumptionState(): ConsumptionState {
     removableMarkerDeclarations: new Set(),
     inferenceStabilizations: new Set(),
     directObjectReplacements: new Set(),
+    projectedPropertyLocationClassInserted: false,
   };
 }
 
@@ -325,6 +331,22 @@ function rewriteNode(
       );
     }
     if (plan.flowPlan?.ownsFusedProjection(original) === true) {
+      return updated;
+    }
+    const projectedPropertyLocation = plan.projectedPropertyLocations.get(
+      original,
+    );
+    if (projectedPropertyLocation !== undefined) {
+      return lowerProjectedPropertyLocation(
+        source,
+        factory,
+        projectedPropertyLocation,
+        updated,
+        plan,
+        finalNodes,
+      );
+    }
+    if (plan.flowPlan?.ownsProjectedPropertyAddress(original) === true) {
       return updated;
     }
     const optimized = lowerOptimizedPointerOperation(
@@ -441,12 +463,34 @@ function rewriteNode(
         "source-file predicate did not yield a source-file receiver",
       );
     }
-    return pointerLoweringPlanUsesRuntime(plan) ? prependRuntimeImport(
+    const withRuntimeNode = pointerLoweringPlanUsesRuntime(plan)
+      ? prependRuntimeImport(
+          factory,
+          sourceFile,
+          plan.runtimeAlias,
+          plan.usesRuntimeValue,
+        )
+      : sourceFile;
+    const withRuntime = AsSourceFile(withRuntimeNode);
+    if (withRuntime === undefined) {
+      throw new PointerLoweringError(
+        "pointer lowering lost its source-file receiver",
+      );
+    }
+    if (plan.projectedPropertyLocationClassName === undefined) {
+      return withRuntime;
+    }
+    if (consumed.projectedPropertyLocationClassInserted) {
+      throw new PointerLoweringError(
+        "projected-property class was inserted twice",
+      );
+    }
+    consumed.projectedPropertyLocationClassInserted = true;
+    return insertProjectedPropertyLocationClass(
       factory,
-      sourceFile,
-      plan.runtimeAlias,
-      plan.usesRuntimeValue,
-    ) : sourceFile;
+      withRuntime,
+      plan.projectedPropertyLocationClassName,
+    );
   }
   return structuralResult;
 }
@@ -493,6 +537,14 @@ function assertCompleteConsumption(
     consumed.directObjectReplacements,
     plan.flowPlan?.directObjectReplacementsFor(plan.sourceFile).length ?? 0,
   );
+  if (
+    consumed.projectedPropertyLocationClassInserted !==
+      (plan.projectedPropertyLocationClassName !== undefined)
+  ) {
+    throw new PointerLoweringError(
+      "projected-property class insertion was not consumed exactly once",
+    );
+  }
 }
 
 function assertCount(

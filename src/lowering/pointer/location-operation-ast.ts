@@ -134,7 +134,7 @@ export function lowerLocationPointerOperation(
           call.TypeArguments?.Nodes ?? [],
           `${operation.operation} type arguments`,
         ),
-        projectionArguments(arguments_, operation, plan, finalNodes),
+        loweredProjectionArguments(arguments_, operation, plan, finalNodes),
       );
     case "address-of":
       requireArity(operation.operation, arguments_, 1);
@@ -149,7 +149,7 @@ export function lowerLocationPointerOperation(
   }
 }
 
-function projectionArguments(
+export function loweredProjectionArguments(
   arguments_: readonly Node[],
   operation: Extract<PointerOperationFact, { readonly operation: "project-pointer" }>,
   plan: PointerLoweringPlan,

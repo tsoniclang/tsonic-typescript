@@ -35,6 +35,7 @@ import {
 import { planPointerMarkerUsage } from "./marker-usage.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
 import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
+import type { ProjectedPropertyLocationFusion } from "./projected-property.js";
 import { validatePointerFact } from "./type-contract.js";
 
 export interface LocalLocationBinding {
@@ -89,6 +90,11 @@ export interface PointerLoweringPlan {
     PointerInferenceStabilization
   >;
   readonly directObjectReplacements: ReadonlyMap<Node, DirectObjectReplacement>;
+  readonly projectedPropertyLocations: ReadonlyMap<
+    Node,
+    ProjectedPropertyLocationFusion
+  >;
+  readonly projectedPropertyLocationClassName: GeneratedBindingName | undefined;
   readonly usesRuntimeValue: boolean;
 }
 
@@ -131,6 +137,10 @@ export function createPointerLoweringPlan(
   const selectedMarkerRoots: Node[] = [];
   const bindingsByDeclaration = new Map<Node, MutableLocationBinding>();
   const directObjectReplacements = new Map<Node, DirectObjectReplacement>();
+  const projectedPropertyLocations = new Map<
+    Node,
+    ProjectedPropertyLocationFusion
+  >();
   let usesRuntimeValue = false;
 
   for (const node of nodes) {
@@ -155,6 +165,17 @@ export function createPointerLoweringPlan(
       }
       validatePointerOperationFact(source, operation);
       operations.set(node, operation);
+      const projectedPropertyLocation = flowPlan?.projectedPropertyLocationFor(
+        node,
+      );
+      if (projectedPropertyLocation !== undefined) {
+        if (projectedPropertyLocation.projection !== operation) {
+          throw new PointerLoweringError(
+            "projected-property fusion disagrees with its exact operation fact",
+          );
+        }
+        projectedPropertyLocations.set(node, projectedPropertyLocation);
+      }
       if (!pointerOperationIsFused(flowPlan, node)) {
         usesRuntimeValue ||= pointerOperationUsesRuntimeValue(
           operation,
@@ -286,6 +307,10 @@ export function createPointerLoweringPlan(
     nodes,
     selectedMarkerRoots,
   );
+  const projectedPropertyLocationClassName =
+    projectedPropertyLocations.size === 0
+      ? undefined
+      : generatedNames.reserve("$ProjectedPropertyLocation");
   const runtimeAlias = generatedNames.reserve("tsonicTypeScriptRuntime");
   const referenceHashes = new Map<Node, ReferenceHashPlan>();
   for (const operation of operations.values()) {
@@ -333,6 +358,8 @@ export function createPointerLoweringPlan(
     referenceHashes,
     inferenceStabilizations,
     directObjectReplacements,
+    projectedPropertyLocations,
+    projectedPropertyLocationClassName,
     usesRuntimeValue,
   });
 }

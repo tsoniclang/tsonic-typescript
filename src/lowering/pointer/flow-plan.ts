@@ -45,6 +45,10 @@ import {
   type PointerProjectionFusion,
 } from "./projection-fusion.js";
 import {
+  planProjectedPropertyLocations,
+  type ProjectedPropertyLocationFusion,
+} from "./projected-property.js";
+import {
   PointerPlanningLedger,
   totalPointerPlanningOperations,
   type PointerPlanningCandidateCounts,
@@ -93,6 +97,10 @@ export interface ClosedPointerFlowPlan {
   componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined;
   projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
   ownsFusedProjection(node: Node): boolean;
+  projectedPropertyLocationFor(
+    node: Node,
+  ): ProjectedPropertyLocationFusion | undefined;
+  ownsProjectedPropertyAddress(node: Node): boolean;
   directObjectReplacementFor(node: Node): DirectObjectReplacement | undefined;
   directObjectReplacementsFor(sourceFile: SourceFile): readonly DirectObjectReplacement[];
   readonly components: readonly PointerFlowComponentSummary[];
@@ -103,6 +111,7 @@ export interface ClosedPointerFlowPlan {
   readonly directObjectReplacementCount: number;
   readonly optimizedProjectionReadCount: number;
   readonly optimizedProjectionStoreCount: number;
+  readonly optimizedProjectedPropertyLocationCount: number;
   readonly representationTransportCallCount: number;
   readonly planningOperationCount: number;
   readonly planningOperations: PointerPlanningOperations;
@@ -205,6 +214,13 @@ export function createClosedPointerFlowPlan(
     (node) => (representations.get(node) ?? "location") === "location",
     ledger,
   );
+  const projectedPropertyLocations = planProjectedPropertyLocations(
+    source,
+    census.facts,
+    (node) => representations.get(node) ?? "location",
+    projectionFusions.ownsProjection,
+    ledger,
+  );
   const frozenSummaries = Object.freeze(summaries);
   const pointerValues = closePointerValueEvidence(
     source,
@@ -253,6 +269,14 @@ export function createClosedPointerFlowPlan(
     ownsFusedProjection(node: Node): boolean {
       return projectionFusions.ownsProjection(node);
     },
+    projectedPropertyLocationFor(
+      node: Node,
+    ): ProjectedPropertyLocationFusion | undefined {
+      return projectedPropertyLocations.fusionForProjection(node);
+    },
+    ownsProjectedPropertyAddress(node: Node): boolean {
+      return projectedPropertyLocations.ownsAddress(node);
+    },
     directObjectReplacementFor(node: Node): DirectObjectReplacement | undefined {
       return directObjectReplacements.byNode.get(node);
     },
@@ -269,6 +293,7 @@ export function createClosedPointerFlowPlan(
     directObjectReplacementCount: directObjectReplacements.count,
     optimizedProjectionReadCount: projectionFusions.readCount,
     optimizedProjectionStoreCount: projectionFusions.storeCount,
+    optimizedProjectedPropertyLocationCount: projectedPropertyLocations.count,
     representationTransportCallCount: census.representationTransportCallCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,
