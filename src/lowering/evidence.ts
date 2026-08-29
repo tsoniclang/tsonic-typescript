@@ -53,6 +53,7 @@ export type PointerOptimizationEvidence =
       readonly analyzed: true;
       readonly componentCount: number;
       readonly optimizedComponentCount: number;
+      readonly settledLocalIdentityComponentCount: number;
       readonly optimizedFamilyCount: number;
       readonly retainedFamilyCount: number;
       readonly retainedFamilyHotspots: readonly PointerFlowFamilyHotspot[];
@@ -123,7 +124,7 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 29;
+  readonly schemaVersion: 30;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -151,7 +152,7 @@ export function createTypeScriptOptimizationEvidence(
     canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 29 as const,
+    schemaVersion: 30 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
@@ -294,6 +295,8 @@ function pointerEvidence(
     analyzed: true,
     componentCount: plan.components.length,
     optimizedComponentCount: plan.optimizedComponentCount,
+    settledLocalIdentityComponentCount:
+      plan.settledLocalIdentityComponentCount,
     optimizedFamilyCount: plan.optimizedFamilyCount,
     retainedFamilyCount: plan.retainedFamilyCount,
     retainedFamilyHotspots: plan.retainedFamilyHotspots,

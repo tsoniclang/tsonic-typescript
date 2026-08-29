@@ -36,7 +36,7 @@ import { describePointerPointee } from "./pointee-classification.js";
 import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export interface DirectReferenceFamilyPlan {
-  readonly representations: ReadonlyMap<Node, DirectReferenceFamilyDecision>;
+  decisionFor(node: Node): DirectReferenceFamilyDecision | undefined;
   canonicalRetentionFor(node: Node): readonly PointerFlowBlockerOccurrence[] | undefined;
   directObjectReplacementForStore(node: Node): DirectObjectReplacement | undefined;
   readonly directObjectReplacements: readonly DirectObjectReplacement[];
@@ -176,7 +176,9 @@ export function planDirectReferenceFamilies(
     }
   }
   return Object.freeze({
-    representations,
+    decisionFor(node: Node): DirectReferenceFamilyDecision | undefined {
+      return representations.get(node);
+    },
     canonicalRetentionFor(node: Node): readonly PointerFlowBlockerOccurrence[] | undefined {
       return canonicalRetentions.get(node);
     },

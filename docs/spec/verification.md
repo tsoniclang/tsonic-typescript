@@ -26,6 +26,13 @@ one unstable component remains canonical while one stable addressed component
 uses the replacement. Suppressing the stable component because of its sibling,
 or optimizing the unstable sibling, must fail at the focused planner gate.
 
+Identity proof must combine one fresh compared/hashed component with a
+disjoint generic contract and, separately, an unreplaceable store of the same
+class. Only the fresh component may become the represented object. A shared
+factory result, addressed alias, local store, projection, or nested contract
+must remain canonical. Restoring family-wide contamination or ignoring one
+non-bijective producer must fail these focused gates.
+
 Representation-transport proof must compare the canonical external boundary
 with one certified generic kernel. The exact module, export, declaration,
 selected signature, and generic-owned parameter become transparent while a

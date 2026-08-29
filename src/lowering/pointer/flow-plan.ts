@@ -112,6 +112,7 @@ export interface ClosedPointerFlowPlan {
   pointerKeyMapsFor(sourceFile: SourceFile): readonly CanonicalPointerKeyMapPlan[];
   readonly components: readonly PointerFlowComponentSummary[];
   readonly optimizedComponentCount: number;
+  readonly settledLocalIdentityComponentCount: number;
   readonly optimizedFamilyCount: number;
   readonly retainedFamilyCount: number;
   readonly retainedFamilyHotspots: readonly PointerFlowFamilyHotspot[];
@@ -153,9 +154,7 @@ export function createClosedPointerFlowPlan(
     census.facts,
     ledger,
   );
-  const representations = new Map<Node, PointerFlowRepresentation>(
-    familyPlan.representations,
-  );
+  const representations = new Map<Node, PointerFlowRepresentation>();
   const summaries: PointerFlowComponentSummary[] = [];
   const componentByNode = new Map<Node, PointerFlowComponentSummary>();
   const fallbackReasons = new Map<
@@ -163,6 +162,7 @@ export function createClosedPointerFlowPlan(
     { count: number; examples: OptimizationOccurrence[] }
   >();
   let optimizedComponentCount = 0;
+  let settledLocalIdentityComponentCount = 0;
   for (const component of components) {
     ledger.record("representation");
     const decision = selectPointerFlowRepresentation(
@@ -171,20 +171,23 @@ export function createClosedPointerFlowPlan(
       census.facts,
       (storeCall) =>
         familyPlan.directObjectReplacementForStore(storeCall) !== undefined,
+      componentRepresentationNodes(component).flatMap((node) => {
+        const selected = familyPlan.decisionFor(node);
+        return selected === undefined ? [] : [selected];
+      }),
+      program.hasBindingWrite,
       ledger,
     );
-    const representation = finalComponentRepresentation(
-      component,
-      decision,
-      representations,
-      ledger,
-    );
+    const representation = decision.representation;
     for (const node of componentNodes(component)) {
       ledger.record("representation");
       representations.set(node, representation);
     }
     if (representation !== "location") {
       optimizedComponentCount += 1;
+    }
+    if (decision.settledLocalIdentity) {
+      settledLocalIdentityComponentCount += 1;
     }
     const retention = representation === "location"
       ? componentRetentionEvidence(component, decision, familyPlan, ledger)
@@ -316,6 +319,7 @@ export function createClosedPointerFlowPlan(
     },
     components: frozenSummaries,
     optimizedComponentCount,
+    settledLocalIdentityComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
     retainedFamilyCount: familyPlan.retainedFamilies.length,
     retainedFamilyHotspots,
@@ -410,42 +414,6 @@ function componentNodes(component: PointerFlowComponent): readonly Node[] {
     ...component.vertices.map((vertex) => vertex.node),
     ...componentRepresentationNodes(component),
   ];
-}
-
-function finalComponentRepresentation(
-  component: PointerFlowComponent,
-  decision: PointerFlowDecision,
-  representations: ReadonlyMap<Node, PointerFlowRepresentation>,
-  ledger: PointerPlanningLedger,
-): PointerFlowRepresentation {
-  const selected = new Set<PointerFlowRepresentation>();
-  for (const node of componentRepresentationNodes(component)) {
-    ledger.record("representation");
-    const representation = representations.get(node);
-    if (representation !== undefined) {
-      selected.add(representation);
-    }
-  }
-  if (
-    decision.representation !== "location" &&
-    !selected.has("location")
-  ) {
-    return decision.representation;
-  }
-  if (selected.size === 0) {
-    return decision.representation;
-  }
-  if (selected.has("location")) {
-    return "location";
-  }
-  if (selected.size !== 1) {
-    throw new Error("pointer component selected multiple representations");
-  }
-  const representation = [...selected][0];
-  if (representation === undefined) {
-    throw new Error("pointer component lost its selected representation");
-  }
-  return representation;
 }
 
 function componentRetentionEvidence(

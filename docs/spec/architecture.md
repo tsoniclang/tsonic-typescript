@@ -101,6 +101,13 @@ closed component may select:
   blocker in one disconnected component retains that component canonically but
   cannot erase the proved capability for another component of the same class.
 
+Pointer identity is settled at that same component boundary. An exact fresh
+allocation or stable binding with a recursively proved fresh initializer may
+use represented-object identity even when a disjoint generic contract,
+reflection store, or other component of the same class remains canonical.
+Unowned nested pointer types change only through complete family closure; local
+identity settlement cannot rewrite or transport them.
+
 Every definition, reference, assignment, argument, result, and storage member
 in the component changes atomically. A local exception invalidates the
 optimization and retains the canonical pointer representation.

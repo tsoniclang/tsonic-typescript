@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
@@ -7,6 +7,8 @@ import type {
   PointerFlowBlockerOccurrence,
   PointerFlowComponent,
 } from "./flow-graph.js";
+import type { DirectReferenceFamilyDecision } from "./flow-family-state.js";
+import { nonBijectiveIdentityOccurrences } from "./flow-family-identity.js";
 import type { PointerPlanningLedger } from "./planning-ledger.js";
 import { describePointerPointee } from "./pointee-classification.js";
 
@@ -20,6 +22,7 @@ export interface PointerFlowDecision {
   readonly representation: PointerFlowRepresentation;
   readonly blockers: readonly PointerFlowBlocker[];
   readonly blockerEvidence: readonly PointerFlowBlockerOccurrence[];
+  readonly settledLocalIdentity: boolean;
 }
 
 export function selectPointerFlowRepresentation(
@@ -27,17 +30,18 @@ export function selectPointerFlowRepresentation(
   component: PointerFlowComponent,
   facts: PointerTypedFactLedger,
   hasDirectObjectReplacement: (storeCall: Node) => boolean,
+  familyDecisions: readonly DirectReferenceFamilyDecision[],
+  hasBindingWrite: (declaration: Node | undefined) => boolean,
   ledger: PointerPlanningLedger,
 ): PointerFlowDecision {
-  if (component.blockers.length !== 0) {
-    return locationDecision(component, ledger);
-  }
-  if (component.producers.length === 0) {
-    return locationDecision(
+  const localIdentityCandidate = component.blockers.length === 1 &&
+    component.blockers[0] === "identity-observed";
+  if (component.blockers.length !== 0 && !localIdentityCandidate) {
+    return settleFamilyDecision(
       component,
+      locationDecision(component, ledger),
+      familyDecisions,
       ledger,
-      "unsupported-producer",
-      componentAnchors(component, ledger),
     );
   }
   const descriptions = component.pointees.map((evidence) => {
@@ -54,14 +58,22 @@ export function selectPointerFlowRepresentation(
         candidate.identity !== description.identity;
     })
   ) {
-    return locationDecision(
+    const decision = component.blockers.length !== 0
+      ? locationDecision(component, ledger)
+      : locationDecision(
+          component,
+          ledger,
+          "unsupported-pointee",
+          component.pointees.map((evidence) => {
+            ledger.record("representation");
+            return evidence.anchor;
+          }),
+        );
+    return settleFamilyDecision(
       component,
+      decision,
+      familyDecisions,
       ledger,
-      "unsupported-pointee",
-      component.pointees.map((evidence) => {
-        ledger.record("representation");
-        return evidence.anchor;
-      }),
     );
   }
   const category = description.category;
@@ -73,15 +85,45 @@ export function selectPointerFlowRepresentation(
     ledger.record("representation");
     return operation === undefined;
   })) {
-    return locationDecision(
+    const decision = component.blockers.length !== 0
+      ? locationDecision(component, ledger)
+      : locationDecision(
+          component,
+          ledger,
+          "unsupported-flow",
+          component.operations.filter((node, index) => {
+            ledger.record("representation");
+            return operations[index] === undefined;
+          }),
+        );
+    return settleFamilyDecision(
+      component,
+      decision,
+      familyDecisions,
+      ledger,
+    );
+  }
+  const settledLocalIdentity = canSettleLocalIdentity(
+    source,
+    component,
+    description,
+    operations,
+    hasBindingWrite,
+    ledger,
+  );
+  let decision: PointerFlowDecision;
+  if (component.blockers.length !== 0 && !settledLocalIdentity) {
+    decision = locationDecision(component, ledger);
+    return settleFamilyDecision(component, decision, familyDecisions, ledger);
+  }
+  if (component.producers.length === 0) {
+    decision = locationDecision(
       component,
       ledger,
-      "unsupported-flow",
-      component.operations.filter((node, index) => {
-        ledger.record("representation");
-        return operations[index] === undefined;
-      }),
+      "unsupported-producer",
+      componentAnchors(component, ledger),
     );
+    return settleFamilyDecision(component, decision, familyDecisions, ledger);
   }
   const stores = operations.filter((operation) => {
     ledger.record("representation");
@@ -92,7 +134,7 @@ export function selectPointerFlowRepresentation(
     return producer.operation === "allocate" || producer.operation === "address-of";
   });
   if (!producersAreDirect) {
-    return locationDecision(
+    decision = locationDecision(
       component,
       ledger,
       "unsupported-producer",
@@ -101,6 +143,7 @@ export function selectPointerFlowRepresentation(
         return producer.call;
       }),
     );
+    return settleFamilyDecision(component, decision, familyDecisions, ledger);
   }
   if (stores.length !== 0) {
     const allocatedCell = component.producers.every(
@@ -110,7 +153,8 @@ export function selectPointerFlowRepresentation(
         },
       ) && (category === "scalar" || category === "direct-reference");
     if (allocatedCell) {
-      return optimizedDecision("mutable-cell");
+      decision = optimizedDecision("mutable-cell", settledLocalIdentity);
+      return settleFamilyDecision(component, decision, familyDecisions, ledger);
     }
     const replaceableAddressedObject = category === "direct-reference" &&
       stores.every((operation) => {
@@ -118,8 +162,8 @@ export function selectPointerFlowRepresentation(
         return operation !== undefined &&
           hasDirectObjectReplacement(operation.call);
       });
-    return replaceableAddressedObject
-      ? optimizedDecision("direct-object")
+    decision = replaceableAddressedObject
+      ? optimizedDecision("direct-object", settledLocalIdentity)
       : locationDecision(
           component,
           ledger,
@@ -128,19 +172,24 @@ export function selectPointerFlowRepresentation(
             operation === undefined ? [] : [operation.call]
           ),
         );
+    return settleFamilyDecision(component, decision, familyDecisions, ledger);
   }
-  return optimizedDecision(
+  decision = optimizedDecision(
     category === "scalar" ? "direct-snapshot" : "direct-object",
+    settledLocalIdentity,
   );
+  return settleFamilyDecision(component, decision, familyDecisions, ledger);
 }
 
 function optimizedDecision(
   representation: Exclude<PointerFlowRepresentation, "location">,
+  settledLocalIdentity = false,
 ): PointerFlowDecision {
   return Object.freeze({
     representation,
     blockers: Object.freeze([]),
     blockerEvidence: Object.freeze([]),
+    settledLocalIdentity,
   });
 }
 
@@ -193,7 +242,60 @@ function locationDecision(
     representation: "location",
     blockers: Object.freeze(blockerEvidence.map((entry) => entry.reason)),
     blockerEvidence: Object.freeze(blockerEvidence),
+    settledLocalIdentity: false,
   });
+}
+
+function canSettleLocalIdentity(
+  source: TargetSourceProgram,
+  component: PointerFlowComponent,
+  description: NonNullable<ReturnType<typeof describePointerPointee>>,
+  operations: readonly (PointerOperationFact | undefined)[],
+  hasBindingWrite: (declaration: Node | undefined) => boolean,
+  ledger: PointerPlanningLedger,
+): boolean {
+  if (
+    component.blockers.length !== 1 ||
+    component.blockers[0] !== "identity-observed" ||
+    description.category !== "direct-reference" ||
+    typeof description.identity === "string" ||
+    operations.some((operation) => operation === undefined) ||
+    operations.some((operation) => operation?.operation === "store")
+  ) {
+    return false;
+  }
+  return nonBijectiveIdentityOccurrences(
+    source,
+    description.identity,
+    operations.filter((operation) => operation !== undefined),
+    hasBindingWrite,
+    ledger,
+  ).length === 0;
+}
+
+function settleFamilyDecision(
+  component: PointerFlowComponent,
+  componentDecision: PointerFlowDecision,
+  familyDecisions: readonly DirectReferenceFamilyDecision[],
+  ledger: PointerPlanningLedger,
+): PointerFlowDecision {
+  const selected = new Set(familyDecisions);
+  if (selected.has("location")) {
+    return componentDecision.representation === "location"
+      ? componentDecision
+      : locationDecision(component, ledger);
+  }
+  if (componentDecision.representation !== "location" || selected.size === 0) {
+    return componentDecision;
+  }
+  if (selected.size !== 1) {
+    throw new Error("pointer component selected multiple family capabilities");
+  }
+  const representation = [...selected][0];
+  if (representation === undefined || representation === "location") {
+    throw new Error("pointer component lost its family capability");
+  }
+  return optimizedDecision(representation);
 }
 
 function componentAnchors(
