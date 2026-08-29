@@ -108,7 +108,8 @@ unsafe, indirect, or otherwise unproved flows.
 
 The target optimization `optimizations.pointerFlows: "closed-direct"` lets the
 backend create one whole-program plan with
-`createClosedPointerFlowPlan(source)` and supply that plan while lowering every
+`createClosedPointerFlowPlan` from the checked program, generated-name owner,
+and exact projection-callable plan, then supply that plan while lowering every
 source file. Lowering does not read configuration; omitting the plan always
 selects canonical `Location<T>`.
 
@@ -125,7 +126,12 @@ The closed planner can select only these exact representations:
   type symbol has a primary project `ClassDeclaration`; whole-pointee stores
   are admitted only for a closed class whose complete mutable state is the
   exact public constructor-property set, and become one collision-free
-  generated replacement method that copies those fields in place.
+  generated replacement method that copies those fields in place;
+- a stored read-only `projectPointer` becomes its exact `fromSource(source)`
+  value only when both converters forward to one transparent storage/view pair
+  and the source component has already settled to a direct non-null
+  representation. Source and projected components remain distinct and settle
+  through a linear dependency graph.
 
 The replacement shape belongs to the class, but admission belongs to each
 connected pointer-flow component. A canonical or unstable component never
@@ -146,6 +152,9 @@ operations remain outside pointer lowering. Replacing an object pointee never
 changes its object identity, so aliases continue to denote the same Go pointer.
 Classes with inheritance, accessors, computed members, omitted mutable state,
 decorators, open boundaries, or mutable class bindings retain `Location<T>`.
+Projected stores, identity observation, source replacement, observable
+construction, unresolved converter shapes, and projection cycles also retain
+the canonical projected location.
 `addressOf(x)` can become a scalar snapshot only when `x` has one exact local
 storage identity and the checked navigation graph proves that storage cannot
 change. Repeated addresses of the same storage are one component. Nullable

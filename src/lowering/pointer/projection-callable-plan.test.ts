@@ -118,11 +118,12 @@ test("accounts for exact forwarding decisions in immutable evidence", () => {
   if (prepared.kind !== "ready") {
     return;
   }
-  assert.equal(prepared.transaction.evidence.schemaVersion, 27);
+  assert.equal(prepared.transaction.evidence.schemaVersion, 28);
   assert.deepEqual(prepared.transaction.evidence.pointer.projectionCallables, {
     candidateCount: 2,
     optimizedCount: 2,
     retainedCount: 0,
+    exactProjectionCount: 1,
     fallbackReasons: [],
   });
 });
