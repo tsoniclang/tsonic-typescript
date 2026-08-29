@@ -69,6 +69,13 @@ export function rewriteCanonicalPointerKeyMapNode(
       return rewriteConstructor(factory, updated, rewrite.plan);
     case "storage-construction":
       return rewriteStorageConstruction(factory, updated, rewrite.plan);
+    case "storage-alias-type":
+      return rewriteStorageAliasType(
+        factory,
+        updated,
+        rewrite.plan,
+        finalNodes,
+      );
     case "remove-hash-method":
     case "remove-equal-method":
     case "remove-hash-variable":
@@ -153,6 +160,9 @@ export function assertCanonicalPointerKeyMapConsumption(
   for (const plan of plans) {
     expected.add(plan.constructorDeclaration);
     expected.add(plan.storageConstruction);
+    for (const typeNode of plan.storageAliasTypeNodes) {
+      expected.add(typeNode);
+    }
     expected.add(plan.hashMethod);
     expected.add(plan.equalMethod);
     expected.add(plan.hashVariableStatement);
@@ -262,6 +272,53 @@ function rewriteStorageConstruction(
     keyType,
     bucketType,
   );
+}
+
+function rewriteStorageAliasType(
+  factory: NodeFactory,
+  updated: Node,
+  plan: CanonicalPointerKeyMapPlan,
+  finalNodes: FinalNodeLookup,
+): Node {
+  const shape = storageContainerShape(updated);
+  if (shape === undefined) {
+    throw new PointerLoweringError(
+      "canonical pointer-key map alias lost its storage type",
+    );
+  }
+  return canonicalPointerMapStorageType(
+    factory,
+    plan.helperName,
+    requiredFinalNode(
+      finalNodes,
+      plan.keyTypeNode,
+      "canonical pointer-key map key type",
+    ),
+    shape.bucketType,
+    shape.undefinedType,
+  );
+}
+
+function storageContainerShape(type: Node | undefined): Omit<StorageShape, "keyType"> | undefined {
+  const union = AsUnionTypeNode(type);
+  const members = union?.Types?.Nodes ?? [];
+  if (members.length !== 2) {
+    return undefined;
+  }
+  const undefinedMember = members.find((member) =>
+    member?.Kind === KindUndefinedKeyword
+  );
+  const storageMember = members.find((member) => member !== undefinedMember);
+  const reference = AsTypeReferenceNode(storageMember);
+  const arguments_ = reference?.TypeArguments?.Nodes ?? [];
+  const bucketType = arguments_[1];
+  return undefinedMember !== undefined &&
+      storageMember !== undefined &&
+      reference !== undefined &&
+      arguments_.length === 2 &&
+      bucketType !== undefined
+    ? { bucketType, undefinedType: undefinedMember }
+    : undefined;
 }
 
 function sourceParameterIndex(plan: CanonicalPointerKeyMapPlan): number {

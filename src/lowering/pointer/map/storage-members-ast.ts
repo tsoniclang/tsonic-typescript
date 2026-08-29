@@ -141,6 +141,15 @@ function getMethod(factory: NodeFactory): Node {
       variable(
         factory,
         NodeFlagsConst,
+        entriesName,
+        undefined,
+        call(factory, thisProperty(factory, identitiesName), "get", [
+          identifier(factory, identityName),
+        ]),
+      ),
+      variable(
+        factory,
+        NodeFlagsConst,
         entryName,
         undefined,
         conditional(

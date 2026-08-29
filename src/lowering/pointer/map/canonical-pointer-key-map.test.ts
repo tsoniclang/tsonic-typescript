@@ -220,7 +220,7 @@ class PointerMap extends MapValue<Key, number> {
     return [PointerMap.copyValue(found[0][1]), true];
   }
   store(key: Key, value: number): void {
-    const buckets = this.buckets;
+    const buckets: Map<number, Entry[]> | undefined = this.buckets;
     if (buckets === undefined) { throw new Error("assignment to entry in nil map"); }
     const hash = PointerMap.hash(key);
     let bucket = buckets.get(hash);
@@ -252,8 +252,9 @@ class PointerMap extends MapValue<Key, number> {
   }
   keys(): Key[] {
     const result: Key[] = [];
-    if (this.buckets === undefined) { return result; }
-    for (const bucket of this.buckets.values()) {
+    const buckets: Map<number, Entry[]> | undefined = this.buckets;
+    if (buckets === undefined) { return result; }
+    for (const bucket of buckets.values()) {
       for (const entry of bucket) { result.push(entry[0]); }
     }
     return result;

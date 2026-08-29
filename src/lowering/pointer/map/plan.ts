@@ -33,6 +33,7 @@ import type {
 import type { PointerTypedFactLedger } from "../flow-fact-ledger.js";
 import type { PointerFlowRepresentation } from "../flow-representation.js";
 import type { PointerPlanningLedger } from "../planning-ledger.js";
+import { exactStorageAliasTypeNodes } from "./aliases.js";
 
 export interface CanonicalPointerKeyMapPlan {
   readonly classDeclaration: Node;
@@ -41,6 +42,8 @@ export interface CanonicalPointerKeyMapPlan {
   readonly constructorDeclaration: Node;
   readonly storageParameter: Node;
   readonly storageConstruction: Node;
+  readonly storageAliasTypeNodes: readonly Node[];
+  readonly keyTypeNode: Node;
   readonly hashMethod: Node;
   readonly equalMethod: Node;
   readonly hashCallReplacements: ReadonlyMap<Node, Node>;
@@ -52,6 +55,7 @@ export interface CanonicalPointerKeyMapPlan {
 export type CanonicalPointerKeyMapRewrite =
   | { readonly kind: "constructor"; readonly plan: CanonicalPointerKeyMapPlan }
   | { readonly kind: "storage-construction"; readonly plan: CanonicalPointerKeyMapPlan }
+  | { readonly kind: "storage-alias-type"; readonly plan: CanonicalPointerKeyMapPlan }
   | { readonly kind: "remove-hash-method"; readonly plan: CanonicalPointerKeyMapPlan }
   | { readonly kind: "remove-equal-method"; readonly plan: CanonicalPointerKeyMapPlan }
   | { readonly kind: "replace-hash-call"; readonly plan: CanonicalPointerKeyMapPlan; readonly expression: Node }
@@ -166,6 +170,12 @@ export function planCanonicalPointerKeyMaps(
       kind: "storage-construction",
       plan,
     });
+    for (const typeNode of plan.storageAliasTypeNodes) {
+      addRewrite(rewrites, typeNode, {
+        kind: "storage-alias-type",
+        plan,
+      });
+    }
     addRewrite(rewrites, plan.hashMethod, {
       kind: "remove-hash-method",
       plan,
@@ -284,7 +294,18 @@ function completeMapPlan(
     return undefined;
   }
   const storageConstruction = soleStorageConstruction(source, classDeclaration);
-  if (storageConstruction === undefined) {
+  const storageAliasTypeNodes = exactStorageAliasTypeNodes(
+    source,
+    classDeclaration,
+    storageParameter,
+  );
+  const hashParameter = source.ast.parameters(hashMethod)[0];
+  const keyTypeNode = AsParameterDeclaration(hashParameter)?.Type;
+  if (
+    storageConstruction === undefined ||
+    storageAliasTypeNodes === undefined ||
+    keyTypeNode === undefined
+  ) {
     return undefined;
   }
   const storeHashCall = store.hashCalls[0];
@@ -354,6 +375,8 @@ function completeMapPlan(
     constructorDeclaration,
     storageParameter,
     storageConstruction,
+    storageAliasTypeNodes,
+    keyTypeNode,
     hashMethod,
     equalMethod,
     hashCallReplacements,
