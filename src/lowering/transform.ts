@@ -4,7 +4,6 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import {
   createTypeScriptOptimizationEvidence,
-  type PointerLoweringPlanEvidence,
   type TypeScriptOptimizationEvidence,
 } from "./evidence.js";
 import {
@@ -148,6 +147,17 @@ export function prepareTypeScriptLowering(
     profile.representationProjections,
     identities.forFile,
   );
+  const evidence = createTypeScriptOptimizationEvidence(
+    execution,
+    profile,
+    identities.membership,
+    program.operations,
+    pointerFlowPlan,
+    pointerProjectionCallables,
+    scalarPlan,
+    representationPlan,
+    representationTransports,
+  );
   const plans = new Map<SourceFile, SourceRewritePlan>();
   const failures: TypeScriptSourcePlanningFailure[] = [];
   for (const sourceFile of sourceFiles) {
@@ -183,43 +193,9 @@ export function prepareTypeScriptLowering(
       failures: Object.freeze(failures),
     });
   }
-  const pointerLowering = pointerLoweringPlanEvidence(plans);
-  const evidence = createTypeScriptOptimizationEvidence(
-    execution,
-    profile,
-    identities.membership,
-    program.operations,
-    pointerFlowPlan,
-    pointerLowering,
-    pointerProjectionCallables,
-    scalarPlan,
-    representationPlan,
-    representationTransports,
-  );
   return Object.freeze({
     kind: "ready",
     transaction: createTransaction(plans, evidence),
-  });
-}
-
-function pointerLoweringPlanEvidence(
-  plans: ReadonlyMap<SourceFile, SourceRewritePlan>,
-): PointerLoweringPlanEvidence {
-  let staticPropertyLocationCount = 0;
-  let staticPropertyLocationClassCount = 0;
-  for (const plan of plans.values()) {
-    staticPropertyLocationCount += plan.pointer.staticPropertyLocationCount;
-    staticPropertyLocationClassCount +=
-      plan.pointer.staticPropertyLocationClassCount;
-  }
-  if (staticPropertyLocationClassCount > staticPropertyLocationCount) {
-    throw new Error(
-      "static property-location evidence has more classes than operations",
-    );
-  }
-  return Object.freeze({
-    staticPropertyLocationCount,
-    staticPropertyLocationClassCount,
   });
 }
 

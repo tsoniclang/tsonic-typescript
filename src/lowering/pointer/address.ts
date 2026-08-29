@@ -14,7 +14,6 @@ import type { FinalNodeLookup } from "../final-nodes.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import { locationBindingExpression } from "./location-binding.js";
 import type { PointerLoweringPlan } from "./plan.js";
-import { lowerStaticPropertyLocation } from "./property-location/ast.js";
 import { runtimeCall } from "./runtime-ast.js";
 
 export function lowerAddressOf(
@@ -64,24 +63,6 @@ export function lowerAddressOf(
       plan,
       finalNodes,
     );
-    const key = requiredNode(
-      NewStringLiteral(factory, source.ast.text(originalProperty.name), 0),
-      "addressed property name",
-    );
-    const staticLocation = plan.staticPropertyLocations.get(operation.call);
-    if (staticLocation !== undefined && parentLocation !== undefined) {
-      throw new PointerLoweringError(
-        "static property-location plan selected a nested storage path",
-      );
-    }
-    if (staticLocation !== undefined) {
-      return lowerStaticPropertyLocation(
-        factory,
-        staticLocation,
-        property.Expression,
-        key,
-      );
-    }
     return runtimeCall(
       factory,
       plan.runtimeAlias,
@@ -91,7 +72,10 @@ export function lowerAddressOf(
       [],
       [
         parentLocation ?? property.Expression,
-        key,
+        requiredNode(
+          NewStringLiteral(factory, source.ast.text(originalProperty.name), 0),
+          "addressed property name",
+        ),
       ],
     );
   }

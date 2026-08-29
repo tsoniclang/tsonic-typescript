@@ -196,10 +196,6 @@ test("accounts for every representation candidate in immutable evidence", () => 
     ["index.ts"],
     program.operations,
     undefined,
-    {
-      staticPropertyLocationCount: 0,
-      staticPropertyLocationClassCount: 0,
-    },
     createPointerProjectionCallablePlan(
       fixture.source,
       program,
@@ -210,7 +206,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     representation,
   );
 
-  assert.equal(evidence.schemaVersion, 30);
+  assert.equal(evidence.schemaVersion, 29);
   assert.equal(evidence.sourceExecution, "unrestricted");
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",

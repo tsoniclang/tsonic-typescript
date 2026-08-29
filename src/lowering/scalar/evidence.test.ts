@@ -45,10 +45,6 @@ export const result = new Scalar({ amount: 1 }).value;
     ["index.ts"],
     program.operations,
     undefined,
-    {
-      staticPropertyLocationCount: 0,
-      staticPropertyLocationClassCount: 0,
-    },
     createPointerProjectionCallablePlan(
       fixture.source,
       program,
