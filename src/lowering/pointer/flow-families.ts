@@ -34,7 +34,6 @@ import {
 } from "./flow-family-state.js";
 import { describePointerPointee } from "./pointee-classification.js";
 import type { PointerPlanningLedger } from "./planning-ledger.js";
-import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
 
 export interface DirectReferenceFamilyPlan {
   readonly representations: ReadonlyMap<Node, DirectReferenceFamilyDecision>;
@@ -60,7 +59,6 @@ export function planDirectReferenceFamilies(
   components: readonly PointerFlowComponent[],
   facts: PointerTypedFactLedger,
   ledger: PointerPlanningLedger,
-  projectionCallables: PointerProjectionCallablePlan,
 ): DirectReferenceFamilyPlan {
   const families = new Map<Node, MutableDirectReferenceFamily>();
   const operationFamilies = new Map<Node, MutableDirectReferenceFamily>();
@@ -76,7 +74,6 @@ export function planDirectReferenceFamilies(
       fact,
       families,
       operationFamilies,
-      projectionCallables,
     );
   }
   applyGenericPointerBoundaries(
@@ -289,7 +286,6 @@ function collectPointerOperation(
   operation: PointerOperationFact,
   families: Map<Node, MutableDirectReferenceFamily>,
   operationFamilies: Map<Node, MutableDirectReferenceFamily>,
-  projectionCallables: PointerProjectionCallablePlan,
 ): void {
   const family = directReferenceFamily(
     source,
@@ -318,13 +314,11 @@ function collectPointerOperation(
       );
       break;
     case "project-pointer":
-      if (projectionCallables.exactProjectionFor(operation.call) === undefined) {
-        requireCanonicalDirectReferenceFamily(
-          family,
-          "projection-observed",
-          operation.call,
-        );
-      }
+      requireCanonicalDirectReferenceFamily(
+        family,
+        "projection-observed",
+        operation.call,
+      );
       break;
   }
 }
@@ -415,9 +409,6 @@ function selectFamilyRepresentations(
           producerCount += 1;
           hasAddressedProducer = true;
           break;
-        case "project-pointer":
-          producerCount += 1;
-          break;
         case "store":
           stores.push(operation);
           break;
@@ -425,6 +416,7 @@ function selectFamilyRepresentations(
         case "equal-pointer":
         case "hash-pointer":
         case "bind-pointer":
+        case "project-pointer":
           break;
       }
     }

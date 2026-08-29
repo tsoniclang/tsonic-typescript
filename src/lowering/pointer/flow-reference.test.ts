@@ -16,7 +16,6 @@ import {
   checkedPointerFixture,
   countCallsNamed,
   createFixturePointerFlowPlan as createClosedPointerFlowPlan,
-  createFixturePointerProjectionCallablePlan,
   visit,
 } from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";
@@ -253,7 +252,6 @@ export const result = loadPointer(alias);
       program,
       createProgramGeneratedNames(source, program),
       (sourceFile) => source.documents.forFile(sourceFile).identity,
-      createFixturePointerProjectionCallablePlan(source, program),
     ),
     /pointer operand .* lost its exact source reference/u,
   );

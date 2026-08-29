@@ -13,12 +13,7 @@ import {
   type BoundedOptimizationReasonEvidence,
 } from "../retention-evidence.js";
 import { createRepresentationBindingProof } from "../representation/binding-proof.js";
-import {
-  forwardedStorageProjectionPair,
-  forwardingCallableTarget,
-  type ForwardedStorageProjectionPair,
-  type ForwardingCallableShapeResult,
-} from "../representation/shape.js";
+import { forwardingCallableTarget } from "../representation/shape.js";
 
 export const projectionCallableRetentionReasons = Object.freeze([
   "profile-preserved",
@@ -42,10 +37,8 @@ export interface PointerProjectionCallablePlan {
   readonly fallbackReasons: readonly BoundedOptimizationReasonEvidence<
     ProjectionCallableRetentionReason
   >[];
-  readonly exactProjectionCount: number;
   owns(candidate: TargetSourceProgram): boolean;
   targetsFor(call: Node): ProjectionCallableTargets | undefined;
-  exactProjectionFor(call: Node): ForwardedStorageProjectionPair | undefined;
 }
 
 export function createPointerProjectionCallablePlan(
@@ -61,7 +54,6 @@ export function createPointerProjectionCallablePlan(
     projectionCallableRetentionReasons,
   );
   const selected = new Map<Node, ProjectionCallableTargets>();
-  const exactProjections = new Map<Node, ForwardedStorageProjectionPair>();
   let candidateCount = 0;
   let optimizedCount = 0;
   for (const call of program.nodesOfKind(KindCallExpression)) {
@@ -73,21 +65,9 @@ export function createPointerProjectionCallablePlan(
     const toSource = decide(operation.toSourceExpression);
     if (fromSource !== undefined || toSource !== undefined) {
       selected.set(call, Object.freeze({
-        ...(fromSource === undefined ? {} : { fromSource: fromSource.target }),
-        ...(toSource === undefined ? {} : { toSource: toSource.target }),
+        ...(fromSource === undefined ? {} : { fromSource }),
+        ...(toSource === undefined ? {} : { toSource }),
       }));
-    }
-    if (fromSource !== undefined && toSource !== undefined) {
-      const pair = forwardedStorageProjectionPair(
-        source,
-        program,
-        bindingProof,
-        fromSource,
-        toSource,
-      );
-      if (pair !== undefined) {
-        exactProjections.set(call, pair);
-      }
     }
   }
   const fallbackReasons = retentions.seal();
@@ -103,21 +83,15 @@ export function createPointerProjectionCallablePlan(
     optimizedCount,
     retainedCount: retentions.count,
     fallbackReasons,
-    exactProjectionCount: exactProjections.size,
     owns(candidate: TargetSourceProgram): boolean {
       return candidate === source;
     },
     targetsFor(call: Node): ProjectionCallableTargets | undefined {
       return selected.get(call);
     },
-    exactProjectionFor(call: Node): ForwardedStorageProjectionPair | undefined {
-      return exactProjections.get(call);
-    },
   });
 
-  function decide(
-    expression: Node,
-  ): Extract<ForwardingCallableShapeResult, { readonly kind: "proved" }> | undefined {
+  function decide(expression: Node): Node | undefined {
     const shape = forwardingCallableTarget(source, program, bindingProof, expression);
     if (shape.kind === "unrelated") {
       return undefined;
@@ -132,6 +106,6 @@ export function createPointerProjectionCallablePlan(
       return undefined;
     }
     optimizedCount += 1;
-    return shape;
+    return shape.target;
   }
 }

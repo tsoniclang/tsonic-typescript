@@ -100,7 +100,6 @@ export function lowerOptimizedPointerOperation(
   directObjectReplacement: DirectObjectReplacement | undefined,
   runtimeAlias: GeneratedBindingName,
   referenceHash: ReferenceHashPlan | undefined,
-  projectedFromSource: Node | undefined,
 ): Node | undefined {
   if (representation === "location") {
     return undefined;
@@ -164,24 +163,6 @@ export function lowerOptimizedPointerOperation(
           requiredValue(values, 0),
           requiredValue(values, 1),
           directObjectReplacement,
-        );
-      case "project-pointer":
-        requireArity(operation.operation, values, 3);
-        if (projectedFromSource === undefined) {
-          throw new PointerLoweringError(
-            "direct projected pointer lost its exact from-source callable",
-          );
-        }
-        return requiredNode(
-          NewCallExpression(
-            factory,
-            projectedFromSource,
-            undefined,
-            undefined,
-            NodeFactory_NewNodeList(factory, [requiredValue(values, 0)]),
-            0,
-          ),
-          "direct projected pointer construction",
         );
       default:
         throw new PointerLoweringError(

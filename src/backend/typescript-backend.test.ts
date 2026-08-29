@@ -104,7 +104,7 @@ test("emits deterministic immutable optimization evidence", () => {
   assert.ok(artifact !== undefined);
   assert.equal(artifact.kind, "asset");
   assert.deepEqual(JSON.parse(artifact.text), {
-    schemaVersion: 28,
+    schemaVersion: 27,
     sourceExecution: "unrestricted",
     profileIdentity:
       "typescript-optimization-v4/pointer=closed-direct/scalar=closed-direct/representations=preserve",
@@ -129,7 +129,6 @@ test("emits deterministic immutable optimization evidence", () => {
       directObjectReplacementCount: 0,
       optimizedProjectionReadCount: 0,
       optimizedProjectionStoreCount: 0,
-      optimizedStoredProjectionCount: 0,
       representations: [{ value: "direct-snapshot", count: 1 }],
       fallbackReasons: [],
       familyFallbackReasons: [],
@@ -137,7 +136,6 @@ test("emits deterministic immutable optimization evidence", () => {
         candidateCount: 0,
         optimizedCount: 0,
         retainedCount: 0,
-        exactProjectionCount: 0,
         fallbackReasons: [],
       },
     },

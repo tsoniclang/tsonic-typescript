@@ -22,7 +22,6 @@ export type PointerFlowBlocker =
   | "pointer-rebinding"
   | "projection-observed"
   | "provider-binding"
-  | "representation-contract"
   | "unsupported-flow"
   | "unsupported-pointee"
   | "unsupported-producer";
