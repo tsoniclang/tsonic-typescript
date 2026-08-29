@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Node } from "@tsonic/tsts";
-import { IsClassDeclaration } from "@tsonic/tsts/target-ast";
+import {
+  AsObjectLiteralExpression,
+  IsClassDeclaration,
+  IsMethodDeclaration,
+  IsObjectLiteralExpression,
+  IsPropertyAssignment,
+  IsPropertyDeclaration,
+} from "@tsonic/tsts/target-ast";
 
 import {
   checkedPointerFixture,
@@ -26,6 +33,29 @@ test("contracts exact canonical pointer-key map storage", () => {
     ),
     ["$PointerMapStorage"],
   );
+});
+
+test("uses one ordered value ledger and only private property tokens", () => {
+  const fixture = checkedPointerFixture(pointerMapSource());
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  const storage = classDeclarationNamed(
+    fixture.source,
+    lowered.sourceFile,
+    "$PointerMapStorage",
+  );
+
+  assert.deepEqual(
+    fixture.source.ast.members(storage)
+      .filter((member) =>
+        member !== undefined &&
+        (IsPropertyDeclaration(member) || IsMethodDeclaration(member))
+      )
+      .map((member) => fixture.source.ast.text(fixture.source.ast.name(member))),
+    ["values", "propertyIdentities", "get", "set", "delete", "clear", "values"],
+  );
+  assert.equal(countNamedNodes(fixture.source, storage, "ordered"), 0);
+  assert.equal(countValueEntryWrappers(fixture.source, storage), 0);
 });
 
 test("rejects a partial pointer-hash container", () => {
@@ -144,6 +174,61 @@ function classNames(
     }
   });
   return names;
+}
+
+function classDeclarationNamed(
+  source: ReturnType<typeof checkedPointerFixture>["source"],
+  root: Node,
+  expectedName: string,
+): Node {
+  let result: Node | undefined;
+  visit(source, root, (node) => {
+    if (
+      IsClassDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === expectedName
+    ) {
+      assert.equal(result, undefined);
+      result = node;
+    }
+  });
+  assert.ok(result !== undefined);
+  return result;
+}
+
+function countNamedNodes(
+  source: ReturnType<typeof checkedPointerFixture>["source"],
+  root: Node,
+  expectedName: string,
+): number {
+  let count = 0;
+  visit(source, root, (node) => {
+    const name = source.ast.name(node);
+    if (name !== undefined && source.ast.text(name) === expectedName) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function countValueEntryWrappers(
+  source: ReturnType<typeof checkedPointerFixture>["source"],
+  root: Node,
+): number {
+  let count = 0;
+  visit(source, root, (node) => {
+    if (!IsObjectLiteralExpression(node)) {
+      return;
+    }
+    const hasValueProperty = (AsObjectLiteralExpression(node)?.Properties?.Nodes ?? []).some((member) =>
+      member !== undefined &&
+      IsPropertyAssignment(member) &&
+      source.ast.text(source.ast.name(member)) === "value"
+    );
+    if (hasValueProperty) {
+      count += 1;
+    }
+  });
+  return count;
 }
 
 function pointerMapSource(): string {
