@@ -120,21 +120,22 @@ export function prepareTypeScriptLowering(
     });
   }
   const generatedNames = createProgramGeneratedNames(source, program);
-  const pointerFlowPlan = profile.pointerFlows === "closed-direct"
-    ? createClosedPointerFlowPlan(
-        source,
-        program,
-        generatedNames,
-        identities.forFile,
-        representationTransports,
-      )
-    : undefined;
   const pointerProjectionCallables = createPointerProjectionCallablePlan(
     source,
     program,
     profile.pointerFlows,
     identities.forFile,
   );
+  const pointerFlowPlan = profile.pointerFlows === "closed-direct"
+    ? createClosedPointerFlowPlan(
+        source,
+        program,
+        generatedNames,
+        identities.forFile,
+        pointerProjectionCallables,
+        representationTransports,
+      )
+    : undefined;
   const scalarPlan = createScalarRepresentationPlan(
     source,
     program,

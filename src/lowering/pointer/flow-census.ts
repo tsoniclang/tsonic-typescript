@@ -15,6 +15,7 @@ import { selectRepresentationTransportCalls } from "../representation/transport-
 import {
   PointerFlowGraph,
   type PointerFlowComponent,
+  type PointerFlowVertex,
 } from "./flow-graph.js";
 import {
   analyzePointerCallableAliases,
@@ -53,6 +54,13 @@ import {
   transparentReference,
 } from "./flow-syntax.js";
 import type { PointerPlanningLedger } from "./planning-ledger.js";
+import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
+
+export interface PointerProjectionDependency {
+  readonly operation: Extract<PointerOperationFact, { readonly operation: "project-pointer" }>;
+  readonly source: PointerFlowVertex;
+  readonly target: PointerFlowVertex;
+}
 
 export interface PointerCensus {
   readonly source: TargetSourceProgram;
@@ -71,24 +79,36 @@ export interface PointerCensus {
   readonly allowedProducerUses: Set<Node>;
   readonly allowedFunctionTargets: Set<Node>;
   readonly representationTransportCalls: ReadonlyMap<Node, ReadonlySet<Node>>;
+  readonly projectionCallables: PointerProjectionCallablePlan;
+  readonly projectionDependencies: PointerProjectionDependency[];
 }
 
 export interface PointerFlowCensusResult {
   readonly components: readonly PointerFlowComponent[];
   readonly facts: PointerTypedFactLedger;
   readonly representationTransportCallCount: number;
+  readonly projectionDependencies: readonly PointerProjectionDependency[];
 }
 
 export function censusPointerFlows(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   ledger: PointerPlanningLedger,
+  projectionCallables: PointerProjectionCallablePlan,
   representationTransports: RepresentationTransportContract =
     canonicalRepresentationTransportContract(),
 ): PointerFlowCensusResult {
   const graph = new PointerFlowGraph();
   const facts = buildPointerTypedFactLedger(source, program, ledger);
-  const operations = collectPointerOperations(facts, graph, ledger);
+  if (!projectionCallables.owns(source) || projectionCallables.profile !== "closed-direct") {
+    throw new Error("pointer census requires its checked source's closed projection plan");
+  }
+  const operations = collectPointerOperations(
+    facts,
+    graph,
+    ledger,
+    projectionCallables,
+  );
   connectLocationIdentities(graph, operations, ledger);
   const classifiedPointerTypes = new Set<Node>();
   const pointerBindings = collectPointerBindings(
@@ -208,6 +228,8 @@ export function censusPointerFlows(
     allowedProducerUses,
     allowedFunctionTargets,
     representationTransportCalls,
+    projectionCallables,
+    projectionDependencies: [],
   };
   connectPointerCalls(census);
   attachPointerOperations(census);
@@ -226,6 +248,7 @@ export function censusPointerFlows(
     components,
     facts,
     representationTransportCallCount: representationTransportCalls.size,
+    projectionDependencies: Object.freeze([...census.projectionDependencies]),
   });
 }
 

@@ -42,6 +42,8 @@ export function nonBijectiveIdentityOccurrences(
       )
     ) {
       failures.push(operation.call);
+    } else if (operation.operation === "project-pointer") {
+      failures.push(operation.call);
     } else if (
       operation.operation === "allocate" &&
       !isFreshFamilyConstruction(

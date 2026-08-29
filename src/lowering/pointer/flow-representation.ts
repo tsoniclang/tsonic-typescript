@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
@@ -28,6 +28,9 @@ export function selectPointerFlowRepresentation(
   facts: PointerTypedFactLedger,
   hasDirectObjectReplacement: (storeCall: Node) => boolean,
   ledger: PointerPlanningLedger,
+  isDirectProjection: (
+    operation: Extract<PointerOperationFact, { readonly operation: "project-pointer" }>,
+  ) => boolean = () => false,
 ): PointerFlowDecision {
   if (component.blockers.length !== 0) {
     return locationDecision(component, ledger);
@@ -87,9 +90,28 @@ export function selectPointerFlowRepresentation(
     ledger.record("representation");
     return operation?.operation === "store";
   });
+  const retainedProjections = component.producers.filter(
+    (producer): producer is Extract<
+      PointerOperationFact,
+      { readonly operation: "project-pointer" }
+    > => {
+      ledger.record("representation");
+      return producer.operation === "project-pointer" &&
+        !isDirectProjection(producer);
+    },
+  );
+  if (retainedProjections.length !== 0) {
+    return locationDecision(
+      component,
+      ledger,
+      "projection-observed",
+      retainedProjections.map((producer) => producer.call),
+    );
+  }
   const producersAreDirect = component.producers.every((producer) => {
     ledger.record("representation");
-    return producer.operation === "allocate" || producer.operation === "address-of";
+    return producer.operation === "allocate" || producer.operation === "address-of" ||
+      (producer.operation === "project-pointer" && isDirectProjection(producer));
   });
   if (!producersAreDirect) {
     return locationDecision(

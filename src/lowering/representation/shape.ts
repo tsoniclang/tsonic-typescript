@@ -27,7 +27,18 @@ export type ForwardingCallableShapeResult =
       readonly kind: "retained";
       readonly reason: "open-call" | "unstable-binding";
     }
-  | { readonly kind: "proved"; readonly target: Node };
+  | {
+      readonly kind: "proved";
+      readonly target: Node;
+      readonly declaration: Node;
+    };
+
+export interface ForwardedStorageProjectionPair {
+  readonly fromSourceTarget: Node;
+  readonly toSourceTarget: Node;
+  readonly classDeclaration: Node;
+  readonly storageDeclaration: Node;
+}
 
 export function forwardingCallableTarget(
   source: TargetSourceProgram,
@@ -75,7 +86,82 @@ export function forwardingCallableTarget(
   if (!bindingProof.stableCallable(declaration)) {
     return { kind: "retained", reason: "unstable-binding" };
   }
-  return Object.freeze({ kind: "proved" as const, target: call.Expression });
+  return Object.freeze({
+    kind: "proved" as const,
+    target: call.Expression,
+    declaration,
+  });
+}
+
+export function forwardedStorageProjectionPair(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
+  fromSource: Extract<ForwardingCallableShapeResult, { readonly kind: "proved" }>,
+  toSource: Extract<ForwardingCallableShapeResult, { readonly kind: "proved" }>,
+): ForwardedStorageProjectionPair | undefined {
+  const fromParameters = source.ast.parameters(fromSource.declaration).filter(
+    (parameter): parameter is Node => parameter !== undefined,
+  );
+  const toParameters = source.ast.parameters(toSource.declaration).filter(
+    (parameter): parameter is Node => parameter !== undefined,
+  );
+  const fromParameter = fromParameters[0];
+  const toParameter = toParameters[0];
+  const construction = returnedExpression(source, fromSource.declaration);
+  const projection = returnedExpression(source, toSource.declaration);
+  const parsedConstruction = construction === undefined ||
+      !source.ast.is.IsNewExpression(construction)
+    ? undefined
+    : source.ast.as.AsNewExpression(construction);
+  const parsedProjection = projection === undefined ||
+      !source.ast.is.IsPropertyAccessExpression(projection)
+    ? undefined
+    : source.ast.as.AsPropertyAccessExpression(projection);
+  const constructionArguments = parsedConstruction?.Arguments?.Nodes ?? [];
+  if (
+    fromParameters.length !== 1 || toParameters.length !== 1 ||
+    fromParameter === undefined || toParameter === undefined ||
+    !plainRequiredParameter(source, fromParameter) ||
+    !plainRequiredParameter(source, toParameter) ||
+    construction === undefined || parsedConstruction?.Expression === undefined ||
+    constructionArguments.length !== 1 ||
+    !referencesDeclaration(source, constructionArguments[0], fromParameter) ||
+    parsedProjection?.Expression === undefined ||
+    !referencesDeclaration(source, parsedProjection.Expression, toParameter)
+  ) {
+    return undefined;
+  }
+  const classDeclaration = source.navigation.sourceReferenceFor(
+    parsedConstruction.Expression,
+  )?.declaration;
+  const storageDeclaration = source.navigation.sourceReferenceFor(
+    parsedProjection.name,
+  )?.declaration;
+  const constructor = source.ast.parent(storageDeclaration);
+  if (
+    classDeclaration === undefined || storageDeclaration === undefined ||
+    !source.ast.is.IsClassDeclaration(classDeclaration) ||
+    constructor === undefined ||
+    !source.ast.is.IsConstructorDeclaration(constructor) ||
+    source.ast.parent(constructor) !== classDeclaration ||
+    !transparentStorageConstructor(
+      source,
+      program,
+      bindingProof,
+      construction,
+      classDeclaration,
+      storageDeclaration,
+    )
+  ) {
+    return undefined;
+  }
+  return Object.freeze({
+    fromSourceTarget: fromSource.target,
+    toSourceTarget: toSource.target,
+    classDeclaration,
+    storageDeclaration,
+  });
 }
 
 export function identityCallArgument(

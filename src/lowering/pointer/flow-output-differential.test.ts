@@ -135,6 +135,7 @@ test("matches canonical pointer behavior in executable strict output shapes", as
     [canonicalMutable, directMutable],
     [canonicalObject, directObject],
     [canonicalProviderProjection, loweredProviderProjection],
+    [canonicalStoredProjection, directStoredProjection],
   ] as const;
   for (let index = 0; index < pairs.length; index += 1) {
     const pair = pairs[index];
@@ -250,6 +251,44 @@ export const result = pointer.value + 1;
 `;
 const canonicalProviderProjection = providerProjection("Pointer", "bindPointer", "projectPointer", "hashPointer");
 const loweredProviderProjection = providerProjection("Location", "boundLocation", "projectLocation", "hashLocation");
+
+const canonicalStoredProjection = `interface Location<T> { value: T }
+class Storage { constructor(public value: number) {} }
+class Box {
+  constructor(readonly storage: Storage) {}
+  static fromStorage(value: Storage): Box { return new Box(value); }
+  static toStorage(value: Box): Storage { return value.storage; }
+}
+function projectLocation<F, T>(
+  source: Location<F>,
+  fromSource: (value: F) => T,
+  toSource: (value: T) => F,
+): Location<T> {
+  return {
+    get value() { return fromSource(source.value); },
+    set value(value: T) { source.value = toSource(value); },
+  };
+}
+let storage = new Storage(41);
+const source: Location<Storage> = {
+  get value() { return storage; },
+  set value(value: Storage) { storage = value; },
+};
+const projected = projectLocation(source, Box.fromStorage, Box.toStorage);
+function read(value: Location<Box>): number { return value.value.storage.value; }
+export const result = read(projected) + 1;
+`;
+
+const directStoredProjection = `class Storage { constructor(public value: number) {} }
+class Box {
+  constructor(readonly storage: Storage) {}
+  static fromStorage(value: Storage): Box { return new Box(value); }
+}
+const storage = new Storage(41);
+const projected = Box.fromStorage(storage);
+function read(value: Box): number { return value.storage.value; }
+export const result = read(projected) + 1;
+`;
 
 function providerProjection(
   typeName: string,
