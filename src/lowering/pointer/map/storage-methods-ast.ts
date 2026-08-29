@@ -44,7 +44,7 @@ import {
 
 const keyTypeName = "K";
 const valueTypeName = "V";
-const valuesName = "values";
+const valuesName = "entries";
 const propertyIdentitiesName = "propertyIdentities";
 const keyName = "key";
 const valueName = "value";

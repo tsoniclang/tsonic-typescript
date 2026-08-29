@@ -45,15 +45,17 @@ test("uses one ordered value ledger and only private property tokens", () => {
     "$PointerMapStorage",
   );
 
-  assert.deepEqual(
-    fixture.source.ast.members(storage)
+  const memberNames = fixture.source.ast.members(storage)
       .filter((member) =>
         member !== undefined &&
         (IsPropertyDeclaration(member) || IsMethodDeclaration(member))
       )
-      .map((member) => fixture.source.ast.text(fixture.source.ast.name(member))),
-    ["values", "propertyIdentities", "get", "set", "delete", "clear", "values"],
+      .map((member) => fixture.source.ast.text(fixture.source.ast.name(member)));
+  assert.deepEqual(
+    memberNames,
+    ["entries", "propertyIdentities", "get", "set", "delete", "clear", "values"],
   );
+  assert.equal(new Set(memberNames).size, memberNames.length);
   assert.equal(countNamedNodes(fixture.source, storage, "ordered"), 0);
   assert.equal(countValueEntryWrappers(fixture.source, storage), 0);
 });

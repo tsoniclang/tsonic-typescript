@@ -21,7 +21,7 @@ import { canonicalPointerMapStorageMethods } from "./storage-methods-ast.js";
 
 const keyTypeName = "K";
 const valueTypeName = "V";
-const valuesName = "values";
+const valuesName = "entries";
 const propertyIdentitiesName = "propertyIdentities";
 
 export interface CanonicalPointerMapStorageShape {
