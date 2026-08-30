@@ -15,12 +15,14 @@ import {
   NewKeywordExpression,
   NewKeywordTypeNode,
   NewNewExpression,
+  NewNumericLiteral,
   NewParameterDeclaration,
   NewPropertyAccessExpression,
   NewPropertyDeclaration,
   NewToken,
   NewTypeParameterDeclaration,
   NewTypeReferenceNode,
+  NewVoidExpression,
   NodeFactory_NewNodeList,
   NodeFactory_UpdateSourceFile,
 } from "@tsonic/tsts/target-ast";
@@ -221,7 +223,10 @@ function thisExpression(factory: NodeFactory): Node {
 
 function undefinedExpression(factory: NodeFactory): Node {
   return requiredNode(
-    NewKeywordExpression(factory, KindUndefinedKeyword),
+    NewVoidExpression(
+      factory,
+      requiredNode(NewNumericLiteral(factory, "0", 0), "zero literal"),
+    ),
     "root-location undefined expression",
   );
 }

@@ -73,7 +73,7 @@ export const result = [
   );
   assert.equal(
     assignmentValueKind(fixture.source, rootClass, "storageKey"),
-    "KindUndefinedKeyword",
+    "KindVoidExpression",
   );
   assert.equal(
     assignmentValueText(fixture.source, rootClass, "value"),
