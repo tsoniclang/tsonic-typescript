@@ -206,7 +206,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     representation,
   );
 
-  assert.equal(evidence.schemaVersion, 29);
+  assert.equal(evidence.schemaVersion, 30);
   assert.equal(evidence.sourceExecution, "unrestricted");
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",
@@ -221,6 +221,12 @@ test("accounts for every representation candidate in immutable evidence", () => 
       projectionCount: 0,
     },
     identityCallables: {
+      candidateCount: 0,
+      optimizedCount: 0,
+      retainedCount: 0,
+      fallbackReasons: [],
+    },
+    directLogicalFields: {
       candidateCount: 0,
       optimizedCount: 0,
       retainedCount: 0,
