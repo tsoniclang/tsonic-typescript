@@ -38,11 +38,11 @@ export function canonicalPointerMapStorageType(
   factory: NodeFactory,
   name: GeneratedBindingName,
   keyType: Node,
-  bucketType: Node,
+  valueType: Node,
   undefinedType: Node,
 ): Node {
   return unionType(factory, [
-    typeReference(factory, name.text, [keyType, bucketType]),
+    typeReference(factory, name.text, [keyType, valueType]),
     undefinedType,
   ]);
 }
@@ -51,7 +51,7 @@ export function canonicalPointerMapStorageConstruction(
   factory: NodeFactory,
   name: GeneratedBindingName,
   keyType: Node,
-  bucketType: Node,
+  valueType: Node,
 ): Node {
   return required(
     NewNewExpression(
@@ -60,7 +60,7 @@ export function canonicalPointerMapStorageConstruction(
         NewIdentifier(factory, name.text),
         "canonical pointer-map storage identifier",
       ),
-      NodeFactory_NewNodeList(factory, [keyType, bucketType]),
+      NodeFactory_NewNodeList(factory, [keyType, valueType]),
       NodeFactory_NewNodeList(factory, []),
     ),
     "canonical pointer-map storage construction",

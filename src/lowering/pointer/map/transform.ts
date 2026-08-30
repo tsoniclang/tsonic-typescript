@@ -9,10 +9,7 @@ import {
   AsTypeReferenceNode,
   AsUnionTypeNode,
   IsImportDeclaration,
-  KindTrueKeyword,
   KindUndefinedKeyword,
-  NewIdentifier,
-  NewKeywordExpression,
   NodeFactory_NewNodeList,
   NodeFactory_UpdateConstructorDeclaration,
   NodeFactory_UpdateParameterDeclaration,
@@ -31,6 +28,7 @@ import {
   canonicalPointerMapStorageConstruction,
   canonicalPointerMapStorageType,
 } from "./storage-ast.js";
+import { rewriteDirectEntryMethod } from "./direct-entry-ast.js";
 
 export interface CanonicalPointerKeyMapConsumption {
   readonly rewrittenNodes: Set<Node>;
@@ -39,7 +37,7 @@ export interface CanonicalPointerKeyMapConsumption {
 
 interface StorageShape {
   readonly keyType: Node;
-  readonly bucketType: Node;
+  readonly valueType: Node;
   readonly undefinedType: Node;
 }
 
@@ -72,29 +70,20 @@ export function rewriteCanonicalPointerKeyMapNode(
     case "storage-alias-type":
       return rewriteStorageAliasType(
         factory,
-        updated,
+        original,
         rewrite.plan,
         finalNodes,
       );
     case "remove-hash-method":
     case "remove-equal-method":
-    case "remove-hash-variable":
       return undefined;
-    case "replace-hash-call":
-      return requiredFinalNode(
+    case "direct-entry-method":
+      return rewriteDirectEntryMethod(
+        factory,
+        updated,
+        rewrite.role,
+        rewrite.plan.directEntries,
         finalNodes,
-        rewrite.expression,
-        "canonical pointer-key map hash argument",
-      );
-    case "replace-hash-reference":
-      return requiredNode(
-        NewIdentifier(factory, rewrite.name),
-        "canonical pointer-key map key reference",
-      );
-    case "replace-equal-call":
-      return requiredNode(
-        NewKeywordExpression(factory, KindTrueKeyword),
-        "canonical pointer-key map exact-key equality",
       );
   }
 }
@@ -165,15 +154,8 @@ export function assertCanonicalPointerKeyMapConsumption(
     }
     expected.add(plan.hashMethod);
     expected.add(plan.equalMethod);
-    expected.add(plan.hashVariableStatement);
-    for (const call of plan.hashCallReplacements.keys()) {
-      expected.add(call);
-    }
-    for (const call of plan.equalCallReplacements) {
-      expected.add(call);
-    }
-    for (const reference of plan.hashVariableReferenceReplacements.keys()) {
-      expected.add(reference);
+    for (const method of plan.directEntries.methods.keys()) {
+      expected.add(method);
     }
   }
   if (
@@ -224,7 +206,7 @@ function rewriteConstructor(
         factory,
         plan.helperName,
         shape.keyType,
-        shape.bucketType,
+        shape.valueType,
         shape.undefinedType,
       ),
       parsedStorage.Initializer,
@@ -254,12 +236,12 @@ function rewriteStorageConstruction(
   const construction = AsNewExpression(updated);
   const arguments_ = construction?.TypeArguments?.Nodes ?? [];
   const bucketType = arguments_[1];
-  const keyType = bucketKeyType(bucketType);
+  const entryTypes = bucketEntryTypes(bucketType);
   if (
     construction === undefined ||
     arguments_.length !== 2 ||
     bucketType === undefined ||
-    keyType === undefined ||
+    entryTypes === undefined ||
     (construction.Arguments?.Nodes.length ?? 0) !== 0
   ) {
     throw new PointerLoweringError(
@@ -269,19 +251,19 @@ function rewriteStorageConstruction(
   return canonicalPointerMapStorageConstruction(
     factory,
     plan.helperName,
-    keyType,
-    bucketType,
+    entryTypes.keyType,
+    entryTypes.valueType,
   );
 }
 
 function rewriteStorageAliasType(
   factory: NodeFactory,
-  updated: Node,
+  original: Node,
   plan: CanonicalPointerKeyMapPlan,
   finalNodes: FinalNodeLookup,
 ): Node {
-  const shape = storageContainerShape(updated);
-  if (shape === undefined) {
+  const undefinedType = storageUndefinedType(original);
+  if (undefinedType === undefined) {
     throw new PointerLoweringError(
       "canonical pointer-key map alias lost its storage type",
     );
@@ -294,31 +276,28 @@ function rewriteStorageAliasType(
       plan.keyTypeNode,
       "canonical pointer-key map key type",
     ),
-    shape.bucketType,
-    shape.undefinedType,
+    requiredFinalNode(
+      finalNodes,
+      plan.valueTypeNode,
+      "canonical pointer-key map value type",
+    ),
+    requiredFinalNode(
+      finalNodes,
+      undefinedType,
+      "canonical pointer-key map undefined type",
+    ),
   );
 }
 
-function storageContainerShape(type: Node | undefined): Omit<StorageShape, "keyType"> | undefined {
+function storageUndefinedType(type: Node | undefined): Node | undefined {
   const union = AsUnionTypeNode(type);
   const members = union?.Types?.Nodes ?? [];
   if (members.length !== 2) {
     return undefined;
   }
-  const undefinedMember = members.find((member) =>
+  return members.find((member) =>
     member?.Kind === KindUndefinedKeyword
   );
-  const storageMember = members.find((member) => member !== undefinedMember);
-  const reference = AsTypeReferenceNode(storageMember);
-  const arguments_ = reference?.TypeArguments?.Nodes ?? [];
-  const bucketType = arguments_[1];
-  return undefinedMember !== undefined &&
-      storageMember !== undefined &&
-      reference !== undefined &&
-      arguments_.length === 2 &&
-      bucketType !== undefined
-    ? { bucketType, undefinedType: undefinedMember }
-    : undefined;
 }
 
 function sourceParameterIndex(plan: CanonicalPointerKeyMapPlan): number {
@@ -345,22 +324,29 @@ function storageShape(type: Node | undefined): StorageShape | undefined {
   const reference = AsTypeReferenceNode(storageMember);
   const arguments_ = reference?.TypeArguments?.Nodes ?? [];
   const bucketType = arguments_[1];
-  const keyType = bucketKeyType(bucketType);
+  const entryTypes = bucketEntryTypes(bucketType);
   return undefinedMember !== undefined &&
       storageMember !== undefined &&
       reference !== undefined &&
       arguments_.length === 2 &&
-      bucketType !== undefined &&
-      keyType !== undefined
-    ? { keyType, bucketType, undefinedType: undefinedMember }
+      entryTypes !== undefined
+    ? {
+        keyType: entryTypes.keyType,
+        valueType: entryTypes.valueType,
+        undefinedType: undefinedMember,
+      }
     : undefined;
 }
 
-function bucketKeyType(bucketType: Node | undefined): Node | undefined {
+function bucketEntryTypes(
+  bucketType: Node | undefined,
+): { readonly keyType: Node; readonly valueType: Node } | undefined {
   const array = AsArrayTypeNode(bucketType);
   const tuple = AsTupleTypeNode(array?.ElementType);
   const elements = tuple?.Elements?.Nodes ?? [];
-  return elements.length === 2 ? elements[0] : undefined;
+  return elements.length === 2 && elements[0] !== undefined && elements[1] !== undefined
+    ? { keyType: elements[0], valueType: elements[1] }
+    : undefined;
 }
 
 function requiredFinalNode(

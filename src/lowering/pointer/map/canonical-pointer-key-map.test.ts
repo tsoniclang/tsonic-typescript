@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { Node } from "@tsonic/tsts";
-import { IsClassDeclaration } from "@tsonic/tsts/target-ast";
+import {
+  IsClassDeclaration,
+  IsMethodDeclaration,
+} from "@tsonic/tsts/target-ast";
 
 import {
   checkedPointerFixture,
@@ -25,6 +28,33 @@ test("contracts exact canonical pointer-key map storage", () => {
       name.startsWith("$PointerMapStorage")
     ),
     ["$PointerMapStorage"],
+  );
+  const pointerMap = classNamed(fixture.source, lowered.sourceFile, "PointerMap");
+  assert.ok(pointerMap !== undefined);
+  assert.equal(methodNames(fixture.source, pointerMap).includes("find"), false);
+  assert.equal(countKindNamed(fixture.source, pointerMap, "KindForOfStatement"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "insert"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "splice"), 0);
+});
+
+test("rejects an incomplete direct-entry class contract", () => {
+  const source = pointerMapSource().replace(
+    `  keys(): Key[] {
+    const result: Key[] = [];
+    const buckets: Map<number, Entry[]> | undefined = this.buckets;
+    if (buckets === undefined) { return result; }
+    for (const bucket of buckets.values()) {
+      for (const entry of bucket) { result.push(entry[0]); }
+    }
+    return result;
+  }`,
+    "  keys(): Key[] { return []; }",
+  );
+  const fixture = checkedPointerFixture(source);
+
+  assert.equal(
+    createFixturePointerFlowPlan(fixture.source).optimizedPointerKeyMapCount,
+    0,
   );
 });
 
@@ -144,6 +174,51 @@ function classNames(
     }
   });
   return names;
+}
+
+function classNamed(
+  source: ReturnType<typeof checkedPointerFixture>["source"],
+  root: Node,
+  expected: string,
+): Node | undefined {
+  let result: Node | undefined;
+  visit(source, root, (node) => {
+    if (!IsClassDeclaration(node)) {
+      return;
+    }
+    const name = source.ast.name(node);
+    if (name !== undefined && source.ast.text(name) === expected) {
+      result = node;
+    }
+  });
+  return result;
+}
+
+function methodNames(
+  source: ReturnType<typeof checkedPointerFixture>["source"],
+  classDeclaration: Node,
+): readonly string[] {
+  return source.ast.members(classDeclaration).flatMap((member) => {
+    if (member === undefined || !IsMethodDeclaration(member)) {
+      return [];
+    }
+    const name = source.ast.name(member);
+    return name === undefined ? [] : [source.ast.text(name)];
+  });
+}
+
+function countKindNamed(
+  source: ReturnType<typeof checkedPointerFixture>["source"],
+  root: Node,
+  expected: string,
+): number {
+  let count = 0;
+  visit(source, root, (node) => {
+    if (source.ast.kindName(node) === expected) {
+      count += 1;
+    }
+  });
+  return count;
 }
 
 function pointerMapSource(): string {

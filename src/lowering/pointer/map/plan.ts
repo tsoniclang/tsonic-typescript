@@ -5,13 +5,15 @@ import type {
 } from "@tsonic/tsts";
 import {
   AsCallExpression,
+  AsArrayTypeNode,
   AsConstructorDeclaration,
   AsMethodDeclaration,
   AsNewExpression,
   AsParameterDeclaration,
   AsReturnStatement,
-  AsVariableDeclaration,
-  AsVariableDeclarationList,
+  AsTupleTypeNode,
+  AsTypeReferenceNode,
+  AsUnionTypeNode,
   IsBlock,
   IsCallExpression,
   IsClassDeclaration,
@@ -20,9 +22,6 @@ import {
   IsMethodDeclaration,
   IsNewExpression,
   IsReturnStatement,
-  IsVariableDeclaration,
-  IsVariableDeclarationList,
-  IsVariableStatement,
 } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
@@ -34,6 +33,11 @@ import type { PointerTypedFactLedger } from "../flow-fact-ledger.js";
 import type { PointerFlowRepresentation } from "../flow-representation.js";
 import type { PointerPlanningLedger } from "../planning-ledger.js";
 import { exactStorageAliasTypeNodes } from "./aliases.js";
+import {
+  exactDirectEntryMethodPlan,
+  type DirectEntryMethodPlan,
+  type DirectEntryMethodRole,
+} from "./direct-entry-plan.js";
 
 export interface CanonicalPointerKeyMapPlan {
   readonly classDeclaration: Node;
@@ -44,12 +48,10 @@ export interface CanonicalPointerKeyMapPlan {
   readonly storageConstruction: Node;
   readonly storageAliasTypeNodes: readonly Node[];
   readonly keyTypeNode: Node;
+  readonly valueTypeNode: Node;
   readonly hashMethod: Node;
   readonly equalMethod: Node;
-  readonly hashCallReplacements: ReadonlyMap<Node, Node>;
-  readonly equalCallReplacements: readonly Node[];
-  readonly hashVariableStatement: Node;
-  readonly hashVariableReferenceReplacements: ReadonlyMap<Node, string>;
+  readonly directEntries: DirectEntryMethodPlan;
 }
 
 export type CanonicalPointerKeyMapRewrite =
@@ -58,10 +60,11 @@ export type CanonicalPointerKeyMapRewrite =
   | { readonly kind: "storage-alias-type"; readonly plan: CanonicalPointerKeyMapPlan }
   | { readonly kind: "remove-hash-method"; readonly plan: CanonicalPointerKeyMapPlan }
   | { readonly kind: "remove-equal-method"; readonly plan: CanonicalPointerKeyMapPlan }
-  | { readonly kind: "replace-hash-call"; readonly plan: CanonicalPointerKeyMapPlan; readonly expression: Node }
-  | { readonly kind: "replace-equal-call"; readonly plan: CanonicalPointerKeyMapPlan }
-  | { readonly kind: "remove-hash-variable"; readonly plan: CanonicalPointerKeyMapPlan }
-  | { readonly kind: "replace-hash-reference"; readonly plan: CanonicalPointerKeyMapPlan; readonly name: string };
+  | {
+      readonly kind: "direct-entry-method";
+      readonly plan: CanonicalPointerKeyMapPlan;
+      readonly role: DirectEntryMethodRole;
+    };
 
 export interface CanonicalPointerKeyMapPlans {
   rewriteFor(node: Node): CanonicalPointerKeyMapRewrite | undefined;
@@ -184,28 +187,11 @@ export function planCanonicalPointerKeyMaps(
       kind: "remove-equal-method",
       plan,
     });
-    addRewrite(rewrites, plan.hashVariableStatement, {
-      kind: "remove-hash-variable",
-      plan,
-    });
-    for (const [call, expression] of plan.hashCallReplacements) {
-      addRewrite(rewrites, call, {
-        kind: "replace-hash-call",
+    for (const [method, role] of plan.directEntries.methods) {
+      addRewrite(rewrites, method, {
+        kind: "direct-entry-method",
         plan,
-        expression,
-      });
-    }
-    for (const call of plan.equalCallReplacements) {
-      addRewrite(rewrites, call, {
-        kind: "replace-equal-call",
-        plan,
-      });
-    }
-    for (const [reference, name] of plan.hashVariableReferenceReplacements) {
-      addRewrite(rewrites, reference, {
-        kind: "replace-hash-reference",
-        plan,
-        name,
+        role,
       });
     }
     const filePlans = byFile.get(plan.sourceFile);
@@ -301,53 +287,14 @@ function completeMapPlan(
   );
   const hashParameter = source.ast.parameters(hashMethod)[0];
   const keyTypeNode = AsParameterDeclaration(hashParameter)?.Type;
+  const valueTypeNode = storageValueType(
+    AsParameterDeclaration(storageParameter)?.Type,
+  );
   if (
     storageConstruction === undefined ||
     storageAliasTypeNodes === undefined ||
-    keyTypeNode === undefined
-  ) {
-    return undefined;
-  }
-  const storeHashCall = store.hashCalls[0];
-  const storeKey = source.ast.parameters(store.method)[0];
-  const hashVariable = storeHashCall === undefined
-    ? undefined
-    : source.ast.parent(storeHashCall);
-  const hashVariableStatement = hashVariable === undefined
-    ? undefined
-    : soleVariableStatement(source, hashVariable);
-  const keyNameNode = source.ast.name(storeKey);
-  if (
-    storeHashCall === undefined ||
-    storeKey === undefined ||
-    hashVariable === undefined ||
-    hashVariableStatement === undefined ||
-    !IsVariableDeclaration(hashVariable) ||
-    AsVariableDeclaration(hashVariable)?.Initializer !== storeHashCall ||
-    keyNameNode === undefined ||
-    !IsIdentifier(keyNameNode) ||
-    !callArgumentReferencesDeclaration(source, storeHashCall, storeKey)
-  ) {
-    return undefined;
-  }
-  const keyName = source.ast.text(keyNameNode);
-  const hashVariableReferences = source.navigation.referencesToDeclaration(
-    hashVariable,
-  );
-  if (
-    hashVariableReferences.length < 2 ||
-    hashVariableReferences.some((reference) =>
-      containingMethod(source, reference) !== store.method
-    )
-  ) {
-    return undefined;
-  }
-  const directHashCalls = hashCalls.filter((call) => call !== storeHashCall);
-  if (
-    directHashCalls.length !== 2 ||
-    directHashCalls.some((call) =>
-      AsCallExpression(call)?.Arguments?.Nodes.length !== 1
-    )
+    keyTypeNode === undefined ||
+    valueTypeNode === undefined
   ) {
     return undefined;
   }
@@ -355,13 +302,19 @@ function completeMapPlan(
   if (sourceFile === undefined || source.ast.isDeclarationFile(sourceFile)) {
     return undefined;
   }
-  const hashCallReplacements = new Map<Node, Node>();
-  for (const call of directHashCalls) {
-    const expression = AsCallExpression(call)?.Arguments?.Nodes[0];
-    if (expression === undefined) {
-      return undefined;
-    }
-    hashCallReplacements.set(call, expression);
+  const directEntries = exactDirectEntryMethodPlan(
+    source,
+    classDeclaration,
+    constructorDeclaration,
+    storageParameter,
+    find.method,
+    store.method,
+    deleteMethod.method,
+    hashMethod,
+    equalMethod,
+  );
+  if (directEntries === undefined) {
+    return undefined;
   }
   let helperName = helperNames.get(sourceFile);
   if (helperName === undefined) {
@@ -377,14 +330,10 @@ function completeMapPlan(
     storageConstruction,
     storageAliasTypeNodes,
     keyTypeNode,
+    valueTypeNode,
     hashMethod,
     equalMethod,
-    hashCallReplacements,
-    equalCallReplacements: Object.freeze([...equalCalls]),
-    hashVariableStatement,
-    hashVariableReferenceReplacements: new Map(
-      hashVariableReferences.map((reference) => [reference, keyName] as const),
-    ),
+    directEntries,
   });
 }
 
@@ -515,6 +464,17 @@ function validStorageParameter(
     source.ast.hasModifierKind(parameter, "readonly");
 }
 
+function storageValueType(type: Node | undefined): Node | undefined {
+  const union = AsUnionTypeNode(type);
+  const storage = union?.Types?.Nodes.find((member) =>
+    member !== undefined && AsTypeReferenceNode(member) !== undefined
+  );
+  const bucket = AsTypeReferenceNode(storage)?.TypeArguments?.Nodes[1];
+  const entry = AsArrayTypeNode(bucket)?.ElementType;
+  const elements = AsTupleTypeNode(entry)?.Elements?.Nodes ?? [];
+  return elements.length === 2 ? elements[1] : undefined;
+}
+
 function soleStorageConstruction(
   source: TargetSourceProgram,
   classDeclaration: Node,
@@ -546,38 +506,6 @@ function soleStorageConstruction(
     constructions.push(storage);
   }
   return constructions.length === 1 ? constructions[0] : undefined;
-}
-
-function soleVariableStatement(
-  source: TargetSourceProgram,
-  declaration: Node,
-): Node | undefined {
-  const listNode = source.ast.parent(declaration);
-  const statement = listNode === undefined ? undefined : source.ast.parent(listNode);
-  if (
-    listNode === undefined ||
-    statement === undefined ||
-    !IsVariableDeclarationList(listNode) ||
-    !IsVariableStatement(statement)
-  ) {
-    return undefined;
-  }
-  const list = AsVariableDeclarationList(listNode);
-  return list !== undefined &&
-      IsVariableStatement(statement) &&
-      list?.Declarations?.Nodes.length === 1
-    ? statement
-    : undefined;
-}
-
-function callArgumentReferencesDeclaration(
-  source: TargetSourceProgram,
-  call: Node,
-  declaration: Node,
-): boolean {
-  const argument = AsCallExpression(call)?.Arguments?.Nodes[0];
-  return argument !== undefined &&
-    source.navigation.sourceReferenceFor(argument)?.declaration === declaration;
 }
 
 function addRewrite(

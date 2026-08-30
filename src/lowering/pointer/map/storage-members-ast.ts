@@ -32,7 +32,6 @@ import {
   method,
   numeric,
   objectType,
-  objectLiteral,
   parameter,
   property,
   propertySignature,
@@ -77,10 +76,10 @@ export function canonicalPointerMapStorageShape(
       identitiesProperty(factory),
       orderedProperty(factory),
       getMethod(factory),
-      setMethod(factory),
+      insertMethod(factory),
       deleteMethod(factory),
       clearMethod(factory),
-      valuesMethod(factory),
+      keysMethod(factory),
     ]),
   });
 }
@@ -134,7 +133,7 @@ function getMethod(factory: NodeFactory): Node {
     factory,
     "get",
     [parameter(factory, keyName, typeReference(factory, keyTypeName))],
-    unionType(factory, [typeReference(factory, valueTypeName), undefinedType(factory)]),
+    unionType(factory, [entryType(factory), undefinedType(factory)]),
     [
       keyPartDeclaration(factory, identityName, "storageIdentity"),
       keyPartDeclaration(factory, storageKeyName, "storageKey"),
@@ -164,12 +163,7 @@ function getMethod(factory: NodeFactory): Node {
       required(
         NewReturnStatement(
           factory,
-          conditional(
-            factory,
-            isUndefined(factory, identifier(factory, entryName)),
-            undefinedExpression(factory),
-            property(factory, identifier(factory, entryName), valueName),
-          ),
+          identifier(factory, entryName),
         ),
         "canonical pointer-map get return",
       ),
@@ -177,13 +171,13 @@ function getMethod(factory: NodeFactory): Node {
   );
 }
 
-function setMethod(factory: NodeFactory): Node {
+function insertMethod(factory: NodeFactory): Node {
   return method(
     factory,
-    "set",
+    "insert",
     [
       parameter(factory, keyName, typeReference(factory, keyTypeName)),
-      parameter(factory, valueName, typeReference(factory, valueTypeName)),
+      parameter(factory, entryName, entryType(factory)),
     ],
     voidType(factory),
     [
@@ -231,58 +225,19 @@ function setMethod(factory: NodeFactory): Node {
         ),
         "canonical pointer-map set initialization",
       ),
-      variable(
+      expressionStatement(
         factory,
-        NodeFlagsLet,
-        entryName,
-        undefined,
-        call(factory, identifier(factory, entriesName), "get", [
+        call(factory, identifier(factory, entriesName), "set", [
           identifier(factory, storageKeyName),
+          identifier(factory, entryName),
         ]),
       ),
-      required(
-        NewIfStatement(
-          factory,
-          isUndefined(factory, identifier(factory, entryName)),
-          block(factory, [
-            expressionStatement(
-              factory,
-              assignment(
-                factory,
-                identifier(factory, entryName),
-                objectLiteral(factory, [[
-                  valueName,
-                  identifier(factory, valueName),
-                ]]),
-              ),
-            ),
-            expressionStatement(
-              factory,
-              call(factory, identifier(factory, entriesName), "set", [
-                identifier(factory, storageKeyName),
-                identifier(factory, entryName),
-              ]),
-            ),
-            expressionStatement(
-              factory,
-              call(factory, thisProperty(factory, orderedName), "set", [
-                identifier(factory, entryName),
-                undefinedExpression(factory),
-              ]),
-            ),
-          ]),
-          block(factory, [
-            expressionStatement(
-              factory,
-              assignment(
-                factory,
-                property(factory, identifier(factory, entryName), valueName),
-                identifier(factory, valueName),
-              ),
-            ),
-          ]),
-        ),
-        "canonical pointer-map set entry",
+      expressionStatement(
+        factory,
+        call(factory, thisProperty(factory, orderedName), "set", [
+          identifier(factory, entryName),
+          undefinedExpression(factory),
+        ]),
       ),
     ],
   );
@@ -415,14 +370,14 @@ function clearMethod(factory: NodeFactory): Node {
   );
 }
 
-function valuesMethod(factory: NodeFactory): Node {
+function keysMethod(factory: NodeFactory): Node {
   return method(
     factory,
-    "values",
+    "keys",
     [],
     required(
-      NewArrayTypeNode(factory, typeReference(factory, valueTypeName)),
-      "canonical pointer-map values type",
+      NewArrayTypeNode(factory, typeReference(factory, keyTypeName)),
+      "canonical pointer-map keys type",
     ),
     [
       variable(
@@ -430,7 +385,7 @@ function valuesMethod(factory: NodeFactory): Node {
         NodeFlagsConst,
         resultName,
         required(
-          NewArrayTypeNode(factory, typeReference(factory, valueTypeName)),
+          NewArrayTypeNode(factory, typeReference(factory, keyTypeName)),
           "canonical pointer-map result type",
         ),
         required(
@@ -442,16 +397,16 @@ function valuesMethod(factory: NodeFactory): Node {
           "canonical pointer-map result",
         ),
       ),
-      valuesLoop(factory),
+      keysLoop(factory),
       required(
         NewReturnStatement(factory, identifier(factory, resultName)),
-        "canonical pointer-map values return",
+        "canonical pointer-map keys return",
       ),
     ],
   );
 }
 
-function valuesLoop(factory: NodeFactory): Node {
+function keysLoop(factory: NodeFactory): Node {
   const declaration = required(
     NewVariableDeclaration(
       factory,
@@ -460,7 +415,7 @@ function valuesLoop(factory: NodeFactory): Node {
       undefined,
       undefined,
     ),
-    "canonical pointer-map values binding",
+    "canonical pointer-map keys binding",
   );
   const initializer = required(
     NewVariableDeclarationList(
@@ -468,7 +423,7 @@ function valuesLoop(factory: NodeFactory): Node {
       NodeFactory_NewNodeList(factory, [declaration]),
       NodeFlagsConst,
     ),
-    "canonical pointer-map values binding list",
+    "canonical pointer-map keys binding list",
   );
   return required(
     NewForInOrOfStatement(
@@ -481,12 +436,12 @@ function valuesLoop(factory: NodeFactory): Node {
         expressionStatement(
           factory,
           call(factory, identifier(factory, resultName), "push", [
-            property(factory, identifier(factory, entryName), valueName),
+            property(factory, identifier(factory, entryName), keyName),
           ]),
         ),
       ]),
     ),
-    "canonical pointer-map values loop",
+    "canonical pointer-map keys loop",
   );
 }
 
@@ -536,11 +491,33 @@ function orderedTypeArguments(factory: NodeFactory): readonly Node[] {
   return [entryType(factory), undefinedType(factory)];
 }
 
+export function canonicalPointerMapEntryType(
+  factory: NodeFactory,
+  keyType: Node,
+  valueType: Node,
+): Node {
+  return required(
+    NewTypeLiteralNode(
+      factory,
+      NodeFactory_NewNodeList(factory, [
+        propertySignature(factory, keyName, keyType),
+        propertySignature(factory, valueName, valueType),
+      ]),
+    ),
+    "canonical pointer-map entry type",
+  );
+}
+
 function entryType(factory: NodeFactory): Node {
   return required(
     NewTypeLiteralNode(
       factory,
       NodeFactory_NewNodeList(factory, [
+        propertySignature(
+          factory,
+          keyName,
+          typeReference(factory, keyTypeName),
+        ),
         propertySignature(
           factory,
           valueName,
