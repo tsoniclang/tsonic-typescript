@@ -8,6 +8,7 @@ import {
 
 import { createTargetProgramIndex } from "../program-index.js";
 import { createTypeScriptOptimizationEvidence } from "../evidence.js";
+import { createValueStructurePlan } from "../structure/plan.js";
 import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createScalarRepresentationPlan } from "../scalar/plan.js";
 import { createPointerProjectionCallablePlan } from "../pointer/projection-callable-plan.js";
@@ -195,6 +196,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     profile,
     ["index.ts"],
     program.operations,
+    createValueStructurePlan(fixture.source, program),
     undefined,
     createPointerProjectionCallablePlan(
       fixture.source,
@@ -206,7 +208,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     representation,
   );
 
-  assert.equal(evidence.schemaVersion, 29);
+  assert.equal(evidence.schemaVersion, 31);
   assert.equal(evidence.sourceExecution, "unrestricted");
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",

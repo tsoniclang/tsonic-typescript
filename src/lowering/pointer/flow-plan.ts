@@ -17,6 +17,9 @@ import {
   canonicalRepresentationTransportContract,
   type RepresentationTransportContract,
 } from "../representation/transport-contract.js";
+import type {
+  InlineRepresentationTransport,
+} from "../representation/transport-selection.js";
 import {
   censusPointerFlows,
 } from "./flow-census.js";
@@ -56,13 +59,24 @@ import {
 import {
   PointerPlanningLedger,
   totalPointerPlanningOperations,
-  type PointerPlanningCandidateCounts,
-  type PointerPlanningOperations,
 } from "./planning-ledger.js";
 import { closePointerValueEvidence } from "./value-evidence.js";
+import type { ValueStructurePlan } from "../structure/plan.js";
+import type {
+  ClosedPointerFlowPlan,
+  PointerFlowComponentSummary,
+  PointerFlowFallbackEvidence,
+  PointerFlowRetentionEvidence,
+} from "./flow-plan-contract.js";
 
 export type { PointerFlowBlocker } from "./flow-graph.js";
 export type { PointerFlowRepresentation } from "./flow-representation.js";
+export type {
+  ClosedPointerFlowPlan,
+  PointerFlowComponentSummary,
+  PointerFlowFallbackEvidence,
+  PointerFlowRetentionEvidence,
+} from "./flow-plan-contract.js";
 
 const noReplacements = Object.freeze([]) as readonly DirectObjectReplacement[];
 
@@ -72,63 +86,6 @@ interface SelectedDirectObjectReplacements {
   readonly count: number;
 }
 
-export interface PointerFlowComponentSummary {
-  readonly representation: PointerFlowRepresentation;
-  readonly vertexCount: number;
-  readonly operationCount: number;
-  readonly pointerTypeCount: number;
-  readonly blockers: readonly PointerFlowBlocker[];
-  readonly retentionReasons: readonly PointerFlowRetentionEvidence[];
-}
-
-export interface PointerFlowRetentionEvidence {
-  readonly reason: PointerFlowBlocker;
-  readonly occurrences: readonly OptimizationOccurrence[];
-}
-
-export interface PointerFlowFallbackEvidence {
-  readonly reason: PointerFlowBlocker;
-  readonly count: number;
-  readonly examples: readonly OptimizationOccurrence[];
-}
-
-export interface ClosedPointerFlowPlan {
-  owns(source: TargetSourceProgram): boolean;
-  operationFor(node: Node | undefined): PointerOperationFact | undefined;
-  valueRepresentationFor(
-    node: Node | undefined,
-  ): PointerFlowRepresentation | undefined;
-  representationFor(node: Node | undefined): PointerFlowRepresentation;
-  componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined;
-  projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
-  ownsFusedProjection(node: Node): boolean;
-  projectedPropertyLocationFor(
-    node: Node,
-  ): ProjectedPropertyLocationFusion | undefined;
-  ownsProjectedPropertyAddress(node: Node): boolean;
-  directObjectReplacementFor(node: Node): DirectObjectReplacement | undefined;
-  directObjectReplacementsFor(sourceFile: SourceFile): readonly DirectObjectReplacement[];
-  pointerKeyMapRewriteFor(node: Node): CanonicalPointerKeyMapRewrite | undefined;
-  pointerKeyMapsFor(sourceFile: SourceFile): readonly CanonicalPointerKeyMapPlan[];
-  readonly components: readonly PointerFlowComponentSummary[];
-  readonly optimizedComponentCount: number;
-  readonly optimizedFamilyCount: number;
-  readonly retainedFamilyCount: number;
-  readonly retainedFamilyHotspots: readonly PointerFlowFamilyHotspot[];
-  readonly directObjectReplacementCount: number;
-  readonly optimizedProjectionReadCount: number;
-  readonly optimizedProjectionStoreCount: number;
-  readonly optimizedProjectedPropertyLocationCount: number;
-  readonly optimizedPointerKeyMapCount: number;
-  readonly representationTransportCallCount: number;
-  readonly planningOperationCount: number;
-  readonly planningOperations: PointerPlanningOperations;
-  readonly planningCandidates: PointerPlanningCandidateCounts;
-  readonly representationCounts: Readonly<Record<PointerFlowRepresentation, number>>;
-  readonly fallbackReasons: readonly PointerFlowFallbackEvidence[];
-  readonly familyFallbackReasons: readonly PointerFlowFallbackEvidence[];
-}
-
 export function createClosedPointerFlowPlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
@@ -136,7 +93,11 @@ export function createClosedPointerFlowPlan(
   sourceIdentityFor: SourceIdentityResolver,
   representationTransports: RepresentationTransportContract =
     canonicalRepresentationTransportContract(),
+  structures?: ValueStructurePlan,
 ): ClosedPointerFlowPlan {
+  if (structures !== undefined && !structures.owns(source)) {
+    throw new Error("pointer flow received value structures from another source program");
+  }
   const ledger = new PointerPlanningLedger();
   const census = censusPointerFlows(
     source,
@@ -152,6 +113,7 @@ export function createClosedPointerFlowPlan(
     components,
     census.facts,
     ledger,
+    structures,
   );
   const representations = new Map<Node, PointerFlowRepresentation>(
     familyPlan.representations,
@@ -314,6 +276,11 @@ export function createClosedPointerFlowPlan(
     ): readonly CanonicalPointerKeyMapPlan[] {
       return pointerKeyMaps.classesFor(sourceFile);
     },
+    representationTransportInlineFor(
+      node: Node,
+    ): InlineRepresentationTransport | undefined {
+      return census.representationTransportCalls.get(node)?.inline;
+    },
     components: frozenSummaries,
     optimizedComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
@@ -325,6 +292,8 @@ export function createClosedPointerFlowPlan(
     optimizedProjectedPropertyLocationCount: projectedPropertyLocations.count,
     optimizedPointerKeyMapCount: pointerKeyMaps.count,
     representationTransportCallCount: census.representationTransportCallCount,
+    representationTransportInlineCount:
+      census.representationTransportInlineCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,
     planningCandidates: ledger.candidateSnapshot(),

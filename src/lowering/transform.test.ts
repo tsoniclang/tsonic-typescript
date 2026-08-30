@@ -12,6 +12,8 @@ import { canonicalTypeScriptOptimizationProfile } from "./profile.js";
 import {
   checkedPointerFixture,
   countCallsNamed,
+  namedImportBindings,
+  pointerMarkerModule,
   visit,
 } from "./pointer/pointer.test-support.js";
 import { lowerPointers } from "./pointer/transform.js";
@@ -65,6 +67,82 @@ test("composes pointer and scalar lowering in one target-AST traversal", () => {
   );
   assert.equal(countNodes(result.sourceFile, fixture.source, IsNewExpression), 0);
   assert.equal(countNodes(result.sourceFile, fixture.source, IsAsExpression), 1);
+});
+
+test("consumes canonical value-structure assertions before publication", () => {
+  const fixture = checkedPointerFixture(`import { field, ordinary, struct } from "./markers.js";
+class Point {
+  constructor(public x: number) {
+    struct({ x: field<number>() });
+  }
+}
+export const point = new Point(ordinary + 1);
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    fixture.source,
+    files,
+    canonicalTypeScriptOptimizationProfile(),
+    sourceIdentity(fixture),
+  ));
+  const results = files.map((sourceFile) => transaction.lower(sourceFile));
+  transaction.finish();
+  const result = results.find((candidate) =>
+    fixture.source.ast.getFileName(candidate.sourceFile) === "/src/index.ts"
+  );
+  assert.ok(result !== undefined);
+  assert.equal(countCallsNamed(fixture.source, result.sourceFile, "struct"), 0);
+  assert.equal(countCallsNamed(fixture.source, result.sourceFile, "field"), 0);
+  assert.deepEqual(
+    namedImportBindings(fixture.source, result.sourceFile, pointerMarkerModule),
+    ["ordinary"],
+  );
+});
+
+test("excludes structural field types from executable pointer census", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, field, struct } from "./markers.js";
+class Holder {
+  constructor(public pointer: Pointer<number>) {
+    struct({ pointer: field<Pointer<number>>() });
+  }
+}
+export const holder = new Holder(allocatePointer(1));
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    fixture.source,
+    files,
+    canonicalTypeScriptOptimizationProfile(),
+    sourceIdentity(fixture),
+  ));
+  const results = files.map((sourceFile) => transaction.lower(sourceFile));
+  transaction.finish();
+  const result = results.find((candidate) =>
+    fixture.source.ast.getFileName(candidate.sourceFile) === "/src/index.ts"
+  );
+  assert.ok(result !== undefined);
+  assert.equal(result.pointer.pointerTypeCount, 1);
+  assert.equal(result.pointer.operationCount, 1);
+  assert.equal(countCallsNamed(fixture.source, result.sourceFile, "struct"), 0);
+  assert.equal(countCallsNamed(fixture.source, result.sourceFile, "field"), 0);
+});
+
+test("rejects selected structure markers outside the canonical constructor assertion", () => {
+  const fixture = checkedPointerFixture(`import { field, struct } from "./markers.js";
+export const invalid = struct({ value: field<number>() });
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+
+  assert.throws(
+    () => prepareTypeScriptLowering(
+      fixture.source,
+      files,
+      canonicalTypeScriptOptimizationProfile(),
+      sourceIdentity(fixture),
+    ),
+    /sole statement of one authored class constructor|outside a canonical value-structure assertion/u,
+  );
 });
 
 test("canonical transaction is byte-identical to canonical pointer lowering", () => {
