@@ -57,7 +57,7 @@ export function planDirectObjectReplacement(
     source.ast.hasModifierKind(classDeclaration, "ambient") ||
     hasDecorator(source, classDeclaration) ||
     program.hasBindingWrite(classDeclaration) ||
-    classHasHeritageUse(source, classDeclaration)
+    classIsHeritageTarget(source, classDeclaration)
   ) {
     return undefined;
   }
@@ -194,20 +194,40 @@ function classTypeParameterNames(
   return Object.freeze(names);
 }
 
-function classHasHeritageUse(
+function classIsHeritageTarget(
   source: TargetSourceProgram,
   classDeclaration: Node,
 ): boolean {
-  return source.navigation.referencesToDeclaration(classDeclaration).some((reference) => {
+  for (const reference of source.navigation.referencesToDeclaration(
+    classDeclaration,
+  )) {
     let current: Node | undefined = reference;
+    let insideHeritage = false;
     while (current !== undefined && !source.ast.is.IsSourceFile(current)) {
       if (source.ast.kindName(current) === "KindHeritageClause") {
-        return true;
+        insideHeritage = true;
+      }
+      if (
+        insideHeritage &&
+        (source.ast.is.IsClassDeclaration(current) ||
+          source.ast.is.IsClassExpression(current) ||
+          source.ast.is.IsInterfaceDeclaration(current))
+      ) {
+        const heritage = source.navigation.declaredHeritage(current);
+        if (heritage.kind !== "resolved") {
+          return true;
+        }
+        if (heritage.edges.some((edge) =>
+          edge.target.declaration === classDeclaration
+        )) {
+          return true;
+        }
+        break;
       }
       current = source.ast.parent(current);
     }
-    return false;
-  });
+  }
+  return false;
 }
 
 function hasDecorator(source: TargetSourceProgram, node: Node): boolean {

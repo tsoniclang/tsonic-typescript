@@ -78,34 +78,39 @@ export function applyGenericPointerBoundaries(
       const parameter = call.sourceSelectedSignatureParameters[
         binding.sourceParameterIndex
       ];
-      if (
-        parameter?.authoredTypeNode === undefined ||
-        !authoredTypeContainsRepresentationVaryingPointer(
-          source,
-          node,
-          parameter.authoredTypeNode,
-          facts,
-          ledger,
-        )
-      ) {
+      if (parameter?.authoredTypeNode === undefined) {
         continue;
       }
-      blockSelectedPointerFamilies(
+      const alignment = alignAuthoredRepresentationVaryingPointers(
         source,
         node,
-        binding.selectedParameterType,
+        parameter.authoredTypeNode,
+        call.sourceSelectedMethodTypeArguments,
+        facts,
         families,
-        "generic-call",
         ledger,
       );
-      blockSelectedPointerFamilies(
-        source,
-        node,
-        binding.selectedArgumentType,
-        families,
-        "generic-call",
-        ledger,
-      );
+      if (alignment === "none") {
+        continue;
+      }
+      if (alignment === "inexact") {
+        blockSelectedPointerFamilies(
+          source,
+          node,
+          binding.selectedParameterType,
+          families,
+          "generic-call",
+          ledger,
+        );
+        blockSelectedPointerFamilies(
+          source,
+          node,
+          binding.selectedArgumentType,
+          families,
+          "generic-call",
+          ledger,
+        );
+      }
     }
     const selectedDeclaration = semantics.declarations.signatureDeclaration(
       call.selectedSignature,
@@ -113,24 +118,26 @@ export function applyGenericPointerBoundaries(
     const returnType = selectedDeclaration === undefined
       ? undefined
       : source.ast.typeNode(selectedDeclaration);
-    if (
-      returnType !== undefined &&
-      authoredTypeContainsRepresentationVaryingPointer(
+    if (returnType !== undefined) {
+      const alignment = alignAuthoredRepresentationVaryingPointers(
         source,
         node,
         returnType,
+        call.sourceSelectedMethodTypeArguments,
         facts,
-        ledger,
-      )
-    ) {
-      blockSelectedPointerFamilies(
-        source,
-        node,
-        call.sourceResultType,
         families,
-        "generic-call",
         ledger,
       );
+      if (alignment === "inexact") {
+        blockSelectedPointerFamilies(
+          source,
+          node,
+          call.sourceResultType,
+          families,
+          "generic-call",
+          ledger,
+        );
+      }
     }
   }
 }
@@ -175,6 +182,58 @@ function authoredTypeContainsRepresentationVaryingPointer(
     }
   }
   return false;
+}
+
+type GenericPointerAlignment = "none" | "exact" | "inexact";
+
+interface SelectedMethodTypeArgument {
+  readonly typeParameter: Type;
+  readonly selectedType: Type;
+}
+
+function alignAuthoredRepresentationVaryingPointers(
+  source: TargetSourceProgram,
+  anchor: Node,
+  authoredType: Node,
+  selectedTypeArguments:
+    | readonly SelectedMethodTypeArgument[]
+    | undefined,
+  facts: PointerTypedFactLedger,
+  families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  ledger: PointerPlanningLedger,
+): GenericPointerAlignment {
+  const semantics = source.semantics.forNode(anchor);
+  let sawVaryingPointer = false;
+  for (const subject of semantics.facts.authoredTypeSubjects(authoredType)) {
+    ledger.record("direct-family");
+    const fact = facts.pointerFactFor(subject);
+    if (fact === undefined) {
+      continue;
+    }
+    const pointee = semantics.types.authoredType(fact.pointee);
+    if (
+      pointee !== undefined &&
+      semantics.types.couldContainTypeVariables(pointee) &&
+      describePointerPointee(source, fact.pointee, pointee) === undefined
+    ) {
+      sawVaryingPointer = true;
+      const selected = selectedTypeArguments?.find((argument) =>
+        semantics.types.isIdentical(pointee, argument.typeParameter)
+      )?.selectedType;
+      if (selected === undefined) {
+        return "inexact";
+      }
+      const description = describePointerPointee(source, anchor, selected);
+      const family = description?.category === "direct-reference" &&
+          typeof description.identity !== "string"
+        ? families.get(description.identity)
+        : undefined;
+      if (family !== undefined) {
+        blockDirectReferenceFamily(family, "generic-call", anchor);
+      }
+    }
+  }
+  return sawVaryingPointer ? "exact" : "none";
 }
 
 function blockSelectedPointerFamilies(

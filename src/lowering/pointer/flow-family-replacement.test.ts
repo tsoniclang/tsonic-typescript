@@ -155,6 +155,76 @@ export const result = loadPointer(pointer).omitted;
   ));
 });
 
+test("replaces a class used only as an exact heritage type argument", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+class Box { constructor(public value: number) {} }
+class Container<T> {}
+class Cache extends Container<Box> {}
+void Cache;
+let box = new Box(1);
+const pointer: Pointer<Box> = addressOf(box);
+storePointer(pointer, new Box(2));
+export const result = loadPointer(pointer).value;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+
+  assert.equal(plan.optimizedFamilyCount, 1);
+  assert.equal(plan.directObjectReplacementCount, 1);
+  assertRepresentations(fixture.source, plan, "direct-object");
+});
+
+test("retains a class that is an exact extends target", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+class Box { constructor(public value: number) {} }
+class Derived extends Box {}
+void Derived;
+let box = new Box(1);
+const pointer: Pointer<Box> = addressOf(box);
+storePointer(pointer, new Box(2));
+export const result = loadPointer(pointer).value;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+
+  assert.equal(plan.directObjectReplacementCount, 0);
+  assertRepresentations(fixture.source, plan, "location");
+});
+
+test("retains a class that is an exact implements target", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+class Box { constructor(public value: number) {} }
+class View implements Box { constructor(public value: number) {} }
+void View;
+let box = new Box(1);
+const pointer: Pointer<Box> = addressOf(box);
+storePointer(pointer, new Box(2));
+export const result = loadPointer(pointer).value;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+
+  assert.equal(plan.directObjectReplacementCount, 0);
+  assertRepresentations(fixture.source, plan, "location");
+});
+
+test("retains a class extended by a class expression", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer, storePointer } from "./markers.js";
+class Box { constructor(public value: number) {} }
+const Derived = class extends Box {};
+void Derived;
+let box = new Box(1);
+const pointer: Pointer<Box> = addressOf(box);
+storePointer(pointer, new Box(2));
+export const result = loadPointer(pointer).value;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+
+  assert.equal(plan.directObjectReplacementCount, 0);
+  assertRepresentations(fixture.source, plan, "location");
+});
+
 test("uses one exact mutable cell for a replaceable object family", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer, storePointer } from "./markers.js";
