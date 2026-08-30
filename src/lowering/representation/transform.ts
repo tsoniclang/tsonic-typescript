@@ -23,7 +23,6 @@ import type {
 
 import type { IdentityCallableSpecialization } from "./callable-plan.js";
 import type { RepresentationProjectionPlan } from "./plan.js";
-import { createDirectLogicalFieldRewriter } from "./field/transform.js";
 
 export interface RepresentationProjectionRewriteResult {
   readonly sourceFile: SourceFile;
@@ -32,7 +31,6 @@ export interface RepresentationProjectionRewriteResult {
   readonly callableParameterCount: number;
   readonly callableInvocationCount: number;
   readonly callableArgumentCount: number;
-  readonly directLogicalFieldCount: number;
 }
 
 export interface RepresentationProjectionRewriter {
@@ -47,10 +45,6 @@ export function createRepresentationProjectionRewriter(
   const expected = plan.rewritesFor(sourceFile);
   const expectedStoredConstructions = plan.storedFlows.constructionsFor(sourceFile);
   const callableSpecializations = plan.identityCallables.specializationsFor(sourceFile);
-  const directLogicalFields = createDirectLogicalFieldRewriter(
-    plan.directLogicalFields,
-    sourceFile,
-  );
   const consumed = new Set<Node>();
   const consumedStoredConstructions = new Set<Node>();
   const consumedOwners = new Map<Node, Set<number>>();
@@ -61,14 +55,6 @@ export function createRepresentationProjectionRewriter(
     rewrite(original: Node, updated: Node, factory: NodeFactory): Node | undefined {
       if (finished) {
         throw new Error("representation projection rewriter is already finished");
-      }
-      const directLogicalField = directLogicalFields.rewrite(
-        original,
-        updated,
-        factory,
-      );
-      if (directLogicalField !== undefined) {
-        return directLogicalField;
       }
       const selected = plan.rewriteFor(original);
       if (selected !== undefined) {
@@ -188,7 +174,6 @@ export function createRepresentationProjectionRewriter(
         callableParameterCount: countConsumed(consumedOwners),
         callableInvocationCount: consumedParameterCalls.size,
         callableArgumentCount: countConsumed(consumedOwnerCalls),
-        directLogicalFieldCount: directLogicalFields.finish(),
       });
     },
   });

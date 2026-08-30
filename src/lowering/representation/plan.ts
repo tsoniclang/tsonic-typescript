@@ -14,10 +14,6 @@ import {
 } from "./callable-plan.js";
 import { createRepresentationBindingProof } from "./binding-proof.js";
 import {
-  createDirectLogicalFieldPlan,
-  type DirectLogicalFieldPlan,
-} from "./field/plan.js";
-import {
   identityCallArgument,
   inverseProjectionArgument,
   projectionCallShape,
@@ -59,7 +55,6 @@ export interface RepresentationProjectionPlan {
   >[];
   readonly identityCallables: IdentityCallablePlan;
   readonly storedFlows: StoredRepresentationFlowPlan;
-  readonly directLogicalFields: DirectLogicalFieldPlan;
   rewriteFor(call: Node): RepresentationProjectionRewrite | undefined;
   rewritesFor(sourceFile: SourceFile): readonly RepresentationProjectionRewrite[];
 }
@@ -76,13 +71,6 @@ export function createRepresentationProjectionPlan(
     throw new Error(`unsupported representation projection profile '${String(profile)}'`);
   }
   const bindingProof = createRepresentationBindingProof(source, program);
-  const directLogicalFields = createDirectLogicalFieldPlan(
-    source,
-    program,
-    bindingProof,
-    profile,
-    sourceIdentityFor,
-  );
   const rewrites: RepresentationProjectionRewrite[] = [];
   const retentions = createOptimizationRetentionLedger(
     source,
@@ -93,9 +81,6 @@ export function createRepresentationProjectionPlan(
   let identityCandidateCount = 0;
   let inverseCandidateCount = 0;
   for (const call of program.nodesOfKind(KindCallExpression)) {
-    if (directLogicalFields.ownsProjectionCall(call)) {
-      continue;
-    }
     const identity = identityCallArgument(source, program, bindingProof, call);
     if (identity.kind !== "unrelated") {
       identityCandidateCount += 1;
@@ -160,7 +145,6 @@ export function createRepresentationProjectionPlan(
     retentions.count,
     fallbackReasons,
     storedFlows,
-    directLogicalFields,
     createIdentityCallablePlan(
       source,
       program,
@@ -183,7 +167,6 @@ function sealPlan(
     RepresentationProjectionRetentionReason
   >[],
   storedFlows: StoredRepresentationFlowPlan,
-  directLogicalFields: DirectLogicalFieldPlan,
   identityCallables: IdentityCallablePlan,
 ): RepresentationProjectionPlan {
   const expected = identityCandidateCount + inverseCandidateCount;
@@ -238,7 +221,6 @@ function sealPlan(
     fallbackReasons,
     identityCallables,
     storedFlows,
-    directLogicalFields,
     rewriteFor(call: Node): RepresentationProjectionRewrite | undefined {
       return byCall.get(call);
     },

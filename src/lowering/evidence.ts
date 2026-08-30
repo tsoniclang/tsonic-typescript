@@ -25,9 +25,6 @@ import type {
   RepresentationProjectionPlan,
   RepresentationProjectionRetentionReason,
 } from "./representation/plan.js";
-import type {
-  DirectLogicalFieldRetentionReason,
-} from "./representation/field/shape.js";
 import type { ScalarClassRetentionReason } from "./scalar/class-flow.js";
 import type {
   ScalarProjectionRetentionReason,
@@ -123,18 +120,10 @@ export interface RepresentationProjectionOptimizationEvidence {
       IdentityCallableRetentionReason
     >[];
   };
-  readonly directLogicalFields: {
-    readonly candidateCount: number;
-    readonly optimizedCount: number;
-    readonly retainedCount: number;
-    readonly fallbackReasons: readonly OptimizationReasonEvidence<
-      DirectLogicalFieldRetentionReason
-    >[];
-  };
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 30;
+  readonly schemaVersion: 29;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -162,7 +151,7 @@ export function createTypeScriptOptimizationEvidence(
     canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 30 as const,
+    schemaVersion: 29 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
@@ -215,17 +204,6 @@ function representationEvidence(
   ) {
     throw new Error("identity-callable evidence lost a decision row");
   }
-  if (
-    plan.directLogicalFields.optimizedCount +
-        plan.directLogicalFields.retainedCount !==
-      plan.directLogicalFields.candidateCount ||
-    plan.directLogicalFields.fallbackReasons.reduce(
-        (total, entry) => total + entry.count,
-        0,
-      ) !== plan.directLogicalFields.retainedCount
-  ) {
-    throw new Error("direct logical-field evidence lost a decision row");
-  }
   return Object.freeze({
     profile: plan.profile,
     identityCandidateCount: plan.identityCandidateCount,
@@ -243,12 +221,6 @@ function representationEvidence(
       optimizedCount: plan.identityCallables.optimizedCount,
       retainedCount: plan.identityCallables.retainedCount,
       fallbackReasons: plan.identityCallables.fallbackReasons,
-    }),
-    directLogicalFields: Object.freeze({
-      candidateCount: plan.directLogicalFields.candidateCount,
-      optimizedCount: plan.directLogicalFields.optimizedCount,
-      retainedCount: plan.directLogicalFields.retainedCount,
-      fallbackReasons: plan.directLogicalFields.fallbackReasons,
     }),
   });
 }

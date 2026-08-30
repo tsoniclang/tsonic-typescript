@@ -37,7 +37,7 @@ export function createTypeScriptOptimizationProfile(
     "preserve",
   );
   const identity = [
-    "typescript-optimization-v5",
+    "typescript-optimization-v4",
     `pointer=${input.pointerFlows}`,
     `scalar=${input.scalarProjections}`,
     `representations=${input.representationProjections}`,
