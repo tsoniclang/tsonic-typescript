@@ -74,15 +74,22 @@ exact declaration identity, pointer-type and operation counts, and bounded
 blocker occurrences. This diagnostic is deterministic and cannot influence a
 representation decision.
 
-A closed product may additionally supply certified generic-kernel callable
-identities through `representationTransports`. The pointer planner exact-joins
-the imported module, exported declaration, selected signature, and only those
-parameters whose authored type refers to that kernel declaration's own type
-parameters. Such generic-owned values are opaque representation transport;
-concrete parameters of the same callable remain ordinary external boundaries.
-The target never infers this permission from a function name or implementation
-body, and sealed evidence records the contract digest, callable denominator,
-and exact selected-call count.
+A closed product may additionally supply two closed kinds of callable through
+`representationTransports`. A manifest-certified `generic-kernel` makes only
+its generic-owned parameters opaque representation transport and never exposes
+or inlines its body. An explicitly configured
+`inline-generic-method-call` must resolve to one checked, synchronous generic
+function whose plain required parameters are all owned by its own type
+parameters and whose body is exactly one receiver-parameter method call using
+every remaining parameter once in order. The target substitutes the exact call
+arguments into that body and preserves the helper's `void` result.
+
+Both kinds exact-join the imported module, export, declaration, and selected
+signature. Generic ownership comes from checker type identity, not text.
+Wrong-module, same-spelled, aliased, overloaded, optional, concrete-parameter,
+or body-drifted callables remain boundaries or fail the selected inline
+contract. Sealed evidence records the contract digest, callable denominator,
+selected-call count, and inline-call count.
 
 ## Scalar projections
 

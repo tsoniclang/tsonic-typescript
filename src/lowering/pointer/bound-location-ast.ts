@@ -18,7 +18,7 @@ import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
 import type { GeneratedBindingName } from "../generated-names.js";
 import { PointerLoweringError } from "./diagnostic.js";
-import type { LocationBinding } from "./plan.js";
+import type { LocationBinding } from "./location-binding.js";
 import { runtimeCall } from "./runtime-ast.js";
 
 export function createBoundLocationDeclaration(

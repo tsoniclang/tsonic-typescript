@@ -21,9 +21,7 @@ import { validateAddressableStorage } from "./addressability.js";
 import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import { validatePointerOperationFact } from "./operation-contract.js";
-import type {
-  ClosedPointerFlowPlan,
-} from "./flow-plan.js";
+import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 import {
   planPointerInferenceStabilizations,
   type PointerInferenceStabilization,
@@ -34,30 +32,14 @@ import {
 } from "./flow-application.js";
 import { planPointerMarkerUsage } from "./marker-usage.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
+import type { LocalLocationBinding, LocationBinding } from "./location-binding.js";
 import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
 import type { ProjectedPropertyLocationFusion } from "./projected-property.js";
+import {
+  planRepresentationTransportInlines,
+  type RepresentationTransportInlinePlan,
+} from "./representation-transport.js";
 import { validatePointerFact } from "./type-contract.js";
-
-export interface LocalLocationBinding {
-  readonly kind: "variable";
-  readonly declaration: Node;
-  readonly addressOperands: ReadonlySet<Node>;
-  readonly sourceName: string;
-  readonly locationName: GeneratedBindingName;
-  readonly writeName: GeneratedBindingName;
-}
-
-export interface ParameterLocationBinding {
-  readonly kind: "parameter";
-  readonly declaration: Node;
-  readonly addressOperands: ReadonlySet<Node>;
-  readonly body: Node;
-  readonly sourceName: string;
-  readonly locationName: GeneratedBindingName;
-  readonly writeName: GeneratedBindingName;
-}
-
-export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
 
 export interface ReferenceHashPlan {
   readonly nullable: boolean;
@@ -94,6 +76,7 @@ export interface PointerLoweringPlan {
     Node,
     ProjectedPropertyLocationFusion
   >;
+  readonly representationTransportInlines: RepresentationTransportInlinePlan;
   readonly projectedPropertyLocationClassName: GeneratedBindingName | undefined;
   readonly usesRuntimeValue: boolean;
 }
@@ -359,6 +342,10 @@ export function createPointerLoweringPlan(
     inferenceStabilizations,
     directObjectReplacements,
     projectedPropertyLocations,
+    representationTransportInlines: planRepresentationTransportInlines(
+      nodes,
+      flowPlan,
+    ),
     projectedPropertyLocationClassName,
     usesRuntimeValue,
   });

@@ -67,20 +67,34 @@ index.
 
 ## Certified Representation Transport
 
-A selected product may provide one immutable, versioned set of certified
-generic-kernel callable identities. Selection exact-joins the import module,
-export, resolved declaration, and selected signature from the checked tree.
-The certificate admits only a parameter whose authored type structurally
-refers to a type parameter owned by that same selected kernel declaration.
-Concrete parameters on the same callable remain external boundaries.
+A selected product may provide one immutable, versioned set containing two
+closed callable kinds. Both exact-join the import module, export, resolved
+declaration, and selected signature from the checked tree. A parameter is
+generic-owned only when its checker type is identical to a type parameter
+owned by that exact declaration; parameter spelling is never evidence.
 
-This contract says only that the generic-owned shape transports the caller's
-already-selected representation through its caller-owned operation facets. It
-does not grant the kernel authority to choose a representation, expose a
+A manifest-certified `generic-kernel` makes only those generic-owned
+parameters opaque representation transport. Concrete parameters remain
+external boundaries, and the target neither inspects nor inlines the kernel
+body.
+
+An explicitly configured `inline-generic-method-call` is narrower and
+body-certified. Its exact declaration must be a synchronous, nongenerator
+generic function with plain required parameters, every parameter must be
+generic-owned, and its implementation must contain exactly one call of a
+method on the first parameter with every remaining parameter used once in
+source order. The target substitutes the checked call's arguments into that
+body, wraps the result in `void`, and consumes each planned call exactly once.
+Thus receiver and arguments retain one evaluation in the original order while
+the helper's runtime result remains `undefined` rather than the method's own
+return value.
+
+Neither contract grants authority to choose a representation, expose a
 concrete provider carrier, or make an arbitrary external call transparent.
-Missing, stale, duplicate, ambiguously imported, same-spelled, or non-generic
-evidence retains canonical lowering. No kernel body, path suffix, or spelling
-heuristic is inspected by the target.
+Missing, stale, duplicate, ambiguously imported, same-spelled, aliased,
+overloaded, optional, rest, concrete-parameter, or body-drifted evidence
+retains canonical lowering or fails the explicitly selected inline contract.
+No path suffix, printed text, or callable-name heuristic is inspected.
 
 ## Representation Families
 
@@ -141,6 +155,7 @@ Evidence is immutable and emitted only after the complete lowering
 transaction seals. It records the selected source-execution contract, exact
 source membership, representation-family denominators, and the selected
 representation-transport contract digest, denominator, and selected-call
+count. Inline contracts additionally report the exact consumed inline-call
 count. It contains no cooperative-effect schema.
 
 ## Deleted Architecture

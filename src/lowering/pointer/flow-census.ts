@@ -11,6 +11,9 @@ import {
   type RepresentationTransportContract,
 } from "../representation/transport-contract.js";
 import { selectRepresentationTransportCalls } from "../representation/transport-selection.js";
+import type {
+  RepresentationTransportCall,
+} from "../representation/transport-selection.js";
 
 import {
   PointerFlowGraph,
@@ -70,13 +73,21 @@ export interface PointerCensus {
   readonly allowedPointerReferences: Set<Node>;
   readonly allowedProducerUses: Set<Node>;
   readonly allowedFunctionTargets: Set<Node>;
-  readonly representationTransportCalls: ReadonlyMap<Node, ReadonlySet<Node>>;
+  readonly representationTransportCalls: ReadonlyMap<
+    Node,
+    RepresentationTransportCall
+  >;
 }
 
 export interface PointerFlowCensusResult {
   readonly components: readonly PointerFlowComponent[];
   readonly facts: PointerTypedFactLedger;
+  readonly representationTransportCalls: ReadonlyMap<
+    Node,
+    RepresentationTransportCall
+  >;
   readonly representationTransportCallCount: number;
+  readonly representationTransportInlineCount: number;
 }
 
 export function censusPointerFlows(
@@ -225,7 +236,10 @@ export function censusPointerFlows(
   return Object.freeze({
     components,
     facts,
+    representationTransportCalls,
     representationTransportCallCount: representationTransportCalls.size,
+    representationTransportInlineCount: [...representationTransportCalls.values()]
+      .filter((call) => call.inline !== undefined).length,
   });
 }
 

@@ -17,6 +17,7 @@ import {
   canonicalRepresentationTransportContract,
   type RepresentationTransportContract,
 } from "../representation/transport-contract.js";
+import type { InlineRepresentationTransport } from "../representation/transport-selection.js";
 import {
   censusPointerFlows,
 } from "./flow-census.js";
@@ -110,6 +111,7 @@ export interface ClosedPointerFlowPlan {
   directObjectReplacementsFor(sourceFile: SourceFile): readonly DirectObjectReplacement[];
   pointerKeyMapRewriteFor(node: Node): CanonicalPointerKeyMapRewrite | undefined;
   pointerKeyMapsFor(sourceFile: SourceFile): readonly CanonicalPointerKeyMapPlan[];
+  representationTransportInlineFor(node: Node): InlineRepresentationTransport | undefined;
   readonly components: readonly PointerFlowComponentSummary[];
   readonly optimizedComponentCount: number;
   readonly optimizedFamilyCount: number;
@@ -121,6 +123,7 @@ export interface ClosedPointerFlowPlan {
   readonly optimizedProjectedPropertyLocationCount: number;
   readonly optimizedPointerKeyMapCount: number;
   readonly representationTransportCallCount: number;
+  readonly representationTransportInlineCount: number;
   readonly planningOperationCount: number;
   readonly planningOperations: PointerPlanningOperations;
   readonly planningCandidates: PointerPlanningCandidateCounts;
@@ -314,6 +317,9 @@ export function createClosedPointerFlowPlan(
     ): readonly CanonicalPointerKeyMapPlan[] {
       return pointerKeyMaps.classesFor(sourceFile);
     },
+    representationTransportInlineFor(node: Node): InlineRepresentationTransport | undefined {
+      return census.representationTransportCalls.get(node)?.inline;
+    },
     components: frozenSummaries,
     optimizedComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
@@ -325,6 +331,7 @@ export function createClosedPointerFlowPlan(
     optimizedProjectedPropertyLocationCount: projectedPropertyLocations.count,
     optimizedPointerKeyMapCount: pointerKeyMaps.count,
     representationTransportCallCount: census.representationTransportCallCount,
+    representationTransportInlineCount: census.representationTransportInlineCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,
     planningCandidates: ledger.candidateSnapshot(),

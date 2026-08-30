@@ -123,7 +123,7 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 29;
+  readonly schemaVersion: 30;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -135,6 +135,7 @@ export interface TypeScriptOptimizationEvidence {
     readonly digest: string;
     readonly contractCount: number;
     readonly selectedCallCount: number;
+    readonly inlineCallCount: number;
   };
 }
 
@@ -151,7 +152,7 @@ export function createTypeScriptOptimizationEvidence(
     canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 29 as const,
+    schemaVersion: 30 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
@@ -170,6 +171,7 @@ export function createTypeScriptOptimizationEvidence(
       digest: representationTransports.digest,
       contractCount: representationTransports.callables.length,
       selectedCallCount: pointerPlan?.representationTransportCallCount ?? 0,
+      inlineCallCount: pointerPlan?.representationTransportInlineCount ?? 0,
     }),
   });
 }
