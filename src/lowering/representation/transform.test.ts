@@ -230,6 +230,14 @@ test("accounts for every representation candidate in immutable evidence", () => 
       candidateCount: 0,
       optimizedCount: 0,
       retainedCount: 0,
+      construction: {
+        shapeQueries: 3,
+        accessorQueries: 0,
+        classIndexEvaluations: 0,
+        classMemberVisits: 0,
+        accessorBodyNodeVisits: 0,
+        indexedAccessorFieldPairs: 0,
+      },
       fallbackReasons: [],
     },
   });
