@@ -74,6 +74,7 @@ function operationUsesRuntimeValue(
   return representation === "direct-object" || representation === "mutable-cell"
     ? operation.operation === "hash-pointer"
     : representation === "location" &&
+      operation.operation !== "allocate" &&
       operation.operation !== "load" &&
       operation.operation !== "store";
 }

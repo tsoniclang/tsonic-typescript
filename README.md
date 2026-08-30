@@ -106,6 +106,13 @@ Canonical pointer lowering is `Location<T>`. It remains the default and the
 complete fallback for open, escaping, potentially nil, identity-observed,
 unsafe, indirect, or otherwise unproved flows.
 
+Canonical root allocations use one generated structural `Location<T>` object:
+the object is its own storage identity, has no storage key, and owns the mutable
+value. One collision-safe local class serves every retained allocation in a
+source file. Equality, hashing, bound/property/nested locations, and projection
+continue to use `@tsonic/typescript-runtime`; this removes only the redundant
+second identity object from root allocation.
+
 The target optimization `optimizations.pointerFlows: "closed-direct"` lets the
 backend create one whole-program plan with
 `createClosedPointerFlowPlan(source)` and supply that plan while lowering every

@@ -17,7 +17,11 @@ with:
 Pointer mutations must cover an unproved snapshot, missed mutation, exact
 in-place object replacement, an omitted mutable field, a same-named generated
 member, nullable nil-guard retention, identity observation, marker-spelling
-foil, and generated-name collision. Scalar and representation mutations must cover an
+foil, and generated-name collision. Canonical root-allocation proof must also
+exact-join every retained allocate fact to one construction, assert one helper
+class per allocation-bearing file and none elsewhere, inspect self identity,
+and distinguish aliases from independent allocations through equality,
+hashing, mutation, nesting, and projection. Scalar and representation mutations must cover an
 open consumer, observable nominal identity, missed store, mismatched AST kind,
 duplicate plan consumption, and omitted call-site rewrite.
 

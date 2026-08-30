@@ -41,7 +41,7 @@ import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type { PointerFlowRepresentation } from "./flow-plan.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
-import type { ReferenceHashPlan } from "./plan.js";
+import type { ReferenceHashPlan } from "./reference-hash.js";
 import { runtimeCall } from "./runtime-ast.js";
 
 export function lowerOptimizedPointerType(

@@ -315,7 +315,7 @@ export const same = equalPointer(left, right);
 });
 
 test("declares the exact runtime package only when pointer lowering demands it", () => {
-  const source = checkedPointerSource();
+  const source = checkedRuntimePointerSource();
   const printer: TypeScriptAstPrinter = {
     print(batch) {
       const files = batch.encodedSourceFiles;
@@ -352,7 +352,7 @@ test("omits the pointer runtime after an exact closed-flow contraction", () => {
 });
 
 test("rejects pointer lowering when the target runtime reference is absent or mismatched", () => {
-  const source = checkedPointerSource();
+  const source = checkedRuntimePointerSource();
   const printer: TypeScriptAstPrinter = {
     print(batch) {
       const files = batch.encodedSourceFiles;
@@ -504,6 +504,14 @@ export declare function equalPointer<T>(left: Pointer<T> | undefined, right: Poi
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
   return createTargetSourceProgram(checked);
+}
+
+function checkedRuntimePointerSource() {
+  return checkedPointerSource(`import { allocatePointer, equalPointer } from "./markers.js";
+const left = allocatePointer(1);
+const right = allocatePointer(2);
+export const value = equalPointer(left, right);
+`);
 }
 
 function checkedRejectedPointerSources() {

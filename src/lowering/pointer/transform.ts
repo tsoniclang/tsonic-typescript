@@ -64,19 +64,18 @@ import {
 import { applyPointerInferenceStabilization } from "./inference-stabilization.js";
 import { lowerPointerProjectionFusion } from "./projection-fusion-ast.js";
 import {
-  insertProjectedPropertyLocationClass,
   lowerProjectedPropertyLocation,
 } from "./projected-property-ast.js";
 import {
   assertCanonicalPointerKeyMapConsumption,
   createCanonicalPointerKeyMapConsumption,
-  insertCanonicalPointerKeyMapStorage,
   rewriteCanonicalPointerKeyMapNode,
   type CanonicalPointerKeyMapConsumption,
 } from "./map/transform.js";
 import {
   prependRuntimeImport,
 } from "./runtime-ast.js";
+import { insertPointerSourceFileArtifacts } from "./source-file-ast.js";
 
 export interface PointerLoweringResult {
   readonly sourceFile: SourceFile;
@@ -255,6 +254,7 @@ interface ConsumptionState {
   readonly directObjectReplacements: Set<Node>;
   readonly pointerKeyMaps: CanonicalPointerKeyMapConsumption;
   projectedPropertyLocationClassInserted: boolean;
+  rootLocationClassInserted: boolean;
 }
 
 function createConsumptionState(): ConsumptionState {
@@ -269,6 +269,7 @@ function createConsumptionState(): ConsumptionState {
     directObjectReplacements: new Set(),
     pointerKeyMaps: createCanonicalPointerKeyMapConsumption(),
     projectedPropertyLocationClassInserted: false,
+    rootLocationClassInserted: false,
   };
 }
 
@@ -498,25 +499,11 @@ function rewriteNode(
         "pointer lowering lost its source-file receiver",
       );
     }
-    const withPointerMapStorage = insertCanonicalPointerKeyMapStorage(
+    return insertPointerSourceFileArtifacts(
       factory,
       withRuntime,
-      plan.flowPlan?.pointerKeyMapsFor(plan.sourceFile) ?? [],
-      consumed.pointerKeyMaps,
-    );
-    if (plan.projectedPropertyLocationClassName === undefined) {
-      return withPointerMapStorage;
-    }
-    if (consumed.projectedPropertyLocationClassInserted) {
-      throw new PointerLoweringError(
-        "projected-property class was inserted twice",
-      );
-    }
-    consumed.projectedPropertyLocationClassInserted = true;
-    return insertProjectedPropertyLocationClass(
-      factory,
-      withPointerMapStorage,
-      plan.projectedPropertyLocationClassName,
+      plan,
+      consumed,
     );
   }
   return structuralResult;
@@ -574,6 +561,14 @@ function assertCompleteConsumption(
   ) {
     throw new PointerLoweringError(
       "projected-property class insertion was not consumed exactly once",
+    );
+  }
+  if (
+    consumed.rootLocationClassInserted !==
+      (plan.rootLocationClassName !== undefined)
+  ) {
+    throw new PointerLoweringError(
+      "root-location class insertion did not match its exact allocation plan",
     );
   }
 }

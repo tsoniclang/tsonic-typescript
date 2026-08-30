@@ -18,6 +18,7 @@ import type { GeneratedBindingName } from "../generated-names.js";
 import { lowerAddressOf } from "./address.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type { PointerLoweringPlan } from "./plan.js";
+import { rootLocationConstruction } from "./root-location-ast.js";
 import {
   locationValue,
   runtimeCall,
@@ -70,15 +71,19 @@ export function lowerLocationPointerOperation(
   switch (operation.operation) {
     case "allocate":
       requireArity(operation.operation, arguments_, 1);
-      return runtimeCall(
+      if (plan.rootLocationClassName === undefined) {
+        throw new PointerLoweringError(
+          "location allocation has no collision-safe root class name",
+        );
+      }
+      return rootLocationConstruction(
         factory,
-        plan.runtimeAlias,
-        "location",
+        plan.rootLocationClassName,
         requireNodes(
           call.TypeArguments?.Nodes ?? [],
           `${operation.operation} type arguments`,
         ),
-        arguments_,
+        requiredElement(arguments_, 0),
       );
     case "load":
       requireArity(operation.operation, arguments_, 1);

@@ -62,8 +62,8 @@ console.log(loadPointer(pointer));
     "@tsonic/typescript-runtime",
   ]);
   assert.equal(countTypeReferencesNamed(fixture.source, result.sourceFile, "Location"), 1);
-  assert.equal(countPropertyAccessesNamed(fixture.source, result.sourceFile, "value"), 3);
-  assert.equal(countBinaryAssignments(fixture.source, result.sourceFile), 1);
+  assert.equal(countPropertyAccessesNamed(fixture.source, result.sourceFile, "value"), 4);
+  assert.equal(countBinaryAssignments(fixture.source, result.sourceFile), 4);
   assert.ok(encodeTargetSourceFileForPrinting(result.sourceFile).byteLength > 0);
 });
 
@@ -270,7 +270,6 @@ export const value = markers.loadPointer(pointer);
 
   assert.equal(result.operationCount, 2);
   assert.deepEqual(importModules(fixture.source, result.sourceFile), [
-    "@tsonic/typescript-runtime",
     "./markers.js",
   ]);
   assert.equal(countCallsNamed(fixture.source, result.sourceFile, "allocatePointer"), 0);
@@ -293,11 +292,14 @@ export const value = ordinary;
 });
 
 test("selects a collision-free runtime namespace", () => {
-  const fixture = checkedFixture(`import { allocatePointer } from "./markers.js";
+  const fixture = checkedFixture(`import { allocatePointer, equalPointer } from "./markers.js";
 
 const tsonicTypeScriptRuntime = "source binding";
 const pointer = allocatePointer(10);
-export const value = [tsonicTypeScriptRuntime, pointer];
+export const value = [
+  tsonicTypeScriptRuntime,
+  equalPointer(pointer, pointer),
+];
 `);
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 

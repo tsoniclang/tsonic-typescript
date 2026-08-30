@@ -21,9 +21,7 @@ import { validateAddressableStorage } from "./addressability.js";
 import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import { validatePointerOperationFact } from "./operation-contract.js";
-import type {
-  ClosedPointerFlowPlan,
-} from "./flow-plan.js";
+import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 import {
   planPointerInferenceStabilizations,
   type PointerInferenceStabilization,
@@ -33,9 +31,13 @@ import {
   pointerOperationUsesRuntimeValue,
 } from "./flow-application.js";
 import { planPointerMarkerUsage } from "./marker-usage.js";
-import { pointerTypeCanBeUndefined } from "./nullability.js";
 import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
 import type { ProjectedPropertyLocationFusion } from "./projected-property.js";
+import {
+  planReferenceHashes,
+  type ReferenceHashPlan,
+} from "./reference-hash.js";
+import { planRootLocationClass } from "./root-location-plan.js";
 import { validatePointerFact } from "./type-contract.js";
 
 export interface LocalLocationBinding {
@@ -58,11 +60,6 @@ export interface ParameterLocationBinding {
 }
 
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
-
-export interface ReferenceHashPlan {
-  readonly nullable: boolean;
-  readonly parameterName?: GeneratedBindingName;
-}
 
 export interface PointerLoweringPlan {
   readonly sourceFile: SourceFile;
@@ -95,6 +92,7 @@ export interface PointerLoweringPlan {
     ProjectedPropertyLocationFusion
   >;
   readonly projectedPropertyLocationClassName: GeneratedBindingName | undefined;
+  readonly rootLocationClassName: GeneratedBindingName | undefined;
   readonly usesRuntimeValue: boolean;
 }
 
@@ -312,29 +310,17 @@ export function createPointerLoweringPlan(
       ? undefined
       : generatedNames.reserve("$ProjectedPropertyLocation");
   const runtimeAlias = generatedNames.reserve("tsonicTypeScriptRuntime");
-  const referenceHashes = new Map<Node, ReferenceHashPlan>();
-  for (const operation of operations.values()) {
-    const representation = flowPlan?.representationFor(operation.call);
-    if (
-      operation.operation === "hash-pointer" &&
-      (representation === "direct-object" || representation === "mutable-cell")
-    ) {
-      const nullable = pointerTypeCanBeUndefined(
-        source,
-        operation.pointerExpression,
-        operation.pointerType,
-      );
-      referenceHashes.set(
-        operation.call,
-        Object.freeze({
-          nullable,
-          ...(nullable
-            ? { parameterName: generatedNames.reserve("$pointer") }
-            : {}),
-        }),
-      );
-    }
-  }
+  const rootLocationClassName = planRootLocationClass(
+    operations,
+    flowPlan,
+    generatedNames,
+  );
+  const referenceHashes = planReferenceHashes(
+    source,
+    operations,
+    flowPlan,
+    generatedNames,
+  );
   const inferenceStabilizations = planPointerInferenceStabilizations(
     source,
     sourceFile,
@@ -360,6 +346,7 @@ export function createPointerLoweringPlan(
     directObjectReplacements,
     projectedPropertyLocations,
     projectedPropertyLocationClassName,
+    rootLocationClassName,
     usesRuntimeValue,
   });
 }

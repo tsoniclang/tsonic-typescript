@@ -105,6 +105,17 @@ Every definition, reference, assignment, argument, result, and storage member
 in the component changes atomically. A local exception invalidates the
 optimization and retains the canonical pointer representation.
 
+A fact-selected allocation that retains the canonical representation is one
+root `Location<T>` object. The root is its own `storageIdentity`, its
+`storageKey` is `undefined`, and its mutable `value` is the allocated value.
+The target emits one collision-safe root-location class in each source file
+that owns such allocations and rewrites every exact allocate fact in that file
+to a construction of that class. The shared runtime remains the sole owner of
+location equality, hashing, binding, property addressing, nesting, and
+projection. A retained allocation never calls a second constructor that adds
+a redundant identity object, and a source file with no retained allocation
+receives no root-location class.
+
 The replacement proof rejects inheritance, heritage consumers, decorators,
 accessors, computed or private state, nonempty constructors, omitted mutable
 fields, declaration boundaries, and mutable class bindings. Ambient readonly
