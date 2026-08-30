@@ -349,9 +349,7 @@ function assertNoUnconsumedStructureMarkers(
       marker.kind !== "call-marker" ||
       (marker.marker !== "struct" && marker.marker !== "field") ||
       markerNodes.has(node) ||
-      IsImportSpecifier(node) ||
-      IsExportSpecifier(node) ||
-      IsNamespaceImport(node)
+      markerDeclarationFor(source, node) !== undefined
     ) {
       continue;
     }
@@ -373,14 +371,33 @@ function collectStructureMarkerDeclarations(
 ): void {
   for (const node of nodes) {
     const marker = source.sourceFacts.getFact(node, sourceMarkerFactKey);
+    const declaration = markerDeclarationFor(source, node);
     if (
       marker?.kind === "call-marker" &&
       (marker.marker === "struct" || marker.marker === "field") &&
-      (IsImportSpecifier(node) || IsExportSpecifier(node))
+      declaration !== undefined
     ) {
-      declarations.add(node);
+      declarations.add(declaration);
     }
   }
+}
+
+function markerDeclarationFor(
+  source: TargetSourceProgram,
+  node: Node,
+): Node | undefined {
+  let selected: Node | undefined = node;
+  while (selected !== undefined) {
+    if (
+      IsImportSpecifier(selected) ||
+      IsExportSpecifier(selected) ||
+      IsNamespaceImport(selected)
+    ) {
+      return selected;
+    }
+    selected = source.ast.parent(selected);
+  }
+  return undefined;
 }
 
 function removableMarkerDeclarations(

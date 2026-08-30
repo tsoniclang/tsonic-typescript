@@ -99,6 +99,41 @@ export const point = new Point(ordinary + 1);
   );
 });
 
+test("consumes aliased structure marker bindings as one exact assertion", () => {
+  const fixture = checkedPointerFixture(`import {
+  field as coreField,
+  ordinary,
+  struct as coreStruct,
+} from "./markers.js";
+class Point {
+  constructor(public x: number) {
+    coreStruct({ x: coreField<number>() });
+  }
+}
+export const point = new Point(ordinary + 1);
+`);
+  const files = [...fixture.source.navigation.sourceFiles];
+  const transaction = requireTransaction(prepareTypeScriptLowering(
+    fixture.source,
+    files,
+    canonicalTypeScriptOptimizationProfile(),
+    sourceIdentity(fixture),
+  ));
+  const results = files.map((sourceFile) => transaction.lower(sourceFile));
+  transaction.finish();
+  const result = results.find((candidate) =>
+    fixture.source.ast.getFileName(candidate.sourceFile) === "/src/index.ts"
+  );
+  assert.ok(result !== undefined);
+  assert.equal(transaction.evidence.valueStructures.assertionCount, 1);
+  assert.equal(countCallsNamed(fixture.source, result.sourceFile, "coreStruct"), 0);
+  assert.equal(countCallsNamed(fixture.source, result.sourceFile, "coreField"), 0);
+  assert.deepEqual(
+    namedImportBindings(fixture.source, result.sourceFile, pointerMarkerModule),
+    ["ordinary"],
+  );
+});
+
 test("excludes structural field types from executable pointer census", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, field, struct } from "./markers.js";
