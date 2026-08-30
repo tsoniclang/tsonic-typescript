@@ -192,7 +192,7 @@ function auditAddressedStorage(census: PointerCensus): void {
       continue;
     }
     const vertex = graph.get(operation.call);
-    if (!addressedStorageIsStable(source, census.program, operation)) {
+    if (!addressedStorageIsStable(census, operation)) {
       graph.block(
         vertex,
         "addressed-storage-may-change",
@@ -202,18 +202,17 @@ function auditAddressedStorage(census: PointerCensus): void {
   }
 }
 
-export function addressedStorageIsStable(
-  source: PointerCensus["source"],
-  program: PointerCensus["program"],
+function addressedStorageIsStable(
+  census: PointerCensus,
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
 ): boolean {
   const storage = addressPathRoot(
-    source,
+    census,
     operation.storageExpression,
   );
   return storage !== undefined &&
     storage.declaration === operation.storageDeclaration &&
-    stableAddressPath(source, program, storage.expression);
+    stableAddressPath(census, storage.expression);
 }
 
 interface AddressPathRoot {
@@ -222,9 +221,10 @@ interface AddressPathRoot {
 }
 
 function addressPathRoot(
-  source: PointerCensus["source"],
+  census: PointerCensus,
   expression: Node,
 ): AddressPathRoot | undefined {
+  const { source } = census;
   const root = transparentExpression(source, expression);
   if (root === undefined) {
     return undefined;
@@ -240,11 +240,8 @@ function addressPathRoot(
     : Object.freeze({ expression: root, declaration });
 }
 
-function stableAddressPath(
-  source: PointerCensus["source"],
-  program: PointerCensus["program"],
-  expression: Node,
-): boolean {
+function stableAddressPath(census: PointerCensus, expression: Node): boolean {
+  const { source, program } = census;
   if (source.ast.is.IsIdentifier(expression)) {
     const declaration = source.navigation.sourceReferenceFor(expression)?.declaration;
     return declaration !== undefined &&
@@ -263,7 +260,7 @@ function stableAddressPath(
     declaration !== undefined &&
     source.navigation.isProjectDeclaration(declaration) &&
     !program.hasBindingWrite(declaration) &&
-    stableAddressPath(source, program, property.Expression);
+    stableAddressPath(census, property.Expression);
 }
 
 function auditProducerUses(census: PointerCensus): void {

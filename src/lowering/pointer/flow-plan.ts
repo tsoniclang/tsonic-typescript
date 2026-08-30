@@ -121,7 +121,6 @@ export interface ClosedPointerFlowPlan {
   readonly optimizedProjectedPropertyLocationCount: number;
   readonly optimizedPointerKeyMapCount: number;
   readonly representationTransportCallCount: number;
-  readonly identityTransportCallCount: number;
   readonly planningOperationCount: number;
   readonly planningOperations: PointerPlanningOperations;
   readonly planningCandidates: PointerPlanningCandidateCounts;
@@ -326,7 +325,6 @@ export function createClosedPointerFlowPlan(
     optimizedProjectedPropertyLocationCount: projectedPropertyLocations.count,
     optimizedPointerKeyMapCount: pointerKeyMaps.count,
     representationTransportCallCount: census.representationTransportCallCount,
-    identityTransportCallCount: census.identityTransportCallCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,
     planningCandidates: ledger.candidateSnapshot(),

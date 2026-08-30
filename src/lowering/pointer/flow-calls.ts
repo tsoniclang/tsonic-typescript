@@ -2,7 +2,6 @@ import type { Node } from "@tsonic/tsts";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { PointerCensus } from "./flow-census.js";
-import type { ExactIdentityTransportCall } from "./flow-identity-transports.js";
 import type {
   PointerFlowGraph,
   PointerFlowVertex,
@@ -43,13 +42,11 @@ export function connectPointerCalls(census: PointerCensus): void {
       hasKnownPointerArgument ||= value !== undefined;
     }
     const directTarget = transparentReference(source, call?.Expression);
-    const identityTransport = census.identityTransportCalls.get(node);
     const directDeclaration = census.callableAliases.ownerForTarget(
       call?.Expression,
     ) ?? (directTarget === undefined
       ? source.navigation.sourceReferenceFor(call?.Expression)?.declaration
-      : census.references.referenceFor(directTarget)?.declaration) ??
-      identityTransport?.declaration;
+      : census.references.referenceFor(directTarget)?.declaration);
     if (
       !hasKnownPointerArgument &&
       (directDeclaration === undefined ||
@@ -66,12 +63,6 @@ export function connectPointerCalls(census: PointerCensus): void {
       hasPointerParameter ||= graph.get(parameter.parameterDeclaration) !== undefined;
     }
     if (!hasPointerParameter && !hasKnownPointerArgument) {
-      continue;
-    }
-    if (
-      identityTransport !== undefined &&
-      connectIdentityTransport(census, identityTransport, argumentVertices[0])
-    ) {
       continue;
     }
     if (
@@ -204,45 +195,6 @@ export function connectPointerCalls(census: PointerCensus): void {
     }
   }
   census.ledger.assertCandidateCount("pointer-call", candidates.length);
-}
-
-function connectIdentityTransport(
-  census: PointerCensus,
-  transport: ExactIdentityTransportCall,
-  argumentVertex: PointerFlowVertex | undefined,
-): boolean {
-  const { source, graph } = census;
-  const parameterVertex = graph.get(transport.parameter);
-  const resultVertex = census.functionResults.get(transport.declaration)?.vertex;
-  const callVertex = graph.get(transport.call);
-  if (
-    argumentVertex === undefined ||
-    parameterVertex === undefined ||
-    resultVertex === undefined ||
-    callVertex === undefined
-  ) {
-    return false;
-  }
-  graph.union(argumentVertex, parameterVertex);
-  graph.union(argumentVertex, resultVertex);
-  graph.union(argumentVertex, callVertex);
-  addTransparentReference(
-    source,
-    transport.argument,
-    census.allowedPointerReferences,
-  );
-  addTransparentProducer(
-    source,
-    transport.argument,
-    census.operations,
-    census.allowedProducerUses,
-    census.resultExpressions,
-  );
-  const call = source.ast.as.AsCallExpression(transport.call);
-  if (call?.Expression !== undefined) {
-    allowFunctionTarget(census, call.Expression);
-  }
-  return true;
 }
 
 function isExactNullishValue(census: PointerCensus, expression: Node): boolean {

@@ -27,10 +27,6 @@ import {
   connectPointerReturns,
   type PointerFunctionResult,
 } from "./flow-results.js";
-import {
-  selectExactIdentityTransportCalls,
-  type ExactIdentityTransportCall,
-} from "./flow-identity-transports.js";
 import { auditPointerCensus } from "./flow-audit.js";
 import {
   attachPointerOperations,
@@ -70,7 +66,6 @@ export interface PointerCensus {
   readonly resultExpressions: ReadonlySet<Node>;
   readonly optimizableFunctions: ReadonlyMap<Node, boolean>;
   readonly callableAliases: PointerCallableAliases;
-  readonly identityTransportCalls: ReadonlyMap<Node, ExactIdentityTransportCall>;
   readonly references: PointerReferenceCensus;
   readonly allowedPointerReferences: Set<Node>;
   readonly allowedProducerUses: Set<Node>;
@@ -82,7 +77,6 @@ export interface PointerFlowCensusResult {
   readonly components: readonly PointerFlowComponent[];
   readonly facts: PointerTypedFactLedger;
   readonly representationTransportCallCount: number;
-  readonly identityTransportCallCount: number;
 }
 
 export function censusPointerFlows(
@@ -135,13 +129,6 @@ export function censusPointerFlows(
     pointerBindings,
     ledger,
   );
-  const identityTransportCalls = selectExactIdentityTransportCalls(
-    source,
-    program,
-    functionParameters,
-    functionResults,
-    ledger,
-  );
   const optimizableFunctions = new Map<Node, boolean>();
   for (const owner of functionParameters.keys()) {
     ledger.record("flow-census");
@@ -180,7 +167,6 @@ export function censusPointerFlows(
     resultExpressions,
     allowedFunctionTargets,
     callableAliases,
-    identityTransportCalls,
     ledger,
   );
   connectVariableInitializers(
@@ -217,7 +203,6 @@ export function censusPointerFlows(
     resultExpressions,
     optimizableFunctions,
     callableAliases,
-    identityTransportCalls,
     references,
     allowedPointerReferences,
     allowedProducerUses,
@@ -241,7 +226,6 @@ export function censusPointerFlows(
     components,
     facts,
     representationTransportCallCount: representationTransportCalls.size,
-    identityTransportCallCount: identityTransportCalls.size,
   });
 }
 
