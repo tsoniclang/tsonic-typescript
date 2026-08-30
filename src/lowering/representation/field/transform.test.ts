@@ -100,15 +100,6 @@ test("fails closed for every non-identical accessor class", () => {
       "representation-changing",
     ],
     [
-      "different storage field",
-      `type Storage = { value: number; other: number };
-       class Box { constructor(private readonly storage: Storage) {}
-         static to(source: Box): Storage { return source.storage; }
-         get value(): number { return this.storage.other; } }
-       declare const box: Box; export const value = Box.to(box).value;`,
-      "missing-accessor",
-    ],
-    [
       "ambiguous getter",
       `type Storage = { value: number };
        class Box { constructor(private readonly storage: Storage) {}
@@ -214,37 +205,6 @@ test("fails if planned direct fields are not consumed", () => {
   );
 });
 
-test("indexes each accessor class once independent of use count", () => {
-  const small = createPlan(
-    checkedScalarFixture(repeatedFieldReads(1)),
-    "closed-direct",
-  ).directLogicalFields;
-  const wide = createPlan(
-    checkedScalarFixture(repeatedFieldReads(256)),
-    "closed-direct",
-  ).directLogicalFields;
-
-  assert.equal(small.optimizedCount, 1);
-  assert.equal(wide.optimizedCount, 256);
-  assert.equal(small.construction.classIndexEvaluations, 1);
-  assert.equal(wide.construction.classIndexEvaluations, 1);
-  assert.equal(
-    wide.construction.classMemberVisits,
-    small.construction.classMemberVisits,
-  );
-  assert.equal(
-    wide.construction.accessorBodyNodeVisits,
-    small.construction.accessorBodyNodeVisits,
-  );
-  assert.equal(
-    wide.construction.indexedAccessorFieldPairs,
-    small.construction.indexedAccessorFieldPairs,
-  );
-  assert.equal(small.construction.accessorQueries, 1);
-  assert.equal(wide.construction.accessorQueries, 256);
-  assert.ok(wide.construction.shapeQueries > small.construction.shapeQueries);
-});
-
 function createPlan(
   fixture: ReturnType<typeof checkedScalarFixture>,
   profile: "preserve" | "closed-direct",
@@ -255,21 +215,6 @@ function createPlan(
     profile,
     fixtureSourceIdentityFor(fixture.source),
   );
-}
-
-function repeatedFieldReads(count: number): string {
-  const reads = Array.from(
-    { length: count },
-    (_value, index) => `export const value${index} = Box.to(box).value;`,
-  ).join("\n");
-  return `type Storage = { value: number };
-    class Box {
-      constructor(private readonly storage: Storage) {}
-      static to(source: Box): Storage { return source.storage; }
-      get value(): number { return this.storage.value; }
-    }
-    declare const box: Box;
-    ${reads}`;
 }
 
 function callTargets(

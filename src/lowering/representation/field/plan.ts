@@ -11,9 +11,8 @@ import {
 import type { RepresentationBindingProof } from "../binding-proof.js";
 import {
   directLogicalFieldRetentionReasons,
-  createDirectLogicalFieldShapeResolver,
+  directLogicalFieldShape,
   type DirectLogicalFieldRetentionReason,
-  type DirectLogicalFieldShapeStatistics,
 } from "./shape.js";
 
 export interface DirectLogicalFieldRewrite {
@@ -26,7 +25,6 @@ export interface DirectLogicalFieldPlan {
   readonly candidateCount: number;
   readonly optimizedCount: number;
   readonly retainedCount: number;
-  readonly construction: DirectLogicalFieldShapeStatistics;
   readonly fallbackReasons: readonly BoundedOptimizationReasonEvidence<
     DirectLogicalFieldRetentionReason
   >[];
@@ -45,11 +43,6 @@ export function createDirectLogicalFieldPlan(
   sourceIdentityFor: SourceIdentityResolver,
 ): DirectLogicalFieldPlan {
   const rewrites: DirectLogicalFieldRewrite[] = [];
-  const shapes = createDirectLogicalFieldShapeResolver(
-    source,
-    program,
-    bindingProof,
-  );
   const retentions = createOptimizationRetentionLedger(
     source,
     sourceIdentityFor,
@@ -57,7 +50,12 @@ export function createDirectLogicalFieldPlan(
   );
   let candidateCount = 0;
   for (const access of program.nodesOfKind(KindPropertyAccessExpression)) {
-    const result = shapes.resolve(access);
+    const result = directLogicalFieldShape(
+      source,
+      program,
+      bindingProof,
+      access,
+    );
     if (result.kind === "unrelated") {
       continue;
     }
@@ -82,7 +80,6 @@ export function createDirectLogicalFieldPlan(
     rewrites,
     retentions.count,
     retentions.seal(),
-    shapes.statistics(),
   );
 }
 
@@ -94,7 +91,6 @@ function sealPlan(
   fallbackReasons: readonly BoundedOptimizationReasonEvidence<
     DirectLogicalFieldRetentionReason
   >[],
-  construction: DirectLogicalFieldShapeStatistics,
 ): DirectLogicalFieldPlan {
   if (
     rewrites.length + retainedCount !== candidateCount ||
@@ -134,7 +130,6 @@ function sealPlan(
     optimizedCount: rewrites.length,
     retainedCount,
     fallbackReasons,
-    construction,
     ownsProjectionCall(call: Node): boolean {
       return byProjectionCall.has(call);
     },

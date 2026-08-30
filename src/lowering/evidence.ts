@@ -27,7 +27,6 @@ import type {
 } from "./representation/plan.js";
 import type {
   DirectLogicalFieldRetentionReason,
-  DirectLogicalFieldShapeStatistics,
 } from "./representation/field/shape.js";
 import type { ScalarClassRetentionReason } from "./scalar/class-flow.js";
 import type {
@@ -128,7 +127,6 @@ export interface RepresentationProjectionOptimizationEvidence {
     readonly candidateCount: number;
     readonly optimizedCount: number;
     readonly retainedCount: number;
-    readonly construction: DirectLogicalFieldShapeStatistics;
     readonly fallbackReasons: readonly OptimizationReasonEvidence<
       DirectLogicalFieldRetentionReason
     >[];
@@ -250,7 +248,6 @@ function representationEvidence(
       candidateCount: plan.directLogicalFields.candidateCount,
       optimizedCount: plan.directLogicalFields.optimizedCount,
       retainedCount: plan.directLogicalFields.retainedCount,
-      construction: plan.directLogicalFields.construction,
       fallbackReasons: plan.directLogicalFields.fallbackReasons,
     }),
   });
