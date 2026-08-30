@@ -355,8 +355,13 @@ function assertNoUnconsumedStructureMarkers(
     ) {
       continue;
     }
+    const sourceFile = source.ast.getSourceFile(node);
+    const fileName = sourceFile === undefined
+      ? "<unknown>"
+      : source.ast.getFileName(sourceFile);
     throw new Error(
-      `selected ${marker.marker} marker is outside a canonical value-structure assertion`,
+      `selected ${marker.marker} marker at ${fileName}:${source.ast.pos(node)}-${source.ast.end(node)} ` +
+        "is outside a canonical value-structure assertion",
     );
   }
 }
