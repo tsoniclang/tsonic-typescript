@@ -18,7 +18,6 @@ import type { GeneratedBindingName } from "../generated-names.js";
 import { lowerAddressOf } from "./address.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type { PointerLoweringPlan } from "./plan.js";
-import { elideSelectedPointerNilGuard } from "./nil-guard-ast.js";
 import { rootLocationConstruction } from "./root-location-ast.js";
 import {
   locationValue,
@@ -90,7 +89,7 @@ export function lowerLocationPointerOperation(
       requireArity(operation.operation, arguments_, 1);
       return locationValue(
         factory,
-        locationPointerOperand(source, operation, arguments_, plan),
+        requiredElement(arguments_, 0),
         explicitLocationType(factory, operation, call, plan.runtimeAlias),
       );
     case "store": {
@@ -100,7 +99,7 @@ export function lowerLocationPointerOperation(
         undefined,
         locationValue(
           factory,
-          locationPointerOperand(source, operation, arguments_, plan),
+          requiredElement(arguments_, 0),
           explicitLocationType(factory, operation, call, plan.runtimeAlias),
         ),
         undefined,
@@ -153,18 +152,6 @@ export function lowerLocationPointerOperation(
         finalNodes,
       );
   }
-}
-
-function locationPointerOperand(
-  source: TargetSourceProgram,
-  operation: Extract<PointerOperationFact, { readonly operation: "load" | "store" }>,
-  arguments_: readonly Node[],
-  plan: PointerLoweringPlan,
-): Node {
-  const updated = requiredElement(arguments_, 0);
-  return plan.flowPlan?.elidesLocationNilGuardFor(operation.call) === true
-    ? elideSelectedPointerNilGuard(source, operation.pointerExpression, updated)
-    : updated;
 }
 
 export function loweredProjectionArguments(

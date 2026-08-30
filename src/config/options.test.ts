@@ -25,7 +25,7 @@ test("validates and freezes the canonical printer and optimization profile", () 
   assert.equal(result.execution, "unrestricted");
   assert.deepEqual(result.optimizations, {
     identity:
-      "typescript-optimization-v5/pointer=location/scalar=preserve/representations=preserve",
+      "typescript-optimization-v4/pointer=location/scalar=preserve/representations=preserve",
     pointerFlows: "location",
     scalarProjections: "preserve",
     representationProjections: "preserve",
@@ -63,7 +63,7 @@ test("selects the exact closed three-family profile", () => {
   assert.equal(result.execution, "synchronous");
   assert.deepEqual(result.optimizations, {
     identity:
-      "typescript-optimization-v5/pointer=closed-direct/scalar=closed-direct/representations=closed-direct",
+      "typescript-optimization-v4/pointer=closed-direct/scalar=closed-direct/representations=closed-direct",
     pointerFlows: "closed-direct",
     scalarProjections: "closed-direct",
     representationProjections: "closed-direct",
