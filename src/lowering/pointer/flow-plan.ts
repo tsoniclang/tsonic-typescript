@@ -22,6 +22,9 @@ import {
 } from "./flow-census.js";
 import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import {
+  selectDirectObjectReplacements,
+} from "./direct-object-replacement-selection.js";
+import {
   planDirectReferenceFamilies,
   type DirectReferenceFamilyPlan,
 } from "./flow-families.js";
@@ -60,17 +63,14 @@ import {
   type PointerPlanningOperations,
 } from "./planning-ledger.js";
 import { closePointerValueEvidence } from "./value-evidence.js";
+import {
+  planLocationNilGuardElisions,
+} from "./nil-guard-plan.js";
 
 export type { PointerFlowBlocker } from "./flow-graph.js";
 export type { PointerFlowRepresentation } from "./flow-representation.js";
 
 const noReplacements = Object.freeze([]) as readonly DirectObjectReplacement[];
-
-interface SelectedDirectObjectReplacements {
-  readonly byNode: ReadonlyMap<Node, DirectObjectReplacement>;
-  readonly byFile: ReadonlyMap<SourceFile, readonly DirectObjectReplacement[]>;
-  readonly count: number;
-}
 
 export interface PointerFlowComponentSummary {
   readonly representation: PointerFlowRepresentation;
@@ -100,6 +100,7 @@ export interface ClosedPointerFlowPlan {
   ): PointerFlowRepresentation | undefined;
   representationFor(node: Node | undefined): PointerFlowRepresentation;
   componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined;
+  elidesLocationNilGuardFor(node: Node): boolean;
   projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
   ownsFusedProjection(node: Node): boolean;
   projectedPropertyLocationFor(
@@ -120,6 +121,7 @@ export interface ClosedPointerFlowPlan {
   readonly optimizedProjectionStoreCount: number;
   readonly optimizedProjectedPropertyLocationCount: number;
   readonly optimizedPointerKeyMapCount: number;
+  readonly elidedLocationNilGuardCount: number;
   readonly representationTransportCallCount: number;
   readonly planningOperationCount: number;
   readonly planningOperations: PointerPlanningOperations;
@@ -231,6 +233,13 @@ export function createClosedPointerFlowPlan(
     projectionFusions.ownsProjection,
     ledger,
   );
+  const locationNilGuards = planLocationNilGuardElisions(
+    source,
+    census.facts,
+    (node) => representations.get(node) ?? "location",
+    (node) => projectionFusions.fusionForConsumer(node) !== undefined,
+    ledger,
+  );
   const pointerKeyMaps = planCanonicalPointerKeyMaps(
     source,
     census.facts,
@@ -282,6 +291,9 @@ export function createClosedPointerFlowPlan(
     componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined {
       return node === undefined ? undefined : componentByNode.get(node);
     },
+    elidesLocationNilGuardFor(node: Node): boolean {
+      return locationNilGuards.owns(node);
+    },
     projectionFusionFor(node: Node): PointerProjectionFusion | undefined {
       return projectionFusions.fusionForConsumer(node);
     },
@@ -324,6 +336,7 @@ export function createClosedPointerFlowPlan(
     optimizedProjectionStoreCount: projectionFusions.storeCount,
     optimizedProjectedPropertyLocationCount: projectedPropertyLocations.count,
     optimizedPointerKeyMapCount: pointerKeyMaps.count,
+    elidedLocationNilGuardCount: locationNilGuards.count,
     representationTransportCallCount: census.representationTransportCallCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,
@@ -332,49 +345,6 @@ export function createClosedPointerFlowPlan(
     fallbackReasons: sealedFallbackReasons,
     familyFallbackReasons: sealedFamilyFallbackReasons,
   });
-}
-
-function selectDirectObjectReplacements(
-  candidates: readonly DirectObjectReplacement[],
-  representations: ReadonlyMap<Node, PointerFlowRepresentation>,
-): SelectedDirectObjectReplacements {
-  const byNode = new Map<Node, DirectObjectReplacement>();
-  const mutableByFile = new Map<SourceFile, DirectObjectReplacement[]>();
-  let count = 0;
-  for (const candidate of candidates) {
-    const storeCalls = candidate.storeCalls.filter((storeCall) =>
-      representations.get(storeCall) === "direct-object"
-    );
-    if (storeCalls.length === 0) {
-      continue;
-    }
-    const replacement: DirectObjectReplacement = Object.freeze({
-      ...candidate,
-      storeCalls: Object.freeze(storeCalls),
-    });
-    if (byNode.has(replacement.classDeclaration)) {
-      throw new Error("direct-object class selected multiple replacement plans");
-    }
-    byNode.set(replacement.classDeclaration, replacement);
-    for (const storeCall of replacement.storeCalls) {
-      if (byNode.has(storeCall)) {
-        throw new Error("direct-object store selected multiple replacement plans");
-      }
-      byNode.set(storeCall, replacement);
-    }
-    const selected = mutableByFile.get(replacement.sourceFile);
-    if (selected === undefined) {
-      mutableByFile.set(replacement.sourceFile, [replacement]);
-    } else {
-      selected.push(replacement);
-    }
-    count += 1;
-  }
-  const byFile = new Map<SourceFile, readonly DirectObjectReplacement[]>();
-  for (const [sourceFile, replacements] of mutableByFile) {
-    byFile.set(sourceFile, Object.freeze([...replacements]));
-  }
-  return Object.freeze({ byNode, byFile, count });
 }
 
 function sealFamilyFallbackEvidence(

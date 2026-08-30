@@ -40,7 +40,7 @@ import {
 import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type { PointerFlowRepresentation } from "./flow-plan.js";
-import { pointerTypeCanBeUndefined } from "./nullability.js";
+import { simplifyDisprovedPointerNilGuards } from "./nil-guard-ast.js";
 import type { ReferenceHashPlan } from "./reference-hash.js";
 import { runtimeCall } from "./runtime-ast.js";
 
@@ -111,7 +111,7 @@ export function lowerOptimizedPointerOperation(
       `${operation.operation} optimized flow lost its exact call arguments`,
     );
   }
-  const values = simplifyDisprovedNilGuards(
+  const values = simplifyDisprovedPointerNilGuards(
     source,
     operation,
     requireNodes(arguments_, operation.operation),
@@ -200,67 +200,6 @@ export function lowerOptimizedPointerOperation(
         `mutable-cell cannot lower ${operation.operation}`,
       );
   }
-}
-
-function simplifyDisprovedNilGuards(
-  source: TargetSourceProgram,
-  operation: PointerOperationFact,
-  values: readonly Node[],
-): readonly Node[] {
-  const pointerOperands = operation.operation === "equal-pointer"
-    ? [operation.leftExpression, operation.rightExpression]
-    : operation.operation === "load" ||
-        operation.operation === "store" ||
-        operation.operation === "hash-pointer"
-    ? [operation.pointerExpression]
-    : [];
-  if (pointerOperands.length === 0) {
-    return values;
-  }
-  const simplified = [...values];
-  for (let index = 0; index < pointerOperands.length; index += 1) {
-    const original = pointerOperands[index];
-    const updated = simplified[index];
-    if (original !== undefined && updated !== undefined) {
-      simplified[index] = disprovedNilGuardValue(source, original, updated);
-    }
-  }
-  return simplified;
-}
-
-function disprovedNilGuardValue(
-  source: TargetSourceProgram,
-  original: Node,
-  updated: Node,
-): Node {
-  if (source.ast.operatorKindName(original) !== "KindQuestionQuestionToken") {
-    return updated;
-  }
-  const originalBinary = source.ast.as.AsBinaryExpression(original);
-  const updatedBinary = source.ast.as.AsBinaryExpression(updated);
-  const left = originalBinary?.Left;
-  const fallback = originalBinary?.Right;
-  const fallbackType = fallback === undefined
-    ? undefined
-    : source.semantics.forNode(fallback).types.expressionType(fallback);
-  if (
-    fallback === undefined ||
-    left === undefined ||
-    fallbackType === undefined ||
-    !source.semantics.forNode(fallback).types.isNever(fallbackType) ||
-    source.ast.operatorKindName(updated) !== "KindQuestionQuestionToken" ||
-    updatedBinary?.Left === undefined
-  ) {
-    return updated;
-  }
-  const leftType = source.semantics.forNode(left).types.expressionType(left);
-  if (
-    leftType === undefined ||
-    pointerTypeCanBeUndefined(source, left, leftType)
-  ) {
-    return updated;
-  }
-  return updatedBinary.Left;
 }
 
 function lowerReferenceIdentityOperation(

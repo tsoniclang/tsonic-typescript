@@ -309,6 +309,75 @@ export const result = read(pointer) + 1;
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
 });
 
+test("removes a disproved nil guard from a retained location", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { allocatePointer, equalPointer, loadPointer } from "./markers.js";
+function panic(): never { throw new Error("nil"); }
+const pointer: Pointer<number> = allocatePointer(41);
+export const same = equalPointer(pointer, pointer);
+export const result = loadPointer(pointer ?? panic()) + 1;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  const load = pointerOperations(fixture.source).find((operation) =>
+    operation.operation === "load"
+  );
+
+  assert.ok(load !== undefined);
+  assert.equal(plan.representationFor(load.call), "location");
+  assert.equal(plan.elidedLocationNilGuardCount, 1);
+  assert.equal(plan.elidesLocationNilGuardFor(load.call), true);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "panic"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
+});
+
+test("retains a canonical nil guard for a nullable location", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { loadPointer } from "./markers.js";
+function panic(): never { throw new Error("nil"); }
+export function read(pointer: Pointer<number> | undefined): number {
+  return loadPointer(pointer ?? panic());
+}
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  const load = pointerOperations(fixture.source).find((operation) =>
+    operation.operation === "load"
+  );
+
+  assert.ok(load !== undefined);
+  assert.equal(plan.representationFor(load.call), "location");
+  assert.equal(plan.elidedLocationNilGuardCount, 0);
+  assert.equal(plan.elidesLocationNilGuardFor(load.call), false);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "panic"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
+});
+
+test("rejects a forged nullable-location nil-guard selection", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { loadPointer } from "./markers.js";
+function panic(): never { throw new Error("nil"); }
+export function read(pointer: Pointer<number> | undefined): number {
+  return loadPointer(pointer ?? panic());
+}
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const forged = Object.freeze({
+    ...plan,
+    elidesLocationNilGuardFor(): boolean {
+      return true;
+    },
+  });
+
+  assert.throws(
+    () => lowerPointers(fixture.source, fixture.sourceFile, forged),
+    /selected pointer nil guard is not disproved by checked nullability/u,
+  );
+});
+
 test("bounds the complete pointer planner by deterministic work", () => {
   const baseline = representativePointerPlan(0);
   const small = representativePointerPlan(8);
