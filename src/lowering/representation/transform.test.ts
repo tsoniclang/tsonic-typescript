@@ -206,7 +206,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     representation,
   );
 
-  assert.equal(evidence.schemaVersion, 30);
+  assert.equal(evidence.schemaVersion, 31);
   assert.equal(evidence.sourceExecution, "unrestricted");
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",

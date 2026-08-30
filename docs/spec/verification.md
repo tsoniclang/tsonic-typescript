@@ -21,6 +21,12 @@ foil, and generated-name collision. Scalar and representation mutations must cov
 open consumer, observable nominal identity, missed store, mismatched AST kind,
 duplicate plan consumption, and omitted call-site rewrite.
 
+Pointer-key map proof must cover location-backed address identity and
+direct-object identity separately. It exact-joins both partition counts to the
+total, removes hash/equality only for a complete generated map shape, and
+retains direct-snapshot, mutable-cell, mixed-representation, and partial-shape
+foils.
+
 Replacement proof must also combine two disconnected flows of one exact class:
 one unstable component remains canonical while one stable addressed component
 uses the replacement. Suppressing the stable component because of its sibling,

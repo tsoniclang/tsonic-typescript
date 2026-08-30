@@ -6,20 +6,16 @@ import type {
 import {
   AsCallExpression,
   AsConstructorDeclaration,
-  AsMethodDeclaration,
   AsNewExpression,
   AsParameterDeclaration,
-  AsReturnStatement,
   AsVariableDeclaration,
   AsVariableDeclarationList,
-  IsBlock,
   IsCallExpression,
   IsClassDeclaration,
   IsConstructorDeclaration,
   IsIdentifier,
   IsMethodDeclaration,
   IsNewExpression,
-  IsReturnStatement,
   IsVariableDeclaration,
   IsVariableDeclarationList,
   IsVariableStatement,
@@ -34,11 +30,14 @@ import type { PointerTypedFactLedger } from "../flow-fact-ledger.js";
 import type { PointerFlowRepresentation } from "../flow-representation.js";
 import type { PointerPlanningLedger } from "../planning-ledger.js";
 import { exactStorageAliasTypeNodes } from "./aliases.js";
+import { exactOperationMethod } from "./operation-method.js";
+import {
+  pointerKeyMapStorageKind,
+} from "./storage-kind.js";
 
-export interface CanonicalPointerKeyMapPlan {
+interface CanonicalPointerKeyMapPlanBase {
   readonly classDeclaration: Node;
   readonly sourceFile: SourceFile;
-  readonly helperName: GeneratedBindingName;
   readonly constructorDeclaration: Node;
   readonly storageParameter: Node;
   readonly storageConstruction: Node;
@@ -51,6 +50,16 @@ export interface CanonicalPointerKeyMapPlan {
   readonly hashVariableStatement: Node;
   readonly hashVariableReferenceReplacements: ReadonlyMap<Node, string>;
 }
+
+export type CanonicalPointerKeyMapPlan =
+  | CanonicalPointerKeyMapPlanBase & {
+    readonly storageKind: "location";
+    readonly helperName: GeneratedBindingName;
+  }
+  | CanonicalPointerKeyMapPlanBase & {
+    readonly storageKind: "direct-object";
+    readonly helperName: undefined;
+  };
 
 export type CanonicalPointerKeyMapRewrite =
   | { readonly kind: "constructor"; readonly plan: CanonicalPointerKeyMapPlan }
@@ -67,6 +76,8 @@ export interface CanonicalPointerKeyMapPlans {
   rewriteFor(node: Node): CanonicalPointerKeyMapRewrite | undefined;
   classesFor(sourceFile: SourceFile): readonly CanonicalPointerKeyMapPlan[];
   readonly count: number;
+  readonly locationCount: number;
+  readonly directObjectCount: number;
 }
 
 interface CandidateOperations {
@@ -74,6 +85,8 @@ interface CandidateOperations {
   hashMethod?: Node;
   equal?: Extract<PointerOperationFact, { readonly operation: "equal-pointer" }>;
   equalMethod?: Node;
+  hashRepresentation?: PointerFlowRepresentation;
+  equalRepresentation?: PointerFlowRepresentation;
 }
 
 interface MethodCalls {
@@ -103,9 +116,7 @@ export function planCanonicalPointerKeyMaps(
     ) {
       continue;
     }
-    if (representationFor(operation.call) !== "location") {
-      continue;
-    }
+    const representation = representationFor(operation.call);
     const method = exactOperationMethod(source, operation);
     const classDeclaration = method === undefined
       ? undefined
@@ -129,6 +140,7 @@ export function planCanonicalPointerKeyMaps(
       }
       candidate.hash = operation;
       candidate.hashMethod = method;
+      candidate.hashRepresentation = representation;
     } else {
       if (candidate.equal !== undefined) {
         candidates.delete(classDeclaration);
@@ -137,6 +149,7 @@ export function planCanonicalPointerKeyMaps(
       }
       candidate.equal = operation;
       candidate.equalMethod = method;
+      candidate.equalRepresentation = representation;
     }
     candidates.set(classDeclaration, candidate);
   }
@@ -223,6 +236,10 @@ export function planCanonicalPointerKeyMaps(
       return byFile.get(sourceFile) ?? noPlans;
     },
     count: selected.length,
+    locationCount: selected.filter((plan) => plan.storageKind === "location").length,
+    directObjectCount: selected.filter((plan) =>
+      plan.storageKind === "direct-object"
+    ).length,
   });
 }
 
@@ -234,11 +251,19 @@ function completeMapPlan(
   candidate: CandidateOperations,
 ): CanonicalPointerKeyMapPlan | undefined {
   const { hashMethod, equalMethod } = candidate;
+  const storageKind = candidate.hashRepresentation === undefined ||
+      candidate.equalRepresentation === undefined
+    ? undefined
+    : pointerKeyMapStorageKind(
+        candidate.hashRepresentation,
+        candidate.equalRepresentation,
+      );
   if (
     candidate.hash === undefined ||
     candidate.equal === undefined ||
     hashMethod === undefined ||
-    equalMethod === undefined
+    equalMethod === undefined ||
+    storageKind === undefined
   ) {
     return undefined;
   }
@@ -363,15 +388,9 @@ function completeMapPlan(
     }
     hashCallReplacements.set(call, expression);
   }
-  let helperName = helperNames.get(sourceFile);
-  if (helperName === undefined) {
-    helperName = generatedNames.forFile(sourceFile).reserve("$PointerMapStorage");
-    helperNames.set(sourceFile, helperName);
-  }
-  return Object.freeze({
+  const base: CanonicalPointerKeyMapPlanBase = Object.freeze({
     classDeclaration,
     sourceFile,
-    helperName,
     constructorDeclaration,
     storageParameter,
     storageConstruction,
@@ -386,37 +405,19 @@ function completeMapPlan(
       hashVariableReferences.map((reference) => [reference, keyName] as const),
     ),
   });
-}
-
-function exactOperationMethod(
-  source: TargetSourceProgram,
-  operation: PointerOperationFact,
-): Node | undefined {
-  const statement = source.ast.parent(operation.call);
-  if (statement === undefined || !IsReturnStatement(statement)) {
-    return undefined;
+  if (storageKind === "direct-object") {
+    return Object.freeze({
+      ...base,
+      storageKind,
+      helperName: undefined,
+    });
   }
-  const body = statement === undefined ? undefined : source.ast.parent(statement);
-  if (body === undefined || !IsBlock(body)) {
-    return undefined;
+  let helperName = helperNames.get(sourceFile);
+  if (helperName === undefined) {
+    helperName = generatedNames.forFile(sourceFile).reserve("$PointerMapStorage");
+    helperNames.set(sourceFile, helperName);
   }
-  const method = body === undefined ? undefined : source.ast.parent(body);
-  if (method === undefined || !IsMethodDeclaration(method)) {
-    return undefined;
-  }
-  const parsed = AsMethodDeclaration(method);
-  const statements = source.ast.statements(body);
-  const returned = AsReturnStatement(statement);
-  const parameterCount = operation.operation === "hash-pointer" ? 1 : 2;
-  return parsed !== undefined &&
-      statements.length === 1 &&
-      returned?.Expression === operation.call &&
-      parsed.TypeParameters === undefined &&
-      source.ast.parameters(method).length === parameterCount &&
-      source.ast.hasModifierKind(method, "private") &&
-      source.ast.hasModifierKind(method, "static")
-    ? method
-    : undefined;
+  return Object.freeze({ ...base, storageKind, helperName });
 }
 
 function callsToDeclaration(

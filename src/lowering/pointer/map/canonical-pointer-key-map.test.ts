@@ -10,6 +10,11 @@ import {
   createFixturePointerFlowPlan,
   visit,
 } from "../pointer.test-support.js";
+import { createProgramGeneratedNames } from "../../generated-names.js";
+import { createTargetProgramIndex } from "../../program-index.js";
+import { censusPointerFlows } from "../flow-census.js";
+import { PointerPlanningLedger } from "../planning-ledger.js";
+import { planCanonicalPointerKeyMaps } from "./plan.js";
 import { lowerPointers } from "../transform.js";
 
 test("contracts exact canonical pointer-key map storage", () => {
@@ -17,6 +22,8 @@ test("contracts exact canonical pointer-key map storage", () => {
   const plan = createFixturePointerFlowPlan(fixture.source);
 
   assert.equal(plan.optimizedPointerKeyMapCount, 1);
+  assert.equal(plan.optimizedLocationPointerKeyMapCount, 1);
+  assert.equal(plan.optimizedDirectObjectPointerKeyMapCount, 0);
   const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashLocation"), 0);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "sameLocation"), 0);
@@ -26,6 +33,27 @@ test("contracts exact canonical pointer-key map storage", () => {
     ),
     ["$PointerMapStorage"],
   );
+});
+
+test("contracts the same exact map shape for direct-object pointer identity", () => {
+  const fixture = checkedPointerFixture(pointerMapSource());
+  const program = createTargetProgramIndex(fixture.source, { bindingWrites: true });
+  const generatedNames = createProgramGeneratedNames(fixture.source, program);
+  const ledger = new PointerPlanningLedger();
+  const census = censusPointerFlows(fixture.source, program, ledger);
+  const plans = planCanonicalPointerKeyMaps(
+    fixture.source,
+    census.facts,
+    generatedNames,
+    () => "direct-object",
+    ledger,
+  );
+
+  assert.equal(plans.count, 1);
+  assert.equal(plans.locationCount, 0);
+  assert.equal(plans.directObjectCount, 1);
+  assert.equal(plans.classesFor(fixture.sourceFile)[0]?.storageKind, "direct-object");
+  assert.equal(plans.classesFor(fixture.sourceFile)[0]?.helperName, undefined);
 });
 
 test("rejects a partial pointer-hash container", () => {
