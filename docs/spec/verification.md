@@ -28,20 +28,12 @@ or optimizing the unstable sibling, must fail at the focused planner gate.
 
 Representation-transport proof must compare the canonical external boundary
 with one certified generic kernel. The exact module, export, declaration,
-selected signature, and checker-identity-owned generic parameter become
-transparent while a concrete pointer parameter on that same callable remains
-canonical. Wrong module, wrong export, local same-spelled callable, duplicate
-contract entry, noncanonical order, absent type parameter, and ambiguous
-ownership mutations must fail or retain the boundary.
-
-Inline-transport proof additionally requires one exact checked method-call
-body, one evaluation of receiver and each argument in source order, preserved
-`void` result, strict printed output, and executable differential behavior.
-Aliased and overloaded targets, async/generator declarations, optional/rest/
-initialized or concrete parameters, optional calls, multi-statement bodies,
-body drift, omission, and duplicate consumption must fail at their owner. The
-sealed contract digest, callable count, nonzero selected-call count, and
-nonzero inline-call count are independently joined by product assembly.
+selected signature, and generic-owned parameter become transparent while a
+concrete pointer parameter on that same callable remains canonical. Wrong
+module, wrong export, local same-spelled callable, duplicate contract entry,
+noncanonical order, absent type parameter, and ambiguous ownership mutations
+must fail or retain the boundary. The sealed contract digest, callable count,
+and nonzero selected-call count are independently joined by product assembly.
 
 ## Transaction Proof
 

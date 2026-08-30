@@ -39,8 +39,8 @@ import { PointerLoweringError } from "./diagnostic.js";
 import type {
   LocalLocationBinding,
   LocationBinding,
-} from "./location-binding.js";
-import type { PointerLoweringPlan } from "./plan.js";
+  PointerLoweringPlan,
+} from "./plan.js";
 
 export function rewriteLocationStatementOwner(
   source: TargetSourceProgram,

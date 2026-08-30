@@ -81,8 +81,7 @@ export function connectPointerCalls(census: PointerCensus): void {
       continue;
     }
     const boundParameters = new Set<Node>();
-    const transportedParameters = census.representationTransportCalls.get(node)
-      ?.transportedParameters;
+    const transportedParameters = census.representationTransportCalls.get(node);
     const selectedDeclaration = semantics.declarations.signatureDeclaration(
       info.selectedSignature,
     );

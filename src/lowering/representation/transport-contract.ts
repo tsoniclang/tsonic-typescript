@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto";
 
-export type RepresentationTransportKind =
-  | "generic-kernel"
-  | "inline-generic-method-call";
+export type RepresentationTransportKind = "generic-kernel";
 
 export interface RepresentationTransportCallable {
   readonly kind: RepresentationTransportKind;
@@ -11,7 +9,7 @@ export interface RepresentationTransportCallable {
 }
 
 export interface RepresentationTransportContract {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 1;
   readonly digest: string;
   readonly callables: readonly RepresentationTransportCallable[];
 }
@@ -34,8 +32,7 @@ export function createRepresentationTransportContract(
     const callable = sealed[index];
     if (
       callable === undefined ||
-      (callable.kind !== "generic-kernel" &&
-        callable.kind !== "inline-generic-method-call") ||
+      callable.kind !== "generic-kernel" ||
       callable.moduleSpecifier.length === 0 ||
       callable.exportName.length === 0
     ) {
@@ -51,7 +48,7 @@ export function createRepresentationTransportContract(
     }
   }
   const document = Object.freeze({
-    schemaVersion: 2 as const,
+    schemaVersion: 1 as const,
     callables: sealed,
   });
   const digest = createHash("sha256")
@@ -68,7 +65,18 @@ export function compareRepresentationTransportCallables(
     throw new Error("representation transport comparison received no callable");
   }
   return compareText(left.moduleSpecifier, right.moduleSpecifier) ||
-    compareText(left.exportName, right.exportName);
+    compareText(left.exportName, right.exportName) ||
+    compareText(left.kind, right.kind);
+}
+
+export function representationTransportCallableKey(
+  callable: RepresentationTransportCallable,
+): string {
+  return JSON.stringify([
+    callable.moduleSpecifier,
+    callable.exportName,
+    callable.kind,
+  ]);
 }
 
 function compareText(left: string, right: string): number {

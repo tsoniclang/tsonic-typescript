@@ -34,7 +34,7 @@ test("validates and freezes the canonical printer and optimization profile", () 
   assert.ok(Object.isFrozen(result.printer));
   assert.ok(Object.isFrozen(result.printer.arguments));
   assert.ok(Object.isFrozen(result.optimizations));
-  assert.equal(result.representationTransports.schemaVersion, 2);
+  assert.equal(result.representationTransports.schemaVersion, 1);
   assert.deepEqual(result.representationTransports.callables, []);
   assert.match(result.representationTransports.digest, /^[0-9a-f]{64}$/u);
   assert.ok(Object.isFrozen(result.representationTransports));
@@ -53,10 +53,6 @@ test("selects the exact closed three-family profile", () => {
         representationProjections: "closed-direct",
       },
       representationTransports: [{
-        kind: "inline-generic-method-call",
-        moduleSpecifier: "@gotots/runtime/map.js",
-        exportName: "goMapStore",
-      }, {
         kind: "generic-kernel",
         moduleSpecifier: "@provider/kernel.js",
         exportName: "Kernel",
@@ -73,10 +69,6 @@ test("selects the exact closed three-family profile", () => {
     representationProjections: "closed-direct",
   });
   assert.deepEqual(result.representationTransports.callables, [{
-    kind: "inline-generic-method-call",
-    moduleSpecifier: "@gotots/runtime/map.js",
-    exportName: "goMapStore",
-  }, {
     kind: "generic-kernel",
     moduleSpecifier: "@provider/kernel.js",
     exportName: "Kernel",

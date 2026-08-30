@@ -68,17 +68,15 @@ import {
   lowerProjectedPropertyLocation,
 } from "./projected-property-ast.js";
 import {
+  assertCanonicalPointerKeyMapConsumption,
+  createCanonicalPointerKeyMapConsumption,
   insertCanonicalPointerKeyMapStorage,
   rewriteCanonicalPointerKeyMapNode,
+  type CanonicalPointerKeyMapConsumption,
 } from "./map/transform.js";
 import {
   prependRuntimeImport,
 } from "./runtime-ast.js";
-import {
-  assertCompletePointerLoweringConsumption,
-  createPointerLoweringConsumption,
-  type PointerLoweringConsumption,
-} from "./consumption.js";
 
 export interface PointerLoweringResult {
   readonly sourceFile: SourceFile;
@@ -89,7 +87,6 @@ export interface PointerLoweringResult {
   readonly locationBindingCount: number;
   readonly inferenceStabilizationCount: number;
   readonly directObjectReplacementCount: number;
-  readonly representationTransportInlineCount: number;
   readonly runtimeAlias: string | undefined;
 }
 
@@ -140,8 +137,7 @@ function applyPointerLoweringPlan(
     plan.pointerTypes.size === 0 &&
     plan.rawPointerOperations.size === 0 &&
     plan.rawPointerTypes.size === 0 &&
-    plan.removableMarkerDeclarations.size === 0 &&
-    plan.representationTransportInlines.count === 0
+    plan.removableMarkerDeclarations.size === 0
   ) {
     return Object.freeze({
       sourceFile,
@@ -152,7 +148,6 @@ function applyPointerLoweringPlan(
       locationBindingCount: 0,
       inferenceStabilizationCount: 0,
       directObjectReplacementCount: 0,
-      representationTransportInlineCount: 0,
       runtimeAlias: undefined,
     });
   }
@@ -196,7 +191,7 @@ function createPointerRewriteSessionForPlan(
   plan: PointerLoweringPlan,
   finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
-  const consumed = createPointerLoweringConsumption(plan);
+  const consumed = createConsumptionState();
   let finished = false;
   const rewrite = (
     original: Node,
@@ -224,7 +219,7 @@ function createPointerRewriteSessionForPlan(
         throw new PointerLoweringError("pointer rewrite session was sealed twice");
       }
       finished = true;
-      assertCompletePointerLoweringConsumption(plan, consumed);
+      assertCompleteConsumption(plan, consumed);
       return pointerLoweringResult(plan, consumed, transformed);
     },
   });
@@ -232,7 +227,7 @@ function createPointerRewriteSessionForPlan(
 
 function pointerLoweringResult(
   plan: PointerLoweringPlan,
-  consumed: PointerLoweringConsumption,
+  consumed: ConsumptionState,
   transformed: SourceFile,
 ): PointerLoweringResult {
   const usesRuntime = pointerLoweringPlanUsesRuntime(plan);
@@ -245,16 +240,42 @@ function pointerLoweringResult(
     locationBindingCount: consumed.locationBindings.size,
     inferenceStabilizationCount: consumed.inferenceStabilizations.size,
     directObjectReplacementCount: consumed.directObjectReplacements.size,
-    representationTransportInlineCount:
-      consumed.representationTransportInlines.count,
     runtimeAlias: usesRuntime ? plan.runtimeAlias.text : undefined,
   });
+}
+
+interface ConsumptionState {
+  readonly operations: Set<Node>;
+  readonly pointerTypes: Set<Node>;
+  readonly rawPointerOperations: Set<Node>;
+  readonly rawPointerTypes: Set<Node>;
+  readonly locationBindings: Set<Node>;
+  readonly removableMarkerDeclarations: Set<Node>;
+  readonly inferenceStabilizations: Set<Node>;
+  readonly directObjectReplacements: Set<Node>;
+  readonly pointerKeyMaps: CanonicalPointerKeyMapConsumption;
+  projectedPropertyLocationClassInserted: boolean;
+}
+
+function createConsumptionState(): ConsumptionState {
+  return {
+    operations: new Set(),
+    pointerTypes: new Set(),
+    rawPointerOperations: new Set(),
+    rawPointerTypes: new Set(),
+    locationBindings: new Set(),
+    removableMarkerDeclarations: new Set(),
+    inferenceStabilizations: new Set(),
+    directObjectReplacements: new Set(),
+    pointerKeyMaps: createCanonicalPointerKeyMapConsumption(),
+    projectedPropertyLocationClassInserted: false,
+  };
 }
 
 function rewriteNode(
   source: TargetSourceProgram,
   plan: PointerLoweringPlan,
-  consumed: PointerLoweringConsumption,
+  consumed: ConsumptionState,
   finalNodes: FinalNodeLookup,
   original: Node,
   updated: Node,
@@ -263,14 +284,6 @@ function rewriteNode(
   if (plan.removableMarkerDeclarations.has(original)) {
     consumed.removableMarkerDeclarations.add(original);
     return undefined;
-  }
-
-  if (consumed.representationTransportInlines.has(original)) {
-    return consumed.representationTransportInlines.rewrite(
-      original,
-      updated,
-      factory,
-    );
   }
 
   const pointerKeyMapRewrite = plan.flowPlan?.pointerKeyMapRewriteFor(original);
@@ -507,4 +520,72 @@ function rewriteNode(
     );
   }
   return structuralResult;
+}
+
+function assertCompleteConsumption(
+  plan: PointerLoweringPlan,
+  consumed: ConsumptionState,
+): void {
+  assertCount("pointer operations", consumed.operations, plan.operations.size);
+  assertCount("pointer types", consumed.pointerTypes, plan.pointerTypes.size);
+  assertCount(
+    "raw-pointer operations",
+    consumed.rawPointerOperations,
+    plan.rawPointerOperations.size,
+  );
+  assertCanonicalPointerKeyMapConsumption(
+    plan.flowPlan?.pointerKeyMapsFor(plan.sourceFile) ?? [],
+    consumed.pointerKeyMaps,
+  );
+  assertCount(
+    "raw-pointer types",
+    consumed.rawPointerTypes,
+    plan.rawPointerTypes.size,
+  );
+  const parameterCount = [...plan.prologueBindingsByBody.values()].reduce(
+    (count, bindings) => count + bindings.filter(
+      (binding) => binding.kind === "parameter",
+    ).length,
+    0,
+  );
+  assertCount(
+    "location bindings",
+    consumed.locationBindings,
+    plan.localBindings.size + parameterCount,
+  );
+  assertCount(
+    "removable marker declarations",
+    consumed.removableMarkerDeclarations,
+    plan.removableMarkerDeclarations.size,
+  );
+  assertCount(
+    "pointer inference stabilizations",
+    consumed.inferenceStabilizations,
+    plan.inferenceStabilizations.size,
+  );
+  assertCount(
+    "direct-object replacements",
+    consumed.directObjectReplacements,
+    plan.flowPlan?.directObjectReplacementsFor(plan.sourceFile).length ?? 0,
+  );
+  if (
+    consumed.projectedPropertyLocationClassInserted !==
+      (plan.projectedPropertyLocationClassName !== undefined)
+  ) {
+    throw new PointerLoweringError(
+      "projected-property class insertion was not consumed exactly once",
+    );
+  }
+}
+
+function assertCount(
+  subject: string,
+  consumed: ReadonlySet<Node>,
+  expected: number,
+): void {
+  if (consumed.size !== expected) {
+    throw new PointerLoweringError(
+      `consumed ${consumed.size} ${subject}, expected ${expected}`,
+    );
+  }
 }
