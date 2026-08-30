@@ -1,9 +1,15 @@
-import type { Node, PointerOperationFact } from "@tsonic/tsts";
+import {
+  structFactKey,
+  type Node,
+  type PointerOperationFact,
+} from "@tsonic/tsts";
 import {
   IsDecorator,
 } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
+import type { TargetProgramIndex } from "../program-index.js";
+import { addressedStorageIsStable } from "./flow-audit.js";
 import { transparentExpression } from "./flow-syntax.js";
 import type { PointerPlanningLedger } from "./planning-ledger.js";
 
@@ -11,7 +17,7 @@ export function nonBijectiveIdentityOccurrences(
   source: TargetSourceProgram,
   familyIdentity: Node,
   operations: Iterable<PointerOperationFact>,
-  hasBindingWrite: (declaration: Node | undefined) => boolean,
+  program: TargetProgramIndex,
   ledger: PointerPlanningLedger,
 ): readonly Node[] {
   const operationsList = [...operations];
@@ -25,7 +31,7 @@ export function nonBijectiveIdentityOccurrences(
   }
   const proof: FreshFamilyProof = {
     activeFactories: new Set(),
-    hasBindingWrite,
+    program,
     factoryResults: new Map(),
     ledger,
   };
@@ -69,15 +75,85 @@ function isFreshAddressedStorage(
     ? undefined
     : source.ast.as.AsVariableDeclaration(declaration);
   const initializer = variable?.Initializer;
-  return declaration !== undefined &&
+  return (declaration !== undefined &&
     initializer !== undefined &&
-    !proof.hasBindingWrite(declaration) &&
-    isFreshFamilyValue(source, familyIdentity, initializer, proof);
+    !proof.program.hasBindingWrite(declaration) &&
+    isFreshFamilyValue(source, familyIdentity, initializer, proof)) ||
+    isExactValueFieldAddress(source, familyIdentity, operation, proof);
+}
+
+function isExactValueFieldAddress(
+  source: TargetSourceProgram,
+  familyIdentity: Node,
+  operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
+  proof: FreshFamilyProof,
+): boolean {
+  if (
+    source.sourceFacts.getFact(familyIdentity, structFactKey)?.valueType !== true ||
+    source.ast.extendsHeritageElements(familyIdentity).length !== 0 ||
+    !addressedStorageIsStable(source, proof.program, operation)
+  ) {
+    return false;
+  }
+  const storage = transparentExpression(source, operation.storageExpression);
+  if (
+    storage === undefined ||
+    !source.ast.is.IsPropertyAccessExpression(storage)
+  ) {
+    return false;
+  }
+  const semantics = source.semantics.forNode(storage);
+  const storageType = semantics.types.expressionType(storage);
+  const storageSymbol = storageType === undefined
+    ? undefined
+    : semantics.declarations.typeSymbol(storageType);
+  const storageIdentity = storageSymbol === undefined
+    ? undefined
+    : semantics.declarations.primarySymbolDeclaration(storageSymbol);
+  const property = source.ast.as.AsPropertyAccessExpression(storage);
+  return storageIdentity === familyIdentity &&
+    valueSemanticOwnerPath(source, proof.program, property?.Expression);
+}
+
+function valueSemanticOwnerPath(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  expression: Node | undefined,
+): boolean {
+  const owner = transparentExpression(source, expression);
+  if (owner === undefined) {
+    return false;
+  }
+  const semantics = source.semantics.forNode(owner);
+  const ownerType = semantics.types.expressionType(owner);
+  const ownerSymbol = ownerType === undefined
+    ? undefined
+    : semantics.declarations.typeSymbol(ownerType);
+  const ownerIdentity = ownerSymbol === undefined
+    ? undefined
+    : semantics.declarations.primarySymbolDeclaration(ownerSymbol);
+  if (
+    ownerIdentity === undefined ||
+    !source.navigation.isProjectDeclaration(ownerIdentity) ||
+    !source.ast.is.IsClassDeclaration(ownerIdentity) ||
+    source.sourceFacts.getFact(ownerIdentity, structFactKey)?.valueType !== true ||
+    source.ast.extendsHeritageElements(ownerIdentity).length !== 0 ||
+    program.hasBindingWrite(ownerIdentity)
+  ) {
+    return false;
+  }
+  if (!source.ast.is.IsPropertyAccessExpression(owner)) {
+    return source.ast.is.IsIdentifier(owner);
+  }
+  const property = source.ast.as.AsPropertyAccessExpression(owner);
+  return property?.name !== undefined &&
+    source.ast.is.IsIdentifier(property.name) &&
+    valueSemanticOwnerPath(source, program, property.Expression);
 }
 
 interface FreshFamilyProof {
   readonly activeFactories: Set<Node>;
-  readonly hasBindingWrite: (declaration: Node | undefined) => boolean;
+  readonly program: TargetProgramIndex;
   readonly factoryResults: Map<Node, boolean>;
   readonly ledger: PointerPlanningLedger;
 }
@@ -214,7 +290,7 @@ function isFreshFactoryCall(
       IsDecorator(modifier)
     ) ||
     !isStableFamily(source, familyIdentity, proof) ||
-    proof.hasBindingWrite(methodReference.declaration)
+    proof.program.hasBindingWrite(methodReference.declaration)
   ) {
     return false;
   }
@@ -256,7 +332,7 @@ function isFreshFactoryDeclaration(
     returned === undefined ||
     source.ast.hasModifierKind(declaration, "async") ||
     source.ast.modifiers(declaration).some((modifier) => IsDecorator(modifier)) ||
-    proof.hasBindingWrite(declaration) ||
+    proof.program.hasBindingWrite(declaration) ||
     callInfo?.outcome !== "applicable" ||
     callInfo.sourceSelectedSignatureKind !== "resolved" ||
     callInfo.optionalChain ||
@@ -290,7 +366,7 @@ function isStableFamily(
   proof.ledger.record("direct-family");
   return source.ast.extendsHeritageElements(familyIdentity).length === 0 &&
     !source.ast.modifiers(familyIdentity).some((modifier) => IsDecorator(modifier)) &&
-    !proof.hasBindingWrite(familyIdentity);
+    !proof.program.hasBindingWrite(familyIdentity);
 }
 
 function containsReplacementReturn(

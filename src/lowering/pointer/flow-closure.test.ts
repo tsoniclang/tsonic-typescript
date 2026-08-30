@@ -361,6 +361,7 @@ export const result = read(pointer);
       KindArrowFunction,
     ]).length,
     "unowned-type": pointerTypeNodes(fixture.source).length,
+    "identity-transport-call": program.nodesOfKind(KindCallExpression).length,
     "callable-alias-declaration": program.nodesOfKind(KindVariableDeclaration).length,
     "result-call": program.nodesOfKind(KindCallExpression).length,
     "variable-initializer": program.nodesOfKind(KindVariableDeclaration).length,

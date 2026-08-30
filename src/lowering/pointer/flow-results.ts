@@ -19,6 +19,7 @@ import {
 import type { TargetProgramIndex } from "../program-index.js";
 import type { PointerCensus } from "./flow-census.js";
 import type { PointerCallableAliases } from "./flow-callable-aliases.js";
+import type { ExactIdentityTransportCall } from "./flow-identity-transports.js";
 import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type {
   PointerFlowGraph,
@@ -112,6 +113,7 @@ export function connectPointerResultCalls(
   resultExpressions: Set<Node>,
   allowedFunctionTargets: Set<Node>,
   callableAliases: PointerCallableAliases,
+  identityTransportCalls: ReadonlyMap<Node, ExactIdentityTransportCall>,
   planning: PointerPlanningLedger,
 ): void {
   const candidates = program.nodesOfKind(KindCallExpression);
@@ -125,7 +127,9 @@ export function connectPointerResultCalls(
     }
     const call = source.ast.as.AsCallExpression(node);
     const target = transparentExpression(source, call?.Expression);
-    const directDeclaration = callableAliases.ownerForTarget(target);
+    const identityTransport = identityTransportCalls.get(node);
+    const directDeclaration = callableAliases.ownerForTarget(target) ??
+      identityTransport?.declaration;
     const directResult = directDeclaration === undefined
       ? undefined
       : results.get(directDeclaration);
@@ -134,17 +138,18 @@ export function connectPointerResultCalls(
     }
     const semantics = source.semantics.forNode(node);
     const info = semantics.operations.call(node);
-    const declaration = info === undefined
+    const declaration = identityTransport?.declaration ?? (info === undefined
       ? undefined
-      : semantics.declarations.signatureDeclaration(info.selectedSignature);
+      : semantics.declarations.signatureDeclaration(info.selectedSignature));
     const result = declaration === undefined ? undefined : results.get(declaration);
     if (result === undefined || result !== directResult) {
       continue;
     }
     if (
-      info?.sourceSelectedSignatureKind !== "resolved" ||
-      info.optionalChain ||
-      call?.Expression === undefined
+      call?.Expression === undefined ||
+      identityTransport === undefined &&
+        (info?.sourceSelectedSignatureKind !== "resolved" ||
+          info?.optionalChain)
     ) {
       graph.block(result.vertex, "open-call", node);
       continue;

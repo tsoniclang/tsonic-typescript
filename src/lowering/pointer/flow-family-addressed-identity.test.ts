@@ -5,11 +5,89 @@ import { pointerOperationFactKey } from "@tsonic/tsts";
 
 import {
   checkedPointerFixture,
+  checkedPointerFixtureWithValueSemantics,
   countCallsNamed,
   createFixturePointerFlowPlan,
   visit,
 } from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";
+
+test("uses exact value-field objects as stable pointer identities", () => {
+  const fixture = checkedPointerFixtureWithValueSemantics(`import type { Pointer } from "./markers.js";
+import { addressOf, equalPointer, loadPointer, storePointer } from "./markers.js";
+class Box {
+  constructor(public value: number) {}
+  static copy(source: Box): Box { return new Box(source.value); }
+}
+class Owner { constructor(public box: Box) {} }
+const first = new Owner(new Box(1));
+const second = new Owner(Box.copy(first.box));
+const left: Pointer<Box> = addressOf(first.box);
+const alias: Pointer<Box> = addressOf(first.box);
+const right: Pointer<Box> = addressOf(second.box);
+storePointer(left, new Box(3));
+export const result = [
+  loadPointer(alias).value,
+  equalPointer(left, alias),
+  equalPointer(left, right),
+];
+`, ["Box", "Owner"]);
+
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  assert.equal(plan.optimizedFamilyCount, 1);
+  assert.equal(plan.retainedFamilyCount, 0);
+  assert.equal(plan.directObjectReplacementCount, 1);
+
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  for (const marker of [
+    "addressOf",
+    "equalPointer",
+    "loadPointer",
+    "storePointer",
+  ]) {
+    assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, marker), 0);
+  }
+});
+
+test("retains value-field addresses without exact owner value semantics", () => {
+  const fixture = checkedPointerFixtureWithValueSemantics(`import type { Pointer } from "./markers.js";
+import { addressOf, equalPointer } from "./markers.js";
+class Box { constructor(public value: number) {} }
+class Owner { constructor(public box: Box) {} }
+const first = new Owner(new Box(1));
+const second = new Owner(first.box);
+const left: Pointer<Box> = addressOf(first.box);
+const right: Pointer<Box> = addressOf(second.box);
+export const same = equalPointer(left, right);
+`, "Box");
+
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  assert.equal(plan.optimizedFamilyCount, 0);
+  assert.equal(plan.retainedFamilyCount, 1);
+  assert.equal(
+    plan.familyFallbackReasons.find((entry) =>
+      entry.reason === "non-bijective-identity"
+    )?.count,
+    1,
+  );
+});
+
+test("retains an exact value field when the owner binding can change", () => {
+  const fixture = checkedPointerFixtureWithValueSemantics(`import type { Pointer } from "./markers.js";
+import { addressOf, equalPointer } from "./markers.js";
+class Box { constructor(public value: number) {} }
+class Owner { constructor(public box: Box) {} }
+let owner = new Owner(new Box(1));
+const left: Pointer<Box> = addressOf(owner.box);
+owner = new Owner(new Box(2));
+const right: Pointer<Box> = addressOf(owner.box);
+export const same = equalPointer(left, right);
+`, ["Box", "Owner"]);
+
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  assert.equal(plan.optimizedFamilyCount, 0);
+  assert.equal(plan.retainedFamilyCount, 1);
+});
 
 test("uses fresh addressed factory values for pointer identity", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";

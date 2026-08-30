@@ -115,8 +115,9 @@ export function createFixturePointerFlowPlan(
 
 export function checkedPointerFixtureWithValueSemantics(
   sourceText: string,
-  typeName: string,
+  typeNames: string | readonly string[],
 ): CheckedPointerFixture {
+  const names = typeof typeNames === "string" ? [typeNames] : typeNames;
   const sourceSemantics = createSourceSemanticsExtension({
     modules: pointerMarkerSemantics,
   });
@@ -124,15 +125,17 @@ export function checkedPointerFixtureWithValueSemantics(
     ...sourceSemantics,
     analyzeSource(context: SourceAnalysisContext): void {
       sourceSemantics.analyzeSource?.(context);
-      const declaration = findNamedTypeDeclaration(context, typeName);
-      assert.equal(
-        context.facts.set(
-          declaration,
-          structFactKey,
-          Object.freeze({ valueType: true }),
-        ),
-        "inserted",
-      );
+      for (const typeName of names) {
+        const declaration = findNamedTypeDeclaration(context, typeName);
+        assert.equal(
+          context.facts.set(
+            declaration,
+            structFactKey,
+            Object.freeze({ valueType: true }),
+          ),
+          "inserted",
+        );
+      }
     },
   });
   return checkedPointerFixtureWithExtension(sourceText, {}, extension);

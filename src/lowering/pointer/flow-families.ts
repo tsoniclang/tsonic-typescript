@@ -108,7 +108,7 @@ export function planDirectReferenceFamilies(
     source,
     families,
     familyRepresentations,
-    program.hasBindingWrite,
+    program,
     ledger,
   );
   const representations = new Map<Node, DirectReferenceFamilyDecision>();
@@ -330,7 +330,7 @@ function applyIdentityBoundaries(
     MutableDirectReferenceFamily,
     DirectReferenceFamilyRepresentation
   >,
-  hasBindingWrite: (declaration: Node | undefined) => boolean,
+  program: TargetProgramIndex,
   ledger: PointerPlanningLedger,
 ): void {
   for (const family of families.values()) {
@@ -342,7 +342,7 @@ function applyIdentityBoundaries(
       source,
       family.identity,
       family.operations.values(),
-      hasBindingWrite,
+      program,
       ledger,
     )) {
       ledger.record("direct-family");
