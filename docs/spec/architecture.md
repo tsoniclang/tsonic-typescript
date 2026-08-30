@@ -29,13 +29,12 @@ The target performs one bounded transaction:
 checked source and facts
     -> one immutable selected program index
     -> selected source-execution contract validation
-    -> complete value-structure evidence plan
     -> complete pointer plan
     -> complete scalar plan
     -> complete representation plan
     -> prepare every source rewrite
     -> one AST traversal per source
-         structure -> pointer -> scalar -> representation
+         pointer -> scalar -> representation
     -> exact plan-consumption joins
     -> bounded external-AST encoding batches
     -> configured printer
@@ -68,33 +67,20 @@ index.
 
 ## Certified Representation Transport
 
-A selected product may provide one immutable, versioned set containing two
-closed callable kinds. Both exact-join the import module, export, resolved
-declaration, and selected signature from the checked tree. A parameter is
-generic-owned only when its checker type is identical to a type parameter
-owned by that exact declaration; parameter spelling is never evidence.
+A selected product may provide one immutable, versioned set of certified
+generic-kernel callable identities. Selection exact-joins the import module,
+export, resolved declaration, and selected signature from the checked tree.
+The certificate admits only a parameter whose authored type structurally
+refers to a type parameter owned by that same selected kernel declaration.
+Concrete parameters on the same callable remain external boundaries.
 
-A manifest-certified `generic-kernel` makes only those generic-owned
-parameters opaque representation transport. Concrete parameters remain
-external boundaries, and the target neither inspects nor inlines the kernel
-body.
-
-An explicitly configured `inline-generic-method-call` is narrower and
-body-certified. Its exact declaration must be a synchronous, nongenerator
-generic function with plain required parameters, every parameter must be
-generic-owned, and its implementation must contain exactly one call of a
-method on the first parameter with every remaining parameter used once in
-source order. The target substitutes the checked call's arguments into that
-body, wraps the result in `void`, and consumes each planned call exactly once.
-Receiver and arguments retain one evaluation in source order while the
-helper's runtime result remains `undefined` rather than the method's result.
-
-Neither contract grants authority to choose a representation, expose a
+This contract says only that the generic-owned shape transports the caller's
+already-selected representation through its caller-owned operation facets. It
+does not grant the kernel authority to choose a representation, expose a
 concrete provider carrier, or make an arbitrary external call transparent.
-Missing, stale, duplicate, ambiguously imported, same-spelled, aliased,
-overloaded, optional, rest, concrete-parameter, or body-drifted evidence
-retains canonical lowering or fails the explicitly selected inline contract.
-No path suffix, printed text, or callable-name heuristic is inspected.
+Missing, stale, duplicate, ambiguously imported, same-spelled, or non-generic
+evidence retains canonical lowering. No kernel body, path suffix, or spelling
+heuristic is inspected by the target.
 
 ## Representation Families
 
@@ -119,33 +105,12 @@ Every definition, reference, assignment, argument, result, and storage member
 in the component changes atomically. A local exception invalidates the
 optimization and retains the canonical pointer representation.
 
-An interior `addressOf(owner.field)` may use the represented field object as
-its identity only when the exact containing class owns a finalized
-constructor-local `StructFact`, every represented field in that fact exact-
-joins the class layout, the selected field type is the pointer family's exact
-class identity, and the complete checked path has no replacement or write that
-can change the represented field object. Missing, malformed, duplicate, local
-same-spelled, reference-semantic, inherited, computed, private, accessor, or
-mutable-path evidence retains canonical `Location<T>`.
-
 The replacement proof rejects inheritance, heritage consumers, decorators,
 accessors, computed or private state, nonempty constructors, omitted mutable
 fields, declaration boundaries, and mutable class bindings. Ambient readonly
 type sentinels carry no runtime state and are excluded explicitly. Nullable
 pointer operands retain their source nil guard; only a checked non-nullable
 left operand permits guard contraction.
-
-### Value Structures
-
-GoToTS emits one canonical `struct({ field: field<T>(), ... })` assertion as a
-constructor statement in each generated Go struct class. TSTS selects the
-marker declarations and finalizes facts on the exact call nodes. The target
-plans those facts from the shared program index, associates them only through
-their exact constructor/class ancestry, and removes the assertion plus its
-now-unused canonical imports in the same transaction. It never treats class
-shape, a generated member name, import spelling, or a local lookalike as value-
-structure evidence. An unconsumed or multiply consumed fact rejects the entire
-transaction before printing.
 
 ### Scalars
 
@@ -176,8 +141,7 @@ Evidence is immutable and emitted only after the complete lowering
 transaction seals. It records the selected source-execution contract, exact
 source membership, representation-family denominators, and the selected
 representation-transport contract digest, denominator, and selected-call
-count. It also records the exact value-structure assertion denominator and
-consumption count. It contains no cooperative-effect schema.
+count. It contains no cooperative-effect schema.
 
 ## Deleted Architecture
 

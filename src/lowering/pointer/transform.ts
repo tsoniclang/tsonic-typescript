@@ -1,11 +1,21 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
+  AsExportDeclaration,
+  AsImportClause,
+  AsImportDeclaration,
+  AsNamedExports,
+  AsNamedImports,
   AsSourceFile,
   IsBlock,
   IsCaseClause,
   IsDefaultClause,
+  IsExportDeclaration,
+  IsImportClause,
+  IsImportDeclaration,
   IsModuleBlock,
+  IsNamedExports,
+  IsNamedImports,
   IsSourceFile,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
@@ -23,7 +33,6 @@ import {
   createTargetProgramIndex,
   type TargetProgramIndex,
 } from "../program-index.js";
-import { pruneEmptyModuleSyntax } from "../module-syntax.js";
 
 import { PointerLoweringError } from "./diagnostic.js";
 import {
@@ -68,10 +77,6 @@ import {
 import {
   prependRuntimeImport,
 } from "./runtime-ast.js";
-import {
-  createRepresentationTransportInlineSession,
-  type RepresentationTransportInlineSession,
-} from "./representation-transport.js";
 
 export interface PointerLoweringResult {
   readonly sourceFile: SourceFile;
@@ -82,7 +87,6 @@ export interface PointerLoweringResult {
   readonly locationBindingCount: number;
   readonly inferenceStabilizationCount: number;
   readonly directObjectReplacementCount: number;
-  readonly representationTransportInlineCount: number;
   readonly runtimeAlias: string | undefined;
 }
 
@@ -133,8 +137,7 @@ function applyPointerLoweringPlan(
     plan.pointerTypes.size === 0 &&
     plan.rawPointerOperations.size === 0 &&
     plan.rawPointerTypes.size === 0 &&
-    plan.removableMarkerDeclarations.size === 0 &&
-    plan.representationTransportInlines.count === 0
+    plan.removableMarkerDeclarations.size === 0
   ) {
     return Object.freeze({
       sourceFile,
@@ -145,7 +148,6 @@ function applyPointerLoweringPlan(
       locationBindingCount: 0,
       inferenceStabilizationCount: 0,
       directObjectReplacementCount: 0,
-      representationTransportInlineCount: 0,
       runtimeAlias: undefined,
     });
   }
@@ -189,7 +191,7 @@ function createPointerRewriteSessionForPlan(
   plan: PointerLoweringPlan,
   finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
-  const consumed = createConsumptionState(plan);
+  const consumed = createConsumptionState();
   let finished = false;
   const rewrite = (
     original: Node,
@@ -238,8 +240,6 @@ function pointerLoweringResult(
     locationBindingCount: consumed.locationBindings.size,
     inferenceStabilizationCount: consumed.inferenceStabilizations.size,
     directObjectReplacementCount: consumed.directObjectReplacements.size,
-    representationTransportInlineCount:
-      consumed.representationTransportInlines.count,
     runtimeAlias: usesRuntime ? plan.runtimeAlias.text : undefined,
   });
 }
@@ -253,14 +253,11 @@ interface ConsumptionState {
   readonly removableMarkerDeclarations: Set<Node>;
   readonly inferenceStabilizations: Set<Node>;
   readonly directObjectReplacements: Set<Node>;
-  readonly representationTransportInlines: RepresentationTransportInlineSession;
   readonly pointerKeyMaps: CanonicalPointerKeyMapConsumption;
   projectedPropertyLocationClassInserted: boolean;
 }
 
-function createConsumptionState(
-  plan: PointerLoweringPlan,
-): ConsumptionState {
+function createConsumptionState(): ConsumptionState {
   return {
     operations: new Set(),
     pointerTypes: new Set(),
@@ -270,9 +267,6 @@ function createConsumptionState(
     removableMarkerDeclarations: new Set(),
     inferenceStabilizations: new Set(),
     directObjectReplacements: new Set(),
-    representationTransportInlines: createRepresentationTransportInlineSession(
-      plan.representationTransportInlines,
-    ),
     pointerKeyMaps: createCanonicalPointerKeyMapConsumption(),
     projectedPropertyLocationClassInserted: false,
   };
@@ -292,14 +286,6 @@ function rewriteNode(
     return undefined;
   }
 
-  if (consumed.representationTransportInlines.has(original)) {
-    return consumed.representationTransportInlines.rewrite(
-      original,
-      updated,
-      factory,
-    );
-  }
-
   const pointerKeyMapRewrite = plan.flowPlan?.pointerKeyMapRewriteFor(original);
   if (pointerKeyMapRewrite !== undefined) {
     return rewriteCanonicalPointerKeyMapNode(
@@ -312,7 +298,44 @@ function rewriteNode(
     );
   }
 
-  if (pruneEmptyModuleSyntax(original, updated) === undefined) {
+  const namedImports = IsNamedImports(updated) ? AsNamedImports(updated) : undefined;
+  if (namedImports !== undefined && namedImports.Elements?.Nodes.length === 0) {
+    return undefined;
+  }
+  const importClause = IsImportClause(updated) ? AsImportClause(updated) : undefined;
+  if (
+    importClause !== undefined &&
+    importClause.name === undefined &&
+    importClause.NamedBindings === undefined
+  ) {
+    return undefined;
+  }
+  const importDeclaration = IsImportDeclaration(updated)
+    ? AsImportDeclaration(updated)
+    : undefined;
+  if (
+    importDeclaration !== undefined &&
+    IsImportDeclaration(original) &&
+    AsImportDeclaration(original)?.ImportClause !== undefined &&
+    importDeclaration.ImportClause === undefined
+  ) {
+    return undefined;
+  }
+  const namedExports = IsNamedExports(updated)
+    ? AsNamedExports(updated)
+    : undefined;
+  if (namedExports !== undefined && namedExports.Elements?.Nodes.length === 0) {
+    return undefined;
+  }
+  const exportDeclaration = IsExportDeclaration(updated)
+    ? AsExportDeclaration(updated)
+    : undefined;
+  if (
+    exportDeclaration !== undefined &&
+    IsExportDeclaration(original) &&
+    AsExportDeclaration(original)?.ExportClause !== undefined &&
+    exportDeclaration.ExportClause === undefined
+  ) {
     return undefined;
   }
 
@@ -545,7 +568,6 @@ function assertCompleteConsumption(
     consumed.directObjectReplacements,
     plan.flowPlan?.directObjectReplacementsFor(plan.sourceFile).length ?? 0,
   );
-  consumed.representationTransportInlines.finish();
   if (
     consumed.projectedPropertyLocationClassInserted !==
       (plan.projectedPropertyLocationClassName !== undefined)

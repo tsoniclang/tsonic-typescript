@@ -21,7 +21,6 @@ import type {
   GeneratedBindingName,
   ProgramGeneratedNames,
 } from "../generated-names.js";
-import type { ValueStructurePlan } from "../structure/plan.js";
 
 export interface DirectObjectReplacementField {
   readonly declaration: Node;
@@ -44,7 +43,6 @@ export function planDirectObjectReplacement(
   generatedNames: ProgramGeneratedNames,
   classDeclaration: Node,
   storeCalls: readonly Node[],
-  structures?: ValueStructurePlan,
 ): DirectObjectReplacement | undefined {
   const classNode = AsClassDeclaration(classDeclaration);
   const sourceFile = source.ast.getSourceFile(classDeclaration);
@@ -79,11 +77,7 @@ export function planDirectObjectReplacement(
     constructor === undefined ||
     body === undefined ||
     !IsBlock(body) ||
-    !constructorBodyIsReplaceable(
-      source,
-      body,
-      structures?.assertionForClass(classDeclaration),
-    )
+    source.ast.statements(body).length !== 0
   ) {
     return undefined;
   }
@@ -115,16 +109,6 @@ export function planDirectObjectReplacement(
     fields,
     storeCalls: Object.freeze([...storeCalls]),
   });
-}
-
-function constructorBodyIsReplaceable(
-  source: TargetSourceProgram,
-  body: Node,
-  structureAssertion: Node | undefined,
-): boolean {
-  const statements = source.ast.statements(body);
-  return statements.length === 0 ||
-    (statements.length === 1 && statements[0] === structureAssertion);
 }
 
 function replacementFields(

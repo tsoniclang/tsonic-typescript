@@ -323,15 +323,11 @@ export const result = loadPointer(pointer);
 
 test("uses exact classes directly even when they carry value semantics", () => {
   const valueStruct = checkedPointerFixtureWithValueSemantics(`import type { Pointer } from "./markers.js";
-import { allocatePointer, field, loadPointer, struct } from "./markers.js";
-class GoStruct {
-  constructor(public value: number = 1) {
-    struct({ value: field<number>() });
-  }
-}
+import { allocatePointer, loadPointer } from "./markers.js";
+class GoStruct { value = 1; }
 const pointer: Pointer<GoStruct> = allocatePointer(new GoStruct());
 export const result = loadPointer(pointer);
-`);
+`, "GoStruct");
 
   assertRepresentations(
     valueStruct.source,

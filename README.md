@@ -69,29 +69,20 @@ The shared target-program index owns one source/node census, syntax-kind
 partitions, collision-safe authored names, and binding writes selected by the
 enabled families. Versioned evidence records exact source membership and a
 complete optimized-or-retained denominator for every family.
-Canonical constructor-local `struct(...)` assertions are planned from their
-finalized facts before pointer selection and removed in the same AST
-transaction; class shape or marker spelling is never evidence.
 Closed pointer evidence also reports the 32 largest retained class families by
 exact declaration identity, pointer-type and operation counts, and bounded
 blocker occurrences. This diagnostic is deterministic and cannot influence a
 representation decision.
 
-A closed product may additionally supply two closed callable kinds through
-`representationTransports`. A manifest-certified `generic-kernel` makes only
-its checker-identity-owned generic parameters opaque representation transport
-without exposing or inlining its body. An explicitly configured
-`inline-generic-method-call` must resolve to one checked synchronous generic
-function whose plain required parameters are all owned by its type parameters
-and whose body is exactly one receiver-parameter method call using every
-remaining parameter once in source order. The target substitutes the exact
-call arguments and preserves the helper's `void` result.
-
-Both kinds exact-join the imported module, export, declaration, and selected
-signature. Wrong-module, same-spelled, aliased, overloaded, optional,
-concrete-parameter, or body-drifted callables remain boundaries or fail the
-selected inline contract. Sealed evidence records the contract digest,
-callable denominator, selected-call count, and inline-call count.
+A closed product may additionally supply certified generic-kernel callable
+identities through `representationTransports`. The pointer planner exact-joins
+the imported module, exported declaration, selected signature, and only those
+parameters whose authored type refers to that kernel declaration's own type
+parameters. Such generic-owned values are opaque representation transport;
+concrete parameters of the same callable remain ordinary external boundaries.
+The target never infers this permission from a function name or implementation
+body, and sealed evidence records the contract digest, callable denominator,
+and exact selected-call count.
 
 ## Scalar projections
 
@@ -146,11 +137,6 @@ storage declaration is never rebound and its initializer recursively proves a
 fresh project construction. Exact project function factories and exact static
 class factories may carry that proof; shared, reassigned, recursive, indirect,
 or otherwise open factories retain canonical locations.
-
-An addressed field may use its represented object directly only when its
-containing generated value class has one exact finalized constructor-local
-`StructFact`, the fact's fields exact-join the class layout, and the complete
-field path is stable. Any missing fact or path write retains `Location<T>`.
 
 Object shape is never representation evidence. Arrays, interfaces,
 declaration-file classes, and structural wrapper shapes therefore remain

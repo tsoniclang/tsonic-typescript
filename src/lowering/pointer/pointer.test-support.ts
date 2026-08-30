@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import {
   createCompilerSessionFromFiles,
   createSourceSemanticsExtension,
+  structFactKey,
 } from "@tsonic/tsts";
 import type {
   CompilerExtension,
   Node,
   SourceFile,
+  SourceAnalysisContext,
   SourceSemanticsModule,
 } from "@tsonic/tsts";
 import {
@@ -30,12 +32,8 @@ import {
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
-import {
-  createTargetProgramIndex,
-  excludeTargetProgramIndexNodes,
-} from "../program-index.js";
+import { createTargetProgramIndex } from "../program-index.js";
 import { createProgramGeneratedNames } from "../generated-names.js";
-import { createValueStructurePlan } from "../structure/plan.js";
 import type {
   RepresentationTransportContract,
 } from "../representation/transport-contract.js";
@@ -64,8 +62,6 @@ const pointerMarkerSemantics = [{
     { kind: "call-marker", exportName: "bindRawPointer", marker: "bind-raw-pointer" },
     { kind: "call-marker", exportName: "equalRawPointer", marker: "equal-raw-pointer" },
     { kind: "call-marker", exportName: "hashRawPointer", marker: "hash-raw-pointer" },
-    { kind: "call-marker", exportName: "struct", marker: "struct" },
-    { kind: "call-marker", exportName: "field", marker: "field" },
   ],
 }] satisfies readonly SourceSemanticsModule[];
 
@@ -82,8 +78,6 @@ export declare function projectPointer<F, T>(pointer: Pointer<F> | undefined, fr
 export declare function bindRawPointer(identity: object): RawPointer;
 export declare function equalRawPointer(left: RawPointer | undefined, right: RawPointer | undefined): boolean;
 export declare function hashRawPointer(pointer: RawPointer | undefined): number;
-export declare function struct<T>(shape: T): T;
-export declare function field<T>(): T;
 export declare const ordinary: number;
 `;
 
@@ -107,28 +101,41 @@ export function createFixturePointerFlowPlan(
   source: TargetSourceProgram,
   representationTransports?: RepresentationTransportContract,
 ): ClosedPointerFlowPlan {
-  const indexedProgram = createTargetProgramIndex(source, {
+  const program = createTargetProgramIndex(source, {
     bindingWrites: true,
   });
-  const structures = createValueStructurePlan(source, indexedProgram);
-  const program = excludeTargetProgramIndexNodes(
-    indexedProgram,
-    structures.isMarkerNode,
-  );
   return createClosedPointerFlowPlan(
     source,
     program,
-    createProgramGeneratedNames(source, indexedProgram),
+    createProgramGeneratedNames(source, program),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
     representationTransports,
-    structures,
   );
 }
 
 export function checkedPointerFixtureWithValueSemantics(
   sourceText: string,
+  typeName: string,
 ): CheckedPointerFixture {
-  return checkedPointerFixture(sourceText);
+  const sourceSemantics = createSourceSemanticsExtension({
+    modules: pointerMarkerSemantics,
+  });
+  const extension: CompilerExtension = Object.freeze({
+    ...sourceSemantics,
+    analyzeSource(context: SourceAnalysisContext): void {
+      sourceSemantics.analyzeSource?.(context);
+      const declaration = findNamedTypeDeclaration(context, typeName);
+      assert.equal(
+        context.facts.set(
+          declaration,
+          structFactKey,
+          Object.freeze({ valueType: true }),
+        ),
+        "inserted",
+      );
+    },
+  });
+  return checkedPointerFixtureWithExtension(sourceText, {}, extension);
 }
 
 function checkedPointerFixtureWithExtension(
@@ -162,6 +169,34 @@ function checkedPointerFixtureWithExtension(
     source,
     sourceFile: sourceFileNamed(source, "/src/index.ts"),
   };
+}
+
+function findNamedTypeDeclaration(
+  context: SourceAnalysisContext,
+  typeName: string,
+): Node {
+  const sourceFile = context.source.getSourceFile("/src/index.ts");
+  assert.ok(sourceFile !== undefined);
+  const pending: Node[] = [sourceFile];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) {
+      continue;
+    }
+    if (
+      (context.source.ast.is.IsInterfaceDeclaration(node) ||
+        context.source.ast.is.IsClassDeclaration(node)) &&
+      context.source.ast.text(context.source.ast.name(node)) === typeName
+    ) {
+      return node;
+    }
+    for (const child of context.source.ast.children(node)) {
+      if (child !== undefined) {
+        pending.push(child);
+      }
+    }
+  }
+  assert.fail(`Missing direct-reference type declaration '${typeName}'.`);
 }
 
 export function sourceFileNamed(

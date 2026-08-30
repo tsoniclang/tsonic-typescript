@@ -1,75 +1,57 @@
-import type { Node, SourceFile, Type } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindCallExpression } from "@tsonic/tsts/target-ast";
 
 import type { PointerPlanningLedger } from "../pointer/planning-ledger.js";
 import type { TargetProgramIndex } from "../program-index.js";
 import {
+  representationTransportCallableKey,
   type RepresentationTransportContract,
 } from "./transport-contract.js";
-
-export interface InlineRepresentationTransport {
-  readonly memberName: string;
-  readonly parameterCount: number;
-}
-
-export interface RepresentationTransportCall {
-  readonly transportedParameters: ReadonlySet<Node>;
-  readonly inline: InlineRepresentationTransport | undefined;
-}
-
-interface ImportedCallableIdentity {
-  readonly moduleSpecifier: string;
-  readonly exportName: string;
-  readonly bindingDeclaration: Node;
-}
 
 export function selectRepresentationTransportCalls(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   contract: RepresentationTransportContract,
   ledger: PointerPlanningLedger,
-): ReadonlyMap<Node, RepresentationTransportCall> {
+): ReadonlyMap<Node, ReadonlySet<Node>> {
   if (contract.callables.length === 0) {
-    return new Map<Node, RepresentationTransportCall>();
+    return new Map<Node, ReadonlySet<Node>>();
   }
+  const certified = new Set(contract.callables.map(
+    representationTransportCallableKey,
+  ));
   const namespaceModules = collectNamespaceModules(source, ledger);
-  const namedImports = collectNamedImports(source, ledger);
-  const selected = new Map<Node, RepresentationTransportCall>();
+  const selected = new Map<Node, ReadonlySet<Node>>();
   for (const node of program.nodesOfKind(KindCallExpression)) {
     ledger.record("flow-census");
     const call = source.ast.as.AsCallExpression(node);
     const target = call?.Expression;
-    if (target === undefined) {
+    if (
+      target === undefined ||
+      !source.ast.is.IsPropertyAccessExpression(target)
+    ) {
+      continue;
+    }
+    const access = source.ast.as.AsPropertyAccessExpression(target);
+    if (
+      access?.Expression === undefined ||
+      access.name === undefined ||
+      !source.ast.is.IsIdentifier(access.Expression)
+    ) {
       continue;
     }
     const sourceFile = source.ast.getSourceFile(node);
-    if (sourceFile === undefined) {
-      continue;
-    }
-    const identities = importedCallableIdentities(
-      source,
-      sourceFile,
-      target,
-      namespaceModules,
-      namedImports,
+    const receiverReference = source.navigation.sourceReferenceFor(
+      access.Expression,
     );
-    if (identities.length === 0) {
-      continue;
-    }
-    const matches = contract.callables.filter((callable) =>
-      identities.some((identity) =>
-        identity.moduleSpecifier === callable.moduleSpecifier &&
-        identity.exportName === callable.exportName
-      )
-    );
-    if (matches.length > 1) {
-      throw new Error(
-        "representation transport call has ambiguous certified ownership",
-      );
-    }
-    const callable = matches[0];
-    if (callable === undefined) {
+    const moduleSpecifiers = sourceFile === undefined ||
+        receiverReference !== undefined
+      ? undefined
+      : namespaceModules.get(sourceFile)?.get(
+          source.ast.text(access.Expression),
+        );
+    if (moduleSpecifiers === undefined) {
       continue;
     }
     const semantics = source.semantics.forNode(node);
@@ -77,161 +59,41 @@ export function selectRepresentationTransportCalls(
     const selectedDeclaration = info?.sourceSelectedSignatureKind === "resolved"
       ? semantics.declarations.signatureDeclaration(info.selectedSignature)
       : undefined;
-    if (selectedDeclaration === undefined || info === undefined) {
-      continue;
-    }
+    const targetDeclaration = source.navigation.sourceReferenceFor(target)?.declaration;
     if (
-      source.ast.is.IsPropertyAccessExpression(target) &&
-      source.navigation.sourceReferenceFor(target)?.declaration !==
-        selectedDeclaration
+      selectedDeclaration === undefined ||
+      targetDeclaration !== selectedDeclaration
     ) {
       continue;
-    }
-    const parameters = info.sourceSelectedSignatureParameters.map((parameter) =>
-      parameter.parameterDeclaration
-    );
-    const transportedParameters = representationTransportParameters(
-      source,
-      selectedDeclaration,
-      parameters,
-      ledger,
-    );
-    if (transportedParameters.size === 0) {
-      continue;
-    }
-    const inline = callable.kind === "inline-generic-method-call"
-      ? inlineGenericMethodTransport(
-          source,
-          selectedDeclaration,
-          parameters,
-          transportedParameters,
-        )
-      : undefined;
-    selected.set(node, Object.freeze({
-      transportedParameters,
-      inline,
-    }));
-  }
-  return selected;
-}
-
-function importedCallableIdentities(
-  source: TargetSourceProgram,
-  sourceFile: SourceFile,
-  target: Node,
-  namespaceModules: ReadonlyMap<
-    SourceFile,
-    ReadonlyMap<string, ReadonlySet<string>>
-  >,
-  namedImports: ReadonlyMap<
-    SourceFile,
-    ReadonlyMap<string, readonly ImportedCallableIdentity[]>
-  >,
-): readonly ImportedCallableIdentity[] {
-  if (source.ast.is.IsPropertyAccessExpression(target)) {
-    const access = source.ast.as.AsPropertyAccessExpression(target);
-    if (
-      access?.Expression === undefined ||
-      access.name === undefined ||
-      !source.ast.is.IsIdentifier(access.Expression) ||
-      source.navigation.sourceReferenceFor(access.Expression) !== undefined
-    ) {
-      return [];
     }
     const exportName = source.ast.text(access.name);
-    return [...(namespaceModules.get(sourceFile)?.get(
-      source.ast.text(access.Expression),
-    ) ?? [])].map((moduleSpecifier) => Object.freeze({
-      moduleSpecifier,
-      exportName,
-      bindingDeclaration: access.Expression as Node,
-    }));
-  }
-  if (!source.ast.is.IsIdentifier(target)) {
-    return [];
-  }
-  const declaration = source.navigation.sourceReferenceFor(target)?.declaration;
-  if (declaration === undefined) {
-    return [];
-  }
-  return (namedImports.get(sourceFile)?.get(source.ast.text(target)) ?? [])
-    .filter((identity) => identity.bindingDeclaration === declaration);
-}
-
-function inlineGenericMethodTransport(
-  source: TargetSourceProgram,
-  declarationNode: Node,
-  parameters: readonly (Node | undefined)[],
-  transportedParameters: ReadonlySet<Node>,
-): InlineRepresentationTransport {
-  const declaration = source.ast.as.AsFunctionDeclaration(declarationNode);
-  const parameterDeclarations = parameters.map((parameter) =>
-    parameter === undefined
-      ? undefined
-      : source.ast.as.AsParameterDeclaration(parameter)
-  );
-  const body = declaration?.Body;
-  const statements = body !== undefined && source.ast.is.IsBlock(body)
-    ? source.ast.as.AsBlock(body)?.Statements?.Nodes ?? []
-    : [];
-  const statement = statements.length === 1
-    ? source.ast.as.AsExpressionStatement(statements[0])
-    : undefined;
-  const bodyCall = statement?.Expression === undefined
-    ? undefined
-    : source.ast.as.AsCallExpression(statement.Expression);
-  const access = bodyCall?.Expression === undefined ||
-      !source.ast.is.IsPropertyAccessExpression(bodyCall.Expression)
-    ? undefined
-    : source.ast.as.AsPropertyAccessExpression(bodyCall.Expression);
-  const bodyArguments = bodyCall?.Arguments?.Nodes ?? [];
-  if (
-    declaration === undefined ||
-    declaration.AsteriskToken !== undefined ||
-    source.ast.hasModifierKind(declarationNode, "async") ||
-    parameters.length < 2 ||
-    parameterDeclarations.some((parameter, index) =>
-      parameter === undefined ||
-      parameters[index] === undefined ||
-      source.ast.parent(parameters[index]) !== declarationNode ||
-      parameter.DotDotDotToken !== undefined ||
-      parameter.QuestionToken !== undefined ||
-      parameter.Initializer !== undefined ||
-      source.ast.modifiers(parameters[index]).length !== 0
-    ) ||
-    transportedParameters.size !== parameters.length ||
-    access?.Expression === undefined ||
-    access.name === undefined ||
-    !source.ast.is.IsIdentifier(access.Expression) ||
-    !source.ast.is.IsIdentifier(access.name) ||
-    access.QuestionDotToken !== undefined ||
-    bodyCall?.QuestionDotToken !== undefined ||
-    (bodyCall?.TypeArguments?.Nodes.length ?? 0) !== 0 ||
-    bodyArguments.length !== parameters.length - 1 ||
-    !referencesDeclaration(source, access.Expression, parameters[0]) ||
-    bodyArguments.some((argument, index) =>
-      argument === undefined ||
-      !source.ast.is.IsIdentifier(argument) ||
-      !referencesDeclaration(source, argument, parameters[index + 1])
-    )
-  ) {
-    throw new Error(
-      "inline representation transport must have one exact single generic method-call body",
+    const matches = [...moduleSpecifiers].filter((moduleSpecifier) =>
+      certified.has(representationTransportCallableKey({
+        kind: "generic-kernel",
+        moduleSpecifier,
+        exportName,
+      }))
     );
+    if (matches.length > 1) {
+      throw new Error(
+        `representation transport call '${exportName}' has ambiguous certified module ownership`,
+      );
+    }
+    if (matches.length === 1 && info !== undefined) {
+      const transportedParameters = representationTransportParameters(
+        source,
+        selectedDeclaration,
+        info.sourceSelectedSignatureParameters.map((parameter) =>
+          parameter.parameterDeclaration
+        ),
+        ledger,
+      );
+      if (transportedParameters.size !== 0) {
+        selected.set(node, transportedParameters);
+      }
+    }
   }
-  return Object.freeze({
-    memberName: source.ast.text(access.name),
-    parameterCount: parameters.length,
-  });
-}
-
-function referencesDeclaration(
-  source: TargetSourceProgram,
-  reference: Node,
-  declaration: Node | undefined,
-): boolean {
-  return declaration !== undefined &&
-    source.navigation.sourceReferenceFor(reference)?.declaration === declaration;
+  return selected;
 }
 
 function representationTransportParameters(
@@ -240,17 +102,13 @@ function representationTransportParameters(
   parameters: readonly (Node | undefined)[],
   ledger: PointerPlanningLedger,
 ): ReadonlySet<Node> {
-  const semantics = source.semantics.forNode(selectedDeclaration);
-  const typeParameterTypes: Type[] = [];
+  const typeParameterNames = new Set<string>();
   for (const parameter of source.ast.typeParameters(selectedDeclaration)) {
-    const type = parameter === undefined
-      ? undefined
-      : semantics.declarations.declaredType(parameter);
-    if (type !== undefined) {
-      typeParameterTypes.push(type);
+    if (parameter !== undefined) {
+      typeParameterNames.add(source.ast.text(source.ast.name(parameter)));
     }
   }
-  if (typeParameterTypes.length === 0) {
+  if (typeParameterNames.size === 0) {
     return new Set<Node>();
   }
   const result = new Set<Node>();
@@ -262,7 +120,7 @@ function representationTransportParameters(
       referencesOwnedTypeParameter(
         source,
         source.ast.typeNode(parameter),
-        typeParameterTypes,
+        typeParameterNames,
         ledger,
       )
     ) {
@@ -275,7 +133,7 @@ function representationTransportParameters(
 function referencesOwnedTypeParameter(
   source: TargetSourceProgram,
   root: Node | undefined,
-  typeParameterTypes: readonly Type[],
+  typeParameterNames: ReadonlySet<string>,
   ledger: PointerPlanningLedger,
 ): boolean {
   if (root === undefined) {
@@ -284,7 +142,7 @@ function referencesOwnedTypeParameter(
   const evidence = inspectTypeParameterReferences(
     source,
     root,
-    typeParameterTypes,
+    typeParameterNames,
     ledger,
   );
   return evidence.owned && !evidence.nestedDeclaration;
@@ -298,25 +156,25 @@ interface TypeParameterReferenceEvidence {
 function inspectTypeParameterReferences(
   source: TargetSourceProgram,
   root: Node,
-  typeParameterTypes: readonly Type[],
+  typeParameterNames: ReadonlySet<string>,
   ledger: PointerPlanningLedger,
 ): TypeParameterReferenceEvidence {
   ledger.record("flow-census");
   let owned = false;
   let nestedDeclaration = source.ast.is.IsTypeParameterDeclaration(root);
   if (source.ast.is.IsTypeReferenceNode(root)) {
-    const semantics = source.semantics.forNode(root);
-    const selectedType = semantics.types.authoredType(root);
-    owned = selectedType !== undefined && typeParameterTypes.some(
-      (parameterType) => semantics.types.isIdentical(selectedType, parameterType),
-    );
+    const typeName = source.ast.as.AsTypeReferenceNode(root)?.TypeName;
+    owned =
+      typeName !== undefined &&
+      source.ast.is.IsIdentifier(typeName) &&
+      typeParameterNames.has(source.ast.text(typeName));
   }
   for (const child of source.ast.children(root)) {
     if (child !== undefined) {
       const childEvidence = inspectTypeParameterReferences(
         source,
         child,
-        typeParameterTypes,
+        typeParameterNames,
         ledger,
       );
       owned ||= childEvidence.owned;
@@ -337,107 +195,48 @@ function collectNamespaceModules(
       if (!source.ast.is.IsImportDeclaration(statement)) {
         continue;
       }
-      const declaration = source.ast.as.AsImportDeclaration(statement);
-      const clause = declaration?.ImportClause === undefined
-        ? undefined
-        : source.ast.as.AsImportClause(declaration.ImportClause);
-      const binding = clause?.NamedBindings;
-      if (
-        binding === undefined ||
-        !source.ast.is.IsNamespaceImport(binding) ||
-        declaration?.ModuleSpecifier === undefined
-      ) {
-        continue;
+      if (statement !== undefined) {
+        collectNamespaceModule(source, sourceFile, statement, result);
       }
-      const name = source.ast.name(binding);
-      if (name === undefined) {
-        continue;
-      }
-      const byName = mapEntry(result, sourceFile, () => new Map());
-      const modules = mapEntry(
-        byName,
-        source.ast.text(name),
-        () => new Set<string>(),
-      );
-      modules.add(source.ast.text(declaration.ModuleSpecifier));
     }
   }
   return result;
 }
 
-function collectNamedImports(
+function collectNamespaceModule(
   source: TargetSourceProgram,
-  ledger: PointerPlanningLedger,
-): ReadonlyMap<
-  SourceFile,
-  ReadonlyMap<string, readonly ImportedCallableIdentity[]>
-> {
-  const result = new Map<
-    SourceFile,
-    Map<string, ImportedCallableIdentity[]>
-  >();
-  for (const sourceFile of source.navigation.sourceFiles) {
-    for (const statement of sourceFile.Statements?.Nodes ?? []) {
-      ledger.record("flow-census");
-      if (!source.ast.is.IsImportDeclaration(statement)) {
-        continue;
-      }
-      const declaration = source.ast.as.AsImportDeclaration(statement);
-      const clause = declaration?.ImportClause === undefined
-        ? undefined
-        : source.ast.as.AsImportClause(declaration.ImportClause);
-      const binding = clause?.NamedBindings;
-      if (
-        binding === undefined ||
-        !source.ast.is.IsNamedImports(binding) ||
-        declaration?.ModuleSpecifier === undefined
-      ) {
-        continue;
-      }
-      for (
-        const elementNode of
-          source.ast.as.AsNamedImports(binding)?.Elements?.Nodes ?? []
-      ) {
-        const element = source.ast.as.AsImportSpecifier(elementNode);
-        const localName = source.ast.name(elementNode);
-        if (
-          element === undefined ||
-          element.IsTypeOnly ||
-          localName === undefined
-        ) {
-          continue;
-        }
-        const bindingDeclaration =
-          source.navigation.sourceReferenceFor(localName)?.declaration ??
-            elementNode;
-        const identity = Object.freeze({
-          moduleSpecifier: source.ast.text(declaration.ModuleSpecifier),
-          exportName: source.ast.text(element.PropertyName ?? localName),
-          bindingDeclaration,
-        });
-        const byName = mapEntry(result, sourceFile, () => new Map());
-        const entries = mapEntry(
-          byName,
-          source.ast.text(localName),
-          () => [] as ImportedCallableIdentity[],
-        );
-        entries.push(identity);
-      }
-    }
+  sourceFile: SourceFile,
+  statement: Node,
+  result: Map<SourceFile, Map<string, Set<string>>>,
+): void {
+  const declaration = source.ast.as.AsImportDeclaration(statement);
+  const clause = declaration?.ImportClause === undefined
+    ? undefined
+    : source.ast.as.AsImportClause(declaration.ImportClause);
+  const binding = clause?.NamedBindings;
+  if (
+    binding === undefined ||
+    !source.ast.is.IsNamespaceImport(binding) ||
+    declaration?.ModuleSpecifier === undefined ||
+    source.ast.getSourceFile(statement) !== sourceFile
+  ) {
+    return;
   }
-  return result;
-}
-
-function mapEntry<K, V>(
-  map: Map<K, V>,
-  key: K,
-  create: () => V,
-): V {
-  const existing = map.get(key);
-  if (existing !== undefined) {
-    return existing;
+  const name = source.ast.name(binding);
+  if (name === undefined) {
+    return;
   }
-  const value = create();
-  map.set(key, value);
-  return value;
+  const moduleSpecifier = source.ast.text(declaration.ModuleSpecifier);
+  let byName = result.get(sourceFile);
+  if (byName === undefined) {
+    byName = new Map();
+    result.set(sourceFile, byName);
+  }
+  const localName = source.ast.text(name);
+  const existing = byName.get(localName);
+  if (existing === undefined) {
+    byName.set(localName, new Set([moduleSpecifier]));
+  } else {
+    existing.add(moduleSpecifier);
+  }
 }

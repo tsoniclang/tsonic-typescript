@@ -21,16 +21,6 @@ foil, and generated-name collision. Scalar and representation mutations must cov
 open consumer, observable nominal identity, missed store, mismatched AST kind,
 duplicate plan consumption, and omitted call-site rewrite.
 
-Value-structure proof must use finalized canonical `StructFact` and field facts
-from actual marker calls, never injected test facts. Named, anonymous, generic,
-embedded, empty, direct-layout, and storage-layout fixtures exact-join the
-constructor assertion to its containing class and prove its removal before
-printing. Missing, duplicate, reordered, mistyped, non-constructor, local same-
-spelled, and unconsumed marker mutations fail closed. Interior-field pointer
-fixtures cover same-owner equality, distinct copied-owner inequality, whole-
-owner replacement, direct field/root writes, absent facts, reference-semantic
-owners, and mismatched pointee types.
-
 Replacement proof must also combine two disconnected flows of one exact class:
 one unstable component remains canonical while one stable addressed component
 uses the replacement. Suppressing the stable component because of its sibling,
@@ -38,20 +28,12 @@ or optimizing the unstable sibling, must fail at the focused planner gate.
 
 Representation-transport proof must compare the canonical external boundary
 with one certified generic kernel. The exact module, export, declaration,
-selected signature, and checker-identity-owned generic parameter become
-transparent while a concrete pointer parameter on that same callable remains
-canonical. Wrong module, wrong export, local same-spelled callable, duplicate
-contract entry, noncanonical order, absent type parameter, and ambiguous
-ownership mutations must fail or retain the boundary.
-
-Inline-transport proof additionally requires one exact checked method-call
-body, one evaluation of receiver and each argument in source order, preserved
-`void` result, strict printed output, and executable differential behavior.
-Aliased and overloaded targets, async/generator declarations, optional/rest/
-initialized or concrete parameters, optional calls, multi-statement bodies,
-body drift, omission, and duplicate consumption must fail at their owner. The
-sealed contract digest, callable count, nonzero selected-call count, and
-nonzero inline-call count are independently joined by product assembly.
+selected signature, and generic-owned parameter become transparent while a
+concrete pointer parameter on that same callable remains canonical. Wrong
+module, wrong export, local same-spelled callable, duplicate contract entry,
+noncanonical order, absent type parameter, and ambiguous ownership mutations
+must fail or retain the boundary. The sealed contract digest, callable count,
+and nonzero selected-call count are independently joined by product assembly.
 
 ## Transaction Proof
 

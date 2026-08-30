@@ -1,14 +1,10 @@
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import {
-  AsPropertyAccessExpression,
   IsDecorator,
-  IsPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
-import type { ValueStructurePlan } from "../structure/plan.js";
 import { transparentExpression } from "./flow-syntax.js";
-import { describePointerPointee } from "./pointee-classification.js";
 import type { PointerPlanningLedger } from "./planning-ledger.js";
 
 export function nonBijectiveIdentityOccurrences(
@@ -17,7 +13,6 @@ export function nonBijectiveIdentityOccurrences(
   operations: Iterable<PointerOperationFact>,
   hasBindingWrite: (declaration: Node | undefined) => boolean,
   ledger: PointerPlanningLedger,
-  structures?: ValueStructurePlan,
 ): readonly Node[] {
   const operationsList = [...operations];
   let observesIdentity = false;
@@ -44,7 +39,6 @@ export function nonBijectiveIdentityOccurrences(
         familyIdentity,
         operation,
         proof,
-        structures,
       )
     ) {
       failures.push(operation.call);
@@ -68,7 +62,6 @@ function isFreshAddressedStorage(
   familyIdentity: Node,
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
   proof: FreshFamilyProof,
-  structures?: ValueStructurePlan,
 ): boolean {
   proof.ledger.record("direct-family");
   const declaration = operation.storageDeclaration;
@@ -76,118 +69,10 @@ function isFreshAddressedStorage(
     ? undefined
     : source.ast.as.AsVariableDeclaration(declaration);
   const initializer = variable?.Initializer;
-  if (declaration !== undefined &&
+  return declaration !== undefined &&
     initializer !== undefined &&
     !proof.hasBindingWrite(declaration) &&
-    isFreshFamilyValue(source, familyIdentity, initializer, proof)) {
-    return true;
-  }
-  return structures !== undefined && isFreshStructuredFieldStorage(
-    source,
-    familyIdentity,
-    operation,
-    proof,
-    structures,
-  );
-}
-
-function isFreshStructuredFieldStorage(
-  source: TargetSourceProgram,
-  familyIdentity: Node,
-  operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
-  proof: FreshFamilyProof,
-  structures: ValueStructurePlan,
-): boolean {
-  proof.ledger.record("direct-family");
-  const storage = transparentExpression(source, operation.storageExpression);
-  const property = storage !== undefined && IsPropertyAccessExpression(storage)
-    ? AsPropertyAccessExpression(storage)
-    : undefined;
-  const declaration = source.navigation.sourceReferenceFor(storage)?.declaration;
-  const field = structures.directFieldFor(declaration);
-  const constructorDeclaration = declaration === undefined
-    ? undefined
-    : source.ast.parent(declaration);
-  const classDeclaration = source.ast.parent(constructorDeclaration);
-  const structure = structures.structureForClass(classDeclaration);
-  const familyStructure = structures.structureForClass(familyIdentity);
-  if (
-    property?.Expression === undefined ||
-    declaration === undefined ||
-    operation.storageDeclaration !== declaration ||
-    field === undefined ||
-    structure === undefined ||
-    !structure.directLayout ||
-    familyStructure === undefined ||
-    !familyStructure.directLayout ||
-    structure.constructorDeclaration !== constructorDeclaration ||
-    proof.hasBindingWrite(declaration) ||
-    !fieldTargetsFamily(source, field.type, familyIdentity)
-  ) {
-    return false;
-  }
-  const owner = transparentExpression(source, property.Expression);
-  const ownerDeclaration = source.navigation.sourceReferenceFor(owner)?.declaration;
-  const ownerVariable = ownerDeclaration === undefined
-    ? undefined
-    : source.ast.as.AsVariableDeclaration(ownerDeclaration);
-  const ownerInitializer = transparentExpression(
-    source,
-    ownerVariable?.Initializer,
-  );
-  if (
-    ownerDeclaration === undefined ||
-    ownerVariable?.Initializer === undefined ||
-    ownerInitializer === undefined ||
-    !source.ast.is.IsNewExpression(ownerInitializer) ||
-    proof.hasBindingWrite(ownerDeclaration) ||
-    !newExpressionTargets(
-      source,
-      ownerInitializer,
-      structure.classDeclaration,
-      structure.constructorDeclaration,
-    )
-  ) {
-    return false;
-  }
-  const parameterIndex = source.ast.parameters(structure.constructorDeclaration)
-    .findIndex((parameter) => parameter === declaration);
-  const argument = source.ast.as.AsNewExpression(ownerInitializer)
-    ?.Arguments?.Nodes[parameterIndex];
-  return parameterIndex >= 0 &&
-    argument !== undefined &&
-    isFreshFamilyValue(source, familyIdentity, argument, proof);
-}
-
-function fieldTargetsFamily(
-  source: TargetSourceProgram,
-  typeNode: Node,
-  familyIdentity: Node,
-): boolean {
-  const semantics = source.semantics.forNode(typeNode);
-  const type = semantics.types.authoredType(typeNode);
-  const description = type === undefined
-    ? undefined
-    : describePointerPointee(source, typeNode, type);
-  return description?.category === "direct-reference" &&
-    description.identity === familyIdentity;
-}
-
-function newExpressionTargets(
-  source: TargetSourceProgram,
-  expression: Node,
-  classDeclaration: Node,
-  constructorDeclaration: Node,
-): boolean {
-  const construction = source.ast.as.AsNewExpression(expression);
-  const target = transparentExpression(source, construction?.Expression);
-  const reference = source.navigation.sourceReferenceFor(target);
-  const semantics = source.semantics.forNode(expression);
-  const signature = semantics.operations.call(expression)?.selectedSignature;
-  return reference?.project === true &&
-    reference.declaration === classDeclaration &&
-    signature !== undefined &&
-    semantics.declarations.signatureDeclaration(signature) === constructorDeclaration;
+    isFreshFamilyValue(source, familyIdentity, initializer, proof);
 }
 
 interface FreshFamilyProof {

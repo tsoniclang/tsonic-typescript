@@ -33,12 +33,9 @@ function readCallable(
   const kind = value["kind"];
   const moduleSpecifier = value["moduleSpecifier"];
   const exportName = value["exportName"];
-  if (
-    kind !== "generic-kernel" &&
-    kind !== "inline-generic-method-call"
-  ) {
+  if (kind !== "generic-kernel") {
     throw new Error(
-      `representation transport callable ${index} kind is unsupported`,
+      `representation transport callable ${index} kind must be 'generic-kernel'`,
     );
   }
   if (typeof moduleSpecifier !== "string" || moduleSpecifier.length === 0) {

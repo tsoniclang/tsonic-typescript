@@ -24,10 +24,7 @@ import {
   createTypeScriptOptimizationProfile,
   type TypeScriptOptimizationProfileInput,
 } from "./profile.js";
-import {
-  createTargetProgramIndex,
-  excludeTargetProgramIndexNodes,
-} from "./program-index.js";
+import { createTargetProgramIndex } from "./program-index.js";
 import {
   sourceExecutionViolations,
   type TypeScriptSourceExecutionProfile,
@@ -48,18 +45,9 @@ import {
   type ScalarRepresentationRewriter,
   type ScalarRepresentationRewriteResult,
 } from "./scalar/transform.js";
-import {
-  createValueStructurePlan,
-} from "./structure/plan.js";
-import {
-  createValueStructureRewriteSession,
-  type ValueStructureLoweringResult,
-  type ValueStructureRewriteSession,
-} from "./structure/transform.js";
 
 export interface TypeScriptSourceLoweringResult {
   readonly sourceFile: SourceFile;
-  readonly structure: ValueStructureLoweringResult;
   readonly pointer: PointerLoweringResult;
   readonly scalar: ScalarRepresentationRewriteResult;
   readonly representation: RepresentationProjectionRewriteResult;
@@ -88,7 +76,6 @@ export interface TypeScriptLoweringTransaction {
 
 interface SourceRewritePlan {
   readonly finalNodes: FinalNodeJournal;
-  readonly structure: ValueStructureRewriteSession;
   readonly pointer: PointerRewriteSession;
   readonly scalar: ScalarRepresentationRewriter;
   readonly representation: RepresentationProjectionRewriter;
@@ -111,14 +98,14 @@ export function prepareTypeScriptLowering(
   assertExactSourceMembership(source, sourceFiles);
   const profile = createTypeScriptOptimizationProfile(profileInput);
   const identities = collectSourceIdentities(sourceFiles, sourceIdentityFor);
-  const indexedProgram = createTargetProgramIndex(source, {
+  const program = createTargetProgramIndex(source, {
     bindingWrites: profile.pointerFlows === "closed-direct" ||
       profile.scalarProjections === "closed-direct" ||
       profile.representationProjections === "closed-direct",
   });
   const executionFailures = sourceExecutionViolations(
     source,
-    indexedProgram,
+    program,
     execution,
   );
   if (executionFailures.length !== 0) {
@@ -132,12 +119,7 @@ export function prepareTypeScriptLowering(
       )),
     });
   }
-  const structurePlan = createValueStructurePlan(source, indexedProgram);
-  const program = excludeTargetProgramIndexNodes(
-    indexedProgram,
-    structurePlan.isMarkerNode,
-  );
-  const generatedNames = createProgramGeneratedNames(source, indexedProgram);
+  const generatedNames = createProgramGeneratedNames(source, program);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
     ? createClosedPointerFlowPlan(
         source,
@@ -145,7 +127,6 @@ export function prepareTypeScriptLowering(
         generatedNames,
         identities.forFile,
         representationTransports,
-        structurePlan,
       )
     : undefined;
   const pointerProjectionCallables = createPointerProjectionCallablePlan(
@@ -170,8 +151,7 @@ export function prepareTypeScriptLowering(
     execution,
     profile,
     identities.membership,
-    indexedProgram.operations,
-    structurePlan,
+    program.operations,
     pointerFlowPlan,
     pointerProjectionCallables,
     scalarPlan,
@@ -185,10 +165,6 @@ export function prepareTypeScriptLowering(
       const finalNodes = createFinalNodeJournal();
       plans.set(sourceFile, Object.freeze({
         finalNodes,
-        structure: createValueStructureRewriteSession(
-          structurePlan,
-          sourceFile,
-        ),
         pointer: createPointerRewriteSession(
           source,
           sourceFile,
@@ -283,17 +259,9 @@ function createTransaction(
       const transformed = transformTargetSourceFile(
         sourceFile,
         (original: Node, updated, factory) => {
-          const structureResult = plan.structure.rewrite(
-            original,
-            updated,
-            factory,
-          );
-          if (structureResult === undefined) {
-            return plan.finalNodes.record(original, undefined);
-          }
           const pointerResult = plan.pointer.rewrite(
             original,
-            structureResult,
+            updated,
             factory,
           );
           if (pointerResult === undefined) {
@@ -315,13 +283,11 @@ function createTransaction(
           return plan.finalNodes.record(original, representationResult);
         },
       );
-      const structure = plan.structure.finish(transformed);
-      const pointer = plan.pointer.finish(structure.sourceFile);
+      const pointer = plan.pointer.finish(transformed);
       const scalar = plan.scalar.finish(pointer.sourceFile);
       const representation = plan.representation.finish(scalar.sourceFile);
       return Object.freeze({
         sourceFile: representation.sourceFile,
-        structure,
         pointer,
         scalar,
         representation,

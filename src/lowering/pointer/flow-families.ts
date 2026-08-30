@@ -34,7 +34,6 @@ import {
 } from "./flow-family-state.js";
 import { describePointerPointee } from "./pointee-classification.js";
 import type { PointerPlanningLedger } from "./planning-ledger.js";
-import type { ValueStructurePlan } from "../structure/plan.js";
 
 export interface DirectReferenceFamilyPlan {
   readonly representations: ReadonlyMap<Node, DirectReferenceFamilyDecision>;
@@ -60,7 +59,6 @@ export function planDirectReferenceFamilies(
   components: readonly PointerFlowComponent[],
   facts: PointerTypedFactLedger,
   ledger: PointerPlanningLedger,
-  structures?: ValueStructurePlan,
 ): DirectReferenceFamilyPlan {
   const families = new Map<Node, MutableDirectReferenceFamily>();
   const operationFamilies = new Map<Node, MutableDirectReferenceFamily>();
@@ -105,7 +103,6 @@ export function planDirectReferenceFamilies(
     families,
     replacementCandidates,
     ledger,
-    structures,
   );
   applyIdentityBoundaries(
     source,
@@ -113,7 +110,6 @@ export function planDirectReferenceFamilies(
     familyRepresentations,
     program.hasBindingWrite,
     ledger,
-    structures,
   );
   const representations = new Map<Node, DirectReferenceFamilyDecision>();
   const canonicalRetentions = new Map<
@@ -336,7 +332,6 @@ function applyIdentityBoundaries(
   >,
   hasBindingWrite: (declaration: Node | undefined) => boolean,
   ledger: PointerPlanningLedger,
-  structures?: ValueStructurePlan,
 ): void {
   for (const family of families.values()) {
     ledger.record("direct-family");
@@ -349,7 +344,6 @@ function applyIdentityBoundaries(
       family.operations.values(),
       hasBindingWrite,
       ledger,
-      structures,
     )) {
       ledger.record("direct-family");
       blockFamily(family, "non-bijective-identity", occurrence);
@@ -392,7 +386,6 @@ function selectFamilyRepresentations(
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
   replacements: Map<MutableDirectReferenceFamily, DirectObjectReplacement>,
   ledger: PointerPlanningLedger,
-  structures?: ValueStructurePlan,
 ): ReadonlyMap<
   MutableDirectReferenceFamily,
   DirectReferenceFamilyRepresentation
@@ -440,7 +433,6 @@ function selectFamilyRepresentations(
         generatedNames,
         family.identity,
         stores.map((store) => store.call),
-        structures,
       );
       if (replacement === undefined) {
         for (const store of stores) {

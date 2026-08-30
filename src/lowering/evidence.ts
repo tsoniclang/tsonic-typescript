@@ -30,7 +30,6 @@ import type {
   ScalarProjectionRetentionReason,
   ScalarRepresentationPlan,
 } from "./scalar/plan.js";
-import type { ValueStructurePlan } from "./structure/plan.js";
 
 export interface OptimizationCount<Value extends string> {
   readonly value: Value;
@@ -124,15 +123,11 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 31;
+  readonly schemaVersion: 29;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
-  readonly valueStructures: {
-    readonly assertionCount: number;
-    readonly directLayoutCount: number;
-  };
   readonly pointer: PointerOptimizationEvidence;
   readonly scalar: ScalarOptimizationEvidence;
   readonly representationProjections: RepresentationProjectionOptimizationEvidence;
@@ -140,7 +135,6 @@ export interface TypeScriptOptimizationEvidence {
     readonly digest: string;
     readonly contractCount: number;
     readonly selectedCallCount: number;
-    readonly inlineCallCount: number;
   };
 }
 
@@ -149,7 +143,6 @@ export function createTypeScriptOptimizationEvidence(
   profile: TypeScriptOptimizationProfile,
   sourceMembership: readonly string[],
   programIndex: TargetProgramIndexOperations,
-  structures: ValueStructurePlan,
   pointerPlan: ClosedPointerFlowPlan | undefined,
   pointerProjectionCallables: PointerProjectionCallablePlan,
   scalarPlan: ScalarRepresentationPlan,
@@ -158,15 +151,11 @@ export function createTypeScriptOptimizationEvidence(
     canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 31 as const,
+    schemaVersion: 29 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
-    valueStructures: Object.freeze({
-      assertionCount: structures.assertionCount,
-      directLayoutCount: structures.directLayoutCount,
-    }),
     pointer: pointerEvidence(
       profile,
       pointerPlan,
@@ -181,8 +170,6 @@ export function createTypeScriptOptimizationEvidence(
       digest: representationTransports.digest,
       contractCount: representationTransports.callables.length,
       selectedCallCount: pointerPlan?.representationTransportCallCount ?? 0,
-      inlineCallCount:
-        pointerPlan?.representationTransportInlineCount ?? 0,
     }),
   });
 }
