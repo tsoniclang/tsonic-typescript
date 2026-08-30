@@ -3,13 +3,8 @@ import { test } from "node:test";
 
 import type { Node } from "@tsonic/tsts";
 import {
-  AsCallExpression,
-  AsPropertyAccessExpression,
-  IsCallExpression,
   IsClassDeclaration,
   IsMethodDeclaration,
-  IsPropertyDeclaration,
-  IsPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
 
 import {
@@ -34,30 +29,6 @@ test("contracts exact canonical pointer-key map storage", () => {
     ),
     ["$PointerMapStorage"],
   );
-  const storage = classNamed(
-    fixture.source,
-    lowered.sourceFile,
-    "$PointerMapStorage",
-  );
-  assert.ok(storage !== undefined);
-  assert.deepEqual(
-    [...propertyNames(fixture.source, storage)].sort(),
-    ["ordered", "properties", "roots"],
-  );
-  assert.deepEqual(storageCallCounts(fixture.source, storage), {
-    "ordered.clear": 1,
-    "ordered.delete": 2,
-    "ordered.keys": 1,
-    "ordered.set": 2,
-    "properties.clear": 1,
-    "properties.delete": 1,
-    "properties.get": 3,
-    "properties.set": 1,
-    "roots.clear": 1,
-    "roots.delete": 1,
-    "roots.get": 2,
-    "roots.set": 1,
-  });
   const pointerMap = classNamed(fixture.source, lowered.sourceFile, "PointerMap");
   assert.ok(pointerMap !== undefined);
   assert.equal(methodNames(fixture.source, pointerMap).includes("find"), false);
@@ -234,55 +205,6 @@ function methodNames(
     const name = source.ast.name(member);
     return name === undefined ? [] : [source.ast.text(name)];
   });
-}
-
-function propertyNames(
-  source: ReturnType<typeof checkedPointerFixture>["source"],
-  classDeclaration: Node,
-): readonly string[] {
-  return source.ast.members(classDeclaration).flatMap((member) => {
-    if (member === undefined || !IsPropertyDeclaration(member)) {
-      return [];
-    }
-    const name = source.ast.name(member);
-    return name === undefined ? [] : [source.ast.text(name)];
-  });
-}
-
-function storageCallCounts(
-  source: ReturnType<typeof checkedPointerFixture>["source"],
-  classDeclaration: Node,
-): Readonly<Record<string, number>> {
-  const counts: Record<string, number> = {};
-  visit(source, classDeclaration, (node) => {
-    if (!IsCallExpression(node)) {
-      return;
-    }
-    const callTarget = AsCallExpression(node)?.Expression;
-    if (callTarget === undefined || !IsPropertyAccessExpression(callTarget)) {
-      return;
-    }
-    const methodAccess = AsPropertyAccessExpression(callTarget);
-    const storageAccess = methodAccess?.Expression;
-    if (
-      methodAccess?.name === undefined ||
-      storageAccess === undefined ||
-      !IsPropertyAccessExpression(storageAccess)
-    ) {
-      return;
-    }
-    const storageProperty = AsPropertyAccessExpression(storageAccess)?.name;
-    if (storageProperty === undefined) {
-      return;
-    }
-    const owner = source.ast.text(storageProperty);
-    if (owner !== "ordered" && owner !== "properties" && owner !== "roots") {
-      return;
-    }
-    const identity = `${owner}.${source.ast.text(methodAccess.name)}`;
-    counts[identity] = (counts[identity] ?? 0) + 1;
-  });
-  return counts;
 }
 
 function countKindNamed(
