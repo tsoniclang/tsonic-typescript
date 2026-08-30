@@ -73,10 +73,6 @@ Closed pointer evidence also reports the 32 largest retained class families by
 exact declaration identity, pointer-type and operation counts, and bounded
 blocker occurrences. This diagnostic is deterministic and cannot influence a
 representation decision.
-Pointer-key map evidence is split into location-backed and direct-object
-identity partitions whose exact sum is the total optimized denominator.
-Location-backed keys retain address identity semantics; direct-object keys use
-native `Map` identity without generated pointer hashing.
 
 A closed product may additionally supply two closed kinds of callable through
 `representationTransports`. A manifest-certified `generic-kernel` makes only

@@ -119,14 +119,6 @@ Every definition, reference, assignment, argument, result, and storage member
 in the component changes atomically. A local exception invalidates the
 optimization and retains the canonical pointer representation.
 
-Pointer-key map lowering is partitioned by that selected representation.
-Location-backed keys use storage identity plus storage key because distinct
-location objects may denote one Go address. Direct-object keys use native
-`Map` identity and delete the generated pointer hash/equality route. Direct
-snapshots, mutable cells, mixed operation representations, and partial map
-shapes remain canonical. The evidence reports both partitions and their exact
-sum; a representation change cannot silently shrink the map denominator.
-
 The replacement proof rejects inheritance, heritage consumers, decorators,
 accessors, computed or private state, nonempty constructors, omitted mutable
 fields, declaration boundaries, and mutable class bindings. Ambient readonly

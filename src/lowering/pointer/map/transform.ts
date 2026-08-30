@@ -31,10 +31,6 @@ import {
   canonicalPointerMapStorageConstruction,
   canonicalPointerMapStorageType,
 } from "./storage-ast.js";
-import {
-  directObjectPointerMapStorageConstruction,
-  directObjectPointerMapStorageType,
-} from "./identity-storage-ast.js";
 
 export interface CanonicalPointerKeyMapConsumption {
   readonly rewrittenNodes: Set<Node>;
@@ -109,8 +105,7 @@ export function insertCanonicalPointerKeyMapStorage(
   plans: readonly CanonicalPointerKeyMapPlan[],
   consumed: CanonicalPointerKeyMapConsumption,
 ): SourceFile {
-  const locationPlans = plans.filter((plan) => plan.storageKind === "location");
-  if (locationPlans.length === 0) {
+  if (plans.length === 0) {
     return sourceFile;
   }
   if (consumed.helperInserted) {
@@ -118,13 +113,13 @@ export function insertCanonicalPointerKeyMapStorage(
       "canonical pointer-key map storage was inserted twice",
     );
   }
-  const helperNames = new Set(locationPlans.map((plan) => plan.helperName.text));
+  const helperNames = new Set(plans.map((plan) => plan.helperName.text));
   if (helperNames.size !== 1) {
     throw new PointerLoweringError(
       "canonical pointer-key maps in one file disagree on storage identity",
     );
   }
-  const helperName = locationPlans[0]?.helperName;
+  const helperName = plans[0]?.helperName;
   if (helperName === undefined) {
     throw new PointerLoweringError(
       "canonical pointer-key map storage has no collision-safe name",
@@ -189,8 +184,7 @@ export function assertCanonicalPointerKeyMapConsumption(
       `canonical pointer-key map consumed ${consumed.rewrittenNodes.size} nodes, expected ${expected.size}`,
     );
   }
-  const requiresHelper = plans.some((plan) => plan.storageKind === "location");
-  if (consumed.helperInserted !== requiresHelper) {
+  if (consumed.helperInserted !== (plans.length !== 0)) {
     throw new PointerLoweringError(
       "canonical pointer-key map storage insertion was not consumed exactly once",
     );
@@ -226,7 +220,13 @@ function rewriteConstructor(
       parsedStorage.DotDotDotToken,
       parsedStorage.name,
       parsedStorage.QuestionToken,
-      pointerMapStorageType(factory, plan, shape),
+      canonicalPointerMapStorageType(
+        factory,
+        plan.helperName,
+        shape.keyType,
+        shape.bucketType,
+        shape.undefinedType,
+      ),
       parsedStorage.Initializer,
     ),
     "canonical pointer-key map storage parameter",
@@ -266,7 +266,12 @@ function rewriteStorageConstruction(
       "canonical pointer-key map construction lost its exact bucket shape",
     );
   }
-  return pointerMapStorageConstruction(factory, plan, keyType, bucketType);
+  return canonicalPointerMapStorageConstruction(
+    factory,
+    plan.helperName,
+    keyType,
+    bucketType,
+  );
 }
 
 function rewriteStorageAliasType(
@@ -281,56 +286,17 @@ function rewriteStorageAliasType(
       "canonical pointer-key map alias lost its storage type",
     );
   }
-  return pointerMapStorageType(
+  return canonicalPointerMapStorageType(
     factory,
-    plan,
-    {
-      keyType: requiredFinalNode(
-        finalNodes,
-        plan.keyTypeNode,
-        "canonical pointer-key map key type",
-      ),
-      bucketType: shape.bucketType,
-      undefinedType: shape.undefinedType,
-    },
+    plan.helperName,
+    requiredFinalNode(
+      finalNodes,
+      plan.keyTypeNode,
+      "canonical pointer-key map key type",
+    ),
+    shape.bucketType,
+    shape.undefinedType,
   );
-}
-
-function pointerMapStorageType(
-  factory: NodeFactory,
-  plan: CanonicalPointerKeyMapPlan,
-  shape: StorageShape,
-): Node {
-  return plan.storageKind === "location"
-    ? canonicalPointerMapStorageType(
-        factory,
-        plan.helperName,
-        shape.keyType,
-        shape.bucketType,
-        shape.undefinedType,
-      )
-    : directObjectPointerMapStorageType(
-        factory,
-        shape.keyType,
-        shape.bucketType,
-        shape.undefinedType,
-      );
-}
-
-function pointerMapStorageConstruction(
-  factory: NodeFactory,
-  plan: CanonicalPointerKeyMapPlan,
-  keyType: Node,
-  bucketType: Node,
-): Node {
-  return plan.storageKind === "location"
-    ? canonicalPointerMapStorageConstruction(
-        factory,
-        plan.helperName,
-        keyType,
-        bucketType,
-      )
-    : directObjectPointerMapStorageConstruction(factory, keyType, bucketType);
 }
 
 function storageContainerShape(type: Node | undefined): Omit<StorageShape, "keyType"> | undefined {

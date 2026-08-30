@@ -96,12 +96,16 @@ export interface PointerFlowFallbackEvidence {
 export interface ClosedPointerFlowPlan {
   owns(source: TargetSourceProgram): boolean;
   operationFor(node: Node | undefined): PointerOperationFact | undefined;
-  valueRepresentationFor(node: Node | undefined): PointerFlowRepresentation | undefined;
+  valueRepresentationFor(
+    node: Node | undefined,
+  ): PointerFlowRepresentation | undefined;
   representationFor(node: Node | undefined): PointerFlowRepresentation;
   componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined;
   projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
   ownsFusedProjection(node: Node): boolean;
-  projectedPropertyLocationFor(node: Node): ProjectedPropertyLocationFusion | undefined;
+  projectedPropertyLocationFor(
+    node: Node,
+  ): ProjectedPropertyLocationFusion | undefined;
   ownsProjectedPropertyAddress(node: Node): boolean;
   directObjectReplacementFor(node: Node): DirectObjectReplacement | undefined;
   directObjectReplacementsFor(sourceFile: SourceFile): readonly DirectObjectReplacement[];
@@ -118,8 +122,6 @@ export interface ClosedPointerFlowPlan {
   readonly optimizedProjectionStoreCount: number;
   readonly optimizedProjectedPropertyLocationCount: number;
   readonly optimizedPointerKeyMapCount: number;
-  readonly optimizedLocationPointerKeyMapCount: number;
-  readonly optimizedDirectObjectPointerKeyMapCount: number;
   readonly representationTransportCallCount: number;
   readonly representationTransportInlineCount: number;
   readonly planningOperationCount: number;
@@ -328,8 +330,6 @@ export function createClosedPointerFlowPlan(
     optimizedProjectionStoreCount: projectionFusions.storeCount,
     optimizedProjectedPropertyLocationCount: projectedPropertyLocations.count,
     optimizedPointerKeyMapCount: pointerKeyMaps.count,
-    optimizedLocationPointerKeyMapCount: pointerKeyMaps.locationCount,
-    optimizedDirectObjectPointerKeyMapCount: pointerKeyMaps.directObjectCount,
     representationTransportCallCount: census.representationTransportCallCount,
     representationTransportInlineCount: census.representationTransportInlineCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
