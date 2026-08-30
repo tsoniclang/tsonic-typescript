@@ -132,11 +132,6 @@ connected pointer-flow component. A canonical or unstable component never
 suppresses an independent proved component of the same class, and no store is
 rewritten unless that exact component selects the replacement.
 
-The same component boundary owns pointer identity. A fresh compared or hashed
-component may use direct object identity while a disjoint generic contract or
-reflection store for that class remains a `Location<T>`. Nested pointer types
-do not inherit that local decision; they require complete family closure.
-
 Pointer equality and hashing admit an addressed object only when its exact
 storage declaration is never rebound and its initializer recursively proves a
 fresh project construction. Exact project function factories and exact static
