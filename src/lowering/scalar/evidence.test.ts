@@ -4,6 +4,8 @@ import { test } from "node:test";
 import { createTypeScriptOptimizationEvidence } from "../evidence.js";
 import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createTargetProgramIndex } from "../program-index.js";
+import { createProgramGeneratedNames } from "../generated-names.js";
+import { createDominatingNilCheckPlan } from "../pointer/nil-check/plan.js";
 import { createScalarRepresentationPlan } from "./plan.js";
 import { createRepresentationProjectionPlan } from "../representation/plan.js";
 import { createPointerProjectionCallablePlan } from "../pointer/projection-callable-plan.js";
@@ -48,6 +50,13 @@ export const result = new Scalar({ amount: 1 }).value;
     createPointerProjectionCallablePlan(
       fixture.source,
       program,
+      profile.pointerFlows,
+      fixtureSourceIdentityFor(fixture.source),
+    ),
+    createDominatingNilCheckPlan(
+      fixture.source,
+      program,
+      createProgramGeneratedNames(fixture.source, program),
       profile.pointerFlows,
       fixtureSourceIdentityFor(fixture.source),
     ),

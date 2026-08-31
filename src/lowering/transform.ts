@@ -20,6 +20,12 @@ import {
   type PointerLoweringResult,
   type PointerRewriteSession,
 } from "./pointer/transform.js";
+import { createDominatingNilCheckPlan } from "./pointer/nil-check/plan.js";
+import {
+  createDominatingNilCheckRewriteSession,
+  type DominatingNilCheckRewriteResult,
+  type DominatingNilCheckRewriteSession,
+} from "./pointer/nil-check/rewrite.js";
 import {
   createTypeScriptOptimizationProfile,
   type TypeScriptOptimizationProfileInput,
@@ -51,6 +57,7 @@ export interface TypeScriptSourceLoweringResult {
   readonly pointer: PointerLoweringResult;
   readonly scalar: ScalarRepresentationRewriteResult;
   readonly representation: RepresentationProjectionRewriteResult;
+  readonly nilChecks: DominatingNilCheckRewriteResult;
 }
 
 export interface TypeScriptSourcePlanningFailure {
@@ -79,6 +86,7 @@ interface SourceRewritePlan {
   readonly pointer: PointerRewriteSession;
   readonly scalar: ScalarRepresentationRewriter;
   readonly representation: RepresentationProjectionRewriter;
+  readonly nilChecks: DominatingNilCheckRewriteSession;
 }
 
 interface SourceIdentityIndex {
@@ -147,6 +155,13 @@ export function prepareTypeScriptLowering(
     profile.representationProjections,
     identities.forFile,
   );
+  const nilCheckPlan = createDominatingNilCheckPlan(
+    source,
+    program,
+    generatedNames,
+    profile.pointerFlows,
+    identities.forFile,
+  );
   const evidence = createTypeScriptOptimizationEvidence(
     execution,
     profile,
@@ -154,6 +169,7 @@ export function prepareTypeScriptLowering(
     program.operations,
     pointerFlowPlan,
     pointerProjectionCallables,
+    nilCheckPlan,
     scalarPlan,
     representationPlan,
     representationTransports,
@@ -178,6 +194,10 @@ export function prepareTypeScriptLowering(
         representation: createRepresentationProjectionRewriter(
           representationPlan,
           sourceFile,
+        ),
+        nilChecks: createDominatingNilCheckRewriteSession(
+          nilCheckPlan.forFile(sourceFile),
+          finalNodes,
         ),
       }));
     } catch (error) {
@@ -280,17 +300,27 @@ function createTransaction(
             scalarResult,
             factory,
           );
-          return plan.finalNodes.record(original, representationResult);
+          if (representationResult === undefined) {
+            return plan.finalNodes.record(original, undefined);
+          }
+          const nilCheckResult = plan.nilChecks.rewrite(
+            original,
+            representationResult,
+            factory,
+          );
+          return plan.finalNodes.record(original, nilCheckResult);
         },
       );
       const pointer = plan.pointer.finish(transformed);
       const scalar = plan.scalar.finish(pointer.sourceFile);
       const representation = plan.representation.finish(scalar.sourceFile);
+      const nilChecks = plan.nilChecks.finish(representation.sourceFile);
       return Object.freeze({
-        sourceFile: representation.sourceFile,
+        sourceFile: nilChecks.sourceFile,
         pointer,
         scalar,
         representation,
+        nilChecks,
       });
     },
     finish(): void {

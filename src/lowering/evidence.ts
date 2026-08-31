@@ -5,6 +5,10 @@ import type {
 } from "./pointer/flow-plan.js";
 import type { PointerFlowFamilyHotspot } from "./pointer/flow-family-hotspots.js";
 import type {
+  DominatingNilCheckPlan,
+  DominatingNilCheckRetentionReason,
+} from "./pointer/nil-check/model.js";
+import type {
   PointerProjectionCallablePlan,
   ProjectionCallableRetentionReason,
 } from "./pointer/projection-callable-plan.js";
@@ -46,11 +50,13 @@ export type PointerOptimizationEvidence =
   | {
       readonly profile: "location";
       readonly analyzed: false;
+      readonly dominatingNilChecks: DominatingNilCheckOptimizationEvidence;
       readonly projectionCallables: ProjectionCallableOptimizationEvidence;
     }
   | {
       readonly profile: "closed-direct";
       readonly analyzed: true;
+      readonly dominatingNilChecks: DominatingNilCheckOptimizationEvidence;
       readonly componentCount: number;
       readonly optimizedComponentCount: number;
       readonly optimizedFamilyCount: number;
@@ -71,6 +77,24 @@ export type PointerOptimizationEvidence =
         PointerFlowBlocker
       >[];
       readonly projectionCallables: ProjectionCallableOptimizationEvidence;
+    };
+
+export type DominatingNilCheckOptimizationEvidence =
+  | {
+      readonly profile: "location";
+      readonly analyzed: false;
+    }
+  | {
+      readonly profile: "closed-direct";
+      readonly analyzed: true;
+      readonly candidateGuardCount: number;
+      readonly optimizedBindingCount: number;
+      readonly optimizedGuardCount: number;
+      readonly eliminatedGuardCount: number;
+      readonly retainedGuardCount: number;
+      readonly fallbackReasons: readonly OptimizationReasonEvidence<
+        DominatingNilCheckRetentionReason
+      >[];
     };
 
 export interface ProjectionCallableOptimizationEvidence {
@@ -123,7 +147,7 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 29;
+  readonly schemaVersion: 30;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
@@ -145,13 +169,14 @@ export function createTypeScriptOptimizationEvidence(
   programIndex: TargetProgramIndexOperations,
   pointerPlan: ClosedPointerFlowPlan | undefined,
   pointerProjectionCallables: PointerProjectionCallablePlan,
+  nilCheckPlan: DominatingNilCheckPlan,
   scalarPlan: ScalarRepresentationPlan,
   representationPlan: RepresentationProjectionPlan,
   representationTransports: RepresentationTransportContract =
     canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 29 as const,
+    schemaVersion: 30 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
@@ -160,6 +185,7 @@ export function createTypeScriptOptimizationEvidence(
       profile,
       pointerPlan,
       pointerProjectionCallables,
+      nilCheckPlan,
     ),
     scalar: scalarEvidence(profile, scalarPlan),
     representationProjections: representationEvidence(
@@ -269,6 +295,7 @@ function pointerEvidence(
   profile: TypeScriptOptimizationProfile,
   plan: ClosedPointerFlowPlan | undefined,
   projectionCallables: PointerProjectionCallablePlan,
+  nilCheckPlan: DominatingNilCheckPlan,
 ): PointerOptimizationEvidence {
   const callables = projectionCallableEvidence(
     profile,
@@ -283,6 +310,7 @@ function pointerEvidence(
     return Object.freeze({
       profile: "location",
       analyzed: false,
+      dominatingNilChecks: nilCheckEvidence(profile, nilCheckPlan),
       projectionCallables: callables,
     });
   }
@@ -292,6 +320,7 @@ function pointerEvidence(
   return Object.freeze({
     profile: "closed-direct",
     analyzed: true,
+    dominatingNilChecks: nilCheckEvidence(profile, nilCheckPlan),
     componentCount: plan.components.length,
     optimizedComponentCount: plan.optimizedComponentCount,
     optimizedFamilyCount: plan.optimizedFamilyCount,
@@ -309,6 +338,42 @@ function pointerEvidence(
     fallbackReasons: plan.fallbackReasons,
     familyFallbackReasons: plan.familyFallbackReasons,
     projectionCallables: callables,
+  });
+}
+
+function nilCheckEvidence(
+  profile: TypeScriptOptimizationProfile,
+  plan: DominatingNilCheckPlan,
+): DominatingNilCheckOptimizationEvidence {
+  if (plan.profile !== profile.pointerFlows) {
+    throw new Error("dominating nil-check evidence received a foreign profile");
+  }
+  if (plan.profile === "location") {
+    if (plan.analyzed) {
+      throw new Error("canonical pointer nil checks cannot carry an analysis");
+    }
+    return Object.freeze({ profile: "location", analyzed: false });
+  }
+  if (
+    !plan.analyzed ||
+    plan.optimizedGuardCount + plan.retainedGuardCount !==
+      plan.candidateGuardCount ||
+    plan.eliminatedGuardCount !==
+      plan.optimizedGuardCount - plan.optimizedBindingCount ||
+    plan.fallbackReasons.reduce((sum, row) => sum + row.count, 0) !==
+      plan.retainedGuardCount
+  ) {
+    throw new Error("dominating nil-check evidence is incoherent");
+  }
+  return Object.freeze({
+    profile: "closed-direct",
+    analyzed: true,
+    candidateGuardCount: plan.candidateGuardCount,
+    optimizedBindingCount: plan.optimizedBindingCount,
+    optimizedGuardCount: plan.optimizedGuardCount,
+    eliminatedGuardCount: plan.eliminatedGuardCount,
+    retainedGuardCount: plan.retainedGuardCount,
+    fallbackReasons: plan.fallbackReasons,
   });
 }
 

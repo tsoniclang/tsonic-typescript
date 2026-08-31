@@ -8,6 +8,8 @@ import {
 
 import { createTargetProgramIndex } from "../program-index.js";
 import { createTypeScriptOptimizationEvidence } from "../evidence.js";
+import { createProgramGeneratedNames } from "../generated-names.js";
+import { createDominatingNilCheckPlan } from "../pointer/nil-check/plan.js";
 import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createScalarRepresentationPlan } from "../scalar/plan.js";
 import { createPointerProjectionCallablePlan } from "../pointer/projection-callable-plan.js";
@@ -202,11 +204,18 @@ test("accounts for every representation candidate in immutable evidence", () => 
       profile.pointerFlows,
       fixtureSourceIdentityFor(fixture.source),
     ),
+    createDominatingNilCheckPlan(
+      fixture.source,
+      program,
+      createProgramGeneratedNames(fixture.source, program),
+      profile.pointerFlows,
+      fixtureSourceIdentityFor(fixture.source),
+    ),
     scalar,
     representation,
   );
 
-  assert.equal(evidence.schemaVersion, 29);
+  assert.equal(evidence.schemaVersion, 30);
   assert.equal(evidence.sourceExecution, "unrestricted");
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",

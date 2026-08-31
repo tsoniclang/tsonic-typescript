@@ -19,7 +19,7 @@ test("interns one immutable identity for each exact profile", () => {
   assert.ok(Object.isFrozen(canonical));
   assert.equal(
     canonical.identity,
-    "typescript-optimization-v4/pointer=location/scalar=preserve/representations=preserve",
+    "typescript-optimization-v5/pointer=location/scalar=preserve/representations=preserve",
   );
 });
 
