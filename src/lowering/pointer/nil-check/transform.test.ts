@@ -40,6 +40,29 @@ test("reuses one dominating nil check for an immutable binding", () => {
   });
 });
 
+test("recognizes an exact load erased by closed pointer lowering", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+function panic(): never { throw new Error("nil"); }
+class Box { value = 1; }
+function make(): Pointer<Box> { return allocatePointer(new Box()); }
+function run(): number {
+  const box: Pointer<Box> | undefined = make();
+  loadPointer(box ?? panic()).value = loadPointer(box ?? panic()).value + 1;
+  return loadPointer(box ?? panic()).value;
+}
+export const result = run();
+`);
+  const result = lowerFixture(fixture);
+
+  assert.deepEqual(
+    variableNames(fixture.source, result.sourceFile),
+    ["checkedBox"],
+  );
+  assert.equal(countNilChecks(fixture.source, result.sourceFile), 1);
+  assert.equal(nilCheckEvidence(result.transaction).eliminatedGuardCount, 2);
+});
+
 test("retains guards for mutable and conditional-first bindings", () => {
   const fixture = checkedPointerFixture(`function panic(): never { throw new Error("nil"); }
 interface Box { value: number }

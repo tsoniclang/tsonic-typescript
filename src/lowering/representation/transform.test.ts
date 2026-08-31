@@ -208,6 +208,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
       fixture.source,
       program,
       createProgramGeneratedNames(fixture.source, program),
+      undefined,
       profile.pointerFlows,
       fixtureSourceIdentityFor(fixture.source),
     ),

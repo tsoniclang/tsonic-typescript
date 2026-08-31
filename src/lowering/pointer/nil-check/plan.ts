@@ -1,3 +1,4 @@
+import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
@@ -5,6 +6,10 @@ import type { ProgramGeneratedNames } from "../../generated-names.js";
 import type { SourceIdentityResolver } from "../../occurrence.js";
 import type { TargetProgramIndex } from "../../program-index.js";
 import { createOptimizationRetentionLedger } from "../../retention-evidence.js";
+
+import { pointerOperationIsFused } from "../flow-application.js";
+import type { ClosedPointerFlowPlan } from "../flow-plan.js";
+import { validatePointerOperationFact } from "../operation-contract.js";
 
 import type {
   DominatingNilCheckBindingPlan,
@@ -53,6 +58,7 @@ export function createDominatingNilCheckPlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   generatedNames: ProgramGeneratedNames,
+  pointerFlowPlan: ClosedPointerFlowPlan | undefined,
   profile: "location" | "closed-direct",
   sourceIdentityFor: SourceIdentityResolver,
 ): DominatingNilCheckPlan {
@@ -97,7 +103,12 @@ export function createDominatingNilCheckPlan(
       statementIndex: owner.statementIndex,
       sourceFile,
       sourceName: source.ast.text(guard.left),
-      canAnchor: isFirstEvaluatedExpression(source, node, owner.statement),
+      canAnchor: isFirstEvaluatedExpression(
+        source,
+        pointerFlowPlan,
+        node,
+        owner.statement,
+      ),
     }));
     byDeclaration.set(reference.declaration, selected);
     grouped.set(owner.block, byDeclaration);
@@ -192,6 +203,7 @@ function directBlockOwner(
 
 function isFirstEvaluatedExpression(
   source: TargetSourceProgram,
+  pointerFlowPlan: ClosedPointerFlowPlan | undefined,
   guard: Node,
   statement: Node,
 ): boolean {
@@ -242,7 +254,15 @@ function isFirstEvaluatedExpression(
         return false;
       }
     } else if (source.ast.is.IsCallExpression(parent)) {
-      if (source.ast.as.AsCallExpression(parent)?.Expression !== current) {
+      if (
+        source.ast.as.AsCallExpression(parent)?.Expression !== current &&
+        !isErasedPointerLoad(
+          source,
+          pointerFlowPlan,
+          parent,
+          current,
+        )
+      ) {
         return false;
       }
     } else if (source.ast.is.IsExpressionStatement(parent)) {
@@ -254,6 +274,25 @@ function isFirstEvaluatedExpression(
     current = parent;
   }
   return false;
+}
+
+function isErasedPointerLoad(
+  source: TargetSourceProgram,
+  pointerFlowPlan: ClosedPointerFlowPlan | undefined,
+  call: Node,
+  pointerExpression: Node,
+): boolean {
+  const operation = source.sourceFacts.getFact(call, pointerOperationFactKey);
+  if (
+    operation?.operation !== "load" ||
+    operation.pointerExpression !== pointerExpression ||
+    pointerFlowPlan?.representationFor(call) === "location" ||
+    pointerOperationIsFused(pointerFlowPlan, call)
+  ) {
+    return false;
+  }
+  validatePointerOperationFact(source, operation);
+  return true;
 }
 
 function selectGroup(

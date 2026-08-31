@@ -57,6 +57,7 @@ export const result = new Scalar({ amount: 1 }).value;
       fixture.source,
       program,
       createProgramGeneratedNames(fixture.source, program),
+      undefined,
       profile.pointerFlows,
       fixtureSourceIdentityFor(fixture.source),
     ),

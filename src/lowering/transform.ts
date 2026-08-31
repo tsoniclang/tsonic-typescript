@@ -159,6 +159,7 @@ export function prepareTypeScriptLowering(
     source,
     program,
     generatedNames,
+    pointerFlowPlan,
     profile.pointerFlows,
     identities.forFile,
   );
