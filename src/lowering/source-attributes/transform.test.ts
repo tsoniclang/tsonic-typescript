@@ -21,6 +21,7 @@ import {
   AsNamedImports,
   AsPropertyAccessExpression,
   IsCallExpression,
+  IsClassDeclaration,
   IsImportClause,
   IsImportDeclaration,
   IsNamedImports,
@@ -127,6 +128,46 @@ test("retains an exact import binding that has a live non-attribute reference", 
   assert.equal(erasedDeclarations, 0);
 });
 
+test("preserves module evaluation when the last metadata binding is erased", () => {
+  const fixture = checkedSource(`
+import { attribute as coreAttribute } from "@tsonic/core/lang.js";
+import { Fact } from "./facts.js";
+class User {}
+coreAttribute<User>().add(Fact, "metadata");
+`, `
+export const observed = (() => 1)();
+export class Fact {}
+`);
+  const lowered = lowerFixture(fixture);
+  assert.deepEqual(sideEffectImportModules(fixture.source, lowered), ["./facts.js"]);
+  assert.deepEqual(
+    namedImportBindings(fixture.source, lowered, "./facts.js"),
+    [],
+  );
+});
+
+test("removes an import whose complete project module is inert metadata", () => {
+  const fixture = checkedSource(`
+import { attribute as coreAttribute } from "@tsonic/core/lang.js";
+import { Fact } from "./facts.js";
+class User {}
+coreAttribute<User>().add(Fact, "metadata");
+`, "export class Fact {}\n");
+  const lowered = lowerFixture(fixture);
+  assert.deepEqual(importModules(fixture.source, lowered), []);
+});
+
+test("retains a metadata declaration with runtime class initialization", () => {
+  const fixture = checkedSource(`
+import { attribute as coreAttribute } from "@tsonic/core/lang.js";
+class User {}
+class LocalFact { static value = 1; }
+coreAttribute<User>().add(LocalFact, "metadata");
+`);
+  const lowered = lowerFixture(fixture);
+  assert.equal(countNodes(fixture.source, lowered, IsClassDeclaration), 2);
+});
+
 test("rejects duplicate selection of one exact source attribute", () => {
   const fixture = checkedSource(sourceText);
   const selection = createSourceAttributeSelection(fixture.source);
@@ -180,12 +221,41 @@ test("fails closed when a planned metadata import is not consumed", () => {
       sourceFile === fixture.sourceFile
         ? new Set<Node>([binding])
         : new Set<Node>(),
+    deferredImportBindingsFor: () => new Set<Node>(),
     removableDeclarationsFor: () => new Set<Node>(),
+    moduleEvaluationImportsFor: () => new Set<Node>(),
   };
   const rewriter = createSourceAttributeRewriter(plan, fixture.sourceFile);
   assert.throws(
     () => rewriter.finish(fixture.sourceFile),
     /import consumption mismatch: planned 1, consumed 0/,
+  );
+});
+
+test("fails closed when module-evaluation import preservation is not consumed", () => {
+  const fixture = checkedSource(sourceText);
+  const declaration = firstImportDeclaration(
+    fixture.source,
+    fixture.sourceFile,
+    "./facts.js",
+  );
+  const plan = {
+    applicationCount: 0,
+    removableImportBindingCount: 0,
+    removableDeclarationCount: 0,
+    applicationsFor: () => [],
+    removableImportBindingsFor: () => new Set<Node>(),
+    deferredImportBindingsFor: () => new Set<Node>(),
+    removableDeclarationsFor: () => new Set<Node>(),
+    moduleEvaluationImportsFor: (sourceFile: SourceFile) =>
+      sourceFile === fixture.sourceFile
+        ? new Set<Node>([declaration])
+        : new Set<Node>(),
+  };
+  const rewriter = createSourceAttributeRewriter(plan, fixture.sourceFile);
+  assert.throws(
+    () => rewriter.finish(fixture.sourceFile),
+    /module-evaluation import consumption mismatch/u,
   );
 });
 
@@ -226,7 +296,10 @@ export const invalid = coreAttribute<User>().add(Fact, "nested");
   );
 });
 
-function checkedSource(text: string): {
+function checkedSource(
+  text: string,
+  factsText = "export class Fact {}\nexport const live = 1;\n",
+): {
   readonly source: TargetSourceProgram;
   readonly sourceFile: SourceFile;
 } {
@@ -234,7 +307,7 @@ function checkedSource(text: string): {
     currentDirectory: "/src",
     files: {
       "/src/index.ts": text,
-      "/src/facts.ts": "export class Fact {}\nexport const live = 1;\n",
+      "/src/facts.ts": factsText,
     },
     rootFiles: ["/src/index.ts"],
     compilerOptions: {
@@ -261,6 +334,32 @@ function checkedSource(text: string): {
   );
   assert.ok(sourceFile !== undefined);
   return { source, sourceFile };
+}
+
+function lowerFixture(fixture: {
+  readonly source: TargetSourceProgram;
+  readonly sourceFile: SourceFile;
+}): SourceFile {
+  const preparation = prepareTypeScriptLowering(
+    fixture.source,
+    fixture.source.navigation.sourceFiles,
+    canonicalTypeScriptOptimizationProfile(),
+    (sourceFile) => fixture.source.documents.forFile(sourceFile).identity,
+  );
+  assert.equal(preparation.kind, "ready");
+  if (preparation.kind !== "ready") {
+    throw new Error("source-attribute fixture did not plan");
+  }
+  let lowered: SourceFile | undefined;
+  for (const sourceFile of fixture.source.navigation.sourceFiles) {
+    const result = preparation.transaction.lower(sourceFile);
+    if (sourceFile === fixture.sourceFile) {
+      lowered = result.sourceFile;
+    }
+  }
+  preparation.transaction.finish();
+  assert.ok(lowered !== undefined);
+  return lowered;
 }
 
 function importModules(
@@ -307,6 +406,23 @@ function namedImportBindings(
   return [];
 }
 
+function sideEffectImportModules(
+  source: TargetSourceProgram,
+  sourceFile: SourceFile,
+): readonly string[] {
+  return (sourceFile.Statements?.Nodes ?? []).flatMap((statement) => {
+    if (!IsImportDeclaration(statement)) {
+      return [];
+    }
+    const declaration = AsImportDeclaration(statement);
+    return declaration !== undefined &&
+        declaration.ImportClause === undefined &&
+        declaration.ModuleSpecifier !== undefined
+      ? [source.ast.text(declaration.ModuleSpecifier)]
+      : [];
+  });
+}
+
 function firstNamedImportBinding(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
@@ -335,6 +451,27 @@ function firstNamedImportBinding(
     }
   }
   throw new Error(`missing named import from ${moduleName}`);
+}
+
+function firstImportDeclaration(
+  source: TargetSourceProgram,
+  sourceFile: SourceFile,
+  moduleName: string,
+): Node {
+  for (const statement of sourceFile.Statements?.Nodes ?? []) {
+    if (!IsImportDeclaration(statement)) {
+      continue;
+    }
+    const declaration = AsImportDeclaration(statement);
+    if (
+      statement !== undefined &&
+      declaration?.ModuleSpecifier !== undefined &&
+      source.ast.text(declaration.ModuleSpecifier) === moduleName
+    ) {
+      return statement;
+    }
+  }
+  throw new Error(`missing import from ${moduleName}`);
 }
 
 function finalizedApplicationCount(
@@ -377,4 +514,18 @@ function visit(
       visit(source, child, callback);
     }
   }
+}
+
+function countNodes(
+  source: TargetSourceProgram,
+  root: Node,
+  predicate: (node: Node) => boolean,
+): number {
+  let count = 0;
+  visit(source, root, (node) => {
+    if (predicate(node)) {
+      count += 1;
+    }
+  });
+  return count;
 }
