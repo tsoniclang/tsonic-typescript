@@ -53,6 +53,7 @@ test("erases every exact finalized source attribute and no same-spelled call", (
   const selection = createSourceAttributeSelection(fixture.source);
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
+    memberDispatch: false,
     excludeSubtreeRoot: selection.excludeSubtreeRoot,
   });
   const plan = selection.finish();
@@ -195,6 +196,7 @@ test("fails closed when a planned source attribute is not consumed", () => {
   const selection = createSourceAttributeSelection(fixture.source);
   createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
+    memberDispatch: false,
     excludeSubtreeRoot: selection.excludeSubtreeRoot,
   });
   const plan = selection.finish();
@@ -264,6 +266,7 @@ test("fails closed when a planned fact declaration is not consumed", () => {
   const selection = createSourceAttributeSelection(fixture.source);
   createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
+    memberDispatch: false,
     excludeSubtreeRoot: selection.excludeSubtreeRoot,
   });
   const plan = selection.finish();
@@ -290,6 +293,7 @@ export const invalid = coreAttribute<User>().add(Fact, "nested");
   assert.throws(
     () => createTargetProgramIndex(fixture.source, {
       bindingWrites: false,
+      memberDispatch: false,
       excludeSubtreeRoot: selection.excludeSubtreeRoot,
     }),
     /finalized source attribute application is not a standalone expression statement/u,
