@@ -1,21 +1,11 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
-  AsExportDeclaration,
-  AsImportClause,
-  AsImportDeclaration,
-  AsNamedExports,
-  AsNamedImports,
   AsSourceFile,
   IsBlock,
   IsCaseClause,
   IsDefaultClause,
-  IsExportDeclaration,
-  IsImportClause,
-  IsImportDeclaration,
   IsModuleBlock,
-  IsNamedExports,
-  IsNamedImports,
   IsSourceFile,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
@@ -33,6 +23,7 @@ import {
   createTargetProgramIndex,
   type TargetProgramIndex,
 } from "../program-index.js";
+import { pruneEmptyModuleBindingContainer } from "../module-bindings/prune-empty.js";
 
 import { PointerLoweringError } from "./diagnostic.js";
 import {
@@ -299,46 +290,11 @@ function rewriteNode(
     );
   }
 
-  const namedImports = IsNamedImports(updated) ? AsNamedImports(updated) : undefined;
-  if (namedImports !== undefined && namedImports.Elements?.Nodes.length === 0) {
+  const retainedModuleBinding = pruneEmptyModuleBindingContainer(original, updated);
+  if (retainedModuleBinding === undefined) {
     return undefined;
   }
-  const importClause = IsImportClause(updated) ? AsImportClause(updated) : undefined;
-  if (
-    importClause !== undefined &&
-    importClause.name === undefined &&
-    importClause.NamedBindings === undefined
-  ) {
-    return undefined;
-  }
-  const importDeclaration = IsImportDeclaration(updated)
-    ? AsImportDeclaration(updated)
-    : undefined;
-  if (
-    importDeclaration !== undefined &&
-    IsImportDeclaration(original) &&
-    AsImportDeclaration(original)?.ImportClause !== undefined &&
-    importDeclaration.ImportClause === undefined
-  ) {
-    return undefined;
-  }
-  const namedExports = IsNamedExports(updated)
-    ? AsNamedExports(updated)
-    : undefined;
-  if (namedExports !== undefined && namedExports.Elements?.Nodes.length === 0) {
-    return undefined;
-  }
-  const exportDeclaration = IsExportDeclaration(updated)
-    ? AsExportDeclaration(updated)
-    : undefined;
-  if (
-    exportDeclaration !== undefined &&
-    IsExportDeclaration(original) &&
-    AsExportDeclaration(original)?.ExportClause !== undefined &&
-    exportDeclaration.ExportClause === undefined
-  ) {
-    return undefined;
-  }
+  updated = retainedModuleBinding;
 
   const operation = plan.operations.get(original);
   if (operation !== undefined) {

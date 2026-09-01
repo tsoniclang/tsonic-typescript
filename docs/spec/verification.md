@@ -39,6 +39,24 @@ noncanonical order, absent type parameter, and ambiguous ownership mutations
 must fail or retain the boundary. The sealed contract digest, callable count,
 and nonzero selected-call count are independently joined by product assembly.
 
+## Source-Attribute Proof
+
+The target must prove that every canonical finalized attribute application is
+selected by the attribute-builder fact on its exact checked call, excluded from
+the executable program index, and erased exactly once as a standalone
+statement. Exact counters cover applications, metadata-only import bindings,
+and removable project-local fact declarations.
+
+Mutations must leave a planned application, import, or declaration unconsumed;
+nest an application in executable syntax; duplicate a selected node; give an
+otherwise metadata-only binding one live reference; and replace the canonical
+marker with a local same-spelled function. These must fail closed or retain the
+live binding as appropriate, while the spelling foil remains executable.
+Removing a final imported binding must preserve module initialization unless
+exact evidence establishes a wholly removable metadata module. Broad searches
+must find no source-text recognition, payload parsing, filesystem reread,
+second AST, or post-print deletion route.
+
 ## Transaction Proof
 
 The backend must prove:

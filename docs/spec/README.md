@@ -7,6 +7,10 @@ This directory is authoritative for the TypeScript target architecture.
 
 TSTS supplies one checked TS-Go-contract AST and finalized semantic facts. The
 target transforms that same AST and the configured printer emits TypeScript.
+Canonical source attributes are finalized compile-time metadata. The target
+selects them by exact-node facts, excludes their subtrees from executable
+analysis, and erases them in the same lowering transaction without classifying
+source spelling or payloads.
 The selected synchronous TSTS product expresses synchronous execution at
 GoToTS source emission; this target has no cooperative-effect inference or
 post-generation Promise-removal path.

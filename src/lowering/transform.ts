@@ -51,6 +51,12 @@ import {
   type ScalarRepresentationRewriter,
   type ScalarRepresentationRewriteResult,
 } from "./scalar/transform.js";
+import { createSourceAttributeSelection } from "./source-attributes/plan.js";
+import {
+  createSourceAttributeRewriter,
+  type SourceAttributeRewriteResult,
+  type SourceAttributeRewriter,
+} from "./source-attributes/transform.js";
 
 export interface TypeScriptSourceLoweringResult {
   readonly sourceFile: SourceFile;
@@ -58,6 +64,7 @@ export interface TypeScriptSourceLoweringResult {
   readonly scalar: ScalarRepresentationRewriteResult;
   readonly representation: RepresentationProjectionRewriteResult;
   readonly nilChecks: DominatingNilCheckRewriteResult;
+  readonly sourceAttributes: SourceAttributeRewriteResult;
 }
 
 export interface TypeScriptSourcePlanningFailure {
@@ -87,6 +94,7 @@ interface SourceRewritePlan {
   readonly scalar: ScalarRepresentationRewriter;
   readonly representation: RepresentationProjectionRewriter;
   readonly nilChecks: DominatingNilCheckRewriteSession;
+  readonly sourceAttributes: SourceAttributeRewriter;
 }
 
 interface SourceIdentityIndex {
@@ -106,11 +114,14 @@ export function prepareTypeScriptLowering(
   assertExactSourceMembership(source, sourceFiles);
   const profile = createTypeScriptOptimizationProfile(profileInput);
   const identities = collectSourceIdentities(sourceFiles, sourceIdentityFor);
+  const sourceAttributes = createSourceAttributeSelection(source);
   const program = createTargetProgramIndex(source, {
     bindingWrites: profile.pointerFlows === "closed-direct" ||
       profile.scalarProjections === "closed-direct" ||
       profile.representationProjections === "closed-direct",
+    excludeSubtreeRoot: sourceAttributes.excludeSubtreeRoot,
   });
+  const sourceAttributePlan = sourceAttributes.finish();
   const executionFailures = sourceExecutionViolations(
     source,
     program,
@@ -199,6 +210,10 @@ export function prepareTypeScriptLowering(
         nilChecks: createDominatingNilCheckRewriteSession(
           nilCheckPlan.forFile(sourceFile),
           finalNodes,
+        ),
+        sourceAttributes: createSourceAttributeRewriter(
+          sourceAttributePlan,
+          sourceFile,
         ),
       }));
     } catch (error) {
@@ -309,19 +324,29 @@ function createTransaction(
             representationResult,
             factory,
           );
-          return plan.finalNodes.record(original, nilCheckResult);
+          if (nilCheckResult === undefined) {
+            return plan.finalNodes.record(original, undefined);
+          }
+          const sourceAttributeResult = plan.sourceAttributes.rewrite(
+            original,
+            nilCheckResult,
+            factory,
+          );
+          return plan.finalNodes.record(original, sourceAttributeResult);
         },
       );
       const pointer = plan.pointer.finish(transformed);
       const scalar = plan.scalar.finish(pointer.sourceFile);
       const representation = plan.representation.finish(scalar.sourceFile);
       const nilChecks = plan.nilChecks.finish(representation.sourceFile);
+      const sourceAttributes = plan.sourceAttributes.finish(nilChecks.sourceFile);
       return Object.freeze({
-        sourceFile: nilChecks.sourceFile,
+        sourceFile: sourceAttributes.sourceFile,
         pointer,
         scalar,
         representation,
         nilChecks,
+        sourceAttributes,
       });
     },
     finish(): void {

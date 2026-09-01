@@ -27,14 +27,16 @@ The target performs one bounded transaction:
 
 ```text
 checked source and facts
-    -> one immutable selected program index
+    -> exact finalized source-attribute selection
+    -> one immutable selected program index excluding attribute subtrees
     -> selected source-execution contract validation
     -> complete pointer plan
     -> complete scalar plan
     -> complete representation plan
     -> prepare every source rewrite
     -> one AST traversal per source
-         pointer -> scalar -> representation
+         pointer -> scalar -> representation -> nil checks
+         -> source-attribute erasure
     -> exact plan-consumption joins
     -> bounded external-AST encoding batches
     -> configured printer
@@ -64,6 +66,29 @@ a second whole-program node census or source-reference graph.
 Source references, selected declarations, types, and operations come from the
 canonical Tsonic source API. The target does not retain a duplicate reference
 index.
+
+## Finalized Source Attributes
+
+A finalized source attribute is compile-time metadata. Selection uses only the
+canonical attribute-builder fact attached to the exact checked call node. The
+target does not recognize an attribute function, fact type, schema, generated
+helper, or payload by spelling and does not interpret Go-specific payloads.
+
+Every selected application must be a standalone expression statement. Its
+complete subtree is excluded from the selected program index, so execution,
+pointer, scalar, representation, nil-check, and generated-name analysis cannot
+treat metadata as executable source. The composed traversal consumes every
+planned statement exactly once after executable lowering. A duplicate,
+nested, missing, or unconsumed application fails before printing.
+
+An imported attribute or fact binding, or a project-local fact declaration, is
+removed only when canonical source navigation proves that every exact reference
+belongs to selected metadata or to the binding or declaration itself. Any live
+reference retains it. Removing the final binding preserves module
+initialization unless exact provider evidence proves that the complete module
+is removable inert metadata. Empty import and export containers created by
+exact rewrites are pruned by one shared structural owner. A local same-spelled
+call remains ordinary executable source.
 
 ## Certified Representation Transport
 
@@ -152,7 +177,8 @@ Evidence is immutable and emitted only after the complete lowering
 transaction seals. It records the selected source-execution contract, exact
 source membership, representation-family denominators, and the selected
 representation-transport contract digest, denominator, and selected-call
-count. It contains no cooperative-effect schema.
+count. Per-file results report exact erased source-attribute, import-binding,
+and declaration counts. Evidence contains no cooperative-effect schema.
 
 ## Deleted Architecture
 
