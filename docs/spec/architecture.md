@@ -27,14 +27,15 @@ The target performs one bounded transaction:
 
 ```text
 checked source and facts
-    -> one immutable selected program index
+    -> exact finalized source-attribute selection
+    -> one immutable selected program index excluding attribute subtrees
     -> selected source-execution contract validation
     -> complete pointer plan
     -> complete scalar plan
     -> complete representation plan
     -> prepare every source rewrite
     -> one AST traversal per source
-         pointer -> scalar -> representation
+         pointer -> scalar -> representation -> source-attribute erasure
     -> exact plan-consumption joins
     -> bounded external-AST encoding batches
     -> configured printer
@@ -44,6 +45,30 @@ checked source and facts
 No source artifact is printed until every source plan succeeds. A planning,
 rewrite, encoding, printer, count, or ordering failure publishes no partial
 target result.
+
+## Finalized Source Attributes
+
+The TypeScript target's closed disposition for a finalized source attribute is
+metadata erasure while retaining the canonical ordinary-TypeScript executable
+carrier. Selection uses only the canonical attribute-builder fact attached to
+the exact checked call node. The target neither recognizes `attribute`, the
+attribute class, a schema string, nor a generated helper by spelling, and it
+does not interpret Go-specific payload fields to preserve TypeScript behavior.
+
+Every selected application must be one standalone expression statement. Its
+complete subtree is excluded from the selected program index so pointer,
+scalar, representation, execution, and name analysis cannot treat metadata as
+executable source. The final composed traversal consumes every planned
+statement exactly once. Zero, duplicate, nested, or unconsumed applications
+fail the transaction before printing.
+
+An imported attribute/fact binding or project-local fact declaration is
+removed only when canonical source navigation proves every exact reference is
+inside selected metadata or the binding/declaration itself. A live reference
+retains the binding or declaration. Empty import/export containers created by
+this and other exact rewrites are pruned by one shared structural owner. A
+local same-spelled function or class has no finalized fact and remains ordinary
+source.
 
 The printer transport admits at most 128 MiB for one official external-AST
 file and 256 MiB for one complete request. The single-file ceiling is global,
@@ -152,7 +177,9 @@ Evidence is immutable and emitted only after the complete lowering
 transaction seals. It records the selected source-execution contract, exact
 source membership, representation-family denominators, and the selected
 representation-transport contract digest, denominator, and selected-call
-count. It contains no cooperative-effect schema.
+count. Per-file lowering results also report exact erased source-attribute,
+import-binding, and declaration counts. It contains no cooperative-effect
+schema and no Go-specific payload interpretation.
 
 ## Deleted Architecture
 

@@ -7,6 +7,7 @@ import type { Kind } from "@tsonic/tsts/target-ast";
 
 export interface TargetProgramIndexSelection {
   readonly bindingWrites: boolean;
+  readonly excludeSubtreeRoot?: (node: Node) => boolean;
 }
 
 export interface TargetProgramIndexOperations {
