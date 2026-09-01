@@ -81,14 +81,18 @@ treat metadata as executable source. The composed traversal consumes every
 planned statement exactly once after executable lowering. A duplicate,
 nested, missing, or unconsumed application fails before printing.
 
-An imported attribute or fact binding, or a project-local fact declaration, is
-removed only when canonical source navigation proves that every exact reference
-belongs to selected metadata or to the binding or declaration itself. Any live
-reference retains it. Removing the final binding preserves module
-initialization unless exact provider evidence proves that the complete module
-is removable inert metadata. Empty import and export containers created by
-exact rewrites are pruned by one shared structural owner. A local same-spelled
-call remains ordinary executable source.
+An imported attribute/fact binding or project-local fact declaration is
+removed only when canonical source navigation proves every exact reference is
+inside selected metadata or the binding/declaration itself. A declaration is
+removed only when its exact AST shape is runtime-inert: no heritage, decorator,
+computed name, initializer, static block, or executable member is admitted.
+When removing the last binding, the import becomes a bare side-effect import
+unless the binding is the exact compile-time provider marker or its complete
+project module consists only of removable inert declarations. A live reference,
+live declaration, and module initialization remain ordinary source. Empty
+containers that are actually disposable are pruned by one shared structural
+owner. A local same-spelled function or class has no finalized fact and remains
+ordinary source.
 
 ## Certified Representation Transport
 
