@@ -74,6 +74,14 @@ exact declaration identity, pointer-type and operation counts, and bounded
 blocker occurrences. This diagnostic is deterministic and cannot influence a
 representation decision.
 
+Target-neutral source primitives are always lowered from their exact finalized
+TSTS facts to the selected TypeScript runtime base. For example, a checked
+`int64` marker becomes `bigint`, while an unrelated local alias named `int64`
+is untouched. Explicit named type-only marker imports are removed only after every
+planned primitive reference exact-joins one rewrite; this required lowering is
+independent of the optimization profile. The immutable evidence artifact
+reports the exact selected type-reference and removable-import denominators.
+
 A closed product may additionally supply certified generic-kernel callable
 identities through `representationTransports`. The pointer planner exact-joins
 the imported module, exported declaration, selected signature, and only those

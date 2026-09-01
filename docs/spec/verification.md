@@ -25,6 +25,17 @@ hashing, mutation, nesting, and projection. Scalar and representation mutations 
 open consumer, observable nominal identity, missed store, mismatched AST kind,
 duplicate plan consumption, and omitted call-site rewrite.
 
+Source-primitive proof must cover every runtime base, renamed named type-only
+imports, a same-spelled local alias foil, and exact type/binding consumption.
+A namespace import without exact binding-reference evidence, value import, external
+primitive re-export, missing planned rewrite, or fabricated primitive fact must
+fail before printing. Strict output must contain neither a selected primitive
+marker import nor a marker-branded type.
+The immutable optimization artifact must report exact primitive-reference and
+removable-binding counts. Mutating either count, skipping a rewrite, or letting
+one semantic family erase a shared binding before another consumes it must
+fail its owning join.
+
 Replacement proof must also combine two disconnected flows of one exact class:
 one unstable component remains canonical while one stable addressed component
 uses the replacement. Suppressing the stable component because of its sibling,

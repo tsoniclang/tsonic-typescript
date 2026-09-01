@@ -13,6 +13,7 @@ import { createDominatingNilCheckPlan } from "../pointer/nil-check/plan.js";
 import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createScalarRepresentationPlan } from "../scalar/plan.js";
 import { createPointerProjectionCallablePlan } from "../pointer/projection-callable-plan.js";
+import { createSourcePrimitiveLoweringPlan } from "../source-primitives/plan.js";
 import {
   checkedScalarFixture,
   fixtureSourceIdentityFor,
@@ -197,6 +198,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     profile,
     ["index.ts"],
     program.operations,
+    createSourcePrimitiveLoweringPlan(fixture.source, program),
     undefined,
     createPointerProjectionCallablePlan(
       fixture.source,
@@ -216,7 +218,7 @@ test("accounts for every representation candidate in immutable evidence", () => 
     representation,
   );
 
-  assert.equal(evidence.schemaVersion, 30);
+  assert.equal(evidence.schemaVersion, 31);
   assert.equal(evidence.sourceExecution, "unrestricted");
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",

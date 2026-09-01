@@ -51,9 +51,17 @@ import {
   type ScalarRepresentationRewriter,
   type ScalarRepresentationRewriteResult,
 } from "./scalar/transform.js";
+import { createSourcePrimitiveLoweringPlan } from "./source-primitives/plan.js";
+import {
+  createSourcePrimitiveRewriter,
+  type SourcePrimitiveRewriter,
+  type SourcePrimitiveRewriteResult,
+} from "./source-primitives/transform.js";
+import { finalizeModuleBindingRewrite } from "./module-bindings/finalize.js";
 
 export interface TypeScriptSourceLoweringResult {
   readonly sourceFile: SourceFile;
+  readonly sourcePrimitives: SourcePrimitiveRewriteResult;
   readonly pointer: PointerLoweringResult;
   readonly scalar: ScalarRepresentationRewriteResult;
   readonly representation: RepresentationProjectionRewriteResult;
@@ -83,6 +91,7 @@ export interface TypeScriptLoweringTransaction {
 
 interface SourceRewritePlan {
   readonly finalNodes: FinalNodeJournal;
+  readonly sourcePrimitives: SourcePrimitiveRewriter;
   readonly pointer: PointerRewriteSession;
   readonly scalar: ScalarRepresentationRewriter;
   readonly representation: RepresentationProjectionRewriter;
@@ -128,6 +137,7 @@ export function prepareTypeScriptLowering(
     });
   }
   const generatedNames = createProgramGeneratedNames(source, program);
+  const sourcePrimitivePlan = createSourcePrimitiveLoweringPlan(source, program);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
     ? createClosedPointerFlowPlan(
         source,
@@ -168,6 +178,7 @@ export function prepareTypeScriptLowering(
     profile,
     identities.membership,
     program.operations,
+    sourcePrimitivePlan,
     pointerFlowPlan,
     pointerProjectionCallables,
     nilCheckPlan,
@@ -182,6 +193,10 @@ export function prepareTypeScriptLowering(
       const finalNodes = createFinalNodeJournal();
       plans.set(sourceFile, Object.freeze({
         finalNodes,
+        sourcePrimitives: createSourcePrimitiveRewriter(
+          sourcePrimitivePlan,
+          sourceFile,
+        ),
         pointer: createPointerRewriteSession(
           source,
           sourceFile,
@@ -280,9 +295,17 @@ function createTransaction(
       const transformed = transformTargetSourceFile(
         sourceFile,
         (original: Node, updated, factory) => {
-          const pointerResult = plan.pointer.rewrite(
+          const sourcePrimitiveResult = plan.sourcePrimitives.rewrite(
             original,
             updated,
+            factory,
+          );
+          if (sourcePrimitiveResult === undefined) {
+            return plan.finalNodes.record(original, undefined);
+          }
+          const pointerResult = plan.pointer.rewrite(
+            original,
+            sourcePrimitiveResult,
             factory,
           );
           if (pointerResult === undefined) {
@@ -309,15 +332,27 @@ function createTransaction(
             representationResult,
             factory,
           );
-          return plan.finalNodes.record(original, nilCheckResult);
+          return plan.finalNodes.record(
+            original,
+            nilCheckResult === undefined
+              ? undefined
+              : finalizeModuleBindingRewrite(
+                original,
+                nilCheckResult,
+                plan.sourcePrimitives.removesModuleBinding(original) ||
+                  plan.pointer.removesModuleBinding(original),
+              ),
+          );
         },
       );
-      const pointer = plan.pointer.finish(transformed);
+      const sourcePrimitives = plan.sourcePrimitives.finish(transformed);
+      const pointer = plan.pointer.finish(sourcePrimitives.sourceFile);
       const scalar = plan.scalar.finish(pointer.sourceFile);
       const representation = plan.representation.finish(scalar.sourceFile);
       const nilChecks = plan.nilChecks.finish(representation.sourceFile);
       return Object.freeze({
         sourceFile: nilChecks.sourceFile,
+        sourcePrimitives,
         pointer,
         scalar,
         representation,

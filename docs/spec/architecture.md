@@ -29,12 +29,14 @@ The target performs one bounded transaction:
 checked source and facts
     -> one immutable selected program index
     -> selected source-execution contract validation
+    -> complete source-primitive plan
     -> complete pointer plan
     -> complete scalar plan
     -> complete representation plan
     -> prepare every source rewrite
     -> one AST traversal per source
-         pointer -> scalar -> representation
+         source primitive -> pointer -> scalar -> representation
+         -> nil-check contraction -> module-binding finalization
     -> exact plan-consumption joins
     -> bounded external-AST encoding batches
     -> configured printer
@@ -124,6 +126,28 @@ pointer operands retain their source nil guard; only a checked non-nullable
 left operand permits guard contraction.
 
 ### Scalars
+
+Target-neutral source primitives are required lowering, not an optimization.
+Every exact finalized `sourcePrimitive` fact becomes its declared TypeScript
+runtime base (`boolean`, `number`, `bigint`, `string`, or `object`), and its
+explicit type-only import binding is erased. Selection comes only from the
+TSTS fact attached to the checked node; local aliases with the same spelling
+are ordinary TypeScript. Every planned type and binding exact-joins one
+consumed original node. A value import, unsupported fact location, or external
+primitive re-export fails before printing rather than retaining a marker-module
+dependency or guessing from text.
+
+Named type imports are the admitted binding form. The finalized navigation
+contract does not currently expose exact namespace-receiver-to-import edges,
+so a namespace-selected primitive fails before printing. The target does not
+reconstruct that missing edge from local spelling or source text.
+
+Semantic families consume their own exact marker bindings, while the shared
+module-binding finalizer owns physical removal and empty-container pruning.
+This permits one namespace binding to serve multiple selected families without
+one family hiding the original node from another family's consumption join.
+The sealed optimization evidence reports the exact primitive type-reference
+and removable-binding denominators independently of optional optimizations.
 
 An imported or nominal scalar wrapper becomes a primitive only when every
 construction, use, store, return, and consumer in its complete component has

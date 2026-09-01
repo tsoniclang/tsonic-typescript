@@ -55,6 +55,20 @@ export {
   createScalarRepresentationRewriter,
   lowerScalarRepresentations,
 } from "./lowering/scalar/transform.js";
+export { createSourcePrimitiveLoweringPlan } from "./lowering/source-primitives/plan.js";
+export type {
+  SourcePrimitiveLoweringPlan,
+  SourcePrimitiveTypeRewrite,
+  TypeScriptPrimitiveKind,
+} from "./lowering/source-primitives/plan.js";
+export {
+  createSourcePrimitiveRewriter,
+  lowerSourcePrimitives,
+} from "./lowering/source-primitives/transform.js";
+export type {
+  SourcePrimitiveRewriter,
+  SourcePrimitiveRewriteResult,
+} from "./lowering/source-primitives/transform.js";
 export type {
   ScalarRepresentationRewriter,
   ScalarRepresentationRewriteResult,

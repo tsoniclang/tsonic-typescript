@@ -1,21 +1,11 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
-  AsExportDeclaration,
-  AsImportClause,
-  AsImportDeclaration,
-  AsNamedExports,
-  AsNamedImports,
   AsSourceFile,
   IsBlock,
   IsCaseClause,
   IsDefaultClause,
-  IsExportDeclaration,
-  IsImportClause,
-  IsImportDeclaration,
   IsModuleBlock,
-  IsNamedExports,
-  IsNamedImports,
   IsSourceFile,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
@@ -33,6 +23,7 @@ import {
   createTargetProgramIndex,
   type TargetProgramIndex,
 } from "../program-index.js";
+import { finalizeModuleBindingRewrite } from "../module-bindings/finalize.js";
 
 import { PointerLoweringError } from "./diagnostic.js";
 import {
@@ -122,6 +113,7 @@ export interface PointerRewriteSession {
     updated: Node,
     factory: NodeFactory,
   ): Node | undefined;
+  removesModuleBinding(node: Node): boolean;
   finish(sourceFile: SourceFile): PointerLoweringResult;
 }
 
@@ -154,10 +146,19 @@ function applyPointerLoweringPlan(
   const session = createPointerRewriteSessionForPlan(source, plan, finalNodes);
   const transformed = transformTargetSourceFile(
     sourceFile,
-    (original, updated, factory) => finalNodes.record(
-      original,
-      session.rewrite(original, updated, factory),
-    ),
+    (original, updated, factory) => {
+      const rewritten = session.rewrite(original, updated, factory);
+      return finalNodes.record(
+        original,
+        rewritten === undefined
+          ? undefined
+          : finalizeModuleBindingRewrite(
+            original,
+            rewritten,
+            session.removesModuleBinding(original),
+          ),
+      );
+    },
   );
   return session.finish(transformed);
 }
@@ -213,6 +214,9 @@ function createPointerRewriteSessionForPlan(
   };
   return Object.freeze({
     rewrite,
+    removesModuleBinding(node: Node): boolean {
+      return plan.removableMarkerDeclarations.has(node);
+    },
     finish(transformed: SourceFile): PointerLoweringResult {
       if (finished) {
         throw new PointerLoweringError("pointer rewrite session was sealed twice");
@@ -284,7 +288,7 @@ function rewriteNode(
 ): Node | undefined {
   if (plan.removableMarkerDeclarations.has(original)) {
     consumed.removableMarkerDeclarations.add(original);
-    return undefined;
+    return updated;
   }
 
   const pointerKeyMapRewrite = plan.flowPlan?.pointerKeyMapRewriteFor(original);
@@ -297,47 +301,6 @@ function rewriteNode(
       finalNodes,
       consumed.pointerKeyMaps,
     );
-  }
-
-  const namedImports = IsNamedImports(updated) ? AsNamedImports(updated) : undefined;
-  if (namedImports !== undefined && namedImports.Elements?.Nodes.length === 0) {
-    return undefined;
-  }
-  const importClause = IsImportClause(updated) ? AsImportClause(updated) : undefined;
-  if (
-    importClause !== undefined &&
-    importClause.name === undefined &&
-    importClause.NamedBindings === undefined
-  ) {
-    return undefined;
-  }
-  const importDeclaration = IsImportDeclaration(updated)
-    ? AsImportDeclaration(updated)
-    : undefined;
-  if (
-    importDeclaration !== undefined &&
-    IsImportDeclaration(original) &&
-    AsImportDeclaration(original)?.ImportClause !== undefined &&
-    importDeclaration.ImportClause === undefined
-  ) {
-    return undefined;
-  }
-  const namedExports = IsNamedExports(updated)
-    ? AsNamedExports(updated)
-    : undefined;
-  if (namedExports !== undefined && namedExports.Elements?.Nodes.length === 0) {
-    return undefined;
-  }
-  const exportDeclaration = IsExportDeclaration(updated)
-    ? AsExportDeclaration(updated)
-    : undefined;
-  if (
-    exportDeclaration !== undefined &&
-    IsExportDeclaration(original) &&
-    AsExportDeclaration(original)?.ExportClause !== undefined &&
-    exportDeclaration.ExportClause === undefined
-  ) {
-    return undefined;
   }
 
   const operation = plan.operations.get(original);

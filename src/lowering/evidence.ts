@@ -34,6 +34,7 @@ import type {
   ScalarProjectionRetentionReason,
   ScalarRepresentationPlan,
 } from "./scalar/plan.js";
+import type { SourcePrimitiveLoweringPlan } from "./source-primitives/plan.js";
 
 export interface OptimizationCount<Value extends string> {
   readonly value: Value;
@@ -122,6 +123,11 @@ export interface ScalarOptimizationEvidence {
   >[];
 }
 
+export interface SourcePrimitiveLoweringEvidence {
+  readonly typeReferenceCount: number;
+  readonly removableImportBindingCount: number;
+}
+
 export interface RepresentationProjectionOptimizationEvidence {
   readonly profile: TypeScriptOptimizationProfile["representationProjections"];
   readonly identityCandidateCount: number;
@@ -147,11 +153,12 @@ export interface RepresentationProjectionOptimizationEvidence {
 }
 
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 30;
+  readonly schemaVersion: 31;
   readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
+  readonly sourcePrimitives: SourcePrimitiveLoweringEvidence;
   readonly pointer: PointerOptimizationEvidence;
   readonly scalar: ScalarOptimizationEvidence;
   readonly representationProjections: RepresentationProjectionOptimizationEvidence;
@@ -167,6 +174,7 @@ export function createTypeScriptOptimizationEvidence(
   profile: TypeScriptOptimizationProfile,
   sourceMembership: readonly string[],
   programIndex: TargetProgramIndexOperations,
+  sourcePrimitives: SourcePrimitiveLoweringPlan,
   pointerPlan: ClosedPointerFlowPlan | undefined,
   pointerProjectionCallables: PointerProjectionCallablePlan,
   nilCheckPlan: DominatingNilCheckPlan,
@@ -176,11 +184,16 @@ export function createTypeScriptOptimizationEvidence(
     canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 30 as const,
+    schemaVersion: 31 as const,
     sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
+    sourcePrimitives: Object.freeze({
+      typeReferenceCount: sourcePrimitives.typeReferenceCount,
+      removableImportBindingCount:
+        sourcePrimitives.removableImportBindingCount,
+    }),
     pointer: pointerEvidence(
       profile,
       pointerPlan,

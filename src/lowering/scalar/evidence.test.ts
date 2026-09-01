@@ -9,6 +9,7 @@ import { createDominatingNilCheckPlan } from "../pointer/nil-check/plan.js";
 import { createScalarRepresentationPlan } from "./plan.js";
 import { createRepresentationProjectionPlan } from "../representation/plan.js";
 import { createPointerProjectionCallablePlan } from "../pointer/projection-callable-plan.js";
+import { createSourcePrimitiveLoweringPlan } from "../source-primitives/plan.js";
 import {
   checkedScalarFixture,
   fixtureSourceIdentityFor,
@@ -46,6 +47,7 @@ export const result = new Scalar({ amount: 1 }).value;
     profile,
     ["index.ts"],
     program.operations,
+    createSourcePrimitiveLoweringPlan(fixture.source, program),
     undefined,
     createPointerProjectionCallablePlan(
       fixture.source,
