@@ -10,6 +10,7 @@ export interface TargetProgramIndexSelection {
   readonly bindingWrites: boolean;
   readonly memberDispatch: boolean;
   readonly declarationReferences?: boolean;
+  readonly excludeSubtreeRoot?: (node: Node) => boolean;
 }
 
 export interface TargetProgramIndexOperations {

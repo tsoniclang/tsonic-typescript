@@ -58,6 +58,12 @@ import {
   type RepresentationProjectionRewriter,
   type RepresentationProjectionRewriteResult,
 } from "./representation/transform.js";
+import { createSourceAttributeSelection } from "./source-attributes/plan.js";
+import {
+  createSourceAttributeRewriter,
+  type SourceAttributeRewriteResult,
+  type SourceAttributeRewriter,
+} from "./source-attributes/transform.js";
 
 export interface TypeScriptSourceLoweringResult {
   readonly sourceFile: SourceFile;
@@ -65,6 +71,7 @@ export interface TypeScriptSourceLoweringResult {
   readonly scalar: ScalarRepresentationRewriteResult;
   readonly representation: RepresentationProjectionRewriteResult;
   readonly effect?: CooperativeEffectRewriteResult;
+  readonly sourceAttributes: SourceAttributeRewriteResult;
 }
 
 export interface TypeScriptSourcePlanningFailure {
@@ -94,6 +101,7 @@ interface SourceRewritePlan {
   readonly scalar: ScalarRepresentationRewriter;
   readonly representation: RepresentationProjectionRewriter;
   readonly effect?: CooperativeEffectRewriteSession;
+  readonly sourceAttributes: SourceAttributeRewriter;
 }
 
 interface SourceIdentityIndex {
@@ -110,6 +118,7 @@ export function prepareTypeScriptLowering(
   assertExactSourceMembership(source, sourceFiles);
   const profile = createTypeScriptOptimizationProfile(profileInput);
   const identities = collectSourceIdentities(sourceFiles, sourceIdentityFor);
+  const sourceAttributes = createSourceAttributeSelection(source);
   const program = createTargetProgramIndex(source, {
     bindingWrites: profile.pointerFlows === "closed-direct" ||
       profile.scalarProjections === "closed-direct" ||
@@ -119,7 +128,9 @@ export function prepareTypeScriptLowering(
     declarationReferences: profile.scalarProjections === "closed-direct" ||
       profile.representationProjections === "closed-direct" ||
       profile.cooperativeEffects === "closed-direct",
+    excludeSubtreeRoot: sourceAttributes.excludeSubtreeRoot,
   });
+  const sourceAttributePlan = sourceAttributes.finish();
   const generatedNames = createProgramGeneratedNames(source, program);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
     ? createClosedPointerFlowPlan(source, program, identities.forFile)
@@ -191,6 +202,10 @@ export function prepareTypeScriptLowering(
                 sourceFile,
               ),
             }),
+        sourceAttributes: createSourceAttributeRewriter(
+          sourceAttributePlan,
+          sourceFile,
+        ),
       }));
     } catch (error) {
       failures.push(Object.freeze({
@@ -299,19 +314,31 @@ function createTransaction(
           const effectResult = plan.effect === undefined
             ? representationResult
             : plan.effect.rewrite(original, representationResult, factory);
-          return plan.finalNodes.record(original, effectResult);
+          if (effectResult === undefined) {
+            return plan.finalNodes.record(original, undefined);
+          }
+          const sourceAttributeResult = plan.sourceAttributes.rewrite(
+            original,
+            effectResult,
+            factory,
+          );
+          return plan.finalNodes.record(original, sourceAttributeResult);
         },
       );
       const pointer = plan.pointer.finish(transformed);
       const scalar = plan.scalar.finish(pointer.sourceFile);
       const representation = plan.representation.finish(scalar.sourceFile);
       const effect = plan.effect?.finish(representation.sourceFile);
+      const sourceAttributes = plan.sourceAttributes.finish(
+        effect?.sourceFile ?? representation.sourceFile,
+      );
       return Object.freeze({
-        sourceFile: effect?.sourceFile ?? representation.sourceFile,
+        sourceFile: sourceAttributes.sourceFile,
         pointer,
         scalar,
         representation,
         ...(effect === undefined ? {} : { effect }),
+        sourceAttributes,
       });
     },
     finish(): void {

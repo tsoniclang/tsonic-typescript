@@ -15,6 +15,13 @@ protocol and printed by one configured printer service. Bootstrap builds use
 the pinned TS-Go printer; the lowering contract is independent of that printer
 implementation.
 
+Finalized source attributes are compile-time metadata. The target selects each
+application through TSTS's exact attribute-builder fact, keeps it out of
+executable optimization analysis, and removes it transactionally before
+printing. Metadata-only imports and local fact declarations are removed only
+when exact source references prove they have no live use; same-spelled local
+calls are never selected.
+
 The backend prepares, lowers, encodes, and resource-validates every selected
 source before invoking that service. It then prints immutable-membership
 batches under one finite protocol budget and publishes artifacts only after

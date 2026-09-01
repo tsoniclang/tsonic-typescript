@@ -58,6 +58,22 @@ exact counts, deterministic ordering, and a fixed eight-occurrence maximum.
 Restoring raw retained-node or per-candidate decision ledgers must fail the
 structural gate or the guarded whole-product memory bound.
 
+## Source-Attribute Proof
+
+The target must prove that every canonical finalized attribute application is
+selected by the attribute-builder fact on its exact checked call, excluded from
+the executable program index, and erased exactly once as a standalone
+statement. Exact counters cover applications, metadata-only import bindings,
+and removable project-local fact declarations.
+
+Mutations must leave a planned application, import, or declaration unconsumed;
+nest an application in an executable expression; duplicate a selected node;
+give an otherwise metadata-only binding one live reference; and replace the
+canonical marker with a local same-spelled function. The first four fail or
+retain the live binding as appropriate; the spelling foil remains executable.
+Broad searches must find no source-text recognition, fact-class/schema parsing,
+filesystem reread, second AST, or post-print deletion route.
+
 ## Effect Structure Gate
 
 A mechanical source-tree gate exact-checks the cooperative-effect directory

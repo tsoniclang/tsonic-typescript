@@ -42,10 +42,13 @@ make one implementation convenient.
 immutable checked TS-Go AST + finalized exact-node facts
                          |
                          v
+exact finalized source-attribute selection
+                         |
+                         v
 validated target profile and complete source membership
                          |
                          v
-one immutable target-program index
+one immutable target-program index excluding attribute subtrees
   (exact nodes/source files, syntax-kind partitions, references, shared flow answers)
                          |
                          v
@@ -54,6 +57,7 @@ family plans over complete connected flows
                          |
                          v
 one composed post-order AST rewrite transaction
+  (pointer -> scalar -> representation -> effect -> source-attribute erasure)
                          |
                          v
 sealed external-AST batches -> configured printer -> strict ESM TypeScript
@@ -62,6 +66,30 @@ sealed external-AST batches -> configured printer -> strict ESM TypeScript
 There is one current path. A family planner records a selected representation
 or one closed typed retention reason. It does not fork into optimized and
 legacy compilers.
+
+## Finalized Source Attributes
+
+The TypeScript target's closed disposition for a finalized source attribute is
+metadata erasure while retaining the canonical ordinary-TypeScript executable
+carrier. Selection uses only the canonical attribute-builder fact attached to
+the exact checked call node. The target neither recognizes `attribute`, the
+attribute class, a schema string, nor a generated helper by spelling, and it
+does not interpret Go-specific payload fields to preserve TypeScript behavior.
+
+Every selected application must be one standalone expression statement. Its
+complete subtree is excluded from the selected program index so pointer,
+scalar, representation, execution, and name analysis cannot treat metadata as
+executable source. The final composed traversal consumes every planned
+statement exactly once. Zero, duplicate, nested, or unconsumed applications
+fail the transaction before printing.
+
+An imported attribute/fact binding or project-local fact declaration is
+removed only when canonical source navigation proves every exact reference is
+inside selected metadata or the binding/declaration itself. A live reference
+retains the binding or declaration. Empty import/export containers created by
+this and other exact rewrites are pruned by one shared structural owner. A
+local same-spelled function or class has no finalized fact and remains ordinary
+source.
 
 ## Cooperative Effect Module Structure
 
@@ -218,6 +246,13 @@ uncertain node. A failed kind proof retains the complete flow rather than
 probing another projected layout.
 
 ## Admitted Families
+
+Every enabled family reports exact optimized and retained denominators.
+Retained entries carry bounded typed reasons and authored occurrence identity.
+Evidence is immutable and emitted only after the complete lowering
+transaction seals. Per-file lowering results report exact erased
+source-attribute, import-binding, and declaration counts without interpreting
+Go-specific payloads.
 
 The profile grows by closed semantic family, not corpus exception. Admission
 requires a complete denominator from finalized facts or ordinary checked-TypeScript semantics:

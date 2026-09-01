@@ -242,10 +242,15 @@ function collectNodeCensus(
       const children = source.ast.children(node);
       for (let index = children.length - 1; index >= 0; index -= 1) {
         const child = children[index];
-        if (child !== undefined) {
-          childEdges += 1;
-          pending.push(child);
+        if (child === undefined || seen.has(child)) {
+          continue;
         }
+        if (selection.excludeSubtreeRoot?.(child) === true) {
+          seen.add(child);
+          continue;
+        }
+        childEdges += 1;
+        pending.push(child);
       }
     }
     byFile.set(sourceFile, Object.freeze(fileNodes));
