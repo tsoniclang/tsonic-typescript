@@ -19,8 +19,9 @@ Finalized source attributes are compile-time metadata. The target selects each
 application through TSTS's exact attribute-builder fact, keeps it out of
 executable optimization analysis, and removes it transactionally before
 printing. Metadata-only imports and local fact declarations are removed only
-when exact source references prove they have no live use; same-spelled local
-calls are never selected.
+when exact source references prove they have no live use and declarations are
+runtime-inert. A removed last binding becomes a side-effect import whenever its
+module may still initialize; same-spelled local calls are never selected.
 
 The backend prepares, lowers, encodes, and resource-validates every selected
 source before invoking that service. It then prints immutable-membership

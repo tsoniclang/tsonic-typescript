@@ -85,11 +85,16 @@ fail the transaction before printing.
 
 An imported attribute/fact binding or project-local fact declaration is
 removed only when canonical source navigation proves every exact reference is
-inside selected metadata or the binding/declaration itself. A live reference
-retains the binding or declaration. Empty import/export containers created by
-this and other exact rewrites are pruned by one shared structural owner. A
-local same-spelled function or class has no finalized fact and remains ordinary
-source.
+inside selected metadata or the binding/declaration itself. A declaration is
+removed only when its exact AST shape is runtime-inert: no heritage, decorator,
+computed name, initializer, static block, or executable member is admitted.
+When removing the last binding, the import becomes a bare side-effect import
+unless the binding is the exact compile-time provider marker or its complete
+project module consists only of removable inert declarations. A live reference,
+live declaration, and module initialization remain ordinary source. Empty
+containers that are actually disposable are pruned by one shared structural
+owner. A local same-spelled function or class has no finalized fact and remains
+ordinary source.
 
 ## Cooperative Effect Module Structure
 

@@ -37,8 +37,12 @@ calls. The TypeScript target plans them by the canonical attribute-builder fact
 on the exact checked call node, excludes their subtrees from every executable
 optimization index, and erases each standalone application exactly once. It
 removes an attribute import or project-local fact declaration only when exact
-source navigation proves that all references belong to erased metadata. Local
-same-spelled calls, live imports, and live declarations remain ordinary source.
+source navigation proves that all references belong to erased metadata and the
+declaration is runtime-inert. Removing the last binding preserves a bare
+side-effect import unless the exact provider marker is compile-time-only or the
+complete project module is removable inert metadata. Local same-spelled calls,
+live imports, live declarations, and module initialization remain ordinary
+source.
 The target does not parse Go-specific payloads merely to retain the already
 emitted executable TypeScript carrier.
 
