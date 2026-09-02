@@ -3,9 +3,14 @@ import type {
   PointerFact,
   PointerOperationFact,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { ProgramGeneratedNames } from "../generated-names.js";
+import {
+  planDirectObjectReplacement,
+  type DirectObjectReplacement,
+} from "./direct-object-replacement.js";
 import type { PointerTypedFactLedger } from "./flow-fact-ledger.js";
 import type {
   PointerFlowBlockerOccurrence,
@@ -33,13 +38,24 @@ import type { PointerPlanningLedger } from "./planning-ledger.js";
 export interface DirectReferenceFamilyPlan {
   readonly representations: ReadonlyMap<Node, DirectReferenceFamilyDecision>;
   canonicalRetentionFor(node: Node): readonly PointerFlowBlockerOccurrence[] | undefined;
+  directObjectReplacementForStore(node: Node): DirectObjectReplacement | undefined;
+  readonly directObjectReplacements: readonly DirectObjectReplacement[];
   readonly familyCount: number;
   readonly fallbackReasons: readonly DirectReferenceFamilyFallback[];
+  readonly retainedFamilies: readonly DirectReferenceFamilyRetention[];
+}
+
+export interface DirectReferenceFamilyRetention {
+  readonly identity: Node;
+  readonly pointerTypeCount: number;
+  readonly operationCount: number;
+  readonly blockerEvidence: readonly PointerFlowBlockerOccurrence[];
 }
 
 export function planDirectReferenceFamilies(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  generatedNames: ProgramGeneratedNames,
   components: readonly PointerFlowComponent[],
   facts: PointerTypedFactLedger,
   ledger: PointerPlanningLedger,
@@ -76,7 +92,18 @@ export function planDirectReferenceFamilies(
     operationFamilies,
     ledger,
   );
-  const familyRepresentations = selectFamilyRepresentations(families, ledger);
+  const replacementCandidates = new Map<
+    MutableDirectReferenceFamily,
+    DirectObjectReplacement
+  >();
+  const familyRepresentations = selectFamilyRepresentations(
+    source,
+    program,
+    generatedNames,
+    families,
+    replacementCandidates,
+    ledger,
+  );
   applyIdentityBoundaries(
     source,
     families,
@@ -90,12 +117,31 @@ export function planDirectReferenceFamilies(
     readonly PointerFlowBlockerOccurrence[]
   >();
   const fallbackReasons: FamilyFallbackLedger = new Map();
+  const directObjectReplacements: DirectObjectReplacement[] = [];
+  const directObjectReplacementsByStore = new Map<
+    Node,
+    DirectObjectReplacement
+  >();
+  const retainedFamilies: DirectReferenceFamilyRetention[] = [];
   let familyCount = 0;
   for (const family of families.values()) {
     ledger.record("direct-family");
     const representation = familyRepresentations.get(family);
+    const replacement = replacementCandidates.get(family);
+    if (replacement !== undefined) {
+      directObjectReplacements.push(replacement);
+      for (const storeCall of replacement.storeCalls) {
+        if (directObjectReplacementsByStore.has(storeCall)) {
+          throw new Error(
+            "direct-object store belongs to multiple class families",
+          );
+        }
+        directObjectReplacementsByStore.set(storeCall, replacement);
+      }
+    }
     if (family.blockers.size !== 0) {
       appendFamilyFallback(fallbackReasons, family.blockers, ledger);
+      retainedFamilies.push(sealRetainedFamily(family, ledger));
       for (const node of family.canonicalNodes.keys()) {
         ledger.record("direct-family");
         if (!family.pointerTypes.has(node) && !family.operations.has(node)) {
@@ -112,6 +158,13 @@ export function planDirectReferenceFamilies(
     if (representation === undefined) {
       throw new Error("unblocked pointer family has no representation");
     }
+    if (replacement !== undefined) {
+      if (representation !== "direct-object") {
+        throw new Error(
+          "direct-object replacement selected a non-object representation",
+        );
+      }
+    }
     familyCount += 1;
     for (const pointerType of family.pointerTypes) {
       ledger.record("direct-family");
@@ -127,8 +180,37 @@ export function planDirectReferenceFamilies(
     canonicalRetentionFor(node: Node): readonly PointerFlowBlockerOccurrence[] | undefined {
       return canonicalRetentions.get(node);
     },
+    directObjectReplacementForStore(node: Node): DirectObjectReplacement | undefined {
+      return directObjectReplacementsByStore.get(node);
+    },
+    directObjectReplacements: Object.freeze(directObjectReplacements),
     familyCount,
     fallbackReasons: sealFamilyFallback(fallbackReasons, ledger),
+    retainedFamilies: Object.freeze(retainedFamilies),
+  });
+}
+
+function sealRetainedFamily(
+  family: MutableDirectReferenceFamily,
+  ledger: PointerPlanningLedger,
+): DirectReferenceFamilyRetention {
+  const blockerEvidence = [...family.blockers]
+    .sort(([left], [right]) => {
+      ledger.record("evidence");
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
+    .map(([reason, occurrences]) => {
+      ledger.record("evidence");
+      return Object.freeze({
+        reason,
+        occurrences: Object.freeze([...occurrences]),
+      });
+    });
+  return Object.freeze({
+    identity: family.identity,
+    pointerTypeCount: family.pointerTypes.size,
+    operationCount: family.operations.size,
+    blockerEvidence: Object.freeze(blockerEvidence),
   });
 }
 
@@ -147,8 +229,8 @@ function applyCheckerBoundaries(
     for (const expression of pointerExpressions(operation)) {
       ledger.record("direct-family");
       const semantics = source.semantics.forNode(expression);
-      const type = semantics.getTypeAtLocation(expression);
-      if (type !== undefined && semantics.isNever(type)) {
+      const type = semantics.types.expressionType(expression);
+      if (type !== undefined && semantics.types.isNever(type)) {
         blockFamily(family, "checker-never", expression);
       }
     }
@@ -181,7 +263,7 @@ function collectPointerType(
     return;
   }
   const semantics = source.semantics.forNode(node);
-  const pointee = semantics.getTypeFromTypeNode(fact.pointee);
+  const pointee = semantics.types.authoredType(fact.pointee);
   const family = pointee === undefined
     ? undefined
     : directReferenceFamily(source, node, pointee, families);
@@ -298,7 +380,11 @@ function directReferenceFamily(
 }
 
 function selectFamilyRepresentations(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  generatedNames: ProgramGeneratedNames,
   families: ReadonlyMap<Node, MutableDirectReferenceFamily>,
+  replacements: Map<MutableDirectReferenceFamily, DirectObjectReplacement>,
   ledger: PointerPlanningLedger,
 ): ReadonlyMap<
   MutableDirectReferenceFamily,
@@ -341,14 +427,30 @@ function selectFamilyRepresentations(
       blockFamily(family, "unsupported-flow", family.identity);
     }
     if (stores.length !== 0 && hasAddressedProducer) {
-      for (const store of stores) {
-        ledger.record("direct-family");
-        blockFamily(family, "pointee-replacement", store.call);
+      const replacement = planDirectObjectReplacement(
+        source,
+        program,
+        generatedNames,
+        family.identity,
+        stores.map((store) => store.call),
+      );
+      if (replacement === undefined) {
+        for (const store of stores) {
+          ledger.record("direct-family");
+          blockFamily(family, "pointee-replacement", store.call);
+        }
+      } else {
+        replacements.set(family, replacement);
       }
     }
     representations.set(
       family,
-      stores.length !== 0 && !hasAddressedProducer
+      stores.length !== 0 &&
+          (!hasAddressedProducer || replacements.has(family))
+        ? hasAddressedProducer
+          ? "direct-object"
+          : "mutable-cell"
+        : stores.length !== 0
         ? "mutable-cell"
         : "direct-object",
     );

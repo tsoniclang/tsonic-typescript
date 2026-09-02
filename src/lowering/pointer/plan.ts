@@ -10,7 +10,7 @@ import type {
   RawPointerOperationFact,
   SourceFile,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type {
@@ -18,17 +18,26 @@ import type {
   SourceFileGeneratedNames,
 } from "../generated-names.js";
 import { validateAddressableStorage } from "./addressability.js";
+import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import { validatePointerOperationFact } from "./operation-contract.js";
-import type {
-  ClosedPointerFlowPlan,
-} from "./flow-plan.js";
+import type { ClosedPointerFlowPlan } from "./flow-plan.js";
+import {
+  planPointerInferenceStabilizations,
+  type PointerInferenceStabilization,
+} from "./inference-stabilization.js";
 import {
   pointerOperationIsFused,
   pointerOperationUsesRuntimeValue,
 } from "./flow-application.js";
 import { planPointerMarkerUsage } from "./marker-usage.js";
-import { pointerTypeCanBeUndefined } from "./nullability.js";
+import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
+import type { ProjectedPropertyLocationFusion } from "./projected-property.js";
+import {
+  planReferenceHashes,
+  type ReferenceHashPlan,
+} from "./reference-hash.js";
+import { planRootLocationClass } from "./root-location-plan.js";
 import { validatePointerFact } from "./type-contract.js";
 
 export interface LocalLocationBinding {
@@ -52,11 +61,6 @@ export interface ParameterLocationBinding {
 
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
 
-export interface ReferenceHashPlan {
-  readonly nullable: boolean;
-  readonly parameterName?: GeneratedBindingName;
-}
-
 export interface PointerLoweringPlan {
   readonly sourceFile: SourceFile;
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
@@ -75,8 +79,20 @@ export interface PointerLoweringPlan {
   readonly addressBindings: ReadonlyMap<Node, LocationBinding>;
   readonly removableMarkerDeclarations: ReadonlySet<Node>;
   readonly flowPlan: ClosedPointerFlowPlan | undefined;
+  readonly projectionCallables: PointerProjectionCallablePlan;
   readonly runtimeAlias: GeneratedBindingName;
   readonly referenceHashes: ReadonlyMap<Node, ReferenceHashPlan>;
+  readonly inferenceStabilizations: ReadonlyMap<
+    Node,
+    PointerInferenceStabilization
+  >;
+  readonly directObjectReplacements: ReadonlyMap<Node, DirectObjectReplacement>;
+  readonly projectedPropertyLocations: ReadonlyMap<
+    Node,
+    ProjectedPropertyLocationFusion
+  >;
+  readonly projectedPropertyLocationClassName: GeneratedBindingName | undefined;
+  readonly rootLocationClassName: GeneratedBindingName | undefined;
   readonly usesRuntimeValue: boolean;
 }
 
@@ -93,7 +109,8 @@ export function createPointerLoweringPlan(
   sourceFile: SourceFile,
   program: TargetProgramIndex,
   generatedNames: SourceFileGeneratedNames,
-  flowPlan?: ClosedPointerFlowPlan,
+  flowPlan: ClosedPointerFlowPlan | undefined,
+  projectionCallables: PointerProjectionCallablePlan,
 ): PointerLoweringPlan {
   if (generatedNames.sourceFile !== sourceFile) {
     throw new PointerLoweringError(
@@ -105,6 +122,11 @@ export function createPointerLoweringPlan(
       "pointer flow plan belongs to a different checked source program",
     );
   }
+  if (!projectionCallables.owns(source)) {
+    throw new PointerLoweringError(
+      "pointer projection-callable plan belongs to a different checked source program",
+    );
+  }
   const nodes = program.nodesFor(sourceFile);
   const operations = new Map<Node, PointerOperationFact>();
   const pointerTypes = new Set<Node>();
@@ -112,9 +134,26 @@ export function createPointerLoweringPlan(
   const rawPointerTypes = new Set<Node>();
   const selectedMarkerRoots: Node[] = [];
   const bindingsByDeclaration = new Map<Node, MutableLocationBinding>();
+  const directObjectReplacements = new Map<Node, DirectObjectReplacement>();
+  const projectedPropertyLocations = new Map<
+    Node,
+    ProjectedPropertyLocationFusion
+  >();
   let usesRuntimeValue = false;
 
   for (const node of nodes) {
+    const directObjectReplacement = flowPlan?.directObjectReplacementFor(node);
+    if (directObjectReplacement !== undefined) {
+      if (
+        directObjectReplacement.classDeclaration !== node &&
+        !directObjectReplacement.storeCalls.includes(node)
+      ) {
+        throw new PointerLoweringError(
+          "direct-object replacement is attached outside its exact class or store",
+        );
+      }
+      directObjectReplacements.set(node, directObjectReplacement);
+    }
     const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
     if (operation !== undefined) {
       if (operation.call !== node || operations.has(node)) {
@@ -124,6 +163,17 @@ export function createPointerLoweringPlan(
       }
       validatePointerOperationFact(source, operation);
       operations.set(node, operation);
+      const projectedPropertyLocation = flowPlan?.projectedPropertyLocationFor(
+        node,
+      );
+      if (projectedPropertyLocation !== undefined) {
+        if (projectedPropertyLocation.projection !== operation) {
+          throw new PointerLoweringError(
+            "projected-property fusion disagrees with its exact operation fact",
+          );
+        }
+        projectedPropertyLocations.set(node, projectedPropertyLocation);
+      }
       if (!pointerOperationIsFused(flowPlan, node)) {
         usesRuntimeValue ||= pointerOperationUsesRuntimeValue(
           operation,
@@ -255,30 +305,28 @@ export function createPointerLoweringPlan(
     nodes,
     selectedMarkerRoots,
   );
+  const projectedPropertyLocationClassName =
+    projectedPropertyLocations.size === 0
+      ? undefined
+      : generatedNames.reserve("$ProjectedPropertyLocation");
   const runtimeAlias = generatedNames.reserve("tsonicTypeScriptRuntime");
-  const referenceHashes = new Map<Node, ReferenceHashPlan>();
-  for (const operation of operations.values()) {
-    const representation = flowPlan?.representationFor(operation.call);
-    if (
-      operation.operation === "hash-pointer" &&
-      (representation === "direct-object" || representation === "mutable-cell")
-    ) {
-      const nullable = pointerTypeCanBeUndefined(
-        source,
-        operation.pointerExpression,
-        operation.pointerType,
-      );
-      referenceHashes.set(
-        operation.call,
-        Object.freeze({
-          nullable,
-          ...(nullable
-            ? { parameterName: generatedNames.reserve("$pointer") }
-            : {}),
-        }),
-      );
-    }
-  }
+  const rootLocationClassName = planRootLocationClass(
+    operations,
+    flowPlan,
+    generatedNames,
+  );
+  const referenceHashes = planReferenceHashes(
+    source,
+    operations,
+    flowPlan,
+    generatedNames,
+  );
+  const inferenceStabilizations = planPointerInferenceStabilizations(
+    source,
+    sourceFile,
+    operations,
+    flowPlan,
+  );
   return Object.freeze({
     sourceFile,
     operations,
@@ -291,8 +339,14 @@ export function createPointerLoweringPlan(
     addressBindings,
     removableMarkerDeclarations: markerUsage.removableDeclarations,
     flowPlan,
+    projectionCallables,
     runtimeAlias,
     referenceHashes,
+    inferenceStabilizations,
+    directObjectReplacements,
+    projectedPropertyLocations,
+    projectedPropertyLocationClassName,
+    rootLocationClassName,
     usesRuntimeValue,
   });
 }

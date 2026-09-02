@@ -4,7 +4,7 @@ import type {
 } from "@tsonic/tsts";
 import type {
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 import {
   AsClassDeclaration,
   AsConstructorDeclaration,
@@ -361,8 +361,8 @@ function resolveProjection(
   }
 
   const semantics = source.semantics.forNode(node);
-  const property = semantics.getResolvedPropertyAccessInfo(node);
-  const call = semantics.getResolvedCallInfo(construction);
+  const property = semantics.operations.propertyAccess(node);
+  const call = semantics.operations.call(construction);
   const selectedParameter = call?.sourceSelectedSignatureParameters[0];
   const argumentBinding = call?.sourceArgumentBindings[0];
   const sourceArgument = call?.sourceArguments[0];
@@ -378,7 +378,7 @@ function resolveProjection(
     call.call !== construction ||
     call.optionalChain ||
     call.sourceSelectedSignatureKind !== "resolved" ||
-    semantics.getSignatureDeclaration(call.selectedSignature) !==
+    semantics.declarations.signatureDeclaration(call.selectedSignature) !==
       classProof.constructorDeclaration ||
     call.sourceSelectedSignatureParameters.length !== 1 ||
     selectedParameter === undefined ||
@@ -394,11 +394,11 @@ function resolveProjection(
     argumentBinding.sourceForm !== "value" ||
     argumentBinding.sourceParameterIndex !== 0 ||
     argumentBinding.sourceParameterForm !== "parameter" ||
-    semantics.getTypeRelationship(
+    semantics.types.relationship(
       property.sourceReadType,
       selectedParameter.selectedType,
     ) !== "identical" ||
-    semantics.getTypeRelationship(
+    semantics.types.relationship(
       argumentBinding.selectedParameterType,
       selectedParameter.selectedType,
     ) !== "identical"

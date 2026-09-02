@@ -8,12 +8,13 @@ import {
 import type { Node, SourceFile } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
-} from "@tsonic/target-api";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { createProgramGeneratedNames } from "../generated-names.js";
 import { createTargetProgramIndex } from "../program-index.js";
 import { createPointerLoweringPlan } from "./plan.js";
+import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
 
 test("plans addressed bindings with one source-reference pass", () => {
   const small = referenceLookupsFor(16);
@@ -59,7 +60,6 @@ function referenceLookupsFor(bindingCount: number): number {
 function pointerProgramIndex(source: TargetSourceProgram) {
   return createTargetProgramIndex(source, {
     bindingWrites: false,
-    memberDispatch: false,
   });
 }
 
@@ -73,6 +73,13 @@ function pointerLoweringPlan(
     sourceFile,
     program,
     createProgramGeneratedNames(source, program).forFile(sourceFile),
+    undefined,
+    createPointerProjectionCallablePlan(
+      source,
+      program,
+      "location",
+      (selected) => source.documents.forFile(selected).identity,
+    ),
   );
 }
 

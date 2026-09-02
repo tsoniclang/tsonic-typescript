@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { checkedEffectFixture } from "./effect/test-support/fixture.test-support.js";
+import { checkedPointerFixture } from "./pointer/pointer.test-support.js";
 import {
   createProgramGeneratedNames,
   type GeneratedBindingName,
@@ -13,13 +13,12 @@ const rawStringIsNotGenerated:
 
 test("reserves authored and sequential generated bindings deterministically", () => {
   assert.equal(rawStringIsNotGenerated, true);
-  const fixture = checkedEffectFixture(`
+  const fixture = checkedPointerFixture(`
 const $pointer = 1;
 export const result = $pointer;
 `);
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
-    memberDispatch: false,
   });
   const names = createProgramGeneratedNames(fixture.source, program)
     .forFile(fixture.sourceFile);
@@ -31,7 +30,7 @@ export const result = $pointer;
 });
 
 test("reserves imported parameter and nested authored bindings", () => {
-  const fixture = checkedEffectFixture(`
+  const fixture = checkedPointerFixture(`
 import { source as imported } from "./provider.js";
 export function run(parameter: number): number {
   {
@@ -44,7 +43,6 @@ export function run(parameter: number): number {
   });
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: false,
-    memberDispatch: false,
   });
   const names = createProgramGeneratedNames(fixture.source, program)
     .forFile(fixture.sourceFile);

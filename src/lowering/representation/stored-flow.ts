@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsCallExpression,
   AsVariableDeclaration,
@@ -13,6 +13,7 @@ import {
 } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import type { RepresentationBindingProof } from "./binding-proof.js";
 import {
   representationFactoryArgument,
   type ProjectionCallShape,
@@ -39,6 +40,7 @@ const noNodes = Object.freeze([]) as readonly Node[];
 export function createStoredRepresentationFlowPlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   candidates: readonly ProjectionCallShape[],
 ): StoredRepresentationFlowPlan {
   const candidateByArgument = new Map<Node, ProjectionCallShape>();
@@ -68,6 +70,7 @@ export function createStoredRepresentationFlowPlan(
     const flow = resolveFlow(
       source,
       program,
+      bindingProof,
       binding,
       candidateByArgument,
       candidateArgumentsByBinding.get(binding) ?? [],
@@ -82,6 +85,7 @@ export function createStoredRepresentationFlowPlan(
 function resolveFlow(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   binding: Node,
   candidateByArgument: ReadonlyMap<Node, ProjectionCallShape>,
   candidateArguments: readonly Node[],
@@ -99,7 +103,7 @@ function resolveFlow(
     return undefined;
   }
 
-  const references = program.referencesToDeclaration(binding);
+  const references = source.navigation.referencesToDeclaration(binding);
   const referenceSet = new Set(references);
   if (
     references.length !== candidateArguments.length ||
@@ -116,6 +120,7 @@ function resolveFlow(
     const factory = representationFactoryArgument(
       source,
       program,
+      bindingProof,
       construction,
       projection,
     );

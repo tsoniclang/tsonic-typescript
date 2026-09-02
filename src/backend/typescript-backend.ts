@@ -1,11 +1,12 @@
 import { isAbsolute, relative } from "node:path";
 
-import type {
-  TargetArtifact,
-  TargetBackend,
-  TargetCompileInput,
-  TargetCompileResult,
-} from "@tsonic/target-api";
+import type { TargetCompileInput } from "@tsonic/target-api";
+import {
+  rejectedTargetStage,
+  resolvedTargetStage,
+  type TargetArtifact,
+  type TargetCompileResult,
+} from "@tsonic/target-api/artifacts";
 import {
   encodeTargetSourceFileForPrinting,
   TargetAstEncodingError,
@@ -18,6 +19,13 @@ import {
   type TypeScriptOptimizationProfileInput,
 } from "../lowering/profile.js";
 import type { TypeScriptOptimizationEvidence } from "../lowering/evidence.js";
+import type {
+  TypeScriptSourceExecutionProfile,
+} from "../source-contract/execution.js";
+import {
+  canonicalRepresentationTransportContract,
+  type RepresentationTransportContract,
+} from "../lowering/representation/transport-contract.js";
 import {
   prepareTypeScriptLowering,
   type TypeScriptLoweringTransaction,
@@ -31,53 +39,59 @@ import {
 } from "./source-artifact-batches.js";
 import { compareSourceDocumentIdentities } from "./source-order.js";
 
-export function createTypeScriptBackend(
+export function compileTypeScriptTarget(
+  input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
   profileInput: TypeScriptOptimizationProfileInput = canonicalTypeScriptOptimizationProfile(),
-): TargetBackend {
+  execution: TypeScriptSourceExecutionProfile = "unrestricted",
+  representationTransports: RepresentationTransportContract =
+    canonicalRepresentationTransportContract(),
+): TargetCompileResult {
   const profile = createTypeScriptOptimizationProfile(profileInput);
-  return {
-    compile(input: TargetCompileInput): TargetCompileResult {
-      try {
-        const compiled = compileSourceArtifacts(input, printer, profile);
-        if (compiled.kind === "rejected") {
-          return {
-            artifacts: [],
-            diagnostics: compiled.diagnostics,
-          };
-        }
-        return {
-          artifacts: Object.freeze([
-            createTypeScriptProjectArtifact(
-              input.runtimeReferences,
-              compiled.usesRuntime,
-            ),
-            createOptimizationEvidenceArtifact(compiled.evidence),
-            ...compiled.artifacts,
-          ]),
-          diagnostics: [],
-        };
-      } catch (error) {
-        return {
-          artifacts: [],
-          diagnostics: [{
-            code: "TYPESCRIPT_TARGET_LOWERING",
-            category: "error",
-            source: "@tsonic/target-typescript",
-            message: error instanceof Error ? error.message : String(error),
-          }],
-        };
-      }
-    },
-  };
+  try {
+    const compiled = compileSourceArtifacts(
+      input,
+      printer,
+      profile,
+      execution,
+      representationTransports,
+    );
+    if (compiled.kind === "rejected") {
+      return rejectedTargetStage(compiled.diagnostics);
+    }
+    return resolvedTargetStage(Object.freeze({
+      artifacts: Object.freeze([
+        createTypeScriptProjectArtifact(
+          input.runtimeReferences,
+          compiled.usesRuntime,
+        ),
+        createOptimizationEvidenceArtifact(compiled.evidence),
+        ...compiled.artifacts,
+      ]),
+    }));
+  } catch (error) {
+    return rejectedTargetStage([Object.freeze({
+      code: "TYPESCRIPT_TARGET_LOWERING",
+      category: "error",
+      source: "@tsonic/target-typescript",
+      message: error instanceof Error ? error.message : String(error),
+    })]);
+  }
 }
 
 function compileSourceArtifacts(
   input: TargetCompileInput,
   printer: TypeScriptAstPrinter,
   profile: TypeScriptOptimizationProfileInput,
+  execution: TypeScriptSourceExecutionProfile,
+  representationTransports: RepresentationTransportContract,
 ): CompiledSourceArtifacts {
-  const prepared = prepareSourceArtifacts(input, profile);
+  const prepared = prepareSourceArtifacts(
+    input,
+    profile,
+    execution,
+    representationTransports,
+  );
   if (prepared.kind === "rejected") {
     return prepared;
   }
@@ -103,6 +117,8 @@ function compileSourceArtifacts(
 function prepareSourceArtifacts(
   input: TargetCompileInput,
   profile: TypeScriptOptimizationProfileInput,
+  execution: TypeScriptSourceExecutionProfile,
+  representationTransports: RepresentationTransportContract,
 ): PreparedSourceArtifacts {
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
   const sourceFiles = [...input.source.navigation.sourceFiles].sort(
@@ -143,6 +159,8 @@ function prepareSourceArtifacts(
       input,
       input.source.documents.forFile(sourceFile).fileName,
     ),
+    execution,
+    representationTransports,
   );
   if (preparation.kind === "rejected") {
     return Object.freeze({

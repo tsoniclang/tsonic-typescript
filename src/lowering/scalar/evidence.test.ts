@@ -4,8 +4,12 @@ import { test } from "node:test";
 import { createTypeScriptOptimizationEvidence } from "../evidence.js";
 import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createTargetProgramIndex } from "../program-index.js";
+import { createProgramGeneratedNames } from "../generated-names.js";
+import { createDominatingNilCheckPlan } from "../pointer/nil-check/plan.js";
 import { createScalarRepresentationPlan } from "./plan.js";
 import { createRepresentationProjectionPlan } from "../representation/plan.js";
+import { createPointerProjectionCallablePlan } from "../pointer/projection-callable-plan.js";
+import { createSourcePrimitiveLoweringPlan } from "../source-primitives/plan.js";
 import {
   checkedScalarFixture,
   fixtureSourceIdentityFor,
@@ -21,12 +25,10 @@ export const result = new Scalar({ amount: 1 }).value;
   const profile = createTypeScriptOptimizationProfile({
     pointerFlows: "location",
     scalarProjections: "closed-direct",
-    cooperativeEffects: "preserve",
+    representationProjections: "preserve",
   });
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
-    memberDispatch: false,
-    declarationReferences: true,
   });
   const plan = createScalarRepresentationPlan(
     fixture.source,
@@ -41,13 +43,28 @@ export const result = new Scalar({ amount: 1 }).value;
     fixtureSourceIdentityFor(fixture.source),
   );
   const evidence = createTypeScriptOptimizationEvidence(
+    "unrestricted",
     profile,
     ["index.ts"],
     program.operations,
+    createSourcePrimitiveLoweringPlan(fixture.source, program),
     undefined,
+    createPointerProjectionCallablePlan(
+      fixture.source,
+      program,
+      profile.pointerFlows,
+      fixtureSourceIdentityFor(fixture.source),
+    ),
+    createDominatingNilCheckPlan(
+      fixture.source,
+      program,
+      createProgramGeneratedNames(fixture.source, program),
+      undefined,
+      profile.pointerFlows,
+      fixtureSourceIdentityFor(fixture.source),
+    ),
     plan,
     representationPlan,
-    undefined,
   );
 
   const retained = evidence.scalar.fallbackReasons.find((entry) =>

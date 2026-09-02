@@ -6,7 +6,7 @@ import type {
 import type {
   SourceFileSemantics,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 import {
   KindArrowFunction,
   KindCallExpression,
@@ -86,7 +86,7 @@ export function collectPointerFunctionResults(
       planning,
     );
     const pointeeType = source.semantics.forNode(pointerType)
-      .getTypeFromTypeNode(fact.pointee);
+      .types.authoredType(fact.pointee);
     if (pointeeType === undefined) {
       graph.block(vertex, "unsupported-pointee", fact.pointee);
     } else {
@@ -133,10 +133,10 @@ export function connectPointerResultCalls(
       continue;
     }
     const semantics = source.semantics.forNode(node);
-    const info = semantics.getResolvedCallInfo(node);
+    const info = semantics.operations.call(node);
     const declaration = info === undefined
       ? undefined
-      : semantics.getSignatureDeclaration(info.selectedSignature);
+      : semantics.declarations.signatureDeclaration(info.selectedSignature);
     const result = declaration === undefined ? undefined : results.get(declaration);
     if (result === undefined || result !== directResult) {
       continue;
@@ -193,10 +193,10 @@ export function connectPointerReturns(census: PointerCensus): void {
       continue;
     }
     const expressionType = source.semantics.forNode(expression)
-      .getTypeAtLocation(expression);
+      .types.expressionType(expression);
     if (
       expressionType !== undefined &&
-      source.semantics.forNode(expression).isNullish(expressionType)
+      source.semantics.forNode(expression).types.isNullish(expressionType)
     ) {
       graph.block(result.vertex, "nil-capable", expression);
       continue;
@@ -259,8 +259,8 @@ function directPointerResultType(
     return undefined;
   }
   const semantics = source.semantics.forNode(returnType);
-  const declaredType = semantics.getTypeFromTypeNode(returnType);
-  const selectedPointerType = semantics.getTypeFromTypeNode(pointerType);
+  const declaredType = semantics.types.authoredType(returnType);
+  const selectedPointerType = semantics.types.authoredType(pointerType);
   if (declaredType === undefined || selectedPointerType === undefined) {
     return undefined;
   }
@@ -277,10 +277,10 @@ function soleTypeArgument(
   semantics: SourceFileSemantics,
   type: Type,
 ): Type | undefined {
-  if (!semantics.isTypeReference(type)) {
+  if (!semantics.types.isTypeReference(type)) {
     return undefined;
   }
-  const arguments_ = semantics.getTypeArguments(type);
+  const arguments_ = semantics.types.typeArguments(type);
   return arguments_.length === 1 ? arguments_[0] : undefined;
 }
 
@@ -289,18 +289,18 @@ function isPointerOrNullishUnion(
   candidate: Type,
   pointer: Type,
 ): boolean {
-  if (semantics.getTypeRelationship(candidate, pointer) === "identical") {
+  if (semantics.types.relationship(candidate, pointer) === "identical") {
     return true;
   }
-  if (!semantics.isUnion(candidate)) {
+  if (!semantics.types.isUnion(candidate)) {
     return false;
   }
-  const nonNullish = semantics.getUnionOrIntersectionTypes(candidate)
-    .filter((member) => !semantics.isNullish(member));
+  const nonNullish = semantics.types.unionOrIntersectionTypes(candidate)
+    .filter((member) => !semantics.types.isNullish(member));
   const selected = nonNullish[0];
   return nonNullish.length === 1 &&
     selected !== undefined &&
-    semantics.getTypeRelationship(selected, pointer) === "identical";
+    semantics.types.relationship(selected, pointer) === "identical";
 }
 
 function awaitedCallResult(

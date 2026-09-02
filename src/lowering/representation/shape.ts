@@ -1,8 +1,9 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { RepresentationProjectionRetentionReason } from "./plan.js";
+import type { RepresentationBindingProof } from "./binding-proof.js";
 
 export type RepresentationShapeResult =
   | { readonly kind: "unrelated" }
@@ -20,9 +21,67 @@ export interface ProjectionCallShape {
   readonly storageDeclaration: Node;
 }
 
+export type ForwardingCallableShapeResult =
+  | { readonly kind: "unrelated" }
+  | {
+      readonly kind: "retained";
+      readonly reason: "open-call" | "unstable-binding";
+    }
+  | { readonly kind: "proved"; readonly target: Node };
+
+export function forwardingCallableTarget(
+  source: TargetSourceProgram,
+  program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
+  expression: Node,
+): ForwardingCallableShapeResult {
+  if (
+    !source.ast.is.IsArrowFunction(expression) ||
+    source.ast.hasModifierKind(expression, "async")
+  ) {
+    return { kind: "unrelated" };
+  }
+  const parameters = source.ast.parameters(expression).filter(
+    (parameter): parameter is Node => parameter !== undefined,
+  );
+  const parameter = parameters[0];
+  const returned = returnedExpression(source, expression);
+  if (returned === undefined || !source.ast.is.IsCallExpression(returned)) {
+    return { kind: "unrelated" };
+  }
+  const call = source.ast.as.AsCallExpression(returned);
+  const arguments_ = call?.Arguments?.Nodes ?? [];
+  const argument = arguments_[0];
+  if (
+    parameters.length !== 1 || parameter === undefined ||
+    !plainRequiredParameter(source, parameter) || call?.Expression === undefined ||
+    call.QuestionDotToken !== undefined || arguments_.length !== 1 ||
+    argument === undefined || source.ast.is.IsSpreadElement(argument) ||
+    !referencesDeclaration(source, argument, parameter)
+  ) {
+    return { kind: "unrelated" };
+  }
+  const declaration = directTargetDeclaration(source, call.Expression);
+  const selected = source.semantics.forNode(returned).operations.call(returned);
+  if (
+    declaration === undefined || selected?.outcome !== "applicable" ||
+    selected.sourceSelectedSignatureKind !== "resolved" || selected.optionalChain ||
+    source.semantics.forNode(returned).declarations.signatureDeclaration(
+      selected.selectedSignature,
+    ) !== declaration
+  ) {
+    return { kind: "retained", reason: "open-call" };
+  }
+  if (!bindingProof.stableCallable(declaration)) {
+    return { kind: "retained", reason: "unstable-binding" };
+  }
+  return Object.freeze({ kind: "proved" as const, target: call.Expression });
+}
+
 export function identityCallArgument(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   callNode: Node,
 ): RepresentationShapeResult {
   const selected = directCallCandidate(source, callNode);
@@ -40,7 +99,7 @@ export function identityCallArgument(
   if (!selected.exact || selected.argument === undefined) {
     return { kind: "retained", reason: "open-call" };
   }
-  if (!stableCallable(source, program, selected.declaration)) {
+  if (!bindingProof.stableCallable(selected.declaration)) {
     return { kind: "retained", reason: "unstable-binding" };
   }
   return { kind: "proved", argument: selected.argument };
@@ -49,6 +108,7 @@ export function identityCallArgument(
 export function projectionCallShape(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   callNode: Node,
 ): ProjectionCallShape | Exclude<RepresentationShapeResult, { readonly kind: "proved" }> {
   const selected = directCallCandidate(source, callNode);
@@ -76,7 +136,7 @@ export function projectionCallShape(
   if (!selected.exact || selected.argument === undefined) {
     return { kind: "retained", reason: "open-call" };
   }
-  if (!stableCallable(source, program, selected.declaration)) {
+  if (!bindingProof.stableCallable(selected.declaration)) {
     return { kind: "retained", reason: "unstable-binding" };
   }
   return Object.freeze({
@@ -91,6 +151,7 @@ export function projectionCallShape(
 export function inverseProjectionArgument(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   projection: ProjectionCallShape,
 ): RepresentationShapeResult {
   const outer = source.ast.as.AsCallExpression(projection.call);
@@ -98,12 +159,13 @@ export function inverseProjectionArgument(
   if (innerNode === undefined || !source.ast.is.IsCallExpression(innerNode)) {
     return { kind: "retained", reason: "unpaired-projection" };
   }
-  return representationFactoryArgument(source, program, innerNode, projection);
+  return representationFactoryArgument(source, program, bindingProof, innerNode, projection);
 }
 
 export function representationFactoryArgument(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   callNode: Node,
   projection: ProjectionCallShape,
 ): RepresentationShapeResult {
@@ -114,7 +176,7 @@ export function representationFactoryArgument(
   if (!factory.exact || factory.argument === undefined) {
     return { kind: "retained", reason: "open-call" };
   }
-  if (!stableCallable(source, program, factory.declaration)) {
+  if (!bindingProof.stableCallable(factory.declaration)) {
     return { kind: "retained", reason: "unstable-binding" };
   }
   const returned = soleReturnedExpression(source, factory.declaration);
@@ -139,6 +201,7 @@ export function representationFactoryArgument(
     !transparentStorageConstructor(
       source,
       program,
+      bindingProof,
       returned,
       classDeclaration,
       projection.storageDeclaration,
@@ -172,11 +235,11 @@ function directCallCandidate(
     return undefined;
   }
   const semantics = source.semantics.forNode(callNode);
-  const callInfo = semantics.getResolvedCallInfo(callNode);
+  const callInfo = semantics.operations.call(callNode);
   const selectedDeclaration = callInfo?.outcome === "applicable" &&
       callInfo.sourceSelectedSignatureKind === "resolved" &&
       !callInfo.optionalChain
-    ? semantics.getSignatureDeclaration(callInfo.selectedSignature)
+    ? semantics.declarations.signatureDeclaration(callInfo.selectedSignature)
     : undefined;
   if (
     !source.navigation.isProjectDeclaration(targetDeclaration)
@@ -233,40 +296,14 @@ function directTargetDeclaration(
     : undefined;
 }
 
-function stableCallable(
+function soleReturnedExpression(
   source: TargetSourceProgram,
-  program: TargetProgramIndex,
   declaration: Node,
-): boolean {
-  const parsed = source.ast.is.IsFunctionDeclaration(declaration)
-    ? source.ast.as.AsFunctionDeclaration(declaration)
-    : source.ast.is.IsMethodDeclaration(declaration)
-    ? source.ast.as.AsMethodDeclaration(declaration)
-    : undefined;
-  const parent = source.ast.parent(declaration);
-  const stableClass = source.ast.is.IsFunctionDeclaration(declaration) ||
-    parent !== undefined &&
-      source.ast.is.IsClassDeclaration(parent) &&
-      classValueReferencesAreClosed(source, program, parent);
-  return parsed !== undefined &&
-    parsed.AsteriskToken === undefined &&
-    !source.ast.hasModifierKind(declaration, "async") &&
-    !source.ast.modifiers(declaration).some((modifier) =>
-      source.ast.is.IsDecorator(modifier)
-    ) &&
-    !program.hasBindingWrite(declaration) &&
-    stableClass &&
-    (source.ast.is.IsFunctionDeclaration(declaration) ||
-      parent !== undefined &&
-        source.ast.is.IsClassDeclaration(parent) &&
-        source.ast.extendsHeritageElements(parent).length === 0 &&
-        !source.ast.modifiers(parent).some((modifier) =>
-          source.ast.is.IsDecorator(modifier)
-        ) &&
-        !program.hasBindingWrite(parent));
+): Node | undefined {
+  return returnedExpression(source, declaration);
 }
 
-function soleReturnedExpression(
+function returnedExpression(
   source: TargetSourceProgram,
   declaration: Node,
 ): Node | undefined {
@@ -274,9 +311,11 @@ function soleReturnedExpression(
   if (body === undefined) {
     return undefined;
   }
+  if (!source.ast.is.IsBlock(body)) {
+    return body;
+  }
   const statements = source.ast.statements(body);
-  return statements.length === 1 &&
-      statements[0] !== undefined &&
+  return statements.length === 1 && statements[0] !== undefined &&
       source.ast.is.IsReturnStatement(statements[0])
     ? source.ast.as.AsReturnStatement(statements[0])?.Expression
     : undefined;
@@ -285,6 +324,7 @@ function soleReturnedExpression(
 function transparentStorageConstructor(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   construction: Node,
   classDeclaration: Node,
   storageDeclaration: Node,
@@ -300,7 +340,7 @@ function transparentStorageConstructor(
   const parsed = source.ast.as.AsParameterDeclaration(parameter);
   const body = constructor === undefined ? undefined : source.ast.body(constructor);
   const signature = source.semantics.forNode(construction)
-    .getResolvedSignature(construction);
+    .operations.call(construction)?.selectedSignature;
   return constructor !== undefined &&
     parameter !== undefined &&
     parameter === storageDeclaration &&
@@ -313,9 +353,9 @@ function transparentStorageConstructor(
     body !== undefined &&
     source.ast.statements(body).length === 0 &&
     classMembersAreConstructionTransparent(source, classDeclaration) &&
-    classValueReferencesAreClosed(source, program, classDeclaration) &&
+    bindingProof.classValueReferencesAreClosed(classDeclaration) &&
     signature !== undefined &&
-    source.semantics.forNode(construction).getSignatureDeclaration(signature) ===
+    source.semantics.forNode(construction).declarations.signatureDeclaration(signature) ===
       constructor &&
     !program.hasBindingWrite(classDeclaration) &&
     !program.hasBindingWrite(parameter);
@@ -360,99 +400,6 @@ function classMembersAreConstructionTransparent(
     return false;
   }
   return true;
-}
-
-export function classValueReferencesAreClosed(
-  source: TargetSourceProgram,
-  program: TargetProgramIndex,
-  classDeclaration: Node,
-): boolean {
-  return program.referencesToDeclaration(classDeclaration).every((reference) =>
-    isModuleForwardingReference(source, reference) ||
-    plainTypeReference(source, reference) ||
-    exactConstructionTarget(source, reference) ||
-    exactStaticCallTarget(source, reference, classDeclaration)
-  );
-}
-
-function exactConstructionTarget(
-  source: TargetSourceProgram,
-  reference: Node,
-): boolean {
-  const parent = source.ast.parent(reference);
-  return parent !== undefined &&
-    source.ast.is.IsNewExpression(parent) &&
-    source.ast.as.AsNewExpression(parent)?.Expression === reference;
-}
-
-function exactStaticCallTarget(
-  source: TargetSourceProgram,
-  reference: Node,
-  classDeclaration: Node,
-): boolean {
-  const access = source.ast.parent(reference);
-  if (
-    access === undefined ||
-    !source.ast.is.IsPropertyAccessExpression(access) ||
-    source.ast.as.AsPropertyAccessExpression(access)?.Expression !== reference
-  ) {
-    return false;
-  }
-  const call = source.ast.parent(access);
-  if (
-    call === undefined ||
-    !source.ast.is.IsCallExpression(call) ||
-    source.ast.as.AsCallExpression(call)?.Expression !== access
-  ) {
-    return false;
-  }
-  const member = source.navigation.sourceReferenceFor(
-    source.ast.as.AsPropertyAccessExpression(access)?.name,
-  )?.declaration;
-  return member !== undefined &&
-    source.ast.is.IsMethodDeclaration(member) &&
-    source.ast.hasModifierKind(member, "static") &&
-    source.ast.parent(member) === classDeclaration;
-}
-
-function plainTypeReference(
-  source: TargetSourceProgram,
-  reference: Node,
-): boolean {
-  let current: Node | undefined = reference;
-  while (current !== undefined) {
-    if (source.ast.is.IsTypeQueryNode(current)) {
-      return false;
-    }
-    if (source.ast.is.IsTypeReferenceNode(current)) {
-      return true;
-    }
-    current = source.ast.parent(current);
-  }
-  return false;
-}
-
-function isModuleForwardingReference(
-  source: TargetSourceProgram,
-  reference: Node,
-): boolean {
-  let current: Node | undefined = reference;
-  while (current !== undefined) {
-    if (
-      source.ast.is.IsImportSpecifier(current) ||
-      source.ast.is.IsExportSpecifier(current)
-    ) {
-      return true;
-    }
-    if (
-      !source.ast.is.IsNamedImports(current) &&
-      !source.ast.is.IsNamedExports(current)
-    ) {
-      return false;
-    }
-    current = source.ast.parent(current);
-  }
-  return false;
 }
 
 function hasDecorator(source: TargetSourceProgram, node: Node): boolean {

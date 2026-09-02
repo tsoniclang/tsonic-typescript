@@ -1,21 +1,11 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
-  AsExportDeclaration,
-  AsImportClause,
-  AsImportDeclaration,
-  AsNamedExports,
-  AsNamedImports,
   AsSourceFile,
   IsBlock,
   IsCaseClause,
   IsDefaultClause,
-  IsExportDeclaration,
-  IsImportClause,
-  IsImportDeclaration,
   IsModuleBlock,
-  IsNamedExports,
-  IsNamedImports,
   IsSourceFile,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
@@ -33,8 +23,12 @@ import {
   createTargetProgramIndex,
   type TargetProgramIndex,
 } from "../program-index.js";
+import { finalizeModuleBindingRewrite } from "../module-bindings/finalize.js";
 
 import { PointerLoweringError } from "./diagnostic.js";
+import {
+  appendDirectObjectReplacementMethod,
+} from "./direct-object-replacement-ast.js";
 import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 import { pointerFlowRepresentation, pointerLoweringPlanUsesRuntime } from "./flow-application.js";
 import {
@@ -49,15 +43,30 @@ import {
   createPointerLoweringPlan,
   type PointerLoweringPlan,
 } from "./plan.js";
+import {
+  createPointerProjectionCallablePlan,
+  type PointerProjectionCallablePlan,
+} from "./projection-callable-plan.js";
 import { lowerRawPointerOperation, lowerRawPointerType } from "./raw.js";
 import {
   lowerOptimizedPointerOperation,
   lowerOptimizedPointerType,
 } from "./representation-ast.js";
+import { applyPointerInferenceStabilization } from "./inference-stabilization.js";
 import { lowerPointerProjectionFusion } from "./projection-fusion-ast.js";
+import {
+  lowerProjectedPropertyLocation,
+} from "./projected-property-ast.js";
+import {
+  assertCanonicalPointerKeyMapConsumption,
+  createCanonicalPointerKeyMapConsumption,
+  rewriteCanonicalPointerKeyMapNode,
+  type CanonicalPointerKeyMapConsumption,
+} from "./map/transform.js";
 import {
   prependRuntimeImport,
 } from "./runtime-ast.js";
+import { insertPointerSourceFileArtifacts } from "./source-file-ast.js";
 
 export interface PointerLoweringResult {
   readonly sourceFile: SourceFile;
@@ -66,6 +75,8 @@ export interface PointerLoweringResult {
   readonly rawPointerOperationCount: number;
   readonly rawPointerTypeCount: number;
   readonly locationBindingCount: number;
+  readonly inferenceStabilizationCount: number;
+  readonly directObjectReplacementCount: number;
   readonly runtimeAlias: string | undefined;
 }
 
@@ -75,17 +86,23 @@ export function lowerPointers(
   flowPlan?: ClosedPointerFlowPlan,
 ): PointerLoweringResult {
   const program = createTargetProgramIndex(source, {
-    bindingWrites: false,
-    memberDispatch: false,
+    bindingWrites: true,
   });
   const generatedNames = createProgramGeneratedNames(source, program)
     .forFile(sourceFile);
+  const projectionCallables = createPointerProjectionCallablePlan(
+    source,
+    program,
+    flowPlan === undefined ? "location" : "closed-direct",
+    (selected) => source.documents.forFile(selected).identity,
+  );
   const plan = createPointerLoweringPlan(
     source,
     sourceFile,
     program,
     generatedNames,
     flowPlan,
+    projectionCallables,
   );
   return applyPointerLoweringPlan(source, plan);
 }
@@ -96,6 +113,7 @@ export interface PointerRewriteSession {
     updated: Node,
     factory: NodeFactory,
   ): Node | undefined;
+  removesModuleBinding(node: Node): boolean;
   finish(sourceFile: SourceFile): PointerLoweringResult;
 }
 
@@ -119,6 +137,8 @@ function applyPointerLoweringPlan(
       rawPointerOperationCount: 0,
       rawPointerTypeCount: 0,
       locationBindingCount: 0,
+      inferenceStabilizationCount: 0,
+      directObjectReplacementCount: 0,
       runtimeAlias: undefined,
     });
   }
@@ -126,10 +146,19 @@ function applyPointerLoweringPlan(
   const session = createPointerRewriteSessionForPlan(source, plan, finalNodes);
   const transformed = transformTargetSourceFile(
     sourceFile,
-    (original, updated, factory) => finalNodes.record(
-      original,
-      session.rewrite(original, updated, factory),
-    ),
+    (original, updated, factory) => {
+      const rewritten = session.rewrite(original, updated, factory);
+      return finalNodes.record(
+        original,
+        rewritten === undefined
+          ? undefined
+          : finalizeModuleBindingRewrite(
+            original,
+            rewritten,
+            session.removesModuleBinding(original),
+          ),
+      );
+    },
   );
   return session.finish(transformed);
 }
@@ -140,6 +169,7 @@ export function createPointerRewriteSession(
   program: TargetProgramIndex,
   generatedNames: SourceFileGeneratedNames,
   flowPlan: ClosedPointerFlowPlan | undefined,
+  projectionCallables: PointerProjectionCallablePlan,
   finalNodes: FinalNodeLookup,
 ): PointerRewriteSession {
   return createPointerRewriteSessionForPlan(
@@ -150,6 +180,7 @@ export function createPointerRewriteSession(
       program,
       generatedNames,
       flowPlan,
+      projectionCallables,
     ),
     finalNodes,
   );
@@ -183,6 +214,9 @@ function createPointerRewriteSessionForPlan(
   };
   return Object.freeze({
     rewrite,
+    removesModuleBinding(node: Node): boolean {
+      return plan.removableMarkerDeclarations.has(node);
+    },
     finish(transformed: SourceFile): PointerLoweringResult {
       if (finished) {
         throw new PointerLoweringError("pointer rewrite session was sealed twice");
@@ -207,6 +241,8 @@ function pointerLoweringResult(
     rawPointerOperationCount: consumed.rawPointerOperations.size,
     rawPointerTypeCount: consumed.rawPointerTypes.size,
     locationBindingCount: consumed.locationBindings.size,
+    inferenceStabilizationCount: consumed.inferenceStabilizations.size,
+    directObjectReplacementCount: consumed.directObjectReplacements.size,
     runtimeAlias: usesRuntime ? plan.runtimeAlias.text : undefined,
   });
 }
@@ -218,6 +254,11 @@ interface ConsumptionState {
   readonly rawPointerTypes: Set<Node>;
   readonly locationBindings: Set<Node>;
   readonly removableMarkerDeclarations: Set<Node>;
+  readonly inferenceStabilizations: Set<Node>;
+  readonly directObjectReplacements: Set<Node>;
+  readonly pointerKeyMaps: CanonicalPointerKeyMapConsumption;
+  projectedPropertyLocationClassInserted: boolean;
+  rootLocationClassInserted: boolean;
 }
 
 function createConsumptionState(): ConsumptionState {
@@ -228,6 +269,11 @@ function createConsumptionState(): ConsumptionState {
     rawPointerTypes: new Set(),
     locationBindings: new Set(),
     removableMarkerDeclarations: new Set(),
+    inferenceStabilizations: new Set(),
+    directObjectReplacements: new Set(),
+    pointerKeyMaps: createCanonicalPointerKeyMapConsumption(),
+    projectedPropertyLocationClassInserted: false,
+    rootLocationClassInserted: false,
   };
 }
 
@@ -242,48 +288,19 @@ function rewriteNode(
 ): Node | undefined {
   if (plan.removableMarkerDeclarations.has(original)) {
     consumed.removableMarkerDeclarations.add(original);
-    return undefined;
+    return updated;
   }
 
-  const namedImports = IsNamedImports(updated) ? AsNamedImports(updated) : undefined;
-  if (namedImports !== undefined && namedImports.Elements?.Nodes.length === 0) {
-    return undefined;
-  }
-  const importClause = IsImportClause(updated) ? AsImportClause(updated) : undefined;
-  if (
-    importClause !== undefined &&
-    importClause.name === undefined &&
-    importClause.NamedBindings === undefined
-  ) {
-    return undefined;
-  }
-  const importDeclaration = IsImportDeclaration(updated)
-    ? AsImportDeclaration(updated)
-    : undefined;
-  if (
-    importDeclaration !== undefined &&
-    IsImportDeclaration(original) &&
-    AsImportDeclaration(original)?.ImportClause !== undefined &&
-    importDeclaration.ImportClause === undefined
-  ) {
-    return undefined;
-  }
-  const namedExports = IsNamedExports(updated)
-    ? AsNamedExports(updated)
-    : undefined;
-  if (namedExports !== undefined && namedExports.Elements?.Nodes.length === 0) {
-    return undefined;
-  }
-  const exportDeclaration = IsExportDeclaration(updated)
-    ? AsExportDeclaration(updated)
-    : undefined;
-  if (
-    exportDeclaration !== undefined &&
-    IsExportDeclaration(original) &&
-    AsExportDeclaration(original)?.ExportClause !== undefined &&
-    exportDeclaration.ExportClause === undefined
-  ) {
-    return undefined;
+  const pointerKeyMapRewrite = plan.flowPlan?.pointerKeyMapRewriteFor(original);
+  if (pointerKeyMapRewrite !== undefined) {
+    return rewriteCanonicalPointerKeyMapNode(
+      factory,
+      original,
+      updated,
+      pointerKeyMapRewrite,
+      finalNodes,
+      consumed.pointerKeyMaps,
+    );
   }
 
   const operation = plan.operations.get(original);
@@ -301,12 +318,29 @@ function rewriteNode(
     if (plan.flowPlan?.ownsFusedProjection(original) === true) {
       return updated;
     }
+    const projectedPropertyLocation = plan.projectedPropertyLocations.get(
+      original,
+    );
+    if (projectedPropertyLocation !== undefined) {
+      return lowerProjectedPropertyLocation(
+        source,
+        factory,
+        projectedPropertyLocation,
+        updated,
+        plan,
+        finalNodes,
+      );
+    }
+    if (plan.flowPlan?.ownsProjectedPropertyAddress(original) === true) {
+      return updated;
+    }
     const optimized = lowerOptimizedPointerOperation(
       source,
       factory,
       operation,
       updated,
       pointerFlowRepresentation(plan, original),
+      plan.directObjectReplacements.get(original),
       plan.runtimeAlias,
       plan.referenceHashes.get(original),
     );
@@ -353,7 +387,31 @@ function rewriteNode(
     return lowerRawPointerType(factory, updated, plan.runtimeAlias);
   }
 
+  const stabilization = plan.inferenceStabilizations.get(original);
+  if (stabilization !== undefined) {
+    consumed.inferenceStabilizations.add(original);
+    return applyPointerInferenceStabilization(
+      factory,
+      original,
+      updated,
+      stabilization,
+      finalNodes,
+    );
+  }
+
   let structuralResult = updated;
+  const directObjectReplacement = plan.directObjectReplacements.get(original);
+  if (
+    directObjectReplacement !== undefined &&
+    directObjectReplacement.classDeclaration === original
+  ) {
+    consumed.directObjectReplacements.add(original);
+    structuralResult = appendDirectObjectReplacementMethod(
+      factory,
+      structuralResult,
+      directObjectReplacement,
+    );
+  }
   if (
     IsSourceFile(original) ||
     IsBlock(original) ||
@@ -390,12 +448,26 @@ function rewriteNode(
         "source-file predicate did not yield a source-file receiver",
       );
     }
-    return pointerLoweringPlanUsesRuntime(plan) ? prependRuntimeImport(
+    const withRuntimeNode = pointerLoweringPlanUsesRuntime(plan)
+      ? prependRuntimeImport(
+          factory,
+          sourceFile,
+          plan.runtimeAlias,
+          plan.usesRuntimeValue,
+        )
+      : sourceFile;
+    const withRuntime = AsSourceFile(withRuntimeNode);
+    if (withRuntime === undefined) {
+      throw new PointerLoweringError(
+        "pointer lowering lost its source-file receiver",
+      );
+    }
+    return insertPointerSourceFileArtifacts(
       factory,
-      sourceFile,
-      plan.runtimeAlias,
-      plan.usesRuntimeValue,
-    ) : sourceFile;
+      withRuntime,
+      plan,
+      consumed,
+    );
   }
   return structuralResult;
 }
@@ -410,6 +482,10 @@ function assertCompleteConsumption(
     "raw-pointer operations",
     consumed.rawPointerOperations,
     plan.rawPointerOperations.size,
+  );
+  assertCanonicalPointerKeyMapConsumption(
+    plan.flowPlan?.pointerKeyMapsFor(plan.sourceFile) ?? [],
+    consumed.pointerKeyMaps,
   );
   assertCount(
     "raw-pointer types",
@@ -432,6 +508,32 @@ function assertCompleteConsumption(
     consumed.removableMarkerDeclarations,
     plan.removableMarkerDeclarations.size,
   );
+  assertCount(
+    "pointer inference stabilizations",
+    consumed.inferenceStabilizations,
+    plan.inferenceStabilizations.size,
+  );
+  assertCount(
+    "direct-object replacements",
+    consumed.directObjectReplacements,
+    plan.flowPlan?.directObjectReplacementsFor(plan.sourceFile).length ?? 0,
+  );
+  if (
+    consumed.projectedPropertyLocationClassInserted !==
+      (plan.projectedPropertyLocationClassName !== undefined)
+  ) {
+    throw new PointerLoweringError(
+      "projected-property class insertion was not consumed exactly once",
+    );
+  }
+  if (
+    consumed.rootLocationClassInserted !==
+      (plan.rootLocationClassName !== undefined)
+  ) {
+    throw new PointerLoweringError(
+      "root-location class insertion did not match its exact allocation plan",
+    );
+  }
 }
 
 function assertCount(

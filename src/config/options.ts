@@ -5,6 +5,13 @@ import {
   createTypeScriptOptimizationProfile,
   type TypeScriptOptimizationProfile,
 } from "../lowering/profile.js";
+import type {
+  TypeScriptSourceExecutionProfile,
+} from "../source-contract/execution.js";
+import type {
+  RepresentationTransportContract,
+} from "../lowering/representation/transport-contract.js";
+import { readRepresentationTransportContract } from "./representation-transports.js";
 
 export interface TypeScriptAstPrinterOptions {
   readonly executable: string;
@@ -13,8 +20,9 @@ export interface TypeScriptAstPrinterOptions {
 
 export interface TypeScriptTargetOptions {
   readonly printer: TypeScriptAstPrinterOptions;
+  readonly execution: TypeScriptSourceExecutionProfile;
   readonly optimizations: TypeScriptOptimizationProfile;
-  readonly providerInvocationManifests: readonly string[];
+  readonly representationTransports: RepresentationTransportContract;
 }
 
 export function readTypeScriptTargetOptions(
@@ -26,25 +34,52 @@ export function readTypeScriptTargetOptions(
   }
   rejectUnknownKeys(
     options,
-    new Set(["printer", "optimizations", "providerInvocationManifests"]),
+    new Set([
+      "printer",
+      "execution",
+      "optimizations",
+      "representationTransports",
+    ]),
     "TypeScript target options",
   );
-  const printer = options["printer"];
-  if (!isRecord(printer)) {
+  return Object.freeze({
+    printer: readPrinter(options["printer"]),
+    execution: readExecution(options["execution"]),
+    optimizations: readOptimizationOptions(options["optimizations"]),
+    representationTransports: readRepresentationTransportContract(
+      options["representationTransports"],
+    ),
+  });
+}
+
+function readExecution(value: unknown): TypeScriptSourceExecutionProfile {
+  if (value === undefined || value === "unrestricted") {
+    return "unrestricted";
+  }
+  if (value === "synchronous") {
+    return value;
+  }
+  throw new Error(
+    "TypeScript target option 'execution' must be 'unrestricted' or 'synchronous'",
+  );
+}
+
+function readPrinter(value: unknown): TypeScriptAstPrinterOptions {
+  if (!isRecord(value)) {
     throw new Error("TypeScript target option 'printer' must be an object");
   }
   rejectUnknownKeys(
-    printer,
+    value,
     new Set(["executable", "arguments"]),
     "TypeScript target printer",
   );
-  const executable = printer["executable"];
+  const executable = value["executable"];
   if (typeof executable !== "string" || executable.length === 0) {
     throw new Error(
       "TypeScript target printer 'executable' must be a non-empty string",
     );
   }
-  const rawArguments = printer["arguments"];
+  const rawArguments = value["arguments"];
   if (rawArguments !== undefined && !Array.isArray(rawArguments)) {
     throw new Error("TypeScript target printer 'arguments' must be an array");
   }
@@ -58,40 +93,10 @@ export function readTypeScriptTargetOptions(
       }
       return argument;
     });
-  const optimizations = readOptimizationOptions(options["optimizations"]);
-  const providerInvocationManifests = readStringArray(
-    options["providerInvocationManifests"],
-    "TypeScript target option 'providerInvocationManifests'",
-  );
   return Object.freeze({
-    printer: Object.freeze({
-      executable,
-      arguments: Object.freeze(arguments_),
-    }),
-    optimizations,
-    providerInvocationManifests,
+    executable,
+    arguments: Object.freeze(arguments_),
   });
-}
-
-function readStringArray(value: unknown, subject: string): readonly string[] {
-  if (value === undefined) {
-    return Object.freeze([]);
-  }
-  if (!Array.isArray(value)) {
-    throw new Error(`${subject} must be an array`);
-  }
-  const seen = new Set<string>();
-  const result = value.map((entry, index) => {
-    if (typeof entry !== "string" || entry.length === 0) {
-      throw new Error(`${subject} entry ${index} must be a non-empty string`);
-    }
-    if (seen.has(entry)) {
-      throw new Error(`${subject} entry '${entry}' is duplicated`);
-    }
-    seen.add(entry);
-    return entry;
-  });
-  return Object.freeze(result);
 }
 
 function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile {
@@ -107,8 +112,6 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
       "pointerFlows",
       "scalarProjections",
       "representationProjections",
-      "cooperativeEffects",
-      "interfaceDispatch",
     ]),
     "TypeScript target optimizations",
   );
@@ -128,27 +131,7 @@ function readOptimizationOptions(value: unknown): TypeScriptOptimizationProfile 
       "representationProjections",
       "preserve",
     ),
-    cooperativeEffects: readClosedChoice(
-      value["cooperativeEffects"],
-      "cooperativeEffects",
-      "preserve",
-    ),
-    interfaceDispatch: readInterfaceDispatch(value["interfaceDispatch"]),
   });
-}
-
-function readInterfaceDispatch(
-  value: unknown,
-): "open-structural" | "declared-closed" {
-  if (value === undefined || value === "open-structural") {
-    return "open-structural";
-  }
-  if (value === "declared-closed") {
-    return value;
-  }
-  throw new Error(
-    "TypeScript target optimization 'interfaceDispatch' must be 'open-structural' or 'declared-closed'",
-  );
 }
 
 function readClosedChoice<Canonical extends string>(

@@ -2,10 +2,15 @@ import type {
   Node,
   PointerOperationFact,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindVariableDeclaration } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
+import {
+  canonicalRepresentationTransportContract,
+  type RepresentationTransportContract,
+} from "../representation/transport-contract.js";
+import { selectRepresentationTransportCalls } from "../representation/transport-selection.js";
 
 import {
   PointerFlowGraph,
@@ -65,17 +70,21 @@ export interface PointerCensus {
   readonly allowedPointerReferences: Set<Node>;
   readonly allowedProducerUses: Set<Node>;
   readonly allowedFunctionTargets: Set<Node>;
+  readonly representationTransportCalls: ReadonlyMap<Node, ReadonlySet<Node>>;
 }
 
 export interface PointerFlowCensusResult {
   readonly components: readonly PointerFlowComponent[];
   readonly facts: PointerTypedFactLedger;
+  readonly representationTransportCallCount: number;
 }
 
 export function censusPointerFlows(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
   ledger: PointerPlanningLedger,
+  representationTransports: RepresentationTransportContract =
+    canonicalRepresentationTransportContract(),
 ): PointerFlowCensusResult {
   const graph = new PointerFlowGraph();
   const facts = buildPointerTypedFactLedger(source, program, ledger);
@@ -109,6 +118,12 @@ export function censusPointerFlows(
   const allowedPointerReferences = new Set<Node>();
   const allowedProducerUses = new Set<Node>();
   const allowedFunctionTargets = new Set<Node>();
+  const representationTransportCalls = selectRepresentationTransportCalls(
+    source,
+    program,
+    representationTransports,
+    ledger,
+  );
   const functionParameters = groupFunctionParameters(
     source,
     pointerBindings,
@@ -192,6 +207,7 @@ export function censusPointerFlows(
     allowedPointerReferences,
     allowedProducerUses,
     allowedFunctionTargets,
+    representationTransportCalls,
   };
   connectPointerCalls(census);
   attachPointerOperations(census);
@@ -209,6 +225,7 @@ export function censusPointerFlows(
   return Object.freeze({
     components,
     facts,
+    representationTransportCallCount: representationTransportCalls.size,
   });
 }
 

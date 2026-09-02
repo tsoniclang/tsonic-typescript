@@ -1,4 +1,4 @@
-import type { TargetArtifact } from "@tsonic/target-api";
+import type { TargetArtifact } from "@tsonic/target-api/artifacts";
 
 import type { TypeScriptOptimizationEvidence } from "../lowering/evidence.js";
 

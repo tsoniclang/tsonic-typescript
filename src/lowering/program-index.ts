@@ -1,24 +1,15 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
+import { sourceBindingWriteAtReference } from "@tsonic/target-api/source";
 import type {
   SourceBindingWrite,
-  SourceDeclarationReference,
-  SourceProjectMemberDispatch,
   TargetSourceProgram,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 import {
-  KindClassDeclaration,
   KindElementAccessExpression,
   KindIdentifier,
-  KindPrivateIdentifier,
   KindPropertyAccessExpression,
-  KindQualifiedName,
   type Kind,
 } from "@tsonic/tsts/target-ast";
-
-import {
-  createProjectDeclarationReferenceIndex,
-  disabledProjectDeclarationReferenceIndex,
-} from "./reference-index.js";
 import type {
   TargetProgramIndex,
   TargetProgramIndexSelection,
@@ -42,7 +33,6 @@ interface NodeCensus {
 
 interface CollectedNodeCensus extends NodeCensus {
   readonly potentialBindingReferences: readonly Node[];
-  readonly referenceCandidates: readonly Node[];
 }
 
 interface BindingWriteIndex {
@@ -52,11 +42,6 @@ interface BindingWriteIndex {
   readonly writeCount: number;
 }
 
-interface MemberDispatchIndex {
-  readonly byMember: ReadonlyMap<Node, SourceProjectMemberDispatch>;
-  readonly heritageEdges: number;
-  readonly memberCount: number;
-}
 const noNodes = Object.freeze([]) as readonly Node[];
 const noWrites = Object.freeze([]) as readonly SourceBindingWrite[];
 
@@ -64,28 +49,19 @@ export function createTargetProgramIndex(
   source: TargetSourceProgram,
   selection: TargetProgramIndexSelection,
 ): TargetProgramIndex {
-  const { potentialBindingReferences, referenceCandidates, ...census } =
+  const { potentialBindingReferences, ...census } =
     collectNodeCensus(source, selection);
-  const references = selection.declarationReferences === true
-    ? createProjectDeclarationReferenceIndex(source, referenceCandidates)
-    : disabledProjectDeclarationReferenceIndex();
   const writes = selection.bindingWrites
     ? collectBindingWrites(source, potentialBindingReferences)
     : emptyBindingWriteIndex();
-  const dispatch = selection.memberDispatch
-    ? collectMemberDispatch(source, census.byKind.get(KindClassDeclaration) ?? noNodes)
-    : emptyMemberDispatchIndex();
   const operations = Object.freeze({
     nodeVisits: census.nodes.length,
     childEdges: census.childEdges,
     kindEntries: census.nodes.length,
     identifierEntries: census.identifierEntries,
-    referenceCandidates: references.candidateCount,
-    projectReferences: references.referenceCount,
+    sourceReferenceIndex: source.navigation.referenceIndexStatistics,
     bindingCandidates: writes.candidateCount,
     bindingWrites: writes.writeCount,
-    heritageEdges: dispatch.heritageEdges,
-    dispatchMembers: dispatch.memberCount,
   });
   const combinedKinds = new Map<string, readonly Node[]>();
   return Object.freeze({
@@ -131,17 +107,6 @@ export function createTargetProgramIndex(
       return declaration === undefined
         ? noWrites
         : writes.byDeclaration.get(declaration) ?? noWrites;
-    },
-    declarationReferenceFor(
-      node: Node | undefined,
-    ): SourceDeclarationReference | undefined {
-      return references.declarationReferenceFor(node);
-    },
-    referencesToDeclaration(declaration: Node | undefined): readonly Node[] {
-      return references.referencesToDeclaration(declaration);
-    },
-    memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined {
-      return node === undefined ? undefined : dispatch.byMember.get(node);
     },
   });
 }
@@ -189,7 +154,6 @@ function collectNodeCensus(
   const byFile = new Map<SourceFile, readonly Node[]>();
   const identifierNamesByFile = new Map<SourceFile, ReadonlySet<string>>();
   const potentialBindingReferences: Node[] = [];
-  const referenceCandidates: Node[] = [];
   let identifierEntries = 0;
   let childEdges = 0;
   for (const sourceFile of sourceFiles) {
@@ -227,14 +191,6 @@ function collectNodeCensus(
       )) {
         potentialBindingReferences.push(node);
       }
-      if (selection.declarationReferences === true && (
-        kind === KindIdentifier ||
-        kind === KindPrivateIdentifier ||
-        kind === KindPropertyAccessExpression ||
-        kind === KindQualifiedName
-      )) {
-        referenceCandidates.push(node);
-      }
       if (kind === KindIdentifier) {
         identifierEntries += 1;
         identifierNames.add(source.ast.text(node));
@@ -265,7 +221,6 @@ function collectNodeCensus(
     byKind: sealedKinds,
     orderByKind: sealedOrders,
     potentialBindingReferences: Object.freeze(potentialBindingReferences),
-    referenceCandidates: Object.freeze(referenceCandidates),
     childEdges,
     identifierEntries,
   });
@@ -277,7 +232,6 @@ function collectBindingWrites(
 ): BindingWriteIndex {
   const atReference = new Map<Node, readonly SourceBindingWrite[]>();
   const mutableByDeclaration = new Map<Node, SourceBindingWrite[]>();
-  const seenWrites = new Set<Node>();
   let candidateCount = 0;
   let writeCount = 0;
   for (const node of references) {
@@ -289,24 +243,18 @@ function collectBindingWrites(
     if (reference?.project !== true) {
       continue;
     }
-    const selected = source.navigation.bindingWritesWithin(reference.symbol, node);
-    if (selected.length === 0) {
+    const write = sourceBindingWriteAtReference(source.ast, node);
+    if (write === undefined) {
       continue;
     }
-    const exact = Object.freeze([...selected]);
+    const exact = Object.freeze([write]);
     atReference.set(node, exact);
-    for (const write of exact) {
-      if (seenWrites.has(write.reference)) {
-        continue;
-      }
-      seenWrites.add(write.reference);
-      writeCount += 1;
-      const existing = mutableByDeclaration.get(reference.declaration);
-      if (existing === undefined) {
-        mutableByDeclaration.set(reference.declaration, [write]);
-      } else {
-        existing.push(write);
-      }
+    writeCount += 1;
+    const existing = mutableByDeclaration.get(reference.declaration);
+    if (existing === undefined) {
+      mutableByDeclaration.set(reference.declaration, [write]);
+    } else {
+      existing.push(write);
     }
   }
   const byDeclaration = new Map<Node, readonly SourceBindingWrite[]>();
@@ -320,6 +268,7 @@ function collectBindingWrites(
     writeCount,
   });
 }
+
 function mayReachWrite(source: TargetSourceProgram, node: Node): boolean {
   let current = node;
   for (;;) {
@@ -343,238 +292,11 @@ function mayReachWrite(source: TargetSourceProgram, node: Node): boolean {
   }
 }
 
-function collectMemberDispatch(
-  source: TargetSourceProgram,
-  classes: readonly Node[],
-): MemberDispatchIndex {
-  const directBase = new Map<Node, Node>();
-  const children = new Map<Node, Node[]>();
-  const open = new Set<Node>();
-  let heritageEdges = 0;
-  for (const declaration of classes) {
-    const heritage = source.navigation.declaredHeritage(declaration);
-    if (heritage.kind === "unresolved") {
-      open.add(declaration);
-      continue;
-    }
-    heritageEdges += heritage.edges.length;
-    const bases = heritage.edges.filter((edge) =>
-      edge.kind === "extends" &&
-      edge.target.project &&
-      source.ast.is.IsClassDeclaration(edge.target.declaration)
-    );
-    if (bases.length > 1) {
-      open.add(declaration);
-      continue;
-    }
-    const base = bases[0]?.target.declaration;
-    if (base === undefined) {
-      continue;
-    }
-    directBase.set(declaration, base);
-    const derived = children.get(base);
-    if (derived === undefined) {
-      children.set(base, [declaration]);
-    } else {
-      derived.push(declaration);
-    }
-  }
-
-  const membersByClass = new Map<Node, Map<string, Node[]>>();
-  let memberCount = 0;
-  for (const declaration of classes) {
-    const byName = new Map<string, Node[]>();
-    for (const member of source.ast.members(declaration)) {
-      const name = dispatchMemberName(source, member);
-      if (member === undefined || name === undefined) {
-        continue;
-      }
-      memberCount += 1;
-      const selected = byName.get(name);
-      if (selected === undefined) {
-        byName.set(name, [member]);
-      } else {
-        selected.push(member);
-      }
-    }
-    membersByClass.set(declaration, byName);
-  }
-
-  const classEntry = new Map<Node, number>();
-  const classExit = new Map<Node, number>();
-  const overridesBase = new Map<Node, boolean>();
-  const classesByName = new Map<string, number[]>();
-  const visited = new Set<Node>();
-  const activeNames = new Map<string, number>();
-  let position = 0;
-  for (const root of classes) {
-    if (directBase.has(root)) {
-      continue;
-    }
-    position = indexClassTree(
-      root,
-      children,
-      membersByClass,
-      activeNames,
-      visited,
-      classEntry,
-      classExit,
-      overridesBase,
-      classesByName,
-      position,
-    );
-  }
-  for (const declaration of classes) {
-    if (!visited.has(declaration)) {
-      open.add(declaration);
-    }
-  }
-
-  const byMember = new Map<Node, SourceProjectMemberDispatch>();
-  for (const declaration of classes) {
-    const entry = classEntry.get(declaration);
-    const exit = classExit.get(declaration);
-    for (const [name, members] of membersByClass.get(declaration) ?? []) {
-      const declarations = classesByName.get(name) ?? [];
-      const derived = entry === undefined || exit === undefined
-        ? true
-        : hasNumberBetween(declarations, entry + 1, exit);
-      for (const member of members) {
-        byMember.set(member, Object.freeze({
-          overridesBase: open.has(declaration) || overridesBase.get(member) === true,
-          hasDerivedOverride: open.has(declaration) || derived,
-        }));
-      }
-    }
-  }
-  return Object.freeze({ byMember, heritageEdges, memberCount });
-}
-
-function indexClassTree(
-  root: Node,
-  children: ReadonlyMap<Node, readonly Node[]>,
-  membersByClass: ReadonlyMap<Node, ReadonlyMap<string, readonly Node[]>>,
-  activeNames: Map<string, number>,
-  visited: Set<Node>,
-  classEntry: Map<Node, number>,
-  classExit: Map<Node, number>,
-  overridesBase: Map<Node, boolean>,
-  classesByName: Map<string, number[]>,
-  initialPosition: number,
-): number {
-  const pending: Array<{ readonly declaration: Node; readonly exit: boolean }> = [
-    { declaration: root, exit: false },
-  ];
-  let position = initialPosition;
-  while (pending.length !== 0) {
-    const event = pending.pop();
-    if (event === undefined) {
-      continue;
-    }
-    const names = membersByClass.get(event.declaration) ?? new Map();
-    if (event.exit) {
-      for (const name of names.keys()) {
-        const count = activeNames.get(name) ?? 0;
-        if (count <= 1) {
-          activeNames.delete(name);
-        } else {
-          activeNames.set(name, count - 1);
-        }
-      }
-      classExit.set(event.declaration, position - 1);
-      continue;
-    }
-    if (visited.has(event.declaration)) {
-      continue;
-    }
-    visited.add(event.declaration);
-    classEntry.set(event.declaration, position);
-    for (const [name, members] of names) {
-      const inherited = (activeNames.get(name) ?? 0) !== 0;
-      for (const member of members) {
-        overridesBase.set(member, inherited);
-      }
-      const declarations = classesByName.get(name);
-      if (declarations === undefined) {
-        classesByName.set(name, [position]);
-      } else {
-        declarations.push(position);
-      }
-      activeNames.set(name, (activeNames.get(name) ?? 0) + 1);
-    }
-    position += 1;
-    pending.push({ declaration: event.declaration, exit: true });
-    const derived = children.get(event.declaration) ?? [];
-    for (let index = derived.length - 1; index >= 0; index -= 1) {
-      const declaration = derived[index];
-      if (declaration !== undefined) {
-        pending.push({ declaration, exit: false });
-      }
-    }
-  }
-  return position;
-}
-
-function dispatchMemberName(
-  source: TargetSourceProgram,
-  member: Node | undefined,
-): string | undefined {
-  if (
-    member === undefined ||
-    !source.navigation.isProjectDeclaration(member) ||
-    !(
-      source.ast.is.IsMethodDeclaration(member) ||
-      source.ast.is.IsGetAccessorDeclaration(member) ||
-      source.ast.is.IsSetAccessorDeclaration(member) ||
-      source.ast.is.IsPropertyDeclaration(member)
-    ) ||
-    source.ast.hasModifierKind(member, "private") ||
-    source.ast.hasModifierKind(member, "static")
-  ) {
-    return undefined;
-  }
-  const name = source.ast.name(member);
-  return name !== undefined &&
-      (
-        source.ast.is.IsIdentifier(name) ||
-        source.ast.is.IsStringLiteral(name) ||
-        source.ast.is.IsNumericLiteral(name)
-      )
-    ? source.ast.text(name)
-    : undefined;
-}
-
-function hasNumberBetween(
-  sorted: readonly number[],
-  minimum: number,
-  maximum: number,
-): boolean {
-  let low = 0;
-  let high = sorted.length;
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2);
-    if ((sorted[middle] ?? Number.MAX_SAFE_INTEGER) < minimum) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-  return (sorted[low] ?? Number.MAX_SAFE_INTEGER) <= maximum;
-}
-
 function emptyBindingWriteIndex(): BindingWriteIndex {
   return Object.freeze({
     atReference: new Map(),
     byDeclaration: new Map(),
     candidateCount: 0,
     writeCount: 0,
-  });
-}
-
-function emptyMemberDispatchIndex(): MemberDispatchIndex {
-  return Object.freeze({
-    byMember: new Map(),
-    heritageEdges: 0,
-    memberCount: 0,
   });
 }

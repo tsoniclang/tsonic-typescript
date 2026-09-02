@@ -5,9 +5,9 @@ import type { TargetSelection } from "@tsonic/target-api";
 
 import { readTypeScriptTargetOptions } from "./options.js";
 
-test("validates and freezes the external printer configuration", () => {
+test("validates and freezes the canonical printer and optimization profile", () => {
   const inputArguments = ["--mode", "batch"];
-  const target: TargetSelection = {
+  const result = readTypeScriptTargetOptions({
     id: "typescript",
     options: {
       printer: {
@@ -15,174 +15,145 @@ test("validates and freezes the external printer configuration", () => {
         arguments: inputArguments,
       },
     },
-  };
-
-  const result = readTypeScriptTargetOptions(target);
+  });
   inputArguments.push("--mutated");
 
-  assert.equal(result.printer.executable, "/tools/tsgo-ast-printer");
-  assert.deepEqual(result.printer.arguments, ["--mode", "batch"]);
+  assert.deepEqual(result.printer, {
+    executable: "/tools/tsgo-ast-printer",
+    arguments: ["--mode", "batch"],
+  });
+  assert.equal(result.execution, "unrestricted");
   assert.deepEqual(result.optimizations, {
     identity:
-      "typescript-optimization-v3/pointer=location/scalar=preserve/representations=preserve/effects=preserve/interfaces=open-structural",
+      "typescript-optimization-v5/pointer=location/scalar=preserve/representations=preserve",
     pointerFlows: "location",
     scalarProjections: "preserve",
     representationProjections: "preserve",
-    cooperativeEffects: "preserve",
-    interfaceDispatch: "open-structural",
   });
-  assert.deepEqual(result.providerInvocationManifests, []);
   assert.ok(Object.isFrozen(result));
   assert.ok(Object.isFrozen(result.printer));
   assert.ok(Object.isFrozen(result.printer.arguments));
   assert.ok(Object.isFrozen(result.optimizations));
-  assert.ok(Object.isFrozen(result.providerInvocationManifests));
+  assert.equal(result.representationTransports.schemaVersion, 1);
+  assert.deepEqual(result.representationTransports.callables, []);
+  assert.match(result.representationTransports.digest, /^[0-9a-f]{64}$/u);
+  assert.ok(Object.isFrozen(result.representationTransports));
+  assert.ok(Object.isFrozen(result.representationTransports.callables));
 });
 
-test("validates immutable provider invocation manifest paths", () => {
-  const paths = ["contracts/provider.json"];
+test("selects the exact closed three-family profile", () => {
   const result = readTypeScriptTargetOptions({
     id: "typescript",
     options: {
-      printer: { executable: "tsgo-ast-printer" },
-      providerInvocationManifests: paths,
-    },
-  });
-  paths.push("contracts/mutated.json");
-
-  assert.deepEqual(result.providerInvocationManifests, [
-    "contracts/provider.json",
-  ]);
-  assert.throws(
-    () => readTypeScriptTargetOptions({
-      id: "typescript",
-      options: {
-        printer: { executable: "tsgo-ast-printer" },
-        providerInvocationManifests: ["same.json", "same.json"],
-      },
-    }),
-    /duplicated/u,
-  );
-});
-
-test("validates and freezes explicit closed-flow optimizations", () => {
-  const target: TargetSelection = {
-    id: "typescript",
-    options: {
       printer: { executable: "/tools/tsgo-ast-printer" },
+      execution: "synchronous",
       optimizations: {
         pointerFlows: "closed-direct",
         scalarProjections: "closed-direct",
         representationProjections: "closed-direct",
-        cooperativeEffects: "closed-direct",
-        interfaceDispatch: "declared-closed",
       },
+      representationTransports: [{
+        kind: "generic-kernel",
+        moduleSpecifier: "@provider/kernel.js",
+        exportName: "Kernel",
+      }],
     },
-  };
+  });
 
-  const result = readTypeScriptTargetOptions(target);
-
+  assert.equal(result.execution, "synchronous");
   assert.deepEqual(result.optimizations, {
     identity:
-      "typescript-optimization-v3/pointer=closed-direct/scalar=closed-direct/representations=closed-direct/effects=closed-direct/interfaces=declared-closed",
+      "typescript-optimization-v5/pointer=closed-direct/scalar=closed-direct/representations=closed-direct",
     pointerFlows: "closed-direct",
     scalarProjections: "closed-direct",
     representationProjections: "closed-direct",
-    cooperativeEffects: "closed-direct",
-    interfaceDispatch: "declared-closed",
   });
-  assert.ok(Object.isFrozen(result.optimizations));
+  assert.deepEqual(result.representationTransports.callables, [{
+    kind: "generic-kernel",
+    moduleSpecifier: "@provider/kernel.js",
+    exportName: "Kernel",
+  }]);
 });
 
-test("fails closed on absent, unknown, and malformed target options", () => {
-  assert.throws(
-    () => readTypeScriptTargetOptions({ id: "typescript" }),
-    /require a printer configuration/,
-  );
-  assert.throws(
-    () => readTypeScriptTargetOptions({
-      id: "typescript",
-      options: {
-        printer: { executable: "tsgo-ast-printer" },
-        optimizations: { representationProjections: "shape-inferred" },
-      },
-    }),
-    /'representationProjections' must be 'preserve' or 'closed-direct'/,
-  );
-  assert.throws(
-    () => readTypeScriptTargetOptions({
-      id: "typescript",
-      options: { printer: {}, unexpected: true },
-    }),
-    /unsupported field 'unexpected'/,
-  );
-  assert.throws(
-    () => readTypeScriptTargetOptions({
-      id: "typescript",
-      options: {
-        printer: { executable: "tsgo-ast-printer" },
-        typescriptCompatibility: "strict-native",
-      },
-    }),
-    /unsupported field 'typescriptCompatibility'/,
-  );
-  assert.throws(
-    () => readTypeScriptTargetOptions({
-      id: "typescript",
-      options: { printer: "tsgo-ast-printer" },
-    }),
-    /'printer' must be an object/,
-  );
-  assert.throws(
-    () => readTypeScriptTargetOptions({
-      id: "typescript",
-      options: {
-        printer: { executable: "tsgo-ast-printer", arguments: ["--ok", 1] },
-      },
-    }),
-    /argument 1 must be a string/,
-  );
-  assert.throws(
-    () => readTypeScriptTargetOptions({
-      id: "typescript",
-      options: {
-        printer: { executable: "tsgo-ast-printer" },
-        optimizations: { pointerFlows: "automatic" },
-      },
-    }),
-    /'pointerFlows' must be 'location' or 'closed-direct'/,
-  );
-  assert.throws(
-    () => readTypeScriptTargetOptions({
-      id: "typescript",
-      options: {
-        printer: { executable: "tsgo-ast-printer" },
-        optimizations: { interfaceDispatch: "structural-inferred" },
-      },
-    }),
-    /'interfaceDispatch' must be 'open-structural' or 'declared-closed'/,
-  );
-  assert.throws(
-    () => readTypeScriptTargetOptions({
-      id: "typescript",
-      options: {
-        printer: { executable: "tsgo-ast-printer" },
-        optimizations: { scalarProjections: "closed-direct", extra: true },
-      },
-    }),
-    /optimizations has unsupported field 'extra'/,
-  );
+test("fails closed on absent, unknown, malformed, and effect-era options", () => {
+  const read = (options?: TargetSelection["options"]) =>
+    readTypeScriptTargetOptions({ id: "typescript", ...(options === undefined
+      ? {}
+      : { options }) });
 
-  for (const unsupported of ["interfaces", "containers", "reachability"]) {
-    assert.throws(
-      () => readTypeScriptTargetOptions({
-        id: "typescript",
-        options: {
-          printer: { executable: "tsgo-ast-printer" },
-          optimizations: { [unsupported]: "closed-direct" },
-        },
-      }),
-      new RegExp(`optimizations has unsupported field '${unsupported}'`, "u"),
-    );
-  }
+  assert.throws(() => read(), /require a printer configuration/u);
+  assert.throws(
+    () => read({ printer: {}, unexpected: true }),
+    /unsupported field 'unexpected'/u,
+  );
+  assert.throws(
+    () => read({ printer: "tsgo-ast-printer" }),
+    /'printer' must be an object/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer" },
+      execution: "automatic",
+    }),
+    /'execution' must be 'unrestricted' or 'synchronous'/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer", arguments: ["--ok", 1] },
+    }),
+    /argument 1 must be a string/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer" },
+      optimizations: { pointerFlows: "automatic" },
+    }),
+    /'pointerFlows' must be 'location' or 'closed-direct'/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer" },
+      optimizations: {
+        scalarProjections: "closed-direct",
+        extra: true,
+      },
+    }),
+    /optimizations has unsupported field 'extra'/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer" },
+      optimizations: { cooperativeEffects: "closed-program" },
+    }),
+    /unsupported field 'cooperativeEffects'/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer" },
+      diagnostics: { planningPhases: true },
+    }),
+    /unsupported field 'diagnostics'/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer" },
+      representationTransports: "kernel",
+    }),
+    /must be an array/u,
+  );
+  assert.throws(
+    () => read({
+      printer: { executable: "tsgo-ast-printer" },
+      representationTransports: [{
+        kind: "generic-kernel",
+        moduleSpecifier: "@provider/z.js",
+        exportName: "Z",
+      }, {
+        kind: "generic-kernel",
+        moduleSpecifier: "@provider/a.js",
+        exportName: "A",
+      }],
+    }),
+    /uniquely and canonically ordered/u,
+  );
 });

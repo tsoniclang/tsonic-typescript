@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsClassDeclaration,
   AsNewExpression,
@@ -256,7 +256,7 @@ function indexCandidateUses(
   for (const node of program.nodesOfKind(KindPropertyAccessExpression)) {
     const access = AsPropertyAccessExpression(node);
     const property = source.semantics.forNode(node)
-      .getResolvedPropertyAccessInfo(node);
+      .operations.propertyAccess(node);
     const declaration = property?.selectedDeclaration;
     const classDeclaration = declaration === undefined
       ? undefined
@@ -347,14 +347,14 @@ function constructionIsExact(
     return false;
   }
   const semantics = source.semantics.forNode(node);
-  const call = semantics.getResolvedCallInfo(node);
+  const call = semantics.operations.call(node);
   const parameter = call?.sourceSelectedSignatureParameters[0];
   const binding = call?.sourceArgumentBindings[0];
   return call?.outcome === "applicable" &&
     call.call === node &&
     !call.optionalChain &&
     call.sourceSelectedSignatureKind === "resolved" &&
-    semantics.getSignatureDeclaration(call.selectedSignature) ===
+    semantics.declarations.signatureDeclaration(call.selectedSignature) ===
       candidate.proof.constructorDeclaration &&
     call.sourceSelectedSignatureParameters.length === 1 &&
     parameter?.parameterDeclaration === candidate.proof.parameterDeclaration &&
@@ -375,7 +375,7 @@ function auditClassReferences(
   constructionOwner: ReadonlyMap<Node, Node>,
   owner: MutableCandidateUses,
 ): void {
-  for (const reference of program.referencesToDeclaration(
+  for (const reference of source.navigation.referencesToDeclaration(
     candidate.declaration,
   )) {
     const importSpecifier = ancestor(source, reference, IsImportSpecifier);
@@ -409,7 +409,7 @@ function auditFieldReferences(
   projectionOwner: ReadonlyMap<Node, Node>,
   owner: MutableCandidateUses,
 ): void {
-  for (const reference of program.referencesToDeclaration(
+  for (const reference of source.navigation.referencesToDeclaration(
     candidate.proof.parameterDeclaration,
   )) {
     const projection = ancestor(source, reference, IsPropertyAccessExpression);

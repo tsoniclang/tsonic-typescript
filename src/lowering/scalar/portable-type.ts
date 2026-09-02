@@ -1,5 +1,5 @@
 import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsTypeAliasDeclaration,
   AsTypeReferenceNode,
@@ -15,16 +15,16 @@ export function scalarPrimitiveKind(
   semantics: ReturnType<TargetSourceProgram["semantics"]["forNode"]>,
   type: Type,
 ): ScalarPrimitiveKind | undefined {
-  if (semantics.isNumberLike(type)) {
+  if (semantics.types.isNumberLike(type)) {
     return "number";
   }
-  if (semantics.isStringLike(type)) {
+  if (semantics.types.isStringLike(type)) {
     return "string";
   }
-  if (semantics.isBooleanLike(type)) {
+  if (semantics.types.isBooleanLike(type)) {
     return "boolean";
   }
-  return semantics.isBigIntLike(type) ? "bigint" : undefined;
+  return semantics.types.isBigIntLike(type) ? "bigint" : undefined;
 }
 
 export function portableScalarKind(

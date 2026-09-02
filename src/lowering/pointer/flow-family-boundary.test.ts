@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import {
   checkedPointerFixture,
@@ -71,8 +71,8 @@ export const value = loadPointer<Box>(result[0]).value;
     .map((operation) => operation.pointerExpression)
     .filter((expression) => {
       const semantics = fixture.source.semantics.forNode(expression);
-      const type = semantics.getTypeAtLocation(expression);
-      return type !== undefined && semantics.isNever(type);
+      const type = semantics.types.expressionType(expression);
+      return type !== undefined && semantics.types.isNever(type);
     });
   assert.ok(neverExpressions.length > 0);
 

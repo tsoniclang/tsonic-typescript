@@ -1,70 +1,71 @@
-import type {
-  Node,
-  SourceFile,
-} from "@tsonic/tsts";
-import {
-  transformTargetSourceFile,
-} from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import { transformTargetSourceFile } from "@tsonic/tsts/target-ast";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
+import {
+  createTypeScriptOptimizationEvidence,
+  type TypeScriptOptimizationEvidence,
+} from "./evidence.js";
 import {
   createFinalNodeJournal,
   type FinalNodeJournal,
 } from "./final-nodes.js";
 import { createProgramGeneratedNames } from "./generated-names.js";
-
-import {
-  createClosedCooperativeEffectPlan,
-  type CooperativeEffectPlan,
-} from "./effect/planning/plan.js";
-import {
-  createCooperativeEffectRewriteSession,
-  type CooperativeEffectRewriteResult,
-  type CooperativeEffectRewriteSession,
-} from "./effect/rewrite/transform.js";
-import {
-  createTypeScriptOptimizationEvidence,
-  type TypeScriptOptimizationEvidence,
-} from "./evidence.js";
-
 import {
   createClosedPointerFlowPlan,
 } from "./pointer/flow-plan.js";
-import { createPointerInvocationTransport } from "./pointer/invocation-transport.js";
-import { createPointerResultContract } from "./pointer/result-contract.js";
-import { createScalarResultContract } from "./scalar/result-contract.js";
-import { composeLoweredValueContracts } from "./value-contract.js";
+import { createPointerProjectionCallablePlan } from "./pointer/projection-callable-plan.js";
 import {
   createPointerRewriteSession,
   type PointerLoweringResult,
   type PointerRewriteSession,
 } from "./pointer/transform.js";
+import { createDominatingNilCheckPlan } from "./pointer/nil-check/plan.js";
+import {
+  createDominatingNilCheckRewriteSession,
+  type DominatingNilCheckRewriteResult,
+  type DominatingNilCheckRewriteSession,
+} from "./pointer/nil-check/rewrite.js";
 import {
   createTypeScriptOptimizationProfile,
   type TypeScriptOptimizationProfileInput,
 } from "./profile.js";
 import { createTargetProgramIndex } from "./program-index.js";
 import {
-  createScalarRepresentationPlan,
-} from "./scalar/plan.js";
-import {
-  createScalarRepresentationRewriter,
-  type ScalarRepresentationRewriter,
-  type ScalarRepresentationRewriteResult,
-} from "./scalar/transform.js";
+  sourceExecutionViolations,
+  type TypeScriptSourceExecutionProfile,
+} from "../source-contract/execution.js";
 import { createRepresentationProjectionPlan } from "./representation/plan.js";
+import {
+  canonicalRepresentationTransportContract,
+  type RepresentationTransportContract,
+} from "./representation/transport-contract.js";
 import {
   createRepresentationProjectionRewriter,
   type RepresentationProjectionRewriter,
   type RepresentationProjectionRewriteResult,
 } from "./representation/transform.js";
+import { createScalarRepresentationPlan } from "./scalar/plan.js";
+import {
+  createScalarRepresentationRewriter,
+  type ScalarRepresentationRewriter,
+  type ScalarRepresentationRewriteResult,
+} from "./scalar/transform.js";
+import { createSourcePrimitiveLoweringPlan } from "./source-primitives/plan.js";
+import {
+  createSourcePrimitiveRewriter,
+  type SourcePrimitiveRewriter,
+  type SourcePrimitiveRewriteResult,
+} from "./source-primitives/transform.js";
+import { finalizeModuleBindingRewrite } from "./module-bindings/finalize.js";
 
 export interface TypeScriptSourceLoweringResult {
   readonly sourceFile: SourceFile;
+  readonly sourcePrimitives: SourcePrimitiveRewriteResult;
   readonly pointer: PointerLoweringResult;
   readonly scalar: ScalarRepresentationRewriteResult;
   readonly representation: RepresentationProjectionRewriteResult;
-  readonly effect?: CooperativeEffectRewriteResult;
+  readonly nilChecks: DominatingNilCheckRewriteResult;
 }
 
 export interface TypeScriptSourcePlanningFailure {
@@ -90,10 +91,11 @@ export interface TypeScriptLoweringTransaction {
 
 interface SourceRewritePlan {
   readonly finalNodes: FinalNodeJournal;
+  readonly sourcePrimitives: SourcePrimitiveRewriter;
   readonly pointer: PointerRewriteSession;
   readonly scalar: ScalarRepresentationRewriter;
   readonly representation: RepresentationProjectionRewriter;
-  readonly effect?: CooperativeEffectRewriteSession;
+  readonly nilChecks: DominatingNilCheckRewriteSession;
 }
 
 interface SourceIdentityIndex {
@@ -106,6 +108,9 @@ export function prepareTypeScriptLowering(
   sourceFiles: readonly SourceFile[],
   profileInput: TypeScriptOptimizationProfileInput,
   sourceIdentityFor: (sourceFile: SourceFile) => string,
+  execution: TypeScriptSourceExecutionProfile = "unrestricted",
+  representationTransports: RepresentationTransportContract =
+    canonicalRepresentationTransportContract(),
 ): TypeScriptLoweringPreparation {
   assertExactSourceMembership(source, sourceFiles);
   const profile = createTypeScriptOptimizationProfile(profileInput);
@@ -113,55 +118,73 @@ export function prepareTypeScriptLowering(
   const program = createTargetProgramIndex(source, {
     bindingWrites: profile.pointerFlows === "closed-direct" ||
       profile.scalarProjections === "closed-direct" ||
-      profile.representationProjections === "closed-direct" ||
-      profile.cooperativeEffects === "closed-direct",
-    memberDispatch: profile.cooperativeEffects === "closed-direct",
-    declarationReferences: profile.scalarProjections === "closed-direct" ||
-      profile.representationProjections === "closed-direct" ||
-      profile.cooperativeEffects === "closed-direct",
+      profile.representationProjections === "closed-direct",
   });
+  const executionFailures = sourceExecutionViolations(
+    source,
+    program,
+    execution,
+  );
+  if (executionFailures.length !== 0) {
+    return Object.freeze({
+      kind: "rejected",
+      failures: Object.freeze(executionFailures.map((failure) =>
+        Object.freeze({
+          sourceFile: failure.sourceFile,
+          message: failure.message,
+        })
+      )),
+    });
+  }
   const generatedNames = createProgramGeneratedNames(source, program);
+  const sourcePrimitivePlan = createSourcePrimitiveLoweringPlan(source, program);
   const pointerFlowPlan = profile.pointerFlows === "closed-direct"
-    ? createClosedPointerFlowPlan(source, program, identities.forFile)
+    ? createClosedPointerFlowPlan(
+        source,
+        program,
+        generatedNames,
+        identities.forFile,
+        representationTransports,
+      )
     : undefined;
+  const pointerProjectionCallables = createPointerProjectionCallablePlan(
+    source,
+    program,
+    profile.pointerFlows,
+    identities.forFile,
+  );
   const scalarPlan = createScalarRepresentationPlan(
     source,
     program,
     profile.scalarProjections,
     identities.forFile,
   );
-  const loweredValues = composeLoweredValueContracts([
-    createPointerResultContract(source, pointerFlowPlan),
-    createScalarResultContract(source, scalarPlan),
-  ]);
-  const ownerTransports = pointerFlowPlan === undefined
-    ? undefined
-    : createPointerInvocationTransport(source, pointerFlowPlan);
-  const effectPlan = profile.cooperativeEffects === "closed-direct"
-    ? createClosedCooperativeEffectPlan(
-        source,
-        program,
-        identities.forFile,
-        loweredValues,
-        ownerTransports,
-        profile.interfaceDispatch,
-      )
-    : undefined;
   const representationPlan = createRepresentationProjectionPlan(
     source,
     program,
     profile.representationProjections,
     identities.forFile,
-    effectPlan,
+  );
+  const nilCheckPlan = createDominatingNilCheckPlan(
+    source,
+    program,
+    generatedNames,
+    pointerFlowPlan,
+    profile.pointerFlows,
+    identities.forFile,
   );
   const evidence = createTypeScriptOptimizationEvidence(
+    execution,
     profile,
     identities.membership,
     program.operations,
+    sourcePrimitivePlan,
     pointerFlowPlan,
+    pointerProjectionCallables,
+    nilCheckPlan,
     scalarPlan,
     representationPlan,
-    effectPlan?.summary,
+    representationTransports,
   );
   const plans = new Map<SourceFile, SourceRewritePlan>();
   const failures: TypeScriptSourcePlanningFailure[] = [];
@@ -170,12 +193,17 @@ export function prepareTypeScriptLowering(
       const finalNodes = createFinalNodeJournal();
       plans.set(sourceFile, Object.freeze({
         finalNodes,
+        sourcePrimitives: createSourcePrimitiveRewriter(
+          sourcePrimitivePlan,
+          sourceFile,
+        ),
         pointer: createPointerRewriteSession(
           source,
           sourceFile,
           program,
           generatedNames.forFile(sourceFile),
           pointerFlowPlan,
+          pointerProjectionCallables,
           finalNodes,
         ),
         scalar: createScalarRepresentationRewriter(scalarPlan, sourceFile),
@@ -183,14 +211,10 @@ export function prepareTypeScriptLowering(
           representationPlan,
           sourceFile,
         ),
-        ...(effectPlan === undefined
-          ? {}
-          : {
-              effect: createCooperativeEffectRewriteSession(
-                effectPlan,
-                sourceFile,
-              ),
-            }),
+        nilChecks: createDominatingNilCheckRewriteSession(
+          nilCheckPlan.forFile(sourceFile),
+          finalNodes,
+        ),
       }));
     } catch (error) {
       failures.push(Object.freeze({
@@ -207,7 +231,7 @@ export function prepareTypeScriptLowering(
   }
   return Object.freeze({
     kind: "ready",
-    transaction: createTransaction(plans, effectPlan, evidence),
+    transaction: createTransaction(plans, evidence),
   });
 }
 
@@ -248,7 +272,6 @@ function compareText(left: string, right: string): number {
 
 function createTransaction(
   plans: Map<SourceFile, SourceRewritePlan>,
-  effectPlan: CooperativeEffectPlan | undefined,
   evidence: TypeScriptOptimizationEvidence,
 ): TypeScriptLoweringTransaction {
   const expectedSourceCount = plans.size;
@@ -272,9 +295,17 @@ function createTransaction(
       const transformed = transformTargetSourceFile(
         sourceFile,
         (original: Node, updated, factory) => {
-          const pointerResult = plan.pointer.rewrite(
+          const sourcePrimitiveResult = plan.sourcePrimitives.rewrite(
             original,
             updated,
+            factory,
+          );
+          if (sourcePrimitiveResult === undefined) {
+            return plan.finalNodes.record(original, undefined);
+          }
+          const pointerResult = plan.pointer.rewrite(
+            original,
+            sourcePrimitiveResult,
             factory,
           );
           if (pointerResult === undefined) {
@@ -296,22 +327,36 @@ function createTransaction(
           if (representationResult === undefined) {
             return plan.finalNodes.record(original, undefined);
           }
-          const effectResult = plan.effect === undefined
-            ? representationResult
-            : plan.effect.rewrite(original, representationResult, factory);
-          return plan.finalNodes.record(original, effectResult);
+          const nilCheckResult = plan.nilChecks.rewrite(
+            original,
+            representationResult,
+            factory,
+          );
+          return plan.finalNodes.record(
+            original,
+            nilCheckResult === undefined
+              ? undefined
+              : finalizeModuleBindingRewrite(
+                original,
+                nilCheckResult,
+                plan.sourcePrimitives.removesModuleBinding(original) ||
+                  plan.pointer.removesModuleBinding(original),
+              ),
+          );
         },
       );
-      const pointer = plan.pointer.finish(transformed);
+      const sourcePrimitives = plan.sourcePrimitives.finish(transformed);
+      const pointer = plan.pointer.finish(sourcePrimitives.sourceFile);
       const scalar = plan.scalar.finish(pointer.sourceFile);
       const representation = plan.representation.finish(scalar.sourceFile);
-      const effect = plan.effect?.finish(representation.sourceFile);
+      const nilChecks = plan.nilChecks.finish(representation.sourceFile);
       return Object.freeze({
-        sourceFile: effect?.sourceFile ?? representation.sourceFile,
+        sourceFile: nilChecks.sourceFile,
+        sourcePrimitives,
         pointer,
         scalar,
         representation,
-        ...(effect === undefined ? {} : { effect }),
+        nilChecks,
       });
     },
     finish(): void {
@@ -324,7 +369,6 @@ function createTransaction(
           `TypeScript lowering consumed ${consumed.size} source files, expected ${expectedSourceCount}`,
         );
       }
-      effectPlan?.finish();
     },
   });
 }

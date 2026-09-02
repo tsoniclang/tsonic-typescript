@@ -29,10 +29,14 @@ import {
   IsPropertyAccessExpression,
   IsVariableDeclaration,
 } from "@tsonic/tsts/target-ast";
-import { createTargetSourceProgram } from "@tsonic/target-api";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { createTargetProgramIndex } from "../program-index.js";
+import { createProgramGeneratedNames } from "../generated-names.js";
+import type {
+  RepresentationTransportContract,
+} from "../representation/transport-contract.js";
 
 import {
   createClosedPointerFlowPlan,
@@ -95,14 +99,17 @@ export function checkedPointerFixture(
 
 export function createFixturePointerFlowPlan(
   source: TargetSourceProgram,
+  representationTransports?: RepresentationTransportContract,
 ): ClosedPointerFlowPlan {
+  const program = createTargetProgramIndex(source, {
+    bindingWrites: true,
+  });
   return createClosedPointerFlowPlan(
     source,
-    createTargetProgramIndex(source, {
-      bindingWrites: true,
-      memberDispatch: false,
-    }),
+    program,
+    createProgramGeneratedNames(source, program),
     (sourceFile) => source.documents.forFile(sourceFile).identity,
+    representationTransports,
   );
 }
 

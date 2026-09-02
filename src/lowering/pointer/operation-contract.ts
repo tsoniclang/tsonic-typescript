@@ -5,7 +5,7 @@ import type {
   SourceCallMarkerKind,
   Type,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { PointerLoweringError } from "./diagnostic.js";
 import { exactPointerSelections } from "./marker-usage.js";
@@ -18,7 +18,7 @@ export function validatePointerOperationFact(
     fail(operation, "is not attached to a call expression");
   }
   const semantics = source.semantics.forNode(operation.call);
-  const call = semantics.getResolvedCallInfo(operation.call);
+  const call = semantics.operations.call(operation.call);
   if (call?.sourceSelectedSignatureKind !== "resolved") {
     fail(operation, "has no exact resolved-call evidence");
   }
@@ -44,7 +44,7 @@ export function validatePointerOperationFact(
     if (
       selected?.type === undefined ||
       owned?.type === undefined ||
-      semantics.getTypeRelationship(selected.type, owned.type) !== "identical"
+      semantics.types.relationship(selected.type, owned.type) !== "identical"
     ) {
       fail(
         operation,
@@ -92,7 +92,7 @@ function validateSelectedPointee(
     call?.sourceSelectedSignatureKind !== "resolved" ||
     selected.length !== expectedCount ||
     selectedPointee?.selectedType === undefined ||
-    semantics.getTypeRelationship(
+    semantics.types.relationship(
       selectedPointee.selectedType,
       operation.pointeeType,
     ) !== "identical"
@@ -108,7 +108,7 @@ function validateSelectedPointee(
   const sourcePointee = selected[0];
   if (
     sourcePointee?.selectedType === undefined ||
-    semantics.getTypeRelationship(
+    semantics.types.relationship(
       sourcePointee.selectedType,
       operation.sourcePointeeType,
     ) !== "identical" ||
@@ -124,7 +124,7 @@ function validateResultType(
   call: ResolvedSourceCallInfo,
 ): void {
   if (
-    source.semantics.forNode(operation.call).getTypeRelationship(
+    source.semantics.forNode(operation.call).types.relationship(
       call.sourceResultType,
       operation.resultType,
     ) !== "identical"
@@ -205,12 +205,12 @@ function validateAddressedStorage(
     return;
   }
   const semantics = source.semantics.forNode(operation.storageExpression);
-  const storage = semantics.getResolvedStorageInfo(operation.storageExpression);
+  const storage = semantics.operations.storage(operation.storageExpression);
   if (
     storage === undefined ||
     !storage.writable ||
     storage.storageExpression !== operation.storageExpression ||
-    semantics.getTypeRelationship(
+    semantics.types.relationship(
       storage.type,
       operation.storageType,
     ) !== "identical" ||

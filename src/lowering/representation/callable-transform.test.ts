@@ -26,8 +26,6 @@ test("specializes a closed identity callable parameter and every caller", () => 
     fixture.source,
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
-      memberDispatch: false,
-      declarationReferences: true,
     }),
     "closed-direct",
     fixtureSourceIdentityFor(fixture.source),
@@ -66,8 +64,6 @@ export const result = kernel<number>(identity, new Values<number>(41));
     fixture.source,
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
-      memberDispatch: false,
-      declarationReferences: true,
     }),
     "closed-direct",
     fixtureSourceIdentityFor(fixture.source),
@@ -95,8 +91,6 @@ test("preserves an identity callable unless the complete family is selected", ()
     fixture.source,
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
-      memberDispatch: false,
-      declarationReferences: true,
     }),
     "preserve",
     fixtureSourceIdentityFor(fixture.source),
@@ -135,8 +129,6 @@ export const second = kernel((value: number): number => value, 42);
     fixture.source,
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
-      memberDispatch: false,
-      declarationReferences: true,
     }),
     "closed-direct",
     fixtureSourceIdentityFor(fixture.source),
@@ -205,8 +197,6 @@ test("retains the complete callable family at every open boundary", () => {
       fixture.source,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: true,
-        memberDispatch: false,
-        declarationReferences: true,
       }),
       "closed-direct",
       fixtureSourceIdentityFor(fixture.source),
@@ -236,8 +226,6 @@ test("retains a callable supplied through a non-function declaration", () => {
     fixture.source,
     createTargetProgramIndex(fixture.source, {
       bindingWrites: true,
-      memberDispatch: false,
-      declarationReferences: true,
     }),
     "closed-direct",
     fixtureSourceIdentityFor(fixture.source),

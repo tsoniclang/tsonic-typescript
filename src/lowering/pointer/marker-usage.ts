@@ -7,7 +7,7 @@ import type {
   Node,
   SourceMarkerFact,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { PointerLoweringError } from "./diagnostic.js";
 
@@ -189,16 +189,7 @@ function isPointerMarker(marker: SourceMarkerFact): boolean {
     case "equal-raw-pointer":
     case "hash-raw-pointer":
       return true;
-    case "write-only-reference":
-    case "read-write-reference":
-    case "read-only-reference":
-    case "shared-borrow":
-    case "mutable-borrow":
-    case "move":
-    case "struct":
-    case "field":
-    case "attribute":
-    case "default-value":
+    default:
       return false;
   }
 }

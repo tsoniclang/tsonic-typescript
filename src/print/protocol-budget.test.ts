@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   FramedPayloadBudget,
+  printerProtocolLimits,
   type PrinterProtocolLimits,
 } from "./protocol-budget.js";
 
@@ -60,5 +61,25 @@ test("printer protocol budget validates its complete finite policy", () => {
       maximumPayloadBytes: 7,
     }, "test"),
     /base payload size 8 exceeds limit 7/u,
+  );
+});
+
+test("production printer budget admits large official ASTs within its finite ceiling", () => {
+  const mebibyte = 1024 * 1024;
+  assert.equal(printerProtocolLimits.maximumFrameBytes, 128 * mebibyte);
+  assert.equal(printerProtocolLimits.maximumPayloadBytes, 256 * mebibyte);
+  const admitted = new FramedPayloadBudget(
+    8,
+    printerProtocolLimits,
+    "production printer request",
+  );
+  admitted.reserveFrame(96 * mebibyte);
+  assert.throws(
+    () => new FramedPayloadBudget(
+      8,
+      printerProtocolLimits,
+      "production printer request",
+    ).reserveFrame(128 * mebibyte + 1),
+    /frame 0 size .* exceeds limit/u,
   );
 });

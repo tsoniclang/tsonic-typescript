@@ -15,7 +15,6 @@ export type PointerPlanningCandidateOwner =
   | "function-result"
   | "unowned-type"
   | "callable-alias-declaration"
-  | "callable-alias-reference"
   | "result-call"
   | "variable-initializer"
   | "pointer-reference"

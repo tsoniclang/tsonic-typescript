@@ -3,10 +3,7 @@
 `@tsonic/target-typescript` lowers finalized Tsonic semantic facts into fast,
 ordinary TypeScript.
 
-[`docs/spec/`](docs/spec/README.md) is the governing target contract. This
-README summarizes the currently implemented pointer, scalar, representation,
-and cooperative-effect profiles; it does not narrow the complete architecture
-or verification requirements in that specification.
+[`docs/spec/`](docs/spec/README.md) is the governing target contract.
 
 The target transforms TSTS's exact checked TS-Go-contract AST directly. It does
 not parse source again, join by ranges, recognize marker spellings, or patch
@@ -32,6 +29,18 @@ The same provider owns the checked-source declaration profile: the bundled
 `lib.es2024.d.ts` closure and declaration contracts from installed packages.
 Callers do not inject ambient globals or rediscover the target's library set.
 
+The input program is already synchronous when its GoToTS profile disables
+concurrency. This target never infers effects, removes `Promise`, or rewrites
+`async`/`await`; encountering those constructs is source-owner evidence, not an
+invitation to recover semantics in the target.
+
+The optional target-level `execution` contract defaults to `"unrestricted"`
+for ordinary TypeScript projects. A synchronous product selects
+`"synchronous"`; the target then rejects authored `async`, `await`, `for await`,
+and `await using` nodes from the exact checked tree before any plan is built or
+the printer is invoked. The sealed optimization artifact records that selected
+execution contract separately from representation choices.
+
 ## Optimization profile
 
 All representation changes are explicit target configuration. Omitting the
@@ -39,197 +48,82 @@ profile selects the canonical, open-world-safe result:
 
 ```json
 {
+  "execution": "unrestricted",
   "optimizations": {
     "pointerFlows": "location",
     "scalarProjections": "preserve",
-    "representationProjections": "preserve",
-    "cooperativeEffects": "preserve",
-    "interfaceDispatch": "open-structural"
-  }
+    "representationProjections": "preserve"
+  },
+  "representationTransports": []
 }
 ```
 
 An executable assembled as one closed program may select `"closed-direct"`
-for each family. The backend builds every whole-program plan before changing
+for any family. The backend builds every whole-program plan before changing
 any source, then composes all selected rewrites in one post-order traversal of
 each original TS-Go-contract AST. Every planned source and semantic fact must
 be consumed exactly once before the transaction seals; otherwise printing is
-not invoked and no artifact is published. A structural rewrite that rebuilds a
-parent consumes the coordinator-recorded final child nodes after every selected
-lowering, never one lowering family's partial child output.
+not invoked and no artifact is published.
 
-Validation maps each selection to one versioned immutable profile identity.
-Lowering then builds one target-program index containing exact source/node
-membership, syntax-kind partitions, one canonical declaration-reference join,
-binding writes, and member dispatch needed by the selected families. Every
-planner shares that index; disabled facets perform no semantic queries. The
-optimization evidence records the profile identity, exact source membership,
-index work, selected totals, and exact retained-reason counts with at most eight
-canonical examples per reason. It never retains all rejected AST nodes merely
-to report evidence.
+The shared target-program index owns one source/node census, syntax-kind
+partitions, collision-safe authored names, and binding writes selected by the
+enabled families. Versioned evidence records exact source membership and a
+complete optimized-or-retained denominator for every family.
+Closed pointer evidence also reports the 32 largest retained class families by
+exact declaration identity, pointer-type and operation counts, and bounded
+blocker occurrences. This diagnostic is deterministic and cannot influence a
+representation decision.
 
-The checked source-file set is the current output membership. No executable
-root or complete module-side-effect contract is supplied to this target, so it
-does not perform dead-code or module pruning. Likewise, GoToTS runtime classes
-for interfaces, slices, maps, defer/recover, reflection, and initialization are
-ordinary checked TypeScript here; their names and shapes do not authorize a
-target optimization. New families require finalized exact-node facts and a
-closed profile field before they can enter this pipeline.
+Target-neutral source primitives are always lowered from their exact finalized
+TSTS facts to the selected TypeScript runtime base. For example, a checked
+`int64` marker becomes `bigint`, while an unrelated local alias named `int64`
+is untouched. Explicit named type-only marker imports are removed only after every
+planned primitive reference exact-joins one rewrite; this required lowering is
+independent of the optimization profile. The immutable evidence artifact
+reports the exact selected type-reference and removable-import denominators.
 
-`optimizations.cooperativeEffects: "closed-direct"` removes cooperative
-`Promise` transport only from a complete, exact call component with no
-provider, escaping-callable, promise-forwarding, thenable, or unresolved
-boundary. In addition to direct calls, the plan can close an indirect call
-through an exact callable-storage component. That component may contain
-constructor properties, callable parameters, immutable aliases, and explicitly
-typed mutable locals only when every construction, write, forwarding edge,
-call, and presence check resolves to its checked declaration and no value
-escapes. Return contracts across the connected component narrow atomically. A
-missing or spread argument, open constructor, untracked assignment, exported
-value, inheritance boundary, or one suspending producer preserves the affected
-component. A non-static method is eligible only when checked
-member-dispatch evidence proves that it neither overrides a base member nor has
-a derived override; override families remain canonical as one unit. The plan
-resolves calls through checked
-signatures, settles recursive components together, and rewrites each selected
-declaration, return contract, and dependent `await` in one transaction. For example,
-`async function answer(): Promise<number> { return 42 }` becomes
-`function answer(): number { return 42 }`, and an exact `await answer()` use
-becomes `answer()`. A same-spelled local, callback escape, `Promise.resolve`
-return, or provider call remains unchanged.
-
-`optimizations.interfaceDispatch: "declared-closed"` is a separate producer
-contract used by cooperative-effect lowering. It asserts that every runtime
-implementation entering a selected project interface can be exact-joined from
-its checked value transport to one project callable declaration. Authored
-`implements` heritage is sufficient but not required, so implicit-interface
-producers remain optimizable. The target settles the complete reached
-implementation family atomically. The default `"open-structural"` mode never
-infers closure from TypeScript structural compatibility, class names, or
-same-spelled members.
-
-Generic callable parameters participate in that flow even when their result is
-a type parameter and therefore has no declaration-local return rewrite. Flow
-eligibility and signature rewriting are separate decisions: exact call-site
-arguments settle the former, while only an exact awaitable annotation creates
-the latter. That annotation must contain its direct value branch; a
-Promise-only callback remains canonical. Exact plain assignments such as
-`create = undefined` add new input
-values to the same parameter flow; compound writes and unresolved assignments
-retain it. A shared generic kernel settles atomically across all concrete uses,
-so one open callback preserves every connected wrapper and consumer.
-
-Generated-shaped public mutable callable fields are eligible only when their
-nominal owner is closed across every constructor use, field access, carrier,
-and call. For example, a class holding `callback: () => Awaitable<T>` may
-settle through its exact zero/copy constructors and through pointer
-`address-of`, `load`, and `store` operations whose facts were validated by the
-pointer plan. Aliasing the constructor, deriving a runtime subclass, widening
-or exporting the owner, sourcing it from an ambient function, or exporting the
-field value retains the original async contract. No class, field, runtime
-function, or pointer operation is selected by name.
-
-The candidate denominator includes every async function, method, function
-expression, and arrow, including inferred-return, generator, bodyless, and
-open-dispatch forms that must be retained. A closed callback may also settle
-through a private synchronous forwarder such as
-`invoke(callback) { return callback(); }` when every invocation result is
-awaited or continues through another certified return edge. Exporting the
-forwarder, escaping it through an alias, or observing one returned Promise
-retains the original callable contract. Multiple blocking facts still produce
-one retained row under the canonical reason-catalog order.
-
-A checked direct scalar return and a freshly constructed array or object may
-also settle without requiring identical source and result type identities. The
-constructed value must expose no callable `then`; object literals containing a
-spread, computed property, `then`, or `__proto__` remain canonical. This keeps
-covariant and aggregate Go-shaped returns simple while preserving JavaScript's
-thenable assimilation boundary.
-
-A mutable field return may settle only when its complete storage flow is
-closed. The field owner and every nominal value carried through it must be
-project classes with private construction and nominal private or protected
-state; every construction, write, parameter transport, owner containment, and
-callable use must resolve inside the selected program. Provider crossings,
-open or structural carriers, widening or assertion erasure, inheritance,
-decorators, computed fields, spread arguments, and callable `then` preserve the
-canonical async return. This restriction is intentional: a structurally typed
-value may hide a runtime `then` member that JavaScript assimilates even when its
-declared interface does not expose one.
-
-The selected TypeScript runtime contract also certifies the fresh location and
-raw-pointer constructors that the target itself owns. Calls join through the
-exact import binding for the pinned runtime package; a same-spelled local,
-another package, an unknown runtime export, or a checked thenable result does
-not qualify. Project return forwarding may consume that fact, but arbitrary
-provider calls remain open.
-
-Composed lowerings exchange result facts before rewriting rather than inspect
-one another's output. Pointer and scalar planning supply the cooperative-effect
-planner with one lowered-value contract rooted in exact facts. Thus canonical
-`addressOf(record.value)` is known to become a fresh non-thenable `Location`,
-while `loadPointer(pointer)` remains open when the pointee may itself be
-thenable. An eliminated `new Width(value).value` projection is known to produce
-its selected scalar value. A generic runtime call whose checker-selected result
-resolves to the exact fact-certified pointer symbol remains canonical location
-transport when no pointer rewrite owns that call; a same-shaped ordinary type
-does not qualify. Direct pointer representations delegate the proof to the
-exact operand they preserve. The bridge consumes finalized facts and
-whole-program plans; it never recognizes a marker or wrapper by spelling.
+A closed product may additionally supply certified generic-kernel callable
+identities through `representationTransports`. The pointer planner exact-joins
+the imported module, exported declaration, selected signature, and only those
+parameters whose authored type refers to that kernel declaration's own type
+parameters. Such generic-owned values are opaque representation transport;
+concrete parameters of the same callable remain ordinary external boundaries.
+The target never infers this permission from a function name or implementation
+body, and sealed evidence records the contract digest, callable denominator,
+and exact selected-call count.
 
 ## Scalar projections
 
-`optimizations.scalarProjections: "closed-direct"` classifies every immediate
-construction projection such as `new Width(value).value`. When the exact class
-binding is immutable, construction is behavior-free, the selected property is
-its one readonly scalar constructor parameter, and the call/property evidence
-joins exactly, the target emits the equivalent scalar expression while still
-evaluating the constructor target before the argument. Same-file authored
-types are preserved; cross-file projections use only exact portable primitive
-types.
-
-Every candidate has one optimized or retained decision. Canonical-profile,
-open target, mutable binding, observable construction, mutable field,
-non-scalar value, nonportable cross-module type, and open semantic evidence are
-the complete retention reasons. Other class uses remain unchanged because the
-optimization owns only the closed immediate projection occurrence.
+`scalarProjections: "closed-direct"` replaces an exact behavior-free wrapper
+projection such as `new Width(value).value` with `value` only when the selected
+constructor, readonly scalar field, binding, module boundary, and evaluation
+order are all closed. Every other occurrence remains unchanged with one named
+retention reason.
 
 ## Representation projections
 
-`optimizations.representationProjections: "closed-direct"` removes two
-ordinary checked-TypeScript identities without recognizing generated names. A
-direct one-argument project function or stable static method whose sole
-statement returns that exact parameter becomes the argument. An immediate
-`project(construct(value))` becomes `value` only when exact selected signatures
-join a behavior-free one-property constructor, a factory that returns that
-construction, and a projector that returns the same property. The replacement
-evaluates `value` exactly once.
-
-The same profile removes a callable parameter when every use invokes it
-directly with one argument, every exact call of the owning function supplies a
-proved identity function, and no alias, mutation, optional/spread call, or open
-owner reference exists. The parameter, each invocation, and the corresponding
-argument at every caller are removed in one whole-program transaction. For
-example, `kernel((value) => value, item)` becomes `kernel(item)` while
-`copy(item)` inside `kernel` becomes `item`.
-
-The canonical `"preserve"` profile changes nothing. The closed profile retains
-mutable or open bindings, optional/spread calls, inheritance, decorators,
-constructor behavior, a mismatched property, or a projection without its exact
-inverse, an escaped callable parameter, or one non-identity caller. This family
-proves TypeScript expression equivalence; it does not
-infer source-language copy, storage, container, or interface behavior from a
-class or method spelling.
+`representationProjections: "closed-direct"` removes proved identity calls,
+inverse construct/project pairs, closed stored projections, and identity
+callable parameters. It exact-joins declarations, signatures, references,
+writes, arguments, and source ownership; it never recognizes generated names
+or structural lookalikes.
 
 ## Pointer representations
 
 Canonical pointer lowering is `Location<T>`. It remains the default and the
-complete fallback for open, escaping, unsafe, indirect, or otherwise unproved
-flows.
+complete fallback for open, escaping, potentially nil, identity-observed,
+unsafe, indirect, or otherwise unproved flows.
+
+Canonical root allocations use one generated structural `Location<T>` object:
+the object is its own storage identity, has no storage key, and owns the mutable
+value. One collision-safe local class serves every retained allocation in a
+source file. Equality, hashing, bound/property/nested locations, and projection
+continue to use `@tsonic/typescript-runtime`; this removes only the redundant
+second identity object from root allocation.
 
 The target optimization `optimizations.pointerFlows: "closed-direct"` lets the
-backend create one whole-program plan from the checked source and its stable
-target-relative document identities, then supply that plan while lowering every
+backend create one whole-program plan with
+`createClosedPointerFlowPlan(source)` and supply that plan while lowering every
 source file. Lowering does not read configuration; omitting the plan always
 selects canonical `Location<T>`.
 
@@ -243,39 +137,35 @@ The closed planner can select only these exact representations:
 - a read-only scalar pointer becomes the scalar snapshot;
 - a closed mutable scalar alias component becomes one `{ value: T }` cell;
 - a class-represented pointee becomes the object itself only when its checked
-  type symbol has a primary project `ClassDeclaration` and the complete flow
-  does not replace the pointee through the pointer.
+  type symbol has a primary project `ClassDeclaration`; whole-pointee stores
+  are admitted only for a closed class whose complete mutable state is the
+  exact public constructor-property set, and become one collision-free
+  generated replacement method that copies those fields in place.
 
-Representation boundaries are flow-local. A generic callable contract,
-provider binding, or projection keeps its exact connected pointer component on
-`Location<T>`; it does not force disconnected pointers with the same pointee
-class onto that representation. A whole-family decision is used only when the
-entire family is closed. Otherwise independently closed components retain their
-own exact direct decision.
+The replacement shape belongs to the class, but admission belongs to each
+connected pointer-flow component. A canonical or unstable component never
+suppresses an independent proved component of the same class, and no store is
+rewritten unless that exact component selects the replacement.
 
-An identity-observing class family can still use the object itself only when
-every pointer producer receives a value proven fresh. The proof accepts an
-exact `new ExactClass(...)` or an exact resolved call to a stable static method
-on that class whose sole statement returns another proven-fresh value. Factory
-proofs may compose recursively, but cycles fail closed; names such as `make` or
-`create` have no meaning. Addressed storage, allocating an existing object,
-shared or branching factory returns, factory/class binding writes, inheritance,
-decorators, and a constructor that can return a replacement object all retain
-`Location<T>`.
-Within that proven bijection, pointer equality is object `===` and pointer
-hashing uses the runtime's stable object-identity hash. A nullable hash input is
-captured once before its nil branch, so lowering cannot duplicate evaluation.
+Pointer equality and hashing admit an addressed object only when its exact
+storage declaration is never rebound and its initializer recursively proves a
+fresh project construction. Exact project function factories and exact static
+class factories may carry that proof; shared, reassigned, recursive, indirect,
+or otherwise open factories retain canonical locations.
 
 Object shape is never representation evidence. Arrays, interfaces,
 declaration-file classes, and structural wrapper shapes therefore remain
 `Location<T>`. A project class may carry value semantics because canonical
 `Location<T>.value` also returns that same represented object; generated copy
-operations remain outside pointer lowering. `addressOf(x)` can become a scalar
-snapshot only when `x` has one exact local storage identity and the checked
-navigation graph proves that storage cannot change. Repeated addresses of the
-same storage are one component. Nullable authored types and `value ?? panic()`
-guards are contracted only when all exact assignments and calls prove the
-component non-null.
+operations remain outside pointer lowering. Replacing an object pointee never
+changes its object identity, so aliases continue to denote the same Go pointer.
+Classes with inheritance, accessors, computed members, omitted mutable state,
+decorators, open boundaries, or mutable class bindings retain `Location<T>`.
+`addressOf(x)` can become a scalar snapshot only when `x` has one exact local
+storage identity and the checked navigation graph proves that storage cannot
+change. Repeated addresses of the same storage are one component. Nullable
+authored types retain `value ?? panic()`; a nil guard is contracted only when
+the checked left operand itself cannot be undefined.
 
 Planning uses original checked-node identities. `createPointerRewriteSession`
 exposes the node rewrite for composition with other semantic lowerers in one

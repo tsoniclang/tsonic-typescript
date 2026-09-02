@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   KindFunctionDeclaration,
   KindMethodDeclaration,
@@ -7,13 +7,12 @@ import {
 
 import type { TargetProgramIndex } from "../program-index.js";
 import type { SourceIdentityResolver } from "../occurrence.js";
-import type { CooperativeEffectResultProjection } from "../effect/planning/plan.js";
 import {
   createOptimizationRetentionLedger,
   type BoundedOptimizationReasonEvidence,
 } from "../retention-evidence.js";
 import type { RepresentationProjectionProfile } from "./plan.js";
-import { classValueReferencesAreClosed } from "./shape.js";
+import type { RepresentationBindingProof } from "./binding-proof.js";
 
 export const identityCallableRetentionReasons = Object.freeze([
   "profile-preserved",
@@ -56,10 +55,10 @@ const noSpecializations = Object.freeze([]) as readonly IdentityCallableSpeciali
 export function createIdentityCallablePlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   profile: RepresentationProjectionProfile,
   blockedCalls: ReadonlySet<Node>,
   sourceIdentityFor: SourceIdentityResolver,
-  effectProjection?: CooperativeEffectResultProjection,
 ): IdentityCallablePlan {
   const specializations: IdentityCallableSpecialization[] = [];
   const retentions = createOptimizationRetentionLedger(
@@ -72,7 +71,7 @@ export function createIdentityCallablePlan(
     KindFunctionDeclaration,
     KindMethodDeclaration,
   ])) {
-    if (!supportedOwner(source, program, owner)) {
+    if (!supportedOwner(source, program, bindingProof, owner)) {
       continue;
     }
     const parameters = source.ast.parameters(owner).filter(
@@ -95,7 +94,6 @@ export function createIdentityCallablePlan(
         parameter,
         parameterIndex,
         blockedCalls,
-        effectProjection,
       );
       if (decision.kind === "proved") {
         specializations.push(decision.specialization);
@@ -124,19 +122,14 @@ function resolveSpecialization(
   parameter: Node,
   parameterIndex: number,
   blockedCalls: ReadonlySet<Node>,
-  effectProjection: CooperativeEffectResultProjection | undefined,
 ): SpecializationResolution {
   if (program.hasBindingWrite(parameter)) {
     return { kind: "retained", reason: "mutable-parameter" };
   }
-  if (!identityCallableContractIsEndomorphic(
-    source,
-    parameter,
-    effectProjection,
-  )) {
+  if (!identityCallableContractIsEndomorphic(source, parameter)) {
     return { kind: "retained", reason: "nonidentity-contract" };
   }
-  const parameterReferences = program.referencesToDeclaration(parameter);
+  const parameterReferences = source.navigation.referencesToDeclaration(parameter);
   const parameterCalls = parameterReferences.map((reference) =>
     directParameterCallForReference(source, reference)
   );
@@ -146,7 +139,7 @@ function resolveSpecialization(
   ) {
     return { kind: "retained", reason: "open-parameter-use" };
   }
-  const ownerReferences = program.referencesToDeclaration(owner)
+  const ownerReferences = source.navigation.referencesToDeclaration(owner)
     .filter((reference) => !isModuleForwardingReference(source, reference));
   const ownerCalls = ownerReferences.map((reference) =>
     directOwnerCallForReference(source, reference)
@@ -195,35 +188,27 @@ function resolveSpecialization(
 function identityCallableContractIsEndomorphic(
   source: TargetSourceProgram,
   parameter: Node,
-  effectProjection: CooperativeEffectResultProjection | undefined,
 ): boolean {
   const typeNode = source.ast.typeNode(parameter);
   if (typeNode === undefined) {
     return false;
   }
   const semantics = source.semantics.forNode(typeNode);
-  const type = semantics.getTypeFromTypeNode(typeNode);
-  const signatures = type === undefined ? [] : semantics.getCallSignatures(type);
+  const type = semantics.types.authoredType(typeNode);
+  const signatures = type === undefined ? [] : semantics.types.callSignatures(type);
   const signature = signatures[0];
   if (signature === undefined || signatures.length !== 1) {
     return false;
   }
-  const parameters = semantics.getSignatureParameters(signature);
+  const parameters = semantics.declarations.signatureParameters(signature);
   const input = parameters[0] === undefined
     ? undefined
-    : semantics.getTypeOfSymbol(parameters[0]);
-  const returnTypeNode = source.ast.typeNode(typeNode);
-  const projectedReturnType = returnTypeNode === undefined
-    ? undefined
-    : effectProjection?.projectedReturnTypeFor(returnTypeNode);
-  const output = projectedReturnType === undefined
-    ? semantics.getReturnTypeOfSignature(signature)
-    : source.semantics.forNode(projectedReturnType)
-      .getTypeFromTypeNode(projectedReturnType);
+    : semantics.types.typeOfSymbol(parameters[0]);
+  const output = semantics.types.returnType(signature);
   return parameters.length === 1 &&
     input !== undefined &&
     output !== undefined &&
-    semantics.getTypeRelationship(input, output) === "identical";
+    semantics.types.relationship(input, output) === "identical";
 }
 
 function sealIdentityCallablePlan(
@@ -309,6 +294,7 @@ function groupSpecializations<Key extends Node>(
 function supportedOwner(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  bindingProof: RepresentationBindingProof,
   owner: Node,
 ): boolean {
   if (
@@ -336,7 +322,7 @@ function supportedOwner(
     source.ast.is.IsClassDeclaration(parent) &&
     source.ast.extendsHeritageElements(parent).length === 0 &&
     !program.hasBindingWrite(parent) &&
-    classValueReferencesAreClosed(source, program, parent);
+    bindingProof.classValueReferencesAreClosed(parent);
 }
 
 function isCallableParameter(
@@ -355,8 +341,8 @@ function isCallableParameter(
     return false;
   }
   const semantics = source.semantics.forNode(typeNode);
-  const type = semantics.getTypeFromTypeNode(typeNode);
-  return type !== undefined && semantics.getCallSignatures(type).length !== 0;
+  const type = semantics.types.authoredType(typeNode);
+  return type !== undefined && semantics.types.callSignatures(type).length !== 0;
 }
 
 function directParameterCallForReference(
@@ -403,11 +389,11 @@ function selectedCallOwns(
   declaration: Node,
 ): boolean {
   const semantics = source.semantics.forNode(call);
-  const info = semantics.getResolvedCallInfo(call);
+  const info = semantics.operations.call(call);
   return info?.outcome === "applicable" &&
     info.sourceSelectedSignatureKind === "resolved" &&
     !info.optionalChain &&
-    semantics.getSignatureDeclaration(info.selectedSignature) === declaration;
+    semantics.declarations.signatureDeclaration(info.selectedSignature) === declaration;
 }
 
 function isExactIdentityValue(

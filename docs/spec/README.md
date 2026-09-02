@@ -1,12 +1,12 @@
 # TypeScript Target Specification
 
-These files are the governing contract for `@tsonic/target-typescript`:
+This directory is authoritative for the TypeScript target architecture.
 
-1. [`architecture.md`](architecture.md) owns input/output boundaries,
-   complete-flow planning, representation selection, and human-shaped source.
-2. [`verification.md`](verification.md) owns differential, mutation, cost,
-   transaction, and product evidence.
+- `architecture.md` assigns semantic ownership and the only lowering path.
+- `verification.md` defines the proof required before a target checkpoint.
 
-`README.md` describes the currently implemented public surface. Plans,
-benchmarks, generated artifacts, and historical branches are evidence only and
-cannot override this specification.
+TSTS supplies one checked TS-Go-contract AST and finalized semantic facts. The
+target transforms that same AST and the configured printer emits TypeScript.
+The selected synchronous TSTS product expresses synchronous execution at
+GoToTS source emission; this target has no cooperative-effect inference or
+post-generation Promise-removal path.

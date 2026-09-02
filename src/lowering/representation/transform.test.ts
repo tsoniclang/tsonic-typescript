@@ -8,8 +8,12 @@ import {
 
 import { createTargetProgramIndex } from "../program-index.js";
 import { createTypeScriptOptimizationEvidence } from "../evidence.js";
+import { createProgramGeneratedNames } from "../generated-names.js";
+import { createDominatingNilCheckPlan } from "../pointer/nil-check/plan.js";
 import { createTypeScriptOptimizationProfile } from "../profile.js";
 import { createScalarRepresentationPlan } from "../scalar/plan.js";
+import { createPointerProjectionCallablePlan } from "../pointer/projection-callable-plan.js";
+import { createSourcePrimitiveLoweringPlan } from "../source-primitives/plan.js";
 import {
   checkedScalarFixture,
   fixtureSourceIdentityFor,
@@ -34,8 +38,6 @@ test("eliminates exact identity and inverse representation calls", () => {
   const fixture = checkedScalarFixture(exactRepresentations);
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
-    memberDispatch: false,
-    declarationReferences: true,
   });
   const plan = createRepresentationProjectionPlan(
     fixture.source,
@@ -53,12 +55,32 @@ test("eliminates exact identity and inverse representation calls", () => {
   assert.deepEqual(callTargets(fixture, result.sourceFile), ["next"]);
 });
 
+test("admits immutable reads of exact static converter methods", () => {
+  const fixture = checkedScalarFixture(`class Box<T> {
+    constructor(private readonly storage: T) {}
+    static from<T>(storage: T): Box<T> { return new Box(storage); }
+    static to<T>(box: Box<T>): T { return box.storage; }
+  }
+  export const converter = Box.from;
+  export const result = Box.to(Box.from(41));
+  `);
+  const plan = createRepresentationProjectionPlan(
+    fixture.source,
+    createTargetProgramIndex(fixture.source, { bindingWrites: true }),
+    "closed-direct",
+    fixtureSourceIdentityFor(fixture.source),
+  );
+  const result = lowerRepresentationProjections(fixture.sourceFile, plan);
+
+  assert.equal(plan.inverseCandidateCount, 1);
+  assert.equal(plan.optimizedCount, 1);
+  assert.deepEqual(callTargets(fixture, result.sourceFile), []);
+});
+
 test("preserves each representation candidate unless selected", () => {
   const fixture = checkedScalarFixture(exactRepresentations);
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
-    memberDispatch: false,
-    declarationReferences: true,
   });
   const plan = createRepresentationProjectionPlan(
     fixture.source,
@@ -139,8 +161,6 @@ test("fails closed when an apparent projection pair is not exact", () => {
       fixture.source,
       createTargetProgramIndex(fixture.source, {
         bindingWrites: true,
-        memberDispatch: false,
-        declarationReferences: true,
       }),
       "closed-direct",
       fixtureSourceIdentityFor(fixture.source),
@@ -157,12 +177,9 @@ test("accounts for every representation candidate in immutable evidence", () => 
     pointerFlows: "location",
     scalarProjections: "preserve",
     representationProjections: "closed-direct",
-    cooperativeEffects: "preserve",
   });
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
-    memberDispatch: false,
-    declarationReferences: true,
   });
   const scalar = createScalarRepresentationPlan(
     fixture.source,
@@ -177,16 +194,32 @@ test("accounts for every representation candidate in immutable evidence", () => 
     fixtureSourceIdentityFor(fixture.source),
   );
   const evidence = createTypeScriptOptimizationEvidence(
+    "unrestricted",
     profile,
     ["index.ts"],
     program.operations,
+    createSourcePrimitiveLoweringPlan(fixture.source, program),
     undefined,
+    createPointerProjectionCallablePlan(
+      fixture.source,
+      program,
+      profile.pointerFlows,
+      fixtureSourceIdentityFor(fixture.source),
+    ),
+    createDominatingNilCheckPlan(
+      fixture.source,
+      program,
+      createProgramGeneratedNames(fixture.source, program),
+      undefined,
+      profile.pointerFlows,
+      fixtureSourceIdentityFor(fixture.source),
+    ),
     scalar,
     representation,
-    undefined,
   );
 
-  assert.equal(evidence.schemaVersion, 20);
+  assert.equal(evidence.schemaVersion, 31);
+  assert.equal(evidence.sourceExecution, "unrestricted");
   assert.deepEqual(evidence.representationProjections, {
     profile: "closed-direct",
     identityCandidateCount: 1,

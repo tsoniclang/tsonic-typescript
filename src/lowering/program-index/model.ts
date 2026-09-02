@@ -1,15 +1,12 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type {
   SourceBindingWrite,
-  SourceDeclarationReference,
-  SourceProjectMemberDispatch,
-} from "@tsonic/target-api";
+  SourceReferenceIndexStatistics,
+} from "@tsonic/target-api/source";
 import type { Kind } from "@tsonic/tsts/target-ast";
 
 export interface TargetProgramIndexSelection {
   readonly bindingWrites: boolean;
-  readonly memberDispatch: boolean;
-  readonly declarationReferences?: boolean;
 }
 
 export interface TargetProgramIndexOperations {
@@ -17,12 +14,9 @@ export interface TargetProgramIndexOperations {
   readonly childEdges: number;
   readonly kindEntries: number;
   readonly identifierEntries: number;
-  readonly referenceCandidates: number;
-  readonly projectReferences: number;
+  readonly sourceReferenceIndex: SourceReferenceIndexStatistics;
   readonly bindingCandidates: number;
   readonly bindingWrites: number;
-  readonly heritageEdges: number;
-  readonly dispatchMembers: number;
 }
 
 export interface TargetProgramIndex {
@@ -37,8 +31,4 @@ export interface TargetProgramIndex {
   hasBindingWrite(declaration: Node | undefined): boolean;
   bindingWritesAt(node: Node | undefined): readonly SourceBindingWrite[];
   bindingWritesFor(declaration: Node | undefined): readonly SourceBindingWrite[];
-  declarationReferenceFor(node: Node | undefined):
-    SourceDeclarationReference | undefined;
-  referencesToDeclaration(declaration: Node | undefined): readonly Node[];
-  memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined;
 }

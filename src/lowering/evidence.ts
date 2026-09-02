@@ -1,34 +1,40 @@
 import type { PointerFlowBlocker } from "./pointer/flow-graph.js";
-import {
-  type OptimizationOccurrence,
-} from "./occurrence.js";
 import type {
   ClosedPointerFlowPlan,
   PointerFlowRepresentation,
 } from "./pointer/flow-plan.js";
+import type { PointerFlowFamilyHotspot } from "./pointer/flow-family-hotspots.js";
+import type {
+  DominatingNilCheckPlan,
+  DominatingNilCheckRetentionReason,
+} from "./pointer/nil-check/model.js";
+import type {
+  PointerProjectionCallablePlan,
+  ProjectionCallableRetentionReason,
+} from "./pointer/projection-callable-plan.js";
+import type { OptimizationOccurrence } from "./occurrence.js";
 import type { TypeScriptOptimizationProfile } from "./profile.js";
 import {
-  type ScalarProjectionRetentionReason,
-  type ScalarRepresentationPlan,
-} from "./scalar/plan.js";
-import {
-  type ScalarClassRetentionReason,
-} from "./scalar/class-flow.js";
+  canonicalRepresentationTransportContract,
+  type RepresentationTransportContract,
+} from "./representation/transport-contract.js";
+import type {
+  TypeScriptSourceExecutionProfile,
+} from "../source-contract/execution.js";
 import type { TargetProgramIndexOperations } from "./program-index.js";
 import type {
-  CooperativeEffectFallbackReason,
-} from "./effect/closure/retention.js";
-import type {
-  CooperativeEffectPlanSummary,
-} from "./effect/planning/summary.js";
-import type { InterfaceDispatchEvidence } from "./effect/flow/interface/decision.js";
-import {
-  type RepresentationProjectionPlan,
-  type RepresentationProjectionRetentionReason,
-} from "./representation/plan.js";
-import {
-  type IdentityCallableRetentionReason,
+  IdentityCallableRetentionReason,
 } from "./representation/callable-plan.js";
+import type {
+  RepresentationProjectionPlan,
+  RepresentationProjectionRetentionReason,
+} from "./representation/plan.js";
+import type { ScalarClassRetentionReason } from "./scalar/class-flow.js";
+import type {
+  ScalarProjectionRetentionReason,
+  ScalarRepresentationPlan,
+} from "./scalar/plan.js";
+import type { SourcePrimitiveLoweringPlan } from "./source-primitives/plan.js";
 
 export interface OptimizationCount<Value extends string> {
   readonly value: Value;
@@ -41,14 +47,40 @@ export interface OptimizationReasonEvidence<Reason extends string> {
   readonly examples: readonly OptimizationOccurrence[];
 }
 
-export interface OptimizationPropagatedReasonCount<Reason extends string> {
-  readonly reason: Reason;
-  readonly directCount: number;
-  readonly retainedCount: number;
-  readonly directExamples: readonly import("./effect/planning/summary.js").CooperativeEffectFallbackOccurrence[];
-}
-
 export type PointerOptimizationEvidence =
+  | {
+      readonly profile: "location";
+      readonly analyzed: false;
+      readonly dominatingNilChecks: DominatingNilCheckOptimizationEvidence;
+      readonly projectionCallables: ProjectionCallableOptimizationEvidence;
+    }
+  | {
+      readonly profile: "closed-direct";
+      readonly analyzed: true;
+      readonly dominatingNilChecks: DominatingNilCheckOptimizationEvidence;
+      readonly componentCount: number;
+      readonly optimizedComponentCount: number;
+      readonly optimizedFamilyCount: number;
+      readonly retainedFamilyCount: number;
+      readonly retainedFamilyHotspots: readonly PointerFlowFamilyHotspot[];
+      readonly directObjectReplacementCount: number;
+      readonly optimizedProjectionReadCount: number;
+      readonly optimizedProjectionStoreCount: number;
+      readonly optimizedProjectedPropertyLocationCount: number;
+      readonly optimizedPointerKeyMapCount: number;
+      readonly representations: readonly OptimizationCount<
+        PointerFlowRepresentation
+      >[];
+      readonly fallbackReasons: readonly OptimizationReasonEvidence<
+        PointerFlowBlocker
+      >[];
+      readonly familyFallbackReasons: readonly OptimizationReasonEvidence<
+        PointerFlowBlocker
+      >[];
+      readonly projectionCallables: ProjectionCallableOptimizationEvidence;
+    };
+
+export type DominatingNilCheckOptimizationEvidence =
   | {
       readonly profile: "location";
       readonly analyzed: false;
@@ -56,26 +88,44 @@ export type PointerOptimizationEvidence =
   | {
       readonly profile: "closed-direct";
       readonly analyzed: true;
-      readonly componentCount: number;
-      readonly optimizedComponentCount: number;
-      readonly optimizedFamilyCount: number;
-      readonly optimizedProjectionReadCount: number;
-      readonly optimizedProjectionStoreCount: number;
-      readonly representations: readonly OptimizationCount<PointerFlowRepresentation>[];
-      readonly fallbackReasons: readonly OptimizationReasonEvidence<PointerFlowBlocker>[];
-      readonly familyFallbackReasons: readonly OptimizationReasonEvidence<PointerFlowBlocker>[];
+      readonly candidateGuardCount: number;
+      readonly optimizedBindingCount: number;
+      readonly optimizedGuardCount: number;
+      readonly eliminatedGuardCount: number;
+      readonly retainedGuardCount: number;
+      readonly fallbackReasons: readonly OptimizationReasonEvidence<
+        DominatingNilCheckRetentionReason
+      >[];
     };
+
+export interface ProjectionCallableOptimizationEvidence {
+  readonly candidateCount: number;
+  readonly optimizedCount: number;
+  readonly retainedCount: number;
+  readonly fallbackReasons: readonly OptimizationReasonEvidence<
+    ProjectionCallableRetentionReason
+  >[];
+}
 
 export interface ScalarOptimizationEvidence {
   readonly profile: TypeScriptOptimizationProfile["scalarProjections"];
   readonly syntacticProjectionCount: number;
   readonly optimizedProjectionCount: number;
   readonly retainedProjectionCount: number;
-  readonly fallbackReasons: readonly OptimizationReasonEvidence<ScalarProjectionRetentionReason>[];
+  readonly fallbackReasons: readonly OptimizationReasonEvidence<
+    ScalarProjectionRetentionReason
+  >[];
   readonly scalarClassCandidateCount: number;
   readonly loweredScalarClassCount: number;
   readonly retainedScalarClassCount: number;
-  readonly scalarClassFallbackReasons: readonly OptimizationReasonEvidence<ScalarClassRetentionReason>[];
+  readonly scalarClassFallbackReasons: readonly OptimizationReasonEvidence<
+    ScalarClassRetentionReason
+  >[];
+}
+
+export interface SourcePrimitiveLoweringEvidence {
+  readonly typeReferenceCount: number;
+  readonly removableImportBindingCount: number;
 }
 
 export interface RepresentationProjectionOptimizationEvidence {
@@ -84,7 +134,9 @@ export interface RepresentationProjectionOptimizationEvidence {
   readonly inverseCandidateCount: number;
   readonly optimizedCount: number;
   readonly retainedCount: number;
-  readonly fallbackReasons: readonly OptimizationReasonEvidence<RepresentationProjectionRetentionReason>[];
+  readonly fallbackReasons: readonly OptimizationReasonEvidence<
+    RepresentationProjectionRetentionReason
+  >[];
   readonly storedFlows: {
     readonly flowCount: number;
     readonly constructionCount: number;
@@ -94,72 +146,70 @@ export interface RepresentationProjectionOptimizationEvidence {
     readonly candidateCount: number;
     readonly optimizedCount: number;
     readonly retainedCount: number;
-    readonly fallbackReasons: readonly OptimizationReasonEvidence<IdentityCallableRetentionReason>[];
+    readonly fallbackReasons: readonly OptimizationReasonEvidence<
+      IdentityCallableRetentionReason
+    >[];
   };
 }
 
-export type CooperativeEffectOptimizationEvidence =
-  | {
-      readonly profile: "preserve";
-      readonly analyzed: false;
-      readonly interfaceDispatch: InterfaceDispatchEvidence;
-    }
-  | {
-      readonly profile: "closed-direct";
-      readonly analyzed: true;
-      readonly candidateCount: number;
-      readonly settledCallableCount: number;
-      readonly retainedCallableCount: number;
-      readonly settledAwaitCount: number;
-      readonly awaitAttribution: CooperativeEffectPlanSummary["awaitAttribution"];
-      readonly fallbackReasons: readonly OptimizationPropagatedReasonCount<CooperativeEffectFallbackReason>[];
-      readonly propagation: {
-        readonly vertexCount: number;
-        readonly edgeCount: number;
-        readonly componentCount: number;
-        readonly workCount: number;
-      };
-      readonly resultConsumption: {
-        readonly callEntries: number;
-        readonly referenceEntries: number;
-        readonly ownerEvaluations: number;
-        readonly consumerEdges: number;
-      };
-      readonly interfaceDispatch: InterfaceDispatchEvidence;
-    };
-
 export interface TypeScriptOptimizationEvidence {
-  readonly schemaVersion: 20;
+  readonly schemaVersion: 31;
+  readonly sourceExecution: TypeScriptSourceExecutionProfile;
   readonly profileIdentity: string;
   readonly sourceMembership: readonly string[];
   readonly programIndex: TargetProgramIndexOperations;
+  readonly sourcePrimitives: SourcePrimitiveLoweringEvidence;
   readonly pointer: PointerOptimizationEvidence;
   readonly scalar: ScalarOptimizationEvidence;
   readonly representationProjections: RepresentationProjectionOptimizationEvidence;
-  readonly cooperativeEffects: CooperativeEffectOptimizationEvidence;
+  readonly representationTransports: {
+    readonly digest: string;
+    readonly contractCount: number;
+    readonly selectedCallCount: number;
+  };
 }
 
 export function createTypeScriptOptimizationEvidence(
+  sourceExecution: TypeScriptSourceExecutionProfile,
   profile: TypeScriptOptimizationProfile,
   sourceMembership: readonly string[],
   programIndex: TargetProgramIndexOperations,
+  sourcePrimitives: SourcePrimitiveLoweringPlan,
   pointerPlan: ClosedPointerFlowPlan | undefined,
+  pointerProjectionCallables: PointerProjectionCallablePlan,
+  nilCheckPlan: DominatingNilCheckPlan,
   scalarPlan: ScalarRepresentationPlan,
   representationPlan: RepresentationProjectionPlan,
-  effectSummary: CooperativeEffectPlanSummary | undefined,
+  representationTransports: RepresentationTransportContract =
+    canonicalRepresentationTransportContract(),
 ): TypeScriptOptimizationEvidence {
   return Object.freeze({
-    schemaVersion: 20 as const,
+    schemaVersion: 31 as const,
+    sourceExecution,
     profileIdentity: profile.identity,
     sourceMembership: Object.freeze([...sourceMembership]),
     programIndex,
-    pointer: pointerEvidence(profile, pointerPlan),
+    sourcePrimitives: Object.freeze({
+      typeReferenceCount: sourcePrimitives.typeReferenceCount,
+      removableImportBindingCount:
+        sourcePrimitives.removableImportBindingCount,
+    }),
+    pointer: pointerEvidence(
+      profile,
+      pointerPlan,
+      pointerProjectionCallables,
+      nilCheckPlan,
+    ),
     scalar: scalarEvidence(profile, scalarPlan),
     representationProjections: representationEvidence(
       profile,
       representationPlan,
     ),
-    cooperativeEffects: effectEvidence(profile, effectSummary),
+    representationTransports: Object.freeze({
+      digest: representationTransports.digest,
+      contractCount: representationTransports.callables.length,
+      selectedCallCount: pointerPlan?.representationTransportCallCount ?? 0,
+    }),
   });
 }
 
@@ -172,21 +222,24 @@ function representationEvidence(
     plan.optimizedCount + plan.retainedCount !==
       plan.identityCandidateCount + plan.inverseCandidateCount
   ) {
-    throw new Error("representation evidence received an incoherent decision plan");
+    throw new Error(
+      "representation evidence received an incoherent decision plan",
+    );
   }
-  const fallbackReasons = plan.fallbackReasons;
   if (
-    fallbackReasons.reduce((total, entry) => total + entry.count, 0) !==
+    plan.fallbackReasons.reduce((total, entry) => total + entry.count, 0) !==
       plan.retainedCount
   ) {
     throw new Error("representation evidence lost a decision row");
   }
-  const callableFallbackReasons = plan.identityCallables.fallbackReasons;
   if (
-    plan.identityCallables.optimizedCount + plan.identityCallables.retainedCount !==
+    plan.identityCallables.optimizedCount +
+        plan.identityCallables.retainedCount !==
       plan.identityCallables.candidateCount ||
-    callableFallbackReasons.reduce((total, entry) => total + entry.count, 0) !==
-      plan.identityCallables.retainedCount
+    plan.identityCallables.fallbackReasons.reduce(
+        (total, entry) => total + entry.count,
+        0,
+      ) !== plan.identityCallables.retainedCount
   ) {
     throw new Error("identity-callable evidence lost a decision row");
   }
@@ -196,7 +249,7 @@ function representationEvidence(
     inverseCandidateCount: plan.inverseCandidateCount,
     optimizedCount: plan.optimizedCount,
     retainedCount: plan.retainedCount,
-    fallbackReasons,
+    fallbackReasons: plan.fallbackReasons,
     storedFlows: Object.freeze({
       flowCount: plan.storedFlows.flowCount,
       constructionCount: plan.storedFlows.constructionCount,
@@ -206,7 +259,7 @@ function representationEvidence(
       candidateCount: plan.identityCallables.candidateCount,
       optimizedCount: plan.identityCallables.optimizedCount,
       retainedCount: plan.identityCallables.retainedCount,
-      fallbackReasons: callableFallbackReasons,
+      fallbackReasons: plan.identityCallables.fallbackReasons,
     }),
   });
 }
@@ -222,21 +275,17 @@ function scalarEvidence(
   ) {
     throw new Error("scalar evidence received an incoherent decision plan");
   }
-  const fallbackReasons = plan.fallbackReasons;
-  const retainedTotal = fallbackReasons.reduce(
-    (total, entry) => total + entry.count,
-    0,
-  );
-  if (retainedTotal !== plan.retainedProjectionCount) {
+  if (
+    plan.fallbackReasons.reduce((total, entry) => total + entry.count, 0) !==
+      plan.retainedProjectionCount
+  ) {
     throw new Error("scalar retention evidence lost a decision row");
   }
-  const scalarClassFallbackReasons = plan.scalarClassFallbackReasons;
-  const retainedClassTotal = scalarClassFallbackReasons.reduce(
-    (total, entry) => total + entry.count,
-    0,
-  );
   if (
-    retainedClassTotal !== plan.retainedScalarClassCount ||
+    plan.scalarClassFallbackReasons.reduce(
+        (total, entry) => total + entry.count,
+        0,
+      ) !== plan.retainedScalarClassCount ||
     plan.loweredScalarClassCount + plan.retainedScalarClassCount !==
       plan.scalarClassCandidateCount
   ) {
@@ -247,23 +296,36 @@ function scalarEvidence(
     syntacticProjectionCount: plan.syntacticProjectionCount,
     optimizedProjectionCount: plan.projectionCount,
     retainedProjectionCount: plan.retainedProjectionCount,
-    fallbackReasons,
+    fallbackReasons: plan.fallbackReasons,
     scalarClassCandidateCount: plan.scalarClassCandidateCount,
     loweredScalarClassCount: plan.loweredScalarClassCount,
     retainedScalarClassCount: plan.retainedScalarClassCount,
-    scalarClassFallbackReasons,
+    scalarClassFallbackReasons: plan.scalarClassFallbackReasons,
   });
 }
 
 function pointerEvidence(
   profile: TypeScriptOptimizationProfile,
   plan: ClosedPointerFlowPlan | undefined,
+  projectionCallables: PointerProjectionCallablePlan,
+  nilCheckPlan: DominatingNilCheckPlan,
 ): PointerOptimizationEvidence {
+  const callables = projectionCallableEvidence(
+    profile,
+    projectionCallables,
+  );
   if (profile.pointerFlows === "location") {
     if (plan !== undefined) {
-      throw new Error("canonical pointer profile cannot carry a closed-flow plan");
+      throw new Error(
+        "canonical pointer profile cannot carry a closed-flow plan",
+      );
     }
-    return Object.freeze({ profile: "location", analyzed: false });
+    return Object.freeze({
+      profile: "location",
+      analyzed: false,
+      dominatingNilChecks: nilCheckEvidence(profile, nilCheckPlan),
+      projectionCallables: callables,
+    });
   }
   if (plan === undefined) {
     throw new Error("closed pointer profile requires a closed-flow plan");
@@ -271,80 +333,91 @@ function pointerEvidence(
   return Object.freeze({
     profile: "closed-direct",
     analyzed: true,
+    dominatingNilChecks: nilCheckEvidence(profile, nilCheckPlan),
     componentCount: plan.components.length,
     optimizedComponentCount: plan.optimizedComponentCount,
     optimizedFamilyCount: plan.optimizedFamilyCount,
+    retainedFamilyCount: plan.retainedFamilyCount,
+    retainedFamilyHotspots: plan.retainedFamilyHotspots,
+    directObjectReplacementCount: plan.directObjectReplacementCount,
     optimizedProjectionReadCount: plan.optimizedProjectionReadCount,
     optimizedProjectionStoreCount: plan.optimizedProjectionStoreCount,
+    optimizedProjectedPropertyLocationCount:
+      plan.optimizedProjectedPropertyLocationCount,
+    optimizedPointerKeyMapCount: plan.optimizedPointerKeyMapCount,
     representations: countValues(
       plan.components.map((component) => component.representation),
     ),
     fallbackReasons: plan.fallbackReasons,
     familyFallbackReasons: plan.familyFallbackReasons,
+    projectionCallables: callables,
   });
 }
 
-function effectEvidence(
+function nilCheckEvidence(
   profile: TypeScriptOptimizationProfile,
-  summary: CooperativeEffectPlanSummary | undefined,
-): CooperativeEffectOptimizationEvidence {
-  if (profile.cooperativeEffects === "preserve") {
-    if (summary !== undefined) {
-      throw new Error("preserved cooperative effects cannot carry a closed plan");
-    }
-    return Object.freeze({
-      profile: "preserve",
-      analyzed: false,
-      interfaceDispatch: Object.freeze({
-        profile: profile.interfaceDispatch,
-        analyzed: false,
-      }),
-    });
+  plan: DominatingNilCheckPlan,
+): DominatingNilCheckOptimizationEvidence {
+  if (plan.profile !== profile.pointerFlows) {
+    throw new Error("dominating nil-check evidence received a foreign profile");
   }
-  if (summary === undefined) {
-    throw new Error("closed cooperative effects require a closed plan");
+  if (plan.profile === "location") {
+    if (plan.analyzed) {
+      throw new Error("canonical pointer nil checks cannot carry an analysis");
+    }
+    return Object.freeze({ profile: "location", analyzed: false });
+  }
+  if (
+    !plan.analyzed ||
+    plan.optimizedGuardCount + plan.retainedGuardCount !==
+      plan.candidateGuardCount ||
+    plan.eliminatedGuardCount !==
+      plan.optimizedGuardCount - plan.optimizedBindingCount ||
+    plan.fallbackReasons.reduce((sum, row) => sum + row.count, 0) !==
+      plan.retainedGuardCount
+  ) {
+    throw new Error("dominating nil-check evidence is incoherent");
   }
   return Object.freeze({
     profile: "closed-direct",
     analyzed: true,
-    candidateCount: summary.candidateCount,
-    settledCallableCount: summary.settledCallableCount,
-    retainedCallableCount: summary.retainedCallableCount,
-    settledAwaitCount: summary.settledAwaitCount,
-    awaitAttribution: summary.awaitAttribution,
-    fallbackReasons: Object.freeze(summary.fallbackReasons.map((entry) =>
-      Object.freeze({
-        reason: entry.reason,
-        directCount: entry.directCallableCount,
-        retainedCount: entry.retainedCallableCount,
-        directExamples: entry.directExamples,
-      })
-    )),
-    propagation: Object.freeze({
-      vertexCount: summary.propagation.vertices,
-      edgeCount: summary.propagation.edges,
-      componentCount: summary.propagation.components,
-      workCount: summary.propagation.work,
-    }),
-    resultConsumption: summary.resultConsumption,
-    interfaceDispatch: summary.interfaceDispatch,
+    candidateGuardCount: plan.candidateGuardCount,
+    optimizedBindingCount: plan.optimizedBindingCount,
+    optimizedGuardCount: plan.optimizedGuardCount,
+    eliminatedGuardCount: plan.eliminatedGuardCount,
+    retainedGuardCount: plan.retainedGuardCount,
+    fallbackReasons: plan.fallbackReasons,
+  });
+}
+
+function projectionCallableEvidence(
+  profile: TypeScriptOptimizationProfile,
+  plan: PointerProjectionCallablePlan,
+): ProjectionCallableOptimizationEvidence {
+  if (
+    plan.profile !== profile.pointerFlows ||
+    plan.optimizedCount + plan.retainedCount !== plan.candidateCount ||
+    plan.fallbackReasons.reduce((sum, row) => sum + row.count, 0) !==
+      plan.retainedCount
+  ) {
+    throw new Error("pointer projection-callable evidence is incoherent");
+  }
+  return Object.freeze({
+    candidateCount: plan.candidateCount,
+    optimizedCount: plan.optimizedCount,
+    retainedCount: plan.retainedCount,
+    fallbackReasons: plan.fallbackReasons,
   });
 }
 
 function countValues<Value extends string>(
   values: readonly Value[],
 ): readonly OptimizationCount<Value>[] {
-  return counted(values).map(([value, count]) => Object.freeze({ value, count }));
-}
-
-function counted<Value extends string>(
-  values: readonly Value[],
-): readonly (readonly [Value, number])[] {
   const counts = new Map<Value, number>();
   for (const value of values) {
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return Object.freeze([...counts]
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([value, count]) => Object.freeze([value, count] as const)));
+    .map(([value, count]) => Object.freeze({ value, count })));
 }

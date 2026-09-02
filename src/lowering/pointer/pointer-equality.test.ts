@@ -16,8 +16,8 @@ import {
   IsCallExpression,
   IsPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
-import { createTargetSourceProgram } from "@tsonic/target-api";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { lowerPointers } from "./transform.js";
 
@@ -107,7 +107,7 @@ export const result = [
   const result = lowerPointers(fixture.source, fixture.sourceFile);
 
   assert.equal(result.operationCount, 7);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 0);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "projectLocation"), 1);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "hashLocation"), 2);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "projectPointer"), 0);
@@ -176,7 +176,7 @@ export const result = [
   assert.equal(result.operationCount, 1);
   assert.equal(result.rawPointerOperationCount, 4);
   assert.equal(result.rawPointerTypeCount, 1);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 1);
+  assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 0);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "rawPointer"), 2);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "sameRawPointer"), 1);
   assert.equal(countCallsNamed(fixture, result.sourceFile, "hashRawPointer"), 1);

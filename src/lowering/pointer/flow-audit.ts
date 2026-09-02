@@ -1,5 +1,4 @@
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import { KindIdentifier } from "@tsonic/tsts/target-ast";
 
 import type { PointerCensus } from "./flow-census.js";
 import { PointerLoweringError } from "./diagnostic.js";
@@ -10,6 +9,7 @@ import {
   isModuleAliasReference,
   producesPointer,
   resolvePointerExpression,
+  transparentExpression,
   transparentExpressionRoot,
   transparentReference,
 } from "./flow-syntax.js";
@@ -23,7 +23,7 @@ export function auditPointerCensus(census: PointerCensus): void {
 
 function auditReferences(census: PointerCensus): void {
   const { source, graph, functionParameters, references } = census;
-  const candidates = census.program.nodesOfKind(KindIdentifier);
+  const candidates = references.nodes;
   for (const node of census.ledger.candidates(
     "flow-census",
     "pointer-audit-reference",
@@ -152,10 +152,10 @@ function connectBindingReassignments(census: PointerCensus): void {
           resultExpressions,
         );
       } else if (isExactNullishOrNeverValue(source, right)) {
-        const type = source.semantics.forNode(right).getTypeAtLocation(right);
+        const type = source.semantics.forNode(right).types.expressionType(right);
         if (
           type !== undefined &&
-          source.semantics.forNode(right).isNullish(type)
+          source.semantics.forNode(right).types.isNullish(type)
         ) {
           graph.block(bindingVertex, "nil-capable", right);
         }
@@ -179,9 +179,9 @@ function isExactNullishOrNeverValue(
   expression: Node,
 ): boolean {
   const semantics = source.semantics.forNode(expression);
-  const type = semantics.getTypeAtLocation(expression);
+  const type = semantics.types.expressionType(expression);
   return type !== undefined &&
-    (semantics.isNullish(type) || semantics.isNever(type));
+    (semantics.types.isNullish(type) || semantics.types.isNever(type));
 }
 
 function auditAddressedStorage(census: PointerCensus): void {
@@ -206,14 +206,61 @@ function addressedStorageIsStable(
   census: PointerCensus,
   operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
 ): boolean {
-  const { source } = census;
-  const storage = transparentReference(source, operation.storageExpression);
-  const reference = census.references.referenceFor(storage);
+  const storage = addressPathRoot(
+    census,
+    operation.storageExpression,
+  );
   return storage !== undefined &&
-    source.ast.is.IsIdentifier(storage) &&
-    reference !== undefined &&
-    operation.storageDeclaration === reference.declaration &&
-    !census.references.hasWrite(reference.declaration);
+    storage.declaration === operation.storageDeclaration &&
+    stableAddressPath(census, storage.expression);
+}
+
+interface AddressPathRoot {
+  readonly expression: Node;
+  readonly declaration: Node;
+}
+
+function addressPathRoot(
+  census: PointerCensus,
+  expression: Node,
+): AddressPathRoot | undefined {
+  const { source } = census;
+  const root = transparentExpression(source, expression);
+  if (root === undefined) {
+    return undefined;
+  }
+  const referenceNode = source.ast.is.IsPropertyAccessExpression(root)
+    ? source.ast.as.AsPropertyAccessExpression(root)?.name
+    : source.ast.is.IsIdentifier(root)
+    ? root
+    : undefined;
+  const declaration = source.navigation.sourceReferenceFor(referenceNode)?.declaration;
+  return declaration === undefined
+    ? undefined
+    : Object.freeze({ expression: root, declaration });
+}
+
+function stableAddressPath(census: PointerCensus, expression: Node): boolean {
+  const { source, program } = census;
+  if (source.ast.is.IsIdentifier(expression)) {
+    const declaration = source.navigation.sourceReferenceFor(expression)?.declaration;
+    return declaration !== undefined &&
+      source.navigation.isProjectDeclaration(declaration) &&
+      !program.hasBindingWrite(declaration);
+  }
+  if (source.ast.kindName(expression) === "KindThisKeyword") {
+    return true;
+  }
+  if (!source.ast.is.IsPropertyAccessExpression(expression)) {
+    return false;
+  }
+  const property = source.ast.as.AsPropertyAccessExpression(expression);
+  const declaration = source.navigation.sourceReferenceFor(property?.name)?.declaration;
+  return property?.Expression !== undefined &&
+    declaration !== undefined &&
+    source.navigation.isProjectDeclaration(declaration) &&
+    !program.hasBindingWrite(declaration) &&
+    stableAddressPath(census, property.Expression);
 }
 
 function auditProducerUses(census: PointerCensus): void {

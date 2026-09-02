@@ -1,8 +1,9 @@
 import type {
   PointerOperationFact,
   Node,
+  SourceFile,
 } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import {
   compareOptimizationOccurrences,
@@ -11,13 +12,23 @@ import {
   type SourceIdentityResolver,
 } from "../occurrence.js";
 import type { TargetProgramIndex } from "../program-index.js";
+import type { ProgramGeneratedNames } from "../generated-names.js";
+import {
+  canonicalRepresentationTransportContract,
+  type RepresentationTransportContract,
+} from "../representation/transport-contract.js";
 import {
   censusPointerFlows,
 } from "./flow-census.js";
+import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import {
   planDirectReferenceFamilies,
   type DirectReferenceFamilyPlan,
 } from "./flow-families.js";
+import {
+  retainedDirectReferenceFamilyHotspots,
+  type PointerFlowFamilyHotspot,
+} from "./flow-family-hotspots.js";
 import type { DirectReferenceFamilyFallback } from "./flow-family-evidence.js";
 import type {
   PointerFlowBlocker,
@@ -34,6 +45,15 @@ import {
   type PointerProjectionFusion,
 } from "./projection-fusion.js";
 import {
+  planProjectedPropertyLocations,
+  type ProjectedPropertyLocationFusion,
+} from "./projected-property.js";
+import {
+  planCanonicalPointerKeyMaps,
+  type CanonicalPointerKeyMapPlan,
+  type CanonicalPointerKeyMapRewrite,
+} from "./map/plan.js";
+import {
   PointerPlanningLedger,
   totalPointerPlanningOperations,
   type PointerPlanningCandidateCounts,
@@ -43,6 +63,14 @@ import { closePointerValueEvidence } from "./value-evidence.js";
 
 export type { PointerFlowBlocker } from "./flow-graph.js";
 export type { PointerFlowRepresentation } from "./flow-representation.js";
+
+const noReplacements = Object.freeze([]) as readonly DirectObjectReplacement[];
+
+interface SelectedDirectObjectReplacements {
+  readonly byNode: ReadonlyMap<Node, DirectObjectReplacement>;
+  readonly byFile: ReadonlyMap<SourceFile, readonly DirectObjectReplacement[]>;
+  readonly count: number;
+}
 
 export interface PointerFlowComponentSummary {
   readonly representation: PointerFlowRepresentation;
@@ -70,16 +98,29 @@ export interface ClosedPointerFlowPlan {
   valueRepresentationFor(
     node: Node | undefined,
   ): PointerFlowRepresentation | undefined;
-  valueIsDefinitelyNonThenable(node: Node | undefined): boolean;
   representationFor(node: Node | undefined): PointerFlowRepresentation;
   componentFor(node: Node | undefined): PointerFlowComponentSummary | undefined;
   projectionFusionFor(node: Node): PointerProjectionFusion | undefined;
   ownsFusedProjection(node: Node): boolean;
+  projectedPropertyLocationFor(
+    node: Node,
+  ): ProjectedPropertyLocationFusion | undefined;
+  ownsProjectedPropertyAddress(node: Node): boolean;
+  directObjectReplacementFor(node: Node): DirectObjectReplacement | undefined;
+  directObjectReplacementsFor(sourceFile: SourceFile): readonly DirectObjectReplacement[];
+  pointerKeyMapRewriteFor(node: Node): CanonicalPointerKeyMapRewrite | undefined;
+  pointerKeyMapsFor(sourceFile: SourceFile): readonly CanonicalPointerKeyMapPlan[];
   readonly components: readonly PointerFlowComponentSummary[];
   readonly optimizedComponentCount: number;
   readonly optimizedFamilyCount: number;
+  readonly retainedFamilyCount: number;
+  readonly retainedFamilyHotspots: readonly PointerFlowFamilyHotspot[];
+  readonly directObjectReplacementCount: number;
   readonly optimizedProjectionReadCount: number;
   readonly optimizedProjectionStoreCount: number;
+  readonly optimizedProjectedPropertyLocationCount: number;
+  readonly optimizedPointerKeyMapCount: number;
+  readonly representationTransportCallCount: number;
   readonly planningOperationCount: number;
   readonly planningOperations: PointerPlanningOperations;
   readonly planningCandidates: PointerPlanningCandidateCounts;
@@ -91,14 +132,23 @@ export interface ClosedPointerFlowPlan {
 export function createClosedPointerFlowPlan(
   source: TargetSourceProgram,
   program: TargetProgramIndex,
+  generatedNames: ProgramGeneratedNames,
   sourceIdentityFor: SourceIdentityResolver,
+  representationTransports: RepresentationTransportContract =
+    canonicalRepresentationTransportContract(),
 ): ClosedPointerFlowPlan {
   const ledger = new PointerPlanningLedger();
-  const census = censusPointerFlows(source, program, ledger);
+  const census = censusPointerFlows(
+    source,
+    program,
+    ledger,
+    representationTransports,
+  );
   const components = census.components;
   const familyPlan = planDirectReferenceFamilies(
     source,
     program,
+    generatedNames,
     components,
     census.facts,
     ledger,
@@ -119,6 +169,8 @@ export function createClosedPointerFlowPlan(
       source,
       component,
       census.facts,
+      (storeCall) =>
+        familyPlan.directObjectReplacementForStore(storeCall) !== undefined,
       ledger,
     );
     const representation = finalComponentRepresentation(
@@ -160,10 +212,32 @@ export function createClosedPointerFlowPlan(
     }
     appendFallbackEvidence(summary.retentionReasons, fallbackReasons, ledger);
   }
+  const directObjectReplacements = selectDirectObjectReplacements(
+    familyPlan.directObjectReplacements,
+    representations,
+  );
   const projectionFusions = planPointerProjectionFusions(
     source,
     census.facts,
     (node) => (representations.get(node) ?? "location") === "location",
+    ledger,
+  );
+  const projectedPropertyLocations = planProjectedPropertyLocations(
+    source,
+    census.facts,
+    (node) => node === undefined
+      ? "location"
+      : representations.get(node) ?? "location",
+    projectionFusions.ownsProjection,
+    ledger,
+  );
+  const pointerKeyMaps = planCanonicalPointerKeyMaps(
+    source,
+    census.facts,
+    generatedNames,
+    (node) => node === undefined
+      ? "location"
+      : representations.get(node) ?? "location",
     ledger,
   );
   const frozenSummaries = Object.freeze(summaries);
@@ -181,6 +255,12 @@ export function createClosedPointerFlowPlan(
     familyPlan.fallbackReasons,
     ledger,
   );
+  const retainedFamilyHotspots = retainedDirectReferenceFamilyHotspots(
+    source,
+    sourceIdentityFor,
+    familyPlan.retainedFamilies,
+    ledger,
+  );
   const planningOperations = ledger.snapshot();
   return Object.freeze({
     owns(candidate: TargetSourceProgram): boolean {
@@ -193,9 +273,6 @@ export function createClosedPointerFlowPlan(
       node: Node | undefined,
     ): PointerFlowRepresentation | undefined {
       return pointerValues.representationFor(node);
-    },
-    valueIsDefinitelyNonThenable(node: Node | undefined): boolean {
-      return pointerValues.isDefinitelyNonThenable(node);
     },
     representationFor(node: Node | undefined): PointerFlowRepresentation {
       return node === undefined
@@ -211,11 +288,43 @@ export function createClosedPointerFlowPlan(
     ownsFusedProjection(node: Node): boolean {
       return projectionFusions.ownsProjection(node);
     },
+    projectedPropertyLocationFor(
+      node: Node,
+    ): ProjectedPropertyLocationFusion | undefined {
+      return projectedPropertyLocations.fusionForProjection(node);
+    },
+    ownsProjectedPropertyAddress(node: Node): boolean {
+      return projectedPropertyLocations.ownsAddress(node);
+    },
+    directObjectReplacementFor(node: Node): DirectObjectReplacement | undefined {
+      return directObjectReplacements.byNode.get(node);
+    },
+    directObjectReplacementsFor(
+      sourceFile: SourceFile,
+    ): readonly DirectObjectReplacement[] {
+      return directObjectReplacements.byFile.get(sourceFile) ?? noReplacements;
+    },
+    pointerKeyMapRewriteFor(
+      node: Node,
+    ): CanonicalPointerKeyMapRewrite | undefined {
+      return pointerKeyMaps.rewriteFor(node);
+    },
+    pointerKeyMapsFor(
+      sourceFile: SourceFile,
+    ): readonly CanonicalPointerKeyMapPlan[] {
+      return pointerKeyMaps.classesFor(sourceFile);
+    },
     components: frozenSummaries,
     optimizedComponentCount,
     optimizedFamilyCount: familyPlan.familyCount,
+    retainedFamilyCount: familyPlan.retainedFamilies.length,
+    retainedFamilyHotspots,
+    directObjectReplacementCount: directObjectReplacements.count,
     optimizedProjectionReadCount: projectionFusions.readCount,
     optimizedProjectionStoreCount: projectionFusions.storeCount,
+    optimizedProjectedPropertyLocationCount: projectedPropertyLocations.count,
+    optimizedPointerKeyMapCount: pointerKeyMaps.count,
+    representationTransportCallCount: census.representationTransportCallCount,
     planningOperationCount: totalPointerPlanningOperations(planningOperations),
     planningOperations,
     planningCandidates: ledger.candidateSnapshot(),
@@ -223,6 +332,49 @@ export function createClosedPointerFlowPlan(
     fallbackReasons: sealedFallbackReasons,
     familyFallbackReasons: sealedFamilyFallbackReasons,
   });
+}
+
+function selectDirectObjectReplacements(
+  candidates: readonly DirectObjectReplacement[],
+  representations: ReadonlyMap<Node, PointerFlowRepresentation>,
+): SelectedDirectObjectReplacements {
+  const byNode = new Map<Node, DirectObjectReplacement>();
+  const mutableByFile = new Map<SourceFile, DirectObjectReplacement[]>();
+  let count = 0;
+  for (const candidate of candidates) {
+    const storeCalls = candidate.storeCalls.filter((storeCall) =>
+      representations.get(storeCall) === "direct-object"
+    );
+    if (storeCalls.length === 0) {
+      continue;
+    }
+    const replacement: DirectObjectReplacement = Object.freeze({
+      ...candidate,
+      storeCalls: Object.freeze(storeCalls),
+    });
+    if (byNode.has(replacement.classDeclaration)) {
+      throw new Error("direct-object class selected multiple replacement plans");
+    }
+    byNode.set(replacement.classDeclaration, replacement);
+    for (const storeCall of replacement.storeCalls) {
+      if (byNode.has(storeCall)) {
+        throw new Error("direct-object store selected multiple replacement plans");
+      }
+      byNode.set(storeCall, replacement);
+    }
+    const selected = mutableByFile.get(replacement.sourceFile);
+    if (selected === undefined) {
+      mutableByFile.set(replacement.sourceFile, [replacement]);
+    } else {
+      selected.push(replacement);
+    }
+    count += 1;
+  }
+  const byFile = new Map<SourceFile, readonly DirectObjectReplacement[]>();
+  for (const [sourceFile, replacements] of mutableByFile) {
+    byFile.set(sourceFile, Object.freeze([...replacements]));
+  }
+  return Object.freeze({ byNode, byFile, count });
 }
 
 function sealFamilyFallbackEvidence(

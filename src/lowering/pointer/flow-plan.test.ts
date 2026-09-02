@@ -15,7 +15,7 @@ import {
   NewParenthesizedExpression,
   transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import { createFinalNodeJournal } from "../final-nodes.js";
 import { createProgramGeneratedNames } from "../generated-names.js";
@@ -30,6 +30,7 @@ import {
   visit,
 } from "./pointer.test-support.js";
 import { createPointerRewriteSession, lowerPointers } from "./transform.js";
+import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
 test("contracts one closed readonly scalar parameter flow", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
@@ -375,7 +376,6 @@ export const result = loadPointer(pointer);
   const finalNodes = createFinalNodeJournal();
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
-    memberDispatch: false,
   });
   const session = createPointerRewriteSession(
     fixture.source,
@@ -385,6 +385,12 @@ export const result = loadPointer(pointer);
       fixture.sourceFile,
     ),
     flowPlan,
+    createPointerProjectionCallablePlan(
+      fixture.source,
+      program,
+      "closed-direct",
+      (selected) => fixture.source.documents.forFile(selected).identity,
+    ),
     finalNodes,
   );
   let composedRewrites = 0;
@@ -509,39 +515,6 @@ import { allocatePointer } from "./markers.js";
       assert.equal(plan.representationFor(operation.call), "location");
     }
   }
-});
-
-test("fails closed when an exact pointer-reference edge is removed", () => {
-  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, loadPointer } from "./markers.js";
-const pointer: Pointer<number> = allocatePointer(1);
-const alias = pointer;
-export const result = loadPointer(alias);
-`);
-  const source: TargetSourceProgram = Object.freeze({
-    ...fixture.source,
-    semantics: Object.freeze({
-      ...fixture.source.semantics,
-      forNode(node: Node) {
-        const semantics = fixture.source.semantics.forNode(node);
-        const omit = fixture.source.ast.is.IsIdentifier(node) &&
-          fixture.source.ast.text(node) === "alias" &&
-          fixture.source.ast.name(
-            fixture.source.navigation.sourceReferenceFor(node)?.declaration,
-          ) !== node;
-        return omit ? Object.freeze({
-          ...semantics,
-          getSymbolAtLocation: () => undefined,
-          getResolvedSymbol: () => undefined,
-        }) : semantics;
-      },
-    }),
-  });
-
-  assert.throws(
-    () => createClosedPointerFlowPlan(source),
-    /pointer operand .* lost its exact source reference/u,
-  );
 });
 
 function assertRepresentations(

@@ -20,7 +20,7 @@ import {
   IsTypeLiteralNode,
   IsTypeReferenceNode,
 } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import {
   checkedPointerFixture,
@@ -111,7 +111,7 @@ export class GenericKernel {
     undefined,
   );
   const semantics = source.semantics.forNode(kernelCall);
-  const call = semantics.getResolvedCallInfo(kernelCall);
+  const call = semantics.operations.call(kernelCall);
   assert.ok(call !== undefined);
   assert.equal(call.call, kernelCall);
   assert.equal(call.outcome, "applicable");
@@ -165,7 +165,7 @@ export class GenericKernel {
       true,
     );
   }
-  const signatureDeclaration = semantics.getSignatureDeclaration(
+  const signatureDeclaration = semantics.declarations.signatureDeclaration(
     call.selectedSignature,
   );
   const authoredReturnType = signatureDeclaration === undefined
@@ -271,7 +271,7 @@ export const values = [
   const { source } = fixture;
   const genericCall = uniqueExplicitGenericCall(source);
   const semantics = source.semantics.forNode(genericCall);
-  const call = semantics.getResolvedCallInfo(genericCall);
+  const call = semantics.operations.call(genericCall);
   assert.ok(call !== undefined);
   assert.equal(call.outcome, "applicable");
   assert.equal(call.sourceSelectedSignatureKind, "resolved");
@@ -312,7 +312,7 @@ export const values = [
     authoredTypeContainsVaryingPointer(source, genericCall, authoredParameter),
     true,
   );
-  const signatureDeclaration = semantics.getSignatureDeclaration(
+  const signatureDeclaration = semantics.declarations.signatureDeclaration(
     call.selectedSignature,
   );
   const authoredResult = signatureDeclaration === undefined
@@ -362,7 +362,7 @@ function uniqueExplicitGenericCall(source: TargetSourceProgram): Node {
       ) {
         return;
       }
-      const call = source.semantics.forNode(node).getResolvedCallInfo(node);
+      const call = source.semantics.forNode(node).operations.call(node);
       if (
         call?.sourceSelectedMethodTypeArguments?.some(
           (argument) => argument.explicitTypeNode !== undefined,
@@ -382,12 +382,12 @@ function authoredTypeContainsVaryingPointer(
   authoredType: Node,
 ): boolean {
   const semantics = source.semantics.forNode(anchor);
-  return semantics.getAuthoredTypeFactSubjects(authoredType).some((subject) => {
+  return semantics.facts.authoredTypeSubjects(authoredType).some((subject) => {
     const pointer = source.sourceFacts.getFact(subject, pointerFactKey);
     const pointee = pointer === undefined
       ? undefined
-      : semantics.getTypeFromTypeNode(pointer.pointee);
-    return pointee !== undefined && semantics.couldContainTypeVariables(pointee);
+      : semantics.types.authoredType(pointer.pointee);
+    return pointee !== undefined && semantics.types.couldContainTypeVariables(pointee);
   });
 }
 
@@ -406,12 +406,12 @@ function selectedPointerFamilyDeclarations(
       continue;
     }
     seen.add(current);
-    if (semantics.isUnion(current) || semantics.isIntersection(current)) {
-      pending.push(...semantics.getUnionOrIntersectionTypes(current));
+    if (semantics.types.isUnion(current) || semantics.types.isIntersection(current)) {
+      pending.push(...semantics.types.unionOrIntersectionTypes(current));
       continue;
     }
-    const typeArguments = semantics.getEffectiveTypeArguments(current);
-    const isPointer = semantics.getTypeFactSubjects(current).some((subject) => {
+    const typeArguments = semantics.types.effectiveTypeArguments(current);
+    const isPointer = semantics.facts.typeSubjects(current).some((subject) => {
       const marker = source.sourceFacts.getFact(subject, sourceMarkerFactKey);
       return marker?.kind === "type-marker" && marker.marker === "pointer";
     });
@@ -429,15 +429,15 @@ function selectedPointerFamilyDeclarations(
       pending.push(...typeArguments);
     }
     for (const signature of [
-      ...semantics.getCallSignatures(current),
-      ...semantics.getConstructSignatures(current),
+      ...semantics.types.callSignatures(current),
+      ...semantics.types.constructSignatures(current),
     ]) {
       if (signature === undefined) {
         continue;
       }
-      pending.push(semantics.getReturnTypeOfSignature(signature));
-      for (const parameter of semantics.getSignatureParameters(signature)) {
-        pending.push(semantics.getTypeOfSymbol(parameter));
+      pending.push(semantics.types.returnType(signature));
+      for (const parameter of semantics.declarations.signatureParameters(signature)) {
+        pending.push(semantics.types.typeOfSymbol(parameter));
       }
     }
   }
@@ -459,7 +459,7 @@ function collectConcretePointerTypes(
         return;
       }
       const semantics = source.semantics.forNode(node);
-      const pointee = semantics.getTypeFromTypeNode(pointer.pointee);
+      const pointee = semantics.types.authoredType(pointer.pointee);
       if (
         directReferenceDeclaration(source, node, pointee) === declaration
       ) {
@@ -479,9 +479,10 @@ function directReferenceDeclaration(
     return undefined;
   }
   const semantics = source.semantics.forNode(anchor);
-  const declaration = semantics.getPrimarySymbolDeclaration(
-    semantics.getTypeSymbol(type),
-  );
+  const symbol = semantics.declarations.typeSymbol(type);
+  const declaration = symbol === undefined
+    ? undefined
+    : semantics.declarations.primarySymbolDeclaration(symbol);
   return declaration !== undefined &&
       source.navigation.isProjectDeclaration(declaration) &&
       source.ast.is.IsClassDeclaration(declaration)

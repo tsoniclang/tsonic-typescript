@@ -15,7 +15,7 @@ import {
   IsNewExpression,
   IsPropertyAccessExpression,
 } from "@tsonic/tsts/target-ast";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 
 import {
   createFixtureScalarRepresentationPlan as createScalarRepresentationPlan,

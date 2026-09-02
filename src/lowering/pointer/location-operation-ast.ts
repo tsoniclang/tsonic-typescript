@@ -1,5 +1,5 @@
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   AsCallExpression,
   AsTypeReferenceNode,
@@ -18,6 +18,7 @@ import type { GeneratedBindingName } from "../generated-names.js";
 import { lowerAddressOf } from "./address.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type { PointerLoweringPlan } from "./plan.js";
+import { rootLocationConstruction } from "./root-location-ast.js";
 import {
   locationValue,
   runtimeCall,
@@ -70,15 +71,19 @@ export function lowerLocationPointerOperation(
   switch (operation.operation) {
     case "allocate":
       requireArity(operation.operation, arguments_, 1);
-      return runtimeCall(
+      if (plan.rootLocationClassName === undefined) {
+        throw new PointerLoweringError(
+          "location allocation has no collision-safe root class name",
+        );
+      }
+      return rootLocationConstruction(
         factory,
-        plan.runtimeAlias,
-        "location",
+        plan.rootLocationClassName,
         requireNodes(
           call.TypeArguments?.Nodes ?? [],
           `${operation.operation} type arguments`,
         ),
-        arguments_,
+        requiredElement(arguments_, 0),
       );
     case "load":
       requireArity(operation.operation, arguments_, 1);
@@ -134,7 +139,7 @@ export function lowerLocationPointerOperation(
           call.TypeArguments?.Nodes ?? [],
           `${operation.operation} type arguments`,
         ),
-        arguments_,
+        loweredProjectionArguments(arguments_, operation, plan, finalNodes),
       );
     case "address-of":
       requireArity(operation.operation, arguments_, 1);
@@ -147,6 +152,41 @@ export function lowerLocationPointerOperation(
         finalNodes,
       );
   }
+}
+
+export function loweredProjectionArguments(
+  arguments_: readonly Node[],
+  operation: Extract<PointerOperationFact, { readonly operation: "project-pointer" }>,
+  plan: PointerLoweringPlan,
+  finalNodes: FinalNodeLookup,
+): readonly Node[] {
+  const selected = plan.projectionCallables.targetsFor(operation.call);
+  if (selected === undefined) {
+    return arguments_;
+  }
+  return Object.freeze([
+    requiredElement(arguments_, 0),
+    selected.fromSource === undefined
+      ? requiredElement(arguments_, 1)
+      : requiredFinalNode(finalNodes, selected.fromSource, "from-source converter"),
+    selected.toSource === undefined
+      ? requiredElement(arguments_, 2)
+      : requiredFinalNode(finalNodes, selected.toSource, "to-source converter"),
+  ]);
+}
+
+function requiredFinalNode(
+  finalNodes: FinalNodeLookup,
+  original: Node,
+  subject: string,
+): Node {
+  const selected = finalNodes.forOriginal(original);
+  if (selected === undefined) {
+    throw new PointerLoweringError(
+      `pointer projection lost its exact ${subject}`,
+    );
+  }
+  return selected;
 }
 
 function explicitLocationType(

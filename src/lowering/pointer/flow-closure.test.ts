@@ -116,7 +116,6 @@ export const result = values.length;
 `);
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
-    memberDispatch: false,
   });
   const facts = buildPointerTypedFactLedger(
     fixture.source,
@@ -162,7 +161,6 @@ export const result = loadPointer(pointer);
 `);
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
-    memberDispatch: false,
   });
   const facts = buildPointerTypedFactLedger(
     fixture.source,
@@ -272,7 +270,7 @@ export const result = loadPointer(pointer!);
   ));
 });
 
-test("removes a disproved nil guard from a complete scalar call flow", () => {
+test("retains a nil guard while the authored pointer type remains nullable", () => {
   const fixture = checkedPointerFixture(`
 import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
@@ -289,6 +287,24 @@ export const result = read(pointer) + 1;
   for (const operation of pointerOperations(fixture.source)) {
     assert.equal(plan.representationFor(operation.call), "direct-snapshot");
   }
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "panic"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
+});
+
+test("removes a nil guard only from a checked nonnullable pointer operand", () => {
+  const fixture = checkedPointerFixture(`
+import type { Pointer } from "./markers.js";
+import { allocatePointer, loadPointer } from "./markers.js";
+function panic(): never { throw new Error("nil"); }
+function read(pointer: Pointer<number>): number {
+  return loadPointer(pointer ?? panic());
+}
+const pointer = allocatePointer(41);
+export const result = read(pointer) + 1;
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "panic"), 0);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
 });
@@ -333,7 +349,6 @@ export const result = read(pointer);
 `);
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
-    memberDispatch: false,
   });
   const plan = createFixturePointerFlowPlan(fixture.source);
   const expected = {
@@ -347,15 +362,23 @@ export const result = read(pointer);
     ]).length,
     "unowned-type": pointerTypeNodes(fixture.source).length,
     "callable-alias-declaration": program.nodesOfKind(KindVariableDeclaration).length,
-    "callable-alias-reference": program.nodesOfKind(KindIdentifier).length,
     "result-call": program.nodesOfKind(KindCallExpression).length,
     "variable-initializer": program.nodesOfKind(KindVariableDeclaration).length,
-    "pointer-reference": program.nodesOfKind(KindIdentifier).length,
     "pointer-call": program.nodesOfKind(KindCallExpression).length,
     "pointer-return": program.nodesOfKind(KindReturnStatement).length,
-    "pointer-audit-reference": program.nodesOfKind(KindIdentifier).length,
   } as const;
-  assert.deepEqual(plan.planningCandidates, expected);
+  const {
+    "pointer-reference": pointerReferences,
+    "pointer-audit-reference": auditedPointerReferences,
+    ...ordinaryCandidates
+  } = plan.planningCandidates;
+  assert.deepEqual(ordinaryCandidates, expected);
+  assert.equal(pointerReferences, auditedPointerReferences);
+  assert.ok((pointerReferences ?? 0) > 0);
+  assert.ok(
+    (pointerReferences ?? Number.MAX_SAFE_INTEGER) <
+      program.nodesOfKind(KindIdentifier).length,
+  );
 
   const omitted = new PointerPlanningLedger();
   for (const node of omitted.candidates(

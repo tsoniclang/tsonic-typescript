@@ -8,13 +8,17 @@ import {
 } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
-  type TargetArtifact,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/source";
 
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
-import { checkedSource, compileInput } from "./typescript-backend.test-support.js";
-import { createTypeScriptBackend } from "./typescript-backend.js";
+import {
+  checkedSource,
+  compiledArtifacts,
+  compileInput,
+  createTestTypeScriptCompiler,
+  projectDependencies,
+} from "./typescript-backend.test-support.js";
 
 const runtimeReference = typeScriptRuntimeReference();
 
@@ -32,7 +36,7 @@ test("lowers and prints every checked source file in one batch", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTestTypeScriptCompiler(printer).compile(
     compileInput(source),
   );
 
@@ -41,7 +45,7 @@ test("lowers and prints every checked source file in one batch", () => {
   assert.equal(batches[0]?.length, 2);
   assert.ok(batches[0]?.every((encoded) => encoded.byteLength > 0));
   assert.deepEqual(
-    result.artifacts.map((artifact) => [artifact.kind, artifact.path]),
+    compiledArtifacts(result).map((artifact) => [artifact.kind, artifact.path]),
     [
       ["project", "package.json"],
       ["asset", "tsonic-typescript-optimization.json"],
@@ -50,10 +54,10 @@ test("lowers and prints every checked source file in one batch", () => {
     ],
   );
   assert.deepEqual(
-    result.artifacts.filter((artifact) => artifact.kind === "source").map((artifact) => artifact.text),
+    compiledArtifacts(result).filter((artifact) => artifact.kind === "source").map((artifact) => artifact.text),
     ["// printed 0\n", "// printed 1\n"],
   );
-  assert.deepEqual(projectDependencies(result.artifacts), {});
+  assert.deepEqual(projectDependencies(compiledArtifacts(result)), {});
 });
 
 test("orders source artifacts by locale-independent UTF-16 code units", () => {
@@ -68,13 +72,13 @@ test("orders source artifacts by locale-independent UTF-16 code units", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTestTypeScriptCompiler(printer).compile(
     compileInput(source),
   );
 
   assert.deepEqual(result.diagnostics, []);
   assert.deepEqual(
-    result.artifacts.map((artifact) => artifact.path),
+    compiledArtifacts(result).map((artifact) => artifact.path),
     ["package.json", "tsonic-typescript-optimization.json", "z.ts", "ä.ts"],
   );
 });
@@ -87,46 +91,63 @@ test("emits deterministic immutable optimization evidence", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "closed-direct",
     scalarProjections: "closed-direct",
-    cooperativeEffects: "closed-direct",
+    representationProjections: "preserve",
   }).compile(compileInput(source));
 
   assert.deepEqual(result.diagnostics, []);
-  const artifact = result.artifacts.find((candidate) =>
+  const artifact = compiledArtifacts(result).find((candidate) =>
     candidate.path === "tsonic-typescript-optimization.json"
   );
   assert.ok(artifact !== undefined);
   assert.equal(artifact.kind, "asset");
   assert.deepEqual(JSON.parse(artifact.text), {
-    schemaVersion: 20,
+    schemaVersion: 31,
+    sourceExecution: "unrestricted",
     profileIdentity:
-      "typescript-optimization-v3/pointer=closed-direct/scalar=closed-direct/representations=preserve/effects=closed-direct/interfaces=open-structural",
+      "typescript-optimization-v5/pointer=closed-direct/scalar=closed-direct/representations=preserve",
     sourceMembership: ["index.ts", "markers.ts"],
     programIndex: {
       nodeVisits: 82,
       childEdges: 80,
       kindEntries: 82,
       identifierEntries: 29,
-      referenceCandidates: 29,
-      projectReferences: 15,
+      sourceReferenceIndex: source.navigation.referenceIndexStatistics,
       bindingCandidates: 0,
       bindingWrites: 0,
-      heritageEdges: 0,
-      dispatchMembers: 0,
+    },
+    sourcePrimitives: {
+      typeReferenceCount: 0,
+      removableImportBindingCount: 0,
     },
     pointer: {
       profile: "closed-direct",
       analyzed: true,
+      dominatingNilChecks: { profile: "closed-direct", analyzed: true,
+        candidateGuardCount: 0, optimizedBindingCount: 0, optimizedGuardCount: 0,
+        eliminatedGuardCount: 0, retainedGuardCount: 0, fallbackReasons: [],
+      },
       componentCount: 1,
       optimizedComponentCount: 1,
       optimizedFamilyCount: 0,
+      retainedFamilyCount: 0,
+      retainedFamilyHotspots: [],
+      directObjectReplacementCount: 0,
       optimizedProjectionReadCount: 0,
       optimizedProjectionStoreCount: 0,
+      optimizedProjectedPropertyLocationCount: 0,
+      optimizedPointerKeyMapCount: 0,
       representations: [{ value: "direct-snapshot", count: 1 }],
       fallbackReasons: [],
       familyFallbackReasons: [],
+      projectionCallables: {
+        candidateCount: 0,
+        optimizedCount: 0,
+        retainedCount: 0,
+        fallbackReasons: [],
+      },
     },
     scalar: {
       profile: "closed-direct",
@@ -158,93 +179,13 @@ test("emits deterministic immutable optimization evidence", () => {
         fallbackReasons: [],
       },
     },
-    cooperativeEffects: {
-      profile: "closed-direct",
-      analyzed: true,
-      candidateCount: 0,
-      settledCallableCount: 0,
-      retainedCallableCount: 0,
-      settledAwaitCount: 0,
-      awaitAttribution: {
-        totalAwaitCount: 0,
-        settledAwaitCount: 0,
-        retainedAwaitCount: 0,
-        outsideCandidateAwaitCount: 0,
-        retainedReasons: [],
-        retentionEdges: [],
-        retainedOwners: [],
-        outsideCandidateExamples: [],
-      },
-      fallbackReasons: [],
-      propagation: {
-        vertexCount: 0,
-        edgeCount: 0,
-        componentCount: 0,
-        workCount: 0,
-      },
-      resultConsumption: {
-        callEntries: 2,
-        referenceEntries: 29,
-        ownerEvaluations: 0,
-        consumerEdges: 1,
-      },
-      interfaceDispatch: {
-        profile: "open-structural",
-        analyzed: false,
-      },
+    representationTransports: {
+      digest:
+        "e0b8c30fa1ab2fb9d676b79532fb204339a6666ecb3f546a49d4c57a577fa909",
+      contractCount: 0,
+      selectedCallCount: 0,
     },
   });
-});
-
-test("reports fallback examples with stable target-relative source identities", () => {
-  const sourceText = `declare function remote(): Promise<number>;
-export async function value(): Promise<number> { return await remote(); }
-`;
-  const source = checkedSource({
-    "/project/index.ts": sourceText,
-  });
-  const printer: TypeScriptAstPrinter = {
-    print(batch) {
-      return batch.encodedSourceFiles.map(() => "// printed\n");
-    },
-  };
-
-  const result = createTypeScriptBackend(printer, {
-    pointerFlows: "location",
-    scalarProjections: "preserve",
-    cooperativeEffects: "closed-direct",
-  }).compile(compileInput(source));
-
-  assert.deepEqual(result.diagnostics, []);
-  const artifact = result.artifacts.find((candidate) =>
-    candidate.path === "tsonic-typescript-optimization.json"
-  );
-  assert.ok(artifact !== undefined);
-  const evidence = JSON.parse(artifact.text) as {
-    cooperativeEffects?: {
-      fallbackReasons?: Array<{
-        reason?: string;
-        directExamples?: Array<{
-          documentIdentity?: string;
-          start?: number;
-          syntaxKind?: string;
-        }>;
-      }>;
-    };
-  };
-  const identity = evidence.cooperativeEffects
-    ?.fallbackReasons?.[0]
-    ?.directExamples?.[0]
-    ?.documentIdentity;
-  assert.equal(identity, "index.ts");
-  const unresolved = evidence.cooperativeEffects?.fallbackReasons?.find(
-    (reason) => reason.reason === "unresolved-call",
-  );
-  assert.ok(unresolved?.directExamples?.some((example) =>
-    example.start === sourceText.lastIndexOf("remote()") &&
-    example.syntaxKind === "KindCallExpression"
-  ));
-  assert.doesNotMatch(artifact.text, /\/project|\.temp/u);
 });
 
 test("reports exact pointer fallback examples without machine-local paths", () => {
@@ -260,14 +201,14 @@ export const value = loadPointer(pointer);
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "closed-direct",
     scalarProjections: "preserve",
-    cooperativeEffects: "preserve",
+    representationProjections: "preserve",
   }).compile(compileInput(source, [runtimeReference]));
 
   assert.deepEqual(result.diagnostics, []);
-  const artifact = result.artifacts.find((candidate) =>
+  const artifact = compiledArtifacts(result).find((candidate) =>
     candidate.path === "tsonic-typescript-optimization.json"
   );
   assert.ok(artifact !== undefined);
@@ -320,14 +261,14 @@ export const same = equalPointer(left, right);
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "closed-direct",
     scalarProjections: "preserve",
-    cooperativeEffects: "preserve",
+    representationProjections: "preserve",
   }).compile(compileInput(source, [runtimeReference]));
 
   assert.deepEqual(result.diagnostics, []);
-  const artifact = result.artifacts.find((candidate) =>
+  const artifact = compiledArtifacts(result).find((candidate) =>
     candidate.path === "tsonic-typescript-optimization.json"
   );
   assert.ok(artifact !== undefined);
@@ -342,12 +283,36 @@ export const same = equalPointer(left, right);
           syntaxKind?: string;
         }>;
       }>;
+      retainedFamilyCount?: number;
+      retainedFamilyHotspots?: Array<{
+        identity?: { documentIdentity?: string; syntaxKind?: string };
+        pointerTypeCount?: number;
+        operationCount?: number;
+        reasons?: Array<{
+          reason?: string;
+          occurrenceCount?: number;
+          examples?: unknown[];
+        }>;
+      }>;
     };
   };
   const identity = evidence.pointer?.familyFallbackReasons?.find((reason) =>
     reason.reason === "non-bijective-identity"
   );
   assert.equal(identity?.count, 1);
+  assert.equal(evidence.pointer?.retainedFamilyCount, 1);
+  const hotspot = evidence.pointer?.retainedFamilyHotspots?.[0];
+  assert.equal(hotspot?.identity?.documentIdentity, "index.ts");
+  assert.equal(hotspot?.identity?.syntaxKind, "KindClassDeclaration");
+  assert.equal(hotspot?.pointerTypeCount, 2);
+  assert.equal(hotspot?.operationCount, 3);
+  assert.deepEqual(
+    hotspot?.reasons?.map(({ reason, occurrenceCount }) => ({
+      reason,
+      occurrenceCount,
+    })),
+    [{ reason: "non-bijective-identity", occurrenceCount: 2 }],
+  );
   const firstAllocation = sourceText.indexOf("allocatePointer(box)");
   assert.ok(identity?.examples?.some((example) =>
     example.documentIdentity === "index.ts" &&
@@ -358,7 +323,7 @@ export const same = equalPointer(left, right);
 });
 
 test("declares the exact runtime package only when pointer lowering demands it", () => {
-  const source = checkedPointerSource();
+  const source = checkedRuntimePointerSource();
   const printer: TypeScriptAstPrinter = {
     print(batch) {
       const files = batch.encodedSourceFiles;
@@ -366,12 +331,12 @@ test("declares the exact runtime package only when pointer lowering demands it",
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTestTypeScriptCompiler(printer).compile(
     compileInput(source, [runtimeReference]),
   );
 
   assert.deepEqual(result.diagnostics, []);
-  assert.deepEqual(projectDependencies(result.artifacts), {
+  assert.deepEqual(projectDependencies(compiledArtifacts(result)), {
     "@tsonic/typescript-runtime": "0.0.1",
   });
 });
@@ -384,18 +349,18 @@ test("omits the pointer runtime after an exact closed-flow contraction", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "closed-direct",
     scalarProjections: "preserve",
-    cooperativeEffects: "preserve",
+    representationProjections: "preserve",
   }).compile(compileInput(source));
 
   assert.deepEqual(result.diagnostics, []);
-  assert.deepEqual(projectDependencies(result.artifacts), {});
+  assert.deepEqual(projectDependencies(compiledArtifacts(result)), {});
 });
 
 test("rejects pointer lowering when the target runtime reference is absent or mismatched", () => {
-  const source = checkedPointerSource();
+  const source = checkedRuntimePointerSource();
   const printer: TypeScriptAstPrinter = {
     print(batch) {
       const files = batch.encodedSourceFiles;
@@ -407,11 +372,11 @@ test("rejects pointer lowering when the target runtime reference is absent or mi
     [],
     [{ ...runtimeReference, version: `${runtimeReference.version}-wrong` }],
   ]) {
-    const result = createTypeScriptBackend(printer).compile(
+    const result = createTestTypeScriptCompiler(printer).compile(
       compileInput(source, references),
     );
 
-    assert.deepEqual(result.artifacts, []);
+    assert.equal(result.kind, "rejected");
     assert.match(
       result.diagnostics[0]?.message ?? "",
       /TypeScript lowering requires npm-package reference '@tsonic\/typescript-runtime@0\.0\.1'/,
@@ -429,11 +394,11 @@ test("fails the compilation when the printer omits a source file", () => {
     },
   };
 
-  const result = createTypeScriptBackend(printer).compile(
+  const result = createTestTypeScriptCompiler(printer).compile(
     compileInput(source),
   );
 
-  assert.deepEqual(result.artifacts, []);
+  assert.equal(result.kind, "rejected");
   assert.equal(result.diagnostics.length, 1);
   assert.match(
     result.diagnostics[0]?.message ?? "",
@@ -451,16 +416,16 @@ test("prepares every source and reports independent lowering failures before inv
     },
   };
 
-  const result = createTypeScriptBackend(printer, {
+  const result = createTestTypeScriptCompiler(printer, {
     pointerFlows: "location",
     scalarProjections: "preserve",
-    cooperativeEffects: "closed-direct",
+    representationProjections: "preserve",
   }).compile(
     compileInput(source),
   );
 
   assert.equal(printCalls, 0);
-  assert.deepEqual(result.artifacts, []);
+  assert.equal(result.kind, "rejected");
   assert.deepEqual(
     result.diagnostics.map((diagnostic) => diagnostic.message),
     [
@@ -469,6 +434,41 @@ test("prepares every source and reports independent lowering failures before inv
       "/project/c.ts: address-of does not support private field storage",
     ],
   );
+});
+
+test("rejects authored suspension before invoking the printer", () => {
+  const source = checkedSource({
+    "/project/a.ts": `export async function value(): Promise<number> {
+  return await Promise.resolve(1);
+}
+`,
+  });
+  let printCalls = 0;
+  const printer: TypeScriptAstPrinter = {
+    print() {
+      printCalls += 1;
+      return [];
+    },
+  };
+
+  const result = createTestTypeScriptCompiler(
+    printer,
+    undefined,
+    "synchronous",
+  ).compile(compileInput(source));
+
+  assert.equal(result.kind, "rejected");
+  assert.equal(printCalls, 0);
+  assert.ok(result.diagnostics.some((diagnostic) =>
+    diagnostic.message.includes(
+      "synchronous source contract rejects KindFunctionDeclaration",
+    )
+  ));
+  assert.ok(result.diagnostics.some((diagnostic) =>
+    diagnostic.message.includes(
+      "synchronous source contract rejects KindAwaitExpression",
+    )
+  ));
 });
 
 function checkedPointerSource(
@@ -512,6 +512,14 @@ export declare function equalPointer<T>(left: Pointer<T> | undefined, right: Poi
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
   return createTargetSourceProgram(checked);
+}
+
+function checkedRuntimePointerSource() {
+  return checkedPointerSource(`import { allocatePointer, equalPointer } from "./markers.js";
+const left = allocatePointer(1);
+const right = allocatePointer(2);
+export const value = equalPointer(left, right);
+`);
 }
 
 function checkedRejectedPointerSources() {
@@ -571,27 +579,4 @@ export declare function loadPointer<T>(pointer: Pointer<T>): T;
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
   return createTargetSourceProgram(checked);
-}
-
-function projectDependencies(
-  artifacts: readonly TargetArtifact[],
-): Readonly<Record<string, string>> {
-  const project = artifacts.find((artifact) => artifact.path === "package.json");
-  assert.ok(project !== undefined);
-  const document: unknown = JSON.parse(project.text);
-  assert.ok(isRecord(document));
-  const dependencies = document["dependencies"];
-  assert.ok(isRecord(dependencies));
-  const result: Record<string, string> = {};
-  for (const [name, version] of Object.entries(dependencies)) {
-    assert.equal(typeof version, "string");
-    if (typeof version === "string") {
-      result[name] = version;
-    }
-  }
-  return result;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

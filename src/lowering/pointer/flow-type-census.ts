@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { KindTypeReference } from "@tsonic/tsts/target-ast";
 
 import type { TargetProgramIndex } from "../program-index.js";
@@ -48,7 +48,7 @@ export function collectPointerBindings(
       planning,
     );
     const pointeeType = source.semantics.forNode(node)
-      .getTypeFromTypeNode(fact.pointee);
+      .types.authoredType(fact.pointee);
     if (pointeeType === undefined) {
       graph.block(vertex, "unsupported-pointee", fact.pointee);
     } else {
@@ -97,7 +97,7 @@ export function retainUnownedPointerTypes(
     vertex.pointerTypes.add(node);
     classifiedPointerTypes.add(node);
     const pointeeType = source.semantics.forNode(node)
-      .getTypeFromTypeNode(fact.pointee);
+      .types.authoredType(fact.pointee);
     if (pointeeType === undefined) {
       graph.block(vertex, "unsupported-pointee", fact.pointee);
     } else {
@@ -185,21 +185,21 @@ function pointerTypeOwnsDeclaration(
     return false;
   }
   const semantics = source.semantics.forNode(declaredTypeNode);
-  const declaredType = semantics.getTypeFromTypeNode(declaredTypeNode);
-  const pointerType = semantics.getTypeFromTypeNode(pointerTypeNode);
+  const declaredType = semantics.types.authoredType(declaredTypeNode);
+  const pointerType = semantics.types.authoredType(pointerTypeNode);
   if (
     declaredType === undefined ||
     pointerType === undefined ||
-    !semantics.isUnion(declaredType)
+    !semantics.types.isUnion(declaredType)
   ) {
     return false;
   }
-  const nonNullish = semantics.getUnionOrIntersectionTypes(declaredType)
-    .filter((candidate) => !semantics.isNullish(candidate));
+  const nonNullish = semantics.types.unionOrIntersectionTypes(declaredType)
+    .filter((candidate) => !semantics.types.isNullish(candidate));
   const nonNullishType = nonNullish[0];
   return nonNullish.length === 1 &&
     nonNullishType !== undefined &&
-    semantics.getTypeRelationship(nonNullishType, pointerType) === "identical";
+    semantics.types.relationship(nonNullishType, pointerType) === "identical";
 }
 
 function collectUnique(
