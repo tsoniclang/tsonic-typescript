@@ -84,6 +84,25 @@ export function compiledArtifacts(
   return result.value.artifacts;
 }
 
+export function projectDependencies(
+  artifacts: readonly TargetArtifact[],
+): Readonly<Record<string, string>> {
+  const project = artifacts.find((artifact) => artifact.path === "package.json");
+  assert.ok(project !== undefined);
+  const document: unknown = JSON.parse(project.text);
+  assert.ok(isRecord(document));
+  const dependencies = document["dependencies"];
+  assert.ok(isRecord(dependencies));
+  const result: Record<string, string> = {};
+  for (const [name, version] of Object.entries(dependencies)) {
+    assert.equal(typeof version, "string");
+    if (typeof version === "string") {
+      result[name] = version;
+    }
+  }
+  return result;
+}
+
 function testSourcePackages(
   source: ReturnType<typeof checkedSource>,
 ): TargetSourcePackageGraph {
@@ -111,4 +130,8 @@ function testSourcePackages(
       dependencies: Object.freeze([]),
     })]),
   });
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -9,7 +9,6 @@ import {
 import {
   createTargetSourceProgram,
 } from "@tsonic/target-api/source";
-import type { TargetArtifact } from "@tsonic/target-api/artifacts";
 
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
 import { typeScriptRuntimeReference } from "../runtime/package-contract.js";
@@ -18,6 +17,7 @@ import {
   compiledArtifacts,
   compileInput,
   createTestTypeScriptCompiler,
+  projectDependencies,
 } from "./typescript-backend.test-support.js";
 
 const runtimeReference = typeScriptRuntimeReference();
@@ -579,26 +579,4 @@ export declare function loadPointer<T>(pointer: Pointer<T>): T;
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
   return createTargetSourceProgram(checked);
-}
-
-function projectDependencies(
-  artifacts: readonly TargetArtifact[],
-): Readonly<Record<string, string>> {
-  const project = artifacts.find((artifact) => artifact.path === "package.json");
-  assert.ok(project !== undefined);
-  const document: unknown = JSON.parse(project.text);
-  assert.ok(isRecord(document));
-  const dependencies = document["dependencies"];
-  assert.ok(isRecord(dependencies));
-  const result: Record<string, string> = {};
-  for (const [name, version] of Object.entries(dependencies)) {
-    assert.equal(typeof version, "string");
-    if (typeof version === "string") {
-      result[name] = version;
-    }
-  }
-  return result;
-}
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
