@@ -56,6 +56,7 @@ export function compileInput(
     paths: {
       projectFilePath: "/project/tsonic.json",
       projectRoot: "/project",
+      cacheRoot: "/project/.temp/cache",
       outputRoot: "/project/out",
       targetOutputRoot: "/project/out/typescript",
     },

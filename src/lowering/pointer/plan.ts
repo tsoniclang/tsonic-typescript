@@ -20,7 +20,7 @@ import type {
 import { validateAddressableStorage } from "./addressability.js";
 import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
-import { validatePointerOperationFact } from "./operation-contract.js";
+import { requireCallTarget, validatePointerOperationFact } from "./operation-contract.js";
 import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 import {
   planPointerInferenceStabilizations,
@@ -39,6 +39,7 @@ import {
 } from "./reference-hash.js";
 import { planRootLocationClass } from "./root-location-plan.js";
 import { validatePointerFact } from "./type-contract.js";
+import { createMemoryLoweringPlan, type MemoryLoweringPlan } from "./memory/plan.js";
 
 export interface LocalLocationBinding {
   readonly kind: "variable";
@@ -62,6 +63,7 @@ export interface ParameterLocationBinding {
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
 
 export interface PointerLoweringPlan {
+  readonly memory: MemoryLoweringPlan;
   readonly sourceFile: SourceFile;
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
   readonly pointerTypes: ReadonlySet<Node>;
@@ -128,6 +130,7 @@ export function createPointerLoweringPlan(
     );
   }
   const nodes = program.nodesFor(sourceFile);
+  const memory = createMemoryLoweringPlan(source, sourceFile, nodes);
   const operations = new Map<Node, PointerOperationFact>();
   const pointerTypes = new Set<Node>();
   const rawPointerOperations = new Map<Node, RawPointerOperationFact>();
@@ -139,7 +142,7 @@ export function createPointerLoweringPlan(
     Node,
     ProjectedPropertyLocationFusion
   >();
-  let usesRuntimeValue = false;
+  let usesRuntimeValue = [...memory.rewrites.values()].some((rewrite) => rewrite.kind === "layout" || rewrite.kind === "raw");
 
   for (const node of nodes) {
     const directObjectReplacement = flowPlan?.directObjectReplacementFor(node);
@@ -187,6 +190,9 @@ export function createPointerLoweringPlan(
       rawPointerOperationFactKey,
     );
     if (rawPointerOperation !== undefined) {
+      if (rawPointerOperation.operation === "bind-raw-pointer") {
+        throw new PointerLoweringError("retired object-only raw-pointer binding has no address/layout contract");
+      }
       if (
         rawPointerOperation.call !== node ||
         rawPointerOperations.has(node) ||
@@ -328,6 +334,7 @@ export function createPointerLoweringPlan(
     flowPlan,
   );
   return Object.freeze({
+    memory,
     sourceFile,
     operations,
     pointerTypes,
@@ -337,7 +344,7 @@ export function createPointerLoweringPlan(
     localBindingsByStatement,
     prologueBindingsByBody,
     addressBindings,
-    removableMarkerDeclarations: markerUsage.removableDeclarations,
+    removableMarkerDeclarations: new Set([...markerUsage.removableDeclarations, ...memory.removableDeclarations]),
     flowPlan,
     projectionCallables,
     runtimeAlias,
@@ -349,16 +356,6 @@ export function createPointerLoweringPlan(
     rootLocationClassName,
     usesRuntimeValue,
   });
-}
-
-function requireCallTarget(source: TargetSourceProgram, node: Node): Node {
-  const call = source.ast.as.AsCallExpression(node);
-  if (call === undefined || call.Expression === undefined) {
-    throw new PointerLoweringError(
-      "pointer operation fact is not attached to a call expression",
-    );
-  }
-  return call.Expression;
 }
 
 function collectAddressBinding(

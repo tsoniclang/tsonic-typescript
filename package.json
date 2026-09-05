@@ -33,14 +33,16 @@
     "@tsonic/typescript-runtime": "0.0.1"
   },
   "peerDependencies": {
-    "@tsonic/target-api": "0.0.1",
-    "@tsonic/tsts": "0.0.0"
+    "@tsonic/source-core": "0.1.1",
+    "@tsonic/target-api": "0.1.1",
+    "@tsonic/tsts": "0.1.1"
   },
   "devDependencies": {
+    "@tsonic/source-core": "file:../tsonic/packages/source-core",
     "@types/node": "25.9.1",
     "@tsonic/host": "file:../tsonic/packages/host",
     "@tsonic/target-api": "file:../tsonic/packages/target-api",
-    "@tsonic/tsts": "file:../tsts-legacy/packages/tsts",
+    "@tsonic/tsts": "file:../tsonic/packages/tsts",
     "@tsonic/typescript-runtime": "file:../typescript-runtime",
     "typescript": "5.9.3"
   },

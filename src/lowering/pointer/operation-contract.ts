@@ -10,6 +10,14 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { PointerLoweringError } from "./diagnostic.js";
 import { exactPointerSelections } from "./marker-usage.js";
 
+export function requireCallTarget(source: TargetSourceProgram, node: Node): Node {
+  const call = source.ast.as.AsCallExpression(node);
+  if (call === undefined || call.Expression === undefined) {
+    throw new PointerLoweringError("pointer operation fact is not attached to a call expression");
+  }
+  return call.Expression;
+}
+
 export function validatePointerOperationFact(
   source: TargetSourceProgram,
   operation: PointerOperationFact,

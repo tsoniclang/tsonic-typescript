@@ -24,6 +24,7 @@ test("owns one exact TypeScript compilation session", () => {
     paths: {
       projectFilePath: "/project/tsonic.json",
       projectRoot: "/project",
+      cacheRoot: "/project/.temp/cache",
       outputRoot: "/project/out",
       targetOutputRoot: "/project/out/typescript",
     },

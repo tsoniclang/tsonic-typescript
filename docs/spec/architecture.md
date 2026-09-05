@@ -2,6 +2,28 @@
 
 ## Boundary
 
+### Layout-Backed Pointers
+
+Raw-memory and layout semantics come from the public finalized source-core
+facts, not from marker names or Go source. The target exact-joins each fact to
+its call, type, selected field, and registered source ABI before printing.
+The retired object-only raw binding is rejected, never adapted.
+
+`toRawPointer(addressOf(count), layout)` retains writable storage. A matching
+`reinterpretRawPointer(raw, layout)` produces a view whose writes update that
+same storage. Byte offsets preserve exact integer values, byte order, bounds,
+and alignment. The one TypeScript runtime owns these locations and their
+equality/hash identity; the emitter does not create another pointer runtime.
+
+Managed memory is not physical native address emulation. Physical
+pointer/integer conversions and layouts lacking an exact executable
+representation fail before publication. Scalar codec support does not imply
+support for aggregate padding, floating NaN payloads, or arbitrary object
+projection. Pointer flow optimization must retain any component whose raw
+storage observation has not been proved equivalent. All selected layout,
+ABI-token, and memory-operation uses have an explicit lowering or diagnostic;
+dropping an import is never sufficient semantic consumption.
+
 TSTS owns source parsing, checking, exact nodes, marker selection, and
 finalized semantic facts. The TypeScript target consumes those identities and
 transforms the same TS-Go-contract AST. It does not parse source again, join by
