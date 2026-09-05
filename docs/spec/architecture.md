@@ -24,6 +24,14 @@ storage observation has not been proved equivalent. All selected layout,
 ABI-token, and memory-operation uses have an explicit lowering or diagnostic;
 dropping an import is never sufficient semantic consumption.
 
+Scalar width selects the codec, not the alignment or stride. Those dimensions
+come independently from the finalized source layout. For example,
+`memoryLayout<uint64>(abi32, 8, 4, 8)` lowers to an eight-byte codec with
+four-byte alignment, not a target-host eight-byte alignment. Runtime factory
+calls receive byte order, alignment, and stride explicitly; no default or
+host-ABI inference is allowed. The declared pointee extent is not evidence of
+a containing array or struct allocation.
+
 TSTS owns source parsing, checking, exact nodes, marker selection, and
 finalized semantic facts. The TypeScript target consumes those identities and
 transforms the same TS-Go-contract AST. It does not parse source again, join by

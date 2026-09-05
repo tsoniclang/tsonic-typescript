@@ -3,6 +3,7 @@ import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatD
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { createTsonicCoreSourceExtension, tsonicCoreSourceSemanticsModules } from "@tsonic/source-core";
 import { createSourceSemanticsVirtualModuleProvider } from "@tsonic/source-core/extension";
+import type { TsonicDataLayoutDescriptor } from "@tsonic/target-api/provider";
 import { canonicalTypeScriptOptimizationProfile } from "../../profile.js";
 import { prepareTypeScriptLowering } from "../../transform.js";
 
@@ -14,7 +15,7 @@ import { memoryLayout, addressOf, allocatePointer, toRawPointer, reinterpretRawP
   keepAlive, rawPointerToAddressInteger, addressIntegerToRawPointer } from "@tsonic/core/lang.js";
 `;
 
-export function memoryFixture(text: string) {
+export function memoryFixture(text: string, abi: Pick<TsonicDataLayoutDescriptor, "byteOrder" | "addressWidth"> = { byteOrder: "little", addressWidth: 64 }) {
   const provider = createSourceSemanticsVirtualModuleProvider({
     id: "test.memory", version: "1", displayName: "Test memory ABI", virtualDirectory: "test-memory",
     modules: [{ moduleSpecifier: "test:memory", exports: [] }], evidenceMessage: "Explicit test ABI",
@@ -29,7 +30,7 @@ export function memoryFixture(text: string) {
       createSourceSemanticsExtension({ modules: tsonicCoreSourceSemanticsModules() }),
       createTsonicCoreSourceExtension({ dataLayouts: [{
         providerDeclaration: { providerId: "test.memory", providerVersion: "1", providerModuleId: "test:memory", moduleSpecifier: "test:memory", exportId: "abi" },
-        descriptor: { fingerprint: "test-le64", byteOrder: "little", addressWidth: 64 },
+        descriptor: { fingerprint: `test-${abi.byteOrder}-${abi.addressWidth}`, ...abi },
       }] }),
       { identity: { id: "test.memory", version: "1" }, initialize(context) { context.registerSourceDeclarationProvider(provider); } },
     ] },

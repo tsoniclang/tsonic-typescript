@@ -25,6 +25,8 @@ export function rewriteMemoryNode(factory: NodeFactory, selected: MemoryRewrite,
   if (selected.kind === "layout") {
     return runtimeCall(factory, runtimeAlias, selected.layout.runtimeFactory, [], [
       requiredRuntimeNode(NewStringLiteral(factory, selected.layout.fact.dataLayout.byteOrder, 0), "selected byte order"),
+      requiredRuntimeNode(NewNumericLiteral(factory, String(selected.layout.fact.byteAlignment), 0), "selected byte alignment"),
+      requiredRuntimeNode(NewNumericLiteral(factory, String(selected.layout.fact.stride), 0), "selected byte stride"),
     ]);
   }
   if (selected.kind === "query") return requiredRuntimeNode(NewNumericLiteral(factory, String(selected.value), 0), "exact layout query");

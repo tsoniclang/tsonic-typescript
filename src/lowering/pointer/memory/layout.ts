@@ -29,7 +29,7 @@ export function scalarMemoryLayout(source: TargetSourceProgram, fact: TsonicMemo
   if (selected === undefined || fact.fields.length !== 0 ||
     !(primitive.runtimeBase === "number" ? semantics.types.isNumberLike(fact.sourceType) : semantics.types.isBigIntLike(fact.sourceType)) ||
     primitive.width !== selected.bytes * 8 ||
-    fact.byteSize !== selected.bytes || fact.byteAlignment !== selected.bytes || fact.stride !== selected.bytes) {
+    fact.byteSize !== selected.bytes) {
     throw new PointerLoweringError("memory layout does not match an exact supported integer storage codec");
   }
   return Object.freeze({ fact, runtimeFactory: selected.factory });
