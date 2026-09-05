@@ -1,7 +1,20 @@
 import type { Node, ProviderVirtualDeclarationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import type { TsonicRawMemoryOperationFact } from "@tsonic/source-core/facts";
+import type { TsonicRawMemoryOperationFact, TsonicKeepAliveFact } from "@tsonic/source-core/facts";
 import { PointerLoweringError } from "../diagnostic.js";
+
+export function validateKeepAliveCall(source: TargetSourceProgram, selected: ProviderVirtualDeclarationFact, fact: TsonicKeepAliveFact): void {
+  const args = source.ast.arguments(fact.call);
+  const semantics = source.semantics.forNode(fact.call);
+  const call = semantics.operations.call(fact.call);
+  const operand = call?.sourceArguments[0];
+  if (selected.exportId !== "keepAlive" || args.length !== 1 || args[0] !== fact.valueExpression ||
+      call === undefined || operand === undefined || operand.expression !== fact.valueExpression ||
+      !semantics.types.isIdentical(operand.type, fact.valueType) ||
+      !semantics.types.isIdentical(call.sourceResultType, fact.resultType)) {
+    throw new PointerLoweringError("lifetime fact disagrees with its selected declaration, operand or result");
+  }
+}
 
 export function validateRawMemoryCall(source: TargetSourceProgram, selected: ProviderVirtualDeclarationFact, fact: TsonicRawMemoryOperationFact): void {
   const args = source.ast.arguments(fact.call);

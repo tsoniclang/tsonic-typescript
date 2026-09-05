@@ -32,6 +32,14 @@ calls receive byte order, alignment, and stride explicitly; no default or
 host-ABI inference is allowed. The declared pointee extent is not evidence of
 a containing array or struct allocation.
 
+An exact shared `keepAlive(value)` fact lowers to the runtime's lexical
+managed-reachability barrier, with the operand evaluated once at the same
+position. The call, operand, argument type, and result exact-join finalized
+selection evidence. A discarded read (`void value`) is not a lifetime proof.
+The selected Node representation uses ECMAScript's current-job kept-object
+rule; it is neither native pinning nor permission for foreign asynchronous
+use after that job. No generic marker erasure may drop this obligation.
+
 TSTS owns source parsing, checking, exact nodes, marker selection, and
 finalized semantic facts. The TypeScript target consumes those identities and
 transforms the same TS-Go-contract AST. It does not parse source again, join by

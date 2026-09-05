@@ -32,7 +32,7 @@ export function rewriteMemoryNode(factory: NodeFactory, selected: MemoryRewrite,
   if (selected.kind === "query") return requiredRuntimeNode(NewNumericLiteral(factory, String(selected.value), 0), "exact layout query");
   const first = args[0];
   if (first === undefined) throw new PointerLoweringError("memory operation lost its first operand");
-  if (selected.kind === "keep-alive") return requiredRuntimeNode(NewVoidExpression(factory, first), "managed storage lifetime barrier");
+  if (selected.kind === "keep-alive") return runtimeCall(factory, runtimeAlias, "keepAlive", [], [first]);
   const second = args[1];
   if (second === undefined) throw new PointerLoweringError("memory operation lost its second operand");
   switch (selected.fact.operation) {

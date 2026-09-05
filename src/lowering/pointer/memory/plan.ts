@@ -9,7 +9,7 @@ import { PointerLoweringError } from "../diagnostic.js";
 import { memoryProviderDeclaration } from "./identity.js";
 import { scalarMemoryLayout } from "./layout.js";
 import type { ScalarMemoryLayout } from "./layout.js";
-import { validateRawMemoryCall } from "./operation-contract.js";
+import { validateRawMemoryCall, validateKeepAliveCall } from "./operation-contract.js";
 import { planABIOperandUses } from "./abi-uses.js";
 
 export type MemoryRewrite =
@@ -88,6 +88,7 @@ export function createMemoryLoweringPlan(
       }
       rewrites.set(node, { kind: "query", value });
     } else if (keepAlive !== undefined) {
+      validateKeepAliveCall(source, selected, keepAlive);
       rewrites.set(node, { kind: "keep-alive", fact: keepAlive });
     } else {
       throw new PointerLoweringError("aggregate memory fields require an exact executable aggregate storage representation");
