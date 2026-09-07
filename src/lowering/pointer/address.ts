@@ -15,6 +15,7 @@ import { PointerLoweringError } from "./diagnostic.js";
 import { locationBindingExpression } from "./location-binding.js";
 import type { PointerLoweringPlan } from "./plan.js";
 import { runtimeCall } from "./runtime-ast.js";
+import { runtimeMemoryLayout } from "./memory/rewrite.js";
 
 export function lowerAddressOf(
   source: TargetSourceProgram,
@@ -100,6 +101,13 @@ export function lowerAddressOf(
       throw new PointerLoweringError(
         "addressed element has no exact original base",
       );
+    }
+    const memoryLayout = plan.memoryArrays.layoutForAddress(operation.call);
+    if (memoryLayout !== undefined) {
+      return runtimeCall(factory, plan.runtimeAlias, "arrayElementLocation", [], [
+        element.Expression, element.ArgumentExpression,
+        runtimeMemoryLayout(factory, memoryLayout, plan.runtimeAlias),
+      ]);
     }
     const parentLocation = lowerValueParentLocation(
       source,

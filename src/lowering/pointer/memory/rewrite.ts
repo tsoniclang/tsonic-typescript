@@ -9,6 +9,15 @@ import type { GeneratedBindingName } from "../../generated-names.js";
 import { runtimeCall, runtimeType, requiredRuntimeNode } from "../runtime-ast.js";
 import { PointerLoweringError } from "../diagnostic.js";
 import type { MemoryRewrite } from "./plan.js";
+import type { ScalarMemoryLayout } from "./layout.js";
+
+export function runtimeMemoryLayout(factory: NodeFactory, layout: ScalarMemoryLayout, runtimeAlias: GeneratedBindingName): Node {
+  return runtimeCall(factory, runtimeAlias, layout.runtimeFactory, [], [
+    requiredRuntimeNode(NewStringLiteral(factory, layout.fact.dataLayout.byteOrder, 0), "selected byte order"),
+    requiredRuntimeNode(NewNumericLiteral(factory, String(layout.fact.byteAlignment), 0), "selected byte alignment"),
+    requiredRuntimeNode(NewNumericLiteral(factory, String(layout.fact.stride), 0), "selected byte stride"),
+  ]);
+}
 
 export function rewriteMemoryNode(factory: NodeFactory, selected: MemoryRewrite, updated: Node, runtimeAlias: GeneratedBindingName): Node {
   if (selected.kind === "abi-type") return requiredRuntimeNode(NewKeywordTypeNode(factory, KindUndefinedKeyword), "erased closed ABI alias type");
@@ -23,11 +32,7 @@ export function rewriteMemoryNode(factory: NodeFactory, selected: MemoryRewrite,
   if (call === undefined) throw new PointerLoweringError("memory operation lost its call node");
   const args = call.Arguments?.Nodes ?? [];
   if (selected.kind === "layout") {
-    return runtimeCall(factory, runtimeAlias, selected.layout.runtimeFactory, [], [
-      requiredRuntimeNode(NewStringLiteral(factory, selected.layout.fact.dataLayout.byteOrder, 0), "selected byte order"),
-      requiredRuntimeNode(NewNumericLiteral(factory, String(selected.layout.fact.byteAlignment), 0), "selected byte alignment"),
-      requiredRuntimeNode(NewNumericLiteral(factory, String(selected.layout.fact.stride), 0), "selected byte stride"),
-    ]);
+    return runtimeMemoryLayout(factory, selected.layout, runtimeAlias);
   }
   if (selected.kind === "query") return requiredRuntimeNode(NewNumericLiteral(factory, String(selected.value), 0), "exact layout query");
   const first = args[0];

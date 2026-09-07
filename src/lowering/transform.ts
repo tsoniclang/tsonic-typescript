@@ -15,6 +15,7 @@ import {
   createClosedPointerFlowPlan,
 } from "./pointer/flow-plan.js";
 import { createPointerProjectionCallablePlan } from "./pointer/projection-callable-plan.js";
+import { createMemoryArrayPlan } from "./pointer/memory/array-plan.js";
 import {
   createPointerRewriteSession,
   type PointerLoweringResult,
@@ -187,6 +188,7 @@ export function prepareTypeScriptLowering(
     representationTransports,
   );
   const plans = new Map<SourceFile, SourceRewritePlan>();
+  const memoryArrays = createMemoryArrayPlan(source, program);
   const failures: TypeScriptSourcePlanningFailure[] = [];
   for (const sourceFile of sourceFiles) {
     try {
@@ -205,6 +207,7 @@ export function prepareTypeScriptLowering(
           pointerFlowPlan,
           pointerProjectionCallables,
           finalNodes,
+          memoryArrays,
         ),
         scalar: createScalarRepresentationRewriter(scalarPlan, sourceFile),
         representation: createRepresentationProjectionRewriter(

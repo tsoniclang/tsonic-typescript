@@ -31,6 +31,7 @@ import {
 } from "./pointer.test-support.js";
 import { createPointerRewriteSession, lowerPointers } from "./transform.js";
 import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
+import { createMemoryArrayPlan } from "./memory/array-plan.js";
 test("contracts one closed readonly scalar parameter flow", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
@@ -392,6 +393,7 @@ export const result = loadPointer(pointer);
       (selected) => fixture.source.documents.forFile(selected).identity,
     ),
     finalNodes,
+    createMemoryArrayPlan(fixture.source, program),
   );
   let composedRewrites = 0;
   const transformed = transformTargetSourceFile(

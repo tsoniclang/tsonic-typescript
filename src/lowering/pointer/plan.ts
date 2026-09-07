@@ -40,6 +40,7 @@ import {
 import { planRootLocationClass } from "./root-location-plan.js";
 import { validatePointerFact } from "./type-contract.js";
 import { createMemoryLoweringPlan, type MemoryLoweringPlan } from "./memory/plan.js";
+import type { MemoryArrayPlan } from "./memory/array-plan.js";
 
 export interface LocalLocationBinding {
   readonly kind: "variable";
@@ -63,6 +64,7 @@ export interface ParameterLocationBinding {
 export type LocationBinding = LocalLocationBinding | ParameterLocationBinding;
 
 export interface PointerLoweringPlan {
+  readonly memoryArrays: MemoryArrayPlan;
   readonly memory: MemoryLoweringPlan;
   readonly sourceFile: SourceFile;
   readonly operations: ReadonlyMap<Node, PointerOperationFact>;
@@ -113,7 +115,10 @@ export function createPointerLoweringPlan(
   generatedNames: SourceFileGeneratedNames,
   flowPlan: ClosedPointerFlowPlan | undefined,
   projectionCallables: PointerProjectionCallablePlan,
+  memoryArrays: MemoryArrayPlan,
 ): PointerLoweringPlan {
+  if (!memoryArrays.owns(source)) throw new PointerLoweringError("array memory plan belongs to another checked program");
+  memoryArrays.validate(sourceFile);
   if (generatedNames.sourceFile !== sourceFile) {
     throw new PointerLoweringError(
       "pointer planning received generated names for another source file",
@@ -159,6 +164,10 @@ export function createPointerLoweringPlan(
     }
     const operation = source.sourceFacts.getFact(node, pointerOperationFactKey);
     if (operation !== undefined) {
+      if (memoryArrays.layoutForAddress(node) !== undefined &&
+        (flowPlan?.representationFor(node) ?? "location") !== "location") {
+        throw new PointerLoweringError("raw allocation address cannot acquire an independent pointer projection");
+      }
       if (operation.call !== node || operations.has(node)) {
         throw new PointerLoweringError(
           "pointer operation fact is not uniquely attached to its exact call",
@@ -334,6 +343,7 @@ export function createPointerLoweringPlan(
     flowPlan,
   );
   return Object.freeze({
+    memoryArrays,
     memory,
     sourceFile,
     operations,

@@ -49,6 +49,7 @@ import {
 } from "./projection-callable-plan.js";
 import { lowerRawPointerOperation, lowerRawPointerType } from "./raw.js";
 import { rewriteMemoryNode } from "./memory/rewrite.js";
+import { createMemoryArrayPlan, type MemoryArrayPlan } from "./memory/array-plan.js";
 import {
   lowerOptimizedPointerOperation,
   lowerOptimizedPointerType,
@@ -104,6 +105,7 @@ export function lowerPointers(
     generatedNames,
     flowPlan,
     projectionCallables,
+    createMemoryArrayPlan(source, program),
   );
   return applyPointerLoweringPlan(source, plan);
 }
@@ -173,6 +175,7 @@ export function createPointerRewriteSession(
   flowPlan: ClosedPointerFlowPlan | undefined,
   projectionCallables: PointerProjectionCallablePlan,
   finalNodes: FinalNodeLookup,
+  memoryArrays: MemoryArrayPlan,
 ): PointerRewriteSession {
   return createPointerRewriteSessionForPlan(
     source,
@@ -183,6 +186,7 @@ export function createPointerRewriteSession(
       generatedNames,
       flowPlan,
       projectionCallables,
+      memoryArrays,
     ),
     finalNodes,
   );

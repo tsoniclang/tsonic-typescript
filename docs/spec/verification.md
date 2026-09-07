@@ -68,6 +68,13 @@ must fail instead of acquiring an approximate codec. Inspect printed output,
 strict-typecheck it, and execute it under both canonical and optimized pointer
 profiles. A scalar proof never certifies whole-allocation or aggregate views.
 
+Closed-array proof must include every independently obtained element address,
+alias equality and hashes observed before conversion, cross-element byte writes,
+retained padding, both byte orders, and a work-count control comparing small and
+large allocations. Reject escaped, resized, sparsely written, or reassigned
+arrays before printing. Exercise actual printed, strictly checked output; AST
+shape counts alone do not prove storage aliasing.
+
 Address facts must retain the unsigned ABI32/number or ABI64/bigint domain,
 including values beyond number's exact-integer range. Removing the selected
 ABI must fail at evidence consumption, before the physical-address boundary.

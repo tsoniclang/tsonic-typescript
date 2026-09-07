@@ -40,6 +40,18 @@ calls receive byte order, alignment, and stride explicitly; no default or
 host-ABI inference is allowed. The declared pointee extent is not evidence of
 a containing array or struct allocation.
 
+A closed, dense, non-reassigned local array can supply its complete allocation
+when the shared pointer-origin and array-storage queries prove that extent.
+The target plans all addressed elements together: `addressOf(values[0])` and
+`addressOf(values[1])` then share one typed allocation, so advancing the first
+raw address by one stride reaches the second. The runtime reads and writes
+only the touched byte window and preserves pre-existing typed-pointer identity.
+Escapes, resizing, unproved element writes, reassignable bindings, conflicting
+layouts, and non-scalar element codecs reject before printing. This does not
+infer a backing array through an arbitrary source wrapper or certify Go slice
+descriptors. Ordinary pointers outside this proved class keep their existing
+location representation.
+
 An exact shared `keepAlive(value)` fact lowers to the runtime's lexical
 managed-reachability barrier, with the operand evaluated once at the same
 position. The call, operand, argument type, and result exact-join finalized

@@ -14,6 +14,7 @@ import {
 import { lowerPointers } from "./transform.js";
 import { createPointerLoweringPlan } from "./plan.js";
 import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
+import { createMemoryArrayPlan } from "./memory/array-plan.js";
 
 test("reserves the nullable hash binding against authored source names", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
@@ -80,6 +81,7 @@ export const result = hashPointer(nextPointer());
       "closed-direct",
       (selected) => fixture.source.documents.forFile(selected).identity,
     ),
+    createMemoryArrayPlan(fixture.source, program),
   );
 
   const hash = [...pointerPlan.referenceHashes.values()][0];
