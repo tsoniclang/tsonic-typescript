@@ -50,6 +50,39 @@ noncanonical order, absent type parameter, and ambiguous ownership mutations
 must fail or retain the boundary. The sealed contract digest, callable count,
 and nonzero selected-call count are independently joined by product assembly.
 
+## Layout-Backed Memory Proof
+
+Real source-core facts, rather than a locally restated marker union, must drive
+raw-memory tests. Cover typed-to-raw-to-typed writes, independent aliases,
+exact number and bigint offsets, both byte orders, nil, alignment, bounds,
+property locations, projected locations, and equality/hash agreement with
+ordinary typed locations. A write through a byte view must change the original
+integer (for example, writing 7 at offset 1 of little-endian uint32 value 1
+produces 1793).
+
+Delete a selected call's fact and require rejection before printing. Prove
+same-spelled ordinary calls are untouched; closed immutable ABI aliases lower
+but observable ABI comparisons cannot be erased. Unsupported native addresses,
+aggregate storage, unproven scalar domains, and mismatched scalar dimensions
+must fail instead of acquiring an approximate codec. Inspect printed output,
+strict-typecheck it, and execute it under both canonical and optimized pointer
+profiles. A scalar proof never certifies whole-allocation or aggregate views.
+
+Closed-array proof must include every independently obtained element address,
+alias equality and hashes observed before conversion, cross-element byte writes,
+retained padding, both byte orders, and a work-count control comparing small and
+large allocations. Reject escaped, resized, sparsely written, or reassigned
+arrays before printing. Exercise actual printed, strictly checked output; AST
+shape counts alone do not prove storage aliasing.
+
+Address facts must retain the unsigned ABI32/number or ABI64/bigint domain,
+including values beyond number's exact-integer range. Removing the selected
+ABI must fail at evidence consumption, before the physical-address boundary.
+Removing a raw conversion's layout or an observation's layout must likewise
+fail before printing. Nested descriptor validation belongs to the shared
+selector, including every required child layout; a parent fact is not a
+substitute for independently finalized child evidence.
+
 ## Transaction Proof
 
 The backend must prove:

@@ -59,10 +59,12 @@ counter or supposedly private prefix is not collision proof.
 
 ## Coordinated Repository Scope
 
-This workstream may modify only GoToTS and the TypeScript target. Any change to
-TSTS, Tsonic core, another Tsonic target, or any other repository requires the
-user's explicit approval before editing. Read-only inspection may establish a
-published contract; it does not grant change ownership.
+This workstream owns GoToTS, tsonic-typescript, typescript-runtime, and TSTS.
+Changes within those four repositories need no additional scope permission.
+Tsonic core, TSTS Legacy, other targets, and all other repositories remain
+read-only without explicit user approval. Inspecting a published contract
+does not grant change ownership. TSTS may advance reviewed submodule pins,
+but must never edit or commit source inside its submodules.
 
 ## Project Structure
 

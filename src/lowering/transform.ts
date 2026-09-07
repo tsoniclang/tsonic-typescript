@@ -15,6 +15,7 @@ import {
   createClosedPointerFlowPlan,
 } from "./pointer/flow-plan.js";
 import { createPointerProjectionCallablePlan } from "./pointer/projection-callable-plan.js";
+import { createMemoryArrayPlan } from "./pointer/memory/array-plan.js";
 import {
   createPointerRewriteSession,
   type PointerLoweringResult,
@@ -31,6 +32,7 @@ import {
   type TypeScriptOptimizationProfileInput,
 } from "./profile.js";
 import { createTargetProgramIndex } from "./program-index.js";
+import { typeScriptLoweringSourceFiles } from "./source-membership.js";
 import {
   sourceExecutionViolations,
   type TypeScriptSourceExecutionProfile,
@@ -187,6 +189,7 @@ export function prepareTypeScriptLowering(
     representationTransports,
   );
   const plans = new Map<SourceFile, SourceRewritePlan>();
+  const memoryArrays = createMemoryArrayPlan(source, program);
   const failures: TypeScriptSourcePlanningFailure[] = [];
   for (const sourceFile of sourceFiles) {
     try {
@@ -205,6 +208,7 @@ export function prepareTypeScriptLowering(
           pointerFlowPlan,
           pointerProjectionCallables,
           finalNodes,
+          memoryArrays,
         ),
         scalar: createScalarRepresentationRewriter(scalarPlan, sourceFile),
         representation: createRepresentationProjectionRewriter(
@@ -377,7 +381,7 @@ function assertExactSourceMembership(
   source: TargetSourceProgram,
   sourceFiles: readonly SourceFile[],
 ): void {
-  const expected = new Set(source.navigation.sourceFiles);
+  const expected = new Set(typeScriptLoweringSourceFiles(source));
   const supplied = new Set(sourceFiles);
   if (
     supplied.size !== sourceFiles.length ||
@@ -385,7 +389,7 @@ function assertExactSourceMembership(
     [...expected].some((sourceFile) => !supplied.has(sourceFile))
   ) {
     throw new Error(
-      "TypeScript lowering requires every exact checked project source file once",
+      "TypeScript lowering requires every exact checked project source file and selected declaration once",
     );
   }
 }

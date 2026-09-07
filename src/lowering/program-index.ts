@@ -14,6 +14,7 @@ import type {
   TargetProgramIndex,
   TargetProgramIndexSelection,
 } from "./program-index/model.js";
+import { typeScriptLoweringSourceFiles } from "./source-membership.js";
 export type {
   TargetProgramIndex,
   TargetProgramIndexOperations,
@@ -146,7 +147,7 @@ function collectNodeCensus(
   source: TargetSourceProgram,
   selection: TargetProgramIndexSelection,
 ): CollectedNodeCensus {
-  const sourceFiles = Object.freeze([...source.navigation.sourceFiles]);
+  const sourceFiles = typeScriptLoweringSourceFiles(source);
   const nodes: Node[] = [];
   const seen = new Set<Node>();
   const byKind = new Map<Kind, Node[]>();

@@ -2,6 +2,64 @@
 
 ## Boundary
 
+### Layout-Backed Pointers
+
+Raw-memory and layout semantics come from the public finalized source-core
+facts, not from marker names or Go source. The target exact-joins each fact to
+its call, type, selected field, and registered source ABI before printing.
+The retired object-only raw binding is rejected, never adapted.
+
+Raw/typed location selection uses the shared finalized selector, including
+the complete selected child-layout graph. Layout observations likewise use
+the shared validated observation query; a descriptor embedded in another fact
+does not substitute for its own finalized child/ABI evidence. Address/integer
+facts carry an exact unsigned 32/number or 64/bigint domain matching their
+selected ABI. This target validates that evidence before rejecting physical
+address execution; it never coerces a 64-bit address through number.
+
+`toRawPointer(addressOf(count), layout)` retains writable storage. A matching
+`reinterpretRawPointer(raw, layout)` produces a view whose writes update that
+same storage. Byte offsets preserve exact integer values, byte order, bounds,
+and alignment. The one TypeScript runtime owns these locations and their
+equality/hash identity; the emitter does not create another pointer runtime.
+
+Managed memory is not physical native address emulation. Physical
+pointer/integer conversions and layouts lacking an exact executable
+representation fail before publication. Scalar codec support does not imply
+support for aggregate padding, floating NaN payloads, or arbitrary object
+projection. Pointer flow optimization must retain any component whose raw
+storage observation has not been proved equivalent. All selected layout,
+ABI-token, and memory-operation uses have an explicit lowering or diagnostic;
+dropping an import is never sufficient semantic consumption.
+
+Scalar width selects the codec, not the alignment or stride. Those dimensions
+come independently from the finalized source layout. For example,
+`memoryLayout<uint64>(abi32, 8, 4, 8)` lowers to an eight-byte codec with
+four-byte alignment, not a target-host eight-byte alignment. Runtime factory
+calls receive byte order, alignment, and stride explicitly; no default or
+host-ABI inference is allowed. The declared pointee extent is not evidence of
+a containing array or struct allocation.
+
+A closed, dense, non-reassigned local array can supply its complete allocation
+when the shared pointer-origin and array-storage queries prove that extent.
+The target plans all addressed elements together: `addressOf(values[0])` and
+`addressOf(values[1])` then share one typed allocation, so advancing the first
+raw address by one stride reaches the second. The runtime reads and writes
+only the touched byte window and preserves pre-existing typed-pointer identity.
+Escapes, resizing, unproved element writes, reassignable bindings, conflicting
+layouts, and non-scalar element codecs reject before printing. This does not
+infer a backing array through an arbitrary source wrapper or certify Go slice
+descriptors. Ordinary pointers outside this proved class keep their existing
+location representation.
+
+An exact shared `keepAlive(value)` fact lowers to the runtime's lexical
+managed-reachability barrier, with the operand evaluated once at the same
+position. The call, operand, argument type, and result exact-join finalized
+selection evidence. A discarded read (`void value`) is not a lifetime proof.
+The selected Node representation uses ECMAScript's current-job kept-object
+rule; it is neither native pinning nor permission for foreign asynchronous
+use after that job. No generic marker erasure may drop this obligation.
+
 TSTS owns source parsing, checking, exact nodes, marker selection, and
 finalized semantic facts. The TypeScript target consumes those identities and
 transforms the same TS-Go-contract AST. It does not parse source again, join by
@@ -169,6 +227,15 @@ or declaration. Names are deterministic and semantic; random or hash-only
 suffixes are forbidden.
 
 ## Evidence
+
+The one lowering source set includes all checked project implementations and
+authored declaration files carrying selected neutral marker or primitive
+facts. Virtual provider models and unmarked library declarations are not
+target-owned outputs. Declaration trees use the same exact-fact planners,
+generated-name owner, TS-Go AST rewrites, printer and consumption joins as
+implementation trees. An omitted selected declaration fails membership before
+printing. Consumers must install lowered declarations with their provider
+package atomically; reinstalling the canonical surface afterward is invalid.
 
 Every enabled family reports exact optimized and retained denominators.
 Retained entries carry bounded typed reasons and authored occurrence identity.

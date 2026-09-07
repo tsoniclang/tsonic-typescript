@@ -53,8 +53,7 @@ export function lowerRawPointerOperation(
   );
   switch (operation.operation) {
     case "bind-raw-pointer":
-      requireArity(operation.operation, arguments_, 1);
-      return runtimeCall(factory, runtimeAlias, "rawPointer", [], arguments_);
+      throw new PointerLoweringError("retired object-only raw-pointer binding reached emission");
     case "equal-raw-pointer":
       requireArity(operation.operation, arguments_, 2);
       return runtimeCall(factory, runtimeAlias, "sameRawPointer", [], arguments_);

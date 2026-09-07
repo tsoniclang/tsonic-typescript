@@ -48,6 +48,8 @@ import {
   type PointerProjectionCallablePlan,
 } from "./projection-callable-plan.js";
 import { lowerRawPointerOperation, lowerRawPointerType } from "./raw.js";
+import { rewriteMemoryNode } from "./memory/rewrite.js";
+import { createMemoryArrayPlan, type MemoryArrayPlan } from "./memory/array-plan.js";
 import {
   lowerOptimizedPointerOperation,
   lowerOptimizedPointerType,
@@ -103,6 +105,7 @@ export function lowerPointers(
     generatedNames,
     flowPlan,
     projectionCallables,
+    createMemoryArrayPlan(source, program),
   );
   return applyPointerLoweringPlan(source, plan);
 }
@@ -128,6 +131,7 @@ function applyPointerLoweringPlan(
     plan.pointerTypes.size === 0 &&
     plan.rawPointerOperations.size === 0 &&
     plan.rawPointerTypes.size === 0 &&
+    plan.memory.rewrites.size === 0 &&
     plan.removableMarkerDeclarations.size === 0
   ) {
     return Object.freeze({
@@ -171,6 +175,7 @@ export function createPointerRewriteSession(
   flowPlan: ClosedPointerFlowPlan | undefined,
   projectionCallables: PointerProjectionCallablePlan,
   finalNodes: FinalNodeLookup,
+  memoryArrays: MemoryArrayPlan,
 ): PointerRewriteSession {
   return createPointerRewriteSessionForPlan(
     source,
@@ -181,6 +186,7 @@ export function createPointerRewriteSession(
       generatedNames,
       flowPlan,
       projectionCallables,
+      memoryArrays,
     ),
     finalNodes,
   );
@@ -248,6 +254,7 @@ function pointerLoweringResult(
 }
 
 interface ConsumptionState {
+  readonly memory: Set<Node>;
   readonly operations: Set<Node>;
   readonly pointerTypes: Set<Node>;
   readonly rawPointerOperations: Set<Node>;
@@ -263,6 +270,7 @@ interface ConsumptionState {
 
 function createConsumptionState(): ConsumptionState {
   return {
+    memory: new Set(),
     operations: new Set(),
     pointerTypes: new Set(),
     rawPointerOperations: new Set(),
@@ -355,6 +363,12 @@ function rewriteNode(
       plan,
       finalNodes,
     );
+  }
+
+  const memory = plan.memory.rewrites.get(original);
+  if (memory !== undefined) {
+    consumed.memory.add(original);
+    return rewriteMemoryNode(factory, memory, updated, plan.runtimeAlias);
   }
 
   const rawPointerOperation = plan.rawPointerOperations.get(original);
@@ -477,6 +491,7 @@ function assertCompleteConsumption(
   consumed: ConsumptionState,
 ): void {
   assertCount("pointer operations", consumed.operations, plan.operations.size);
+  assertCount("memory operations and descriptors", consumed.memory, plan.memory.rewrites.size);
   assertCount("pointer types", consumed.pointerTypes, plan.pointerTypes.size);
   assertCount(
     "raw-pointer operations",

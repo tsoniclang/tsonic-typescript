@@ -132,7 +132,7 @@ export function locationValue(
   );
 }
 
-function requiredRuntimeNode(
+export function requiredRuntimeNode(
   node: Node | undefined,
   subject: string,
 ): Node {

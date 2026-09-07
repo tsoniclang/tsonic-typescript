@@ -59,7 +59,6 @@ const pointerMarkerSemantics = [{
     { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
     { kind: "call-marker", exportName: "bindPointer", marker: "bind-pointer" },
     { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
-    { kind: "call-marker", exportName: "bindRawPointer", marker: "bind-raw-pointer" },
     { kind: "call-marker", exportName: "equalRawPointer", marker: "equal-raw-pointer" },
     { kind: "call-marker", exportName: "hashRawPointer", marker: "hash-raw-pointer" },
   ],
@@ -75,7 +74,6 @@ export declare function equalPointer<T>(left: Pointer<T> | undefined, right: Poi
 export declare function hashPointer<T>(pointer: Pointer<T> | undefined): number;
 export declare function bindPointer<T>(identity: object, read: () => T, write: (value: T) => void): Pointer<T>;
 export declare function projectPointer<F, T>(pointer: Pointer<F> | undefined, fromSource: (value: F) => T, toSource: (value: T) => F): Pointer<T> | undefined;
-export declare function bindRawPointer(identity: object): RawPointer;
 export declare function equalRawPointer(left: RawPointer | undefined, right: RawPointer | undefined): boolean;
 export declare function hashRawPointer(pointer: RawPointer | undefined): number;
 export declare const ordinary: number;

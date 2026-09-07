@@ -150,7 +150,7 @@ export const result = [
   assert.equal(countCallsNamed(fixture, result.sourceFile, "hashLocation"), 2);
 });
 
-test("lowers opaque raw-pointer identity with nested safe-pointer input in one pass", () => {
+test("rejects retired object-only raw-pointer binding before emission", () => {
   const fixture = checkedFixture(`import type { RawPointer } from "./markers.js";
 import {
   allocatePointer,
@@ -171,17 +171,7 @@ export const result = [
   localBindRawPointer(location),
 ];
 `);
-  const result = lowerPointers(fixture.source, fixture.sourceFile);
-
-  assert.equal(result.operationCount, 1);
-  assert.equal(result.rawPointerOperationCount, 4);
-  assert.equal(result.rawPointerTypeCount, 1);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "location"), 0);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "rawPointer"), 2);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "sameRawPointer"), 1);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "hashRawPointer"), 1);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "bindRawPointer"), 0);
-  assert.equal(countCallsNamed(fixture, result.sourceFile, "localBindRawPointer"), 1);
+  assert.throws(() => lowerPointers(fixture.source, fixture.sourceFile), /retired object-only raw-pointer binding/);
 });
 
 interface CheckedFixture {
