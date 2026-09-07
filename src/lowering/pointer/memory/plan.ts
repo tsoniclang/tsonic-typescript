@@ -3,6 +3,8 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   readTsonicDataLayout, readTsonicMemoryLayout, readTsonicMemoryLayoutQuery,
   readTsonicMemoryFieldLayout, readTsonicRawMemoryOperation, readTsonicKeepAlive,
+  selectTsonicRawLocationOperation,
+  resolveTsonicMemoryLayoutObservation,
 } from "@tsonic/source-core/facts";
 import type { TsonicRawMemoryOperationFact, TsonicKeepAliveFact } from "@tsonic/source-core/facts";
 import { PointerLoweringError } from "../diagnostic.js";
@@ -56,11 +58,14 @@ export function createMemoryLoweringPlan(
         throw new PointerLoweringError("physical native address/integer conversion has no managed TypeScript representation");
       }
       if (raw.operation === "to-raw" || raw.operation === "reinterpret") {
-        const selectedLayout = readTsonicMemoryLayout(source.sourceFacts, raw.layoutExpression);
-        if (selectedLayout === undefined || !source.semantics.forNode(node).types.isIdentical(selectedLayout.sourceType, raw.pointeeType)) {
+        const selection = selectTsonicRawLocationOperation(source.ast, source.sourceFacts, node);
+        if (selection?.kind !== "resolved") {
+          throw new PointerLoweringError(selection?.reason ?? "raw conversion has no finalized location selection");
+        }
+        if (!source.semantics.forNode(node).types.isIdentical(selection.layout.sourceType, raw.pointeeType)) {
           throw new PointerLoweringError("raw conversion has no exact matching pointee layout");
         }
-        scalarMemoryLayout(source, selectedLayout);
+        scalarMemoryLayout(source, selection.layout);
       } else {
         if (readTsonicDataLayout(source.sourceFacts, raw.dataLayoutExpression) === undefined) {
           throw new PointerLoweringError("raw byte offset is missing its selected source ABI fact");
@@ -72,21 +77,11 @@ export function createMemoryLoweringPlan(
       rewrites.set(node, { kind: "layout", layout: scalarMemoryLayout(source, layout) });
       consumedOperands.add(layout.dataLayoutExpression);
     } else if (query !== undefined) {
-      const selectedLayout = readTsonicMemoryLayout(source.sourceFacts, query.layoutExpression);
-      if (selectedLayout === undefined) throw new PointerLoweringError("layout query is missing its exact descriptor");
-      let value: number;
-      switch (query.operation) {
-        case "size": value = selectedLayout.byteSize; break;
-        case "alignment": value = selectedLayout.byteAlignment; break;
-        case "stride": value = selectedLayout.stride; break;
-        case "field-offset": {
-          const fields = selectedLayout.fields.filter((candidate) => candidate.selectedDeclaration === query.selectedFieldDeclaration);
-          if (fields.length !== 1 || fields[0] === undefined) throw new PointerLoweringError("layout query does not select exactly one field");
-          value = fields[0].byteOffset;
-          break;
-        }
+      const observation = resolveTsonicMemoryLayoutObservation(source.sourceFacts, node);
+      if (observation?.kind !== "resolved") {
+        throw new PointerLoweringError(observation?.reason ?? "layout query is missing its exact finalized descriptor");
       }
-      rewrites.set(node, { kind: "query", value });
+      rewrites.set(node, { kind: "query", value: observation.value });
     } else if (keepAlive !== undefined) {
       validateKeepAliveCall(source, selected, keepAlive);
       rewrites.set(node, { kind: "keep-alive", fact: keepAlive });

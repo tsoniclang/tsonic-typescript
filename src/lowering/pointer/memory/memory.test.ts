@@ -54,7 +54,7 @@ test("native physical addresses fail before any printer transaction", () => {
   const fixture = memoryFixture(`
     const word = memoryLayout<uint32>(abi, 4, 4, 4);
     let count: uint32 = 1;
-    export const result = rawPointerToAddressInteger(toRawPointer(addressOf(count), word), abi);
+    export const result = rawPointerToAddressInteger<uint64>(toRawPointer(addressOf(count), word), abi);
   `);
   assert.throws(() => lowerMemoryFixture(fixture), /physical native address/);
 });

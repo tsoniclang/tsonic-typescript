@@ -1,6 +1,7 @@
 import type { Node, ProviderVirtualDeclarationFact } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TsonicRawMemoryOperationFact, TsonicKeepAliveFact } from "@tsonic/source-core/facts";
+import { readTsonicDataLayout } from "@tsonic/source-core/facts";
 import { PointerLoweringError } from "../diagnostic.js";
 
 export function validateKeepAliveCall(source: TargetSourceProgram, selected: ProviderVirtualDeclarationFact, fact: TsonicKeepAliveFact): void {
@@ -34,5 +35,18 @@ export function validateRawMemoryCall(source: TargetSourceProgram, selected: Pro
   const call = semantics.operations.call(fact.call);
   if (call === undefined || !semantics.types.isIdentical(fact.resultType, call.sourceResultType)) {
     throw new PointerLoweringError("raw-memory fact disagrees with its exact selected result type");
+  }
+  if (fact.operation === "raw-to-address-integer" || fact.operation === "address-integer-to-raw") {
+    const abi = readTsonicDataLayout(source.sourceFacts, fact.dataLayoutExpression);
+    const addressType = fact.operation === "raw-to-address-integer" ? fact.resultType : fact.addressType;
+    if (abi === undefined || abi.addressWidth !== fact.addressWidth || fact.addressSignedness !== "unsigned" ||
+      !(fact.addressWidth === 32 && fact.addressRuntimeBase === "number" && semantics.types.isNumberLike(addressType) ||
+        fact.addressWidth === 64 && fact.addressRuntimeBase === "bigint" && semantics.types.isBigIntLike(addressType))) {
+      throw new PointerLoweringError("raw address integer lacks its exact unsigned domain and selected ABI");
+    }
+    if (fact.operation === "address-integer-to-raw" &&
+      (call.sourceArguments[0] === undefined || !semantics.types.isIdentical(call.sourceArguments[0].type, fact.addressType))) {
+      throw new PointerLoweringError("raw address integer disagrees with its exact operand type");
+    }
   }
 }

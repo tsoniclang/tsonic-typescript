@@ -68,6 +68,14 @@ must fail instead of acquiring an approximate codec. Inspect printed output,
 strict-typecheck it, and execute it under both canonical and optimized pointer
 profiles. A scalar proof never certifies whole-allocation or aggregate views.
 
+Address facts must retain the unsigned ABI32/number or ABI64/bigint domain,
+including values beyond number's exact-integer range. Removing the selected
+ABI must fail at evidence consumption, before the physical-address boundary.
+Removing a raw conversion's layout or an observation's layout must likewise
+fail before printing. Nested descriptor validation belongs to the shared
+selector, including every required child layout; a parent fact is not a
+substitute for independently finalized child evidence.
+
 ## Transaction Proof
 
 The backend must prove:

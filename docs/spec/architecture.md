@@ -9,6 +9,14 @@ facts, not from marker names or Go source. The target exact-joins each fact to
 its call, type, selected field, and registered source ABI before printing.
 The retired object-only raw binding is rejected, never adapted.
 
+Raw/typed location selection uses the shared finalized selector, including
+the complete selected child-layout graph. Layout observations likewise use
+the shared validated observation query; a descriptor embedded in another fact
+does not substitute for its own finalized child/ABI evidence. Address/integer
+facts carry an exact unsigned 32/number or 64/bigint domain matching their
+selected ABI. This target validates that evidence before rejecting physical
+address execution; it never coerces a 64-bit address through number.
+
 `toRawPointer(addressOf(count), layout)` retains writable storage. A matching
 `reinterpretRawPointer(raw, layout)` produces a view whose writes update that
 same storage. Byte offsets preserve exact integer values, byte order, bounds,
