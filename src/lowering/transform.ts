@@ -32,6 +32,7 @@ import {
   type TypeScriptOptimizationProfileInput,
 } from "./profile.js";
 import { createTargetProgramIndex } from "./program-index.js";
+import { typeScriptLoweringSourceFiles } from "./source-membership.js";
 import {
   sourceExecutionViolations,
   type TypeScriptSourceExecutionProfile,
@@ -380,7 +381,7 @@ function assertExactSourceMembership(
   source: TargetSourceProgram,
   sourceFiles: readonly SourceFile[],
 ): void {
-  const expected = new Set(source.navigation.sourceFiles);
+  const expected = new Set(typeScriptLoweringSourceFiles(source));
   const supplied = new Set(sourceFiles);
   if (
     supplied.size !== sourceFiles.length ||
@@ -388,7 +389,7 @@ function assertExactSourceMembership(
     [...expected].some((sourceFile) => !supplied.has(sourceFile))
   ) {
     throw new Error(
-      "TypeScript lowering requires every exact checked project source file once",
+      "TypeScript lowering requires every exact checked project source file and selected declaration once",
     );
   }
 }

@@ -38,6 +38,7 @@ import {
   type EncodedTypeScriptSource,
 } from "./source-artifact-batches.js";
 import { compareSourceDocumentIdentities } from "./source-order.js";
+import { typeScriptLoweringSourceFiles } from "../lowering/source-membership.js";
 
 export function compileTypeScriptTarget(
   input: TargetCompileInput,
@@ -121,7 +122,7 @@ function prepareSourceArtifacts(
   representationTransports: RepresentationTransportContract,
 ): PreparedSourceArtifacts {
   const diagnostics: TargetCompileResult["diagnostics"][number][] = [];
-  const sourceFiles = [...input.source.navigation.sourceFiles].sort(
+  const sourceFiles = [...typeScriptLoweringSourceFiles(input.source)].sort(
     (left, right) => compareSourceDocumentIdentities(
       input.source.documents.forFile(left).identity,
       input.source.documents.forFile(right).identity,

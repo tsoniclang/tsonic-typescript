@@ -103,7 +103,7 @@ test("requires one exact complete source membership", () => {
       canonicalTypeScriptOptimizationProfile(),
       sourceIdentity(fixture),
     ),
-    /every exact checked project source file once/,
+    /every exact checked project source file and selected declaration once/,
   );
   assert.throws(
     () => prepareTypeScriptLowering(
@@ -112,7 +112,7 @@ test("requires one exact complete source membership", () => {
       canonicalTypeScriptOptimizationProfile(),
       sourceIdentity(fixture),
     ),
-    /every exact checked project source file once/,
+    /every exact checked project source file and selected declaration once/,
   );
 });
 

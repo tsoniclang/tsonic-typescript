@@ -228,6 +228,15 @@ suffixes are forbidden.
 
 ## Evidence
 
+The one lowering source set includes all checked project implementations and
+authored declaration files carrying selected neutral marker or primitive
+facts. Virtual provider models and unmarked library declarations are not
+target-owned outputs. Declaration trees use the same exact-fact planners,
+generated-name owner, TS-Go AST rewrites, printer and consumption joins as
+implementation trees. An omitted selected declaration fails membership before
+printing. Consumers must install lowered declarations with their provider
+package atomically; reinstalling the canonical surface afterward is invalid.
+
 Every enabled family reports exact optimized and retained denominators.
 Retained entries carry bounded typed reasons and authored occurrence identity.
 Evidence is immutable and emitted only after the complete lowering
