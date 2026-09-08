@@ -14,6 +14,7 @@ import type { ExecutableMemoryLayout, RecordMemoryField } from "./record-plan.js
 import type { SourceFileGeneratedNames } from "../../generated-names.js";
 import { planRecordSchemas } from "./record-schema.js";
 import type { RecordSchemaRewrite } from "./record-schema.js";
+import type { MemoryReferencePlan, ReferenceMemoryLayout } from "./references/plan.js";
 import { validateRawMemoryCall, validateKeepAliveCall } from "./operation-contract.js";
 import { planABIOperandUses } from "./abi-uses.js";
 
@@ -29,6 +30,7 @@ export type MemoryRewrite =
   | { readonly kind: "abi-token" };
 
 export interface MemoryLoweringPlan {
+  readonly references: readonly ReferenceMemoryLayout[];
   readonly rewrites: ReadonlyMap<Node, MemoryRewrite>;
   readonly removableDeclarations: ReadonlySet<Node>;
 }
@@ -38,8 +40,12 @@ export function createMemoryLoweringPlan(
   sourceFile: SourceFile,
   nodes: readonly Node[],
   names: SourceFileGeneratedNames,
+  references: MemoryReferencePlan,
 ): MemoryLoweringPlan {
-  const executable = createExecutableMemoryLayouts(source, names);
+  if (!references.owns(source)) throw new PointerLoweringError("reference memory plan belongs to another checked program");
+  references.validate(sourceFile);
+  const referenceEntries = references.forFile(sourceFile);
+  const executable = createExecutableMemoryLayouts(source, names, references);
   const schemas = planRecordSchemas(source, nodes, names);
   const rewrites = new Map<Node, MemoryRewrite>(schemas.rewrites);
   const removableDeclarations = new Set<Node>(schemas.declarations);
@@ -70,10 +76,7 @@ export function createMemoryLoweringPlan(
         if (selection?.kind !== "resolved") {
           throw new PointerLoweringError(selection?.reason ?? "raw conversion has no finalized location selection");
         }
-        if (!source.semantics.forNode(node).types.isIdentical(selection.layout.sourceType, raw.pointeeType)) {
-          throw new PointerLoweringError("raw conversion has no exact matching pointee layout");
-        }
-        executable.layout(selection.layout);
+        executable.layout(selection.layout, selection.memoryType);
       } else {
         if (readTsonicDataLayout(source.sourceFacts, raw.dataLayoutExpression) === undefined) {
           throw new PointerLoweringError("raw byte offset is missing its selected source ABI fact");
@@ -100,7 +103,7 @@ export function createMemoryLoweringPlan(
     }
     for (const argument of source.ast.arguments(node)) if (argument !== undefined) consumedOperands.add(argument);
   }
-  if (rewrites.size === 0 && !importedMemory) return Object.freeze({ rewrites, removableDeclarations });
+  if (rewrites.size === 0 && !importedMemory) return Object.freeze({ rewrites, removableDeclarations, references: referenceEntries });
   const abiUses = planABIOperandUses(source, sourceFile, consumedOperands);
   for (const expression of abiUses.expressions) rewrites.set(expression, { kind: "abi-token" });
   for (const declaration of abiUses.imports) removableDeclarations.add(declaration);
@@ -139,5 +142,5 @@ export function createMemoryLoweringPlan(
     }
   }
   if (source.ast.getSourceFile(sourceFile) !== sourceFile) throw new PointerLoweringError("memory planning received an invalid source owner");
-  return Object.freeze({ rewrites, removableDeclarations });
+  return Object.freeze({ rewrites, removableDeclarations, references: referenceEntries });
 }

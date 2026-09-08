@@ -15,6 +15,7 @@ import { lowerPointers } from "./transform.js";
 import { createPointerLoweringPlan } from "./plan.js";
 import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
 import { createMemoryArrayPlan } from "./memory/array-plan.js";
+import { createMemoryReferencePlan } from "./memory/references/plan.js";
 
 test("reserves the nullable hash binding against authored source names", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
@@ -65,8 +66,8 @@ export const result = hashPointer(nextPointer());
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
   });
-  const generatedNames = createProgramGeneratedNames(fixture.source, program)
-    .forFile(fixture.sourceFile);
+  const programNames = createProgramGeneratedNames(fixture.source, program);
+  const generatedNames = programNames.forFile(fixture.sourceFile);
   assert.equal(generatedNames.reserve("$pointer").text, "$pointer");
   const flowPlan = createFixturePointerFlowPlan(fixture.source);
   const pointerPlan = createPointerLoweringPlan(
@@ -82,6 +83,7 @@ export const result = hashPointer(nextPointer());
       (selected) => fixture.source.documents.forFile(selected).identity,
     ),
     createMemoryArrayPlan(fixture.source, program),
+    createMemoryReferencePlan(fixture.source, program, programNames),
   );
 
   const hash = [...pointerPlan.referenceHashes.values()][0];

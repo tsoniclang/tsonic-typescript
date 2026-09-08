@@ -12,6 +12,7 @@ import type { MemoryRewrite } from "./plan.js";
 import type { ScalarMemoryLayout } from "./layout.js";
 import { rewriteRecordField, rewriteRecordLayout } from "./record-ast.js";
 import { rewriteRecordSchema } from "./record-schema-ast.js";
+import { referenceMemoryCall } from "./references/ast.js";
 
 export function runtimeMemoryLayout(factory: NodeFactory, layout: ScalarMemoryLayout, runtimeAlias: GeneratedBindingName): Node {
   return runtimeCall(factory, runtimeAlias, layout.runtimeFactory, [], [
@@ -35,6 +36,7 @@ export function rewriteMemoryNode(factory: NodeFactory, selected: MemoryRewrite,
   if (call === undefined) throw new PointerLoweringError("memory operation lost its call node");
   const args = call.Arguments?.Nodes ?? [];
   if (selected.kind === "layout") {
+    if (selected.layout.kind === "reference") return referenceMemoryCall(factory, selected.layout);
     return selected.layout.kind === "record" ? rewriteRecordLayout(factory, selected.layout, updated, runtimeAlias) :
       runtimeMemoryLayout(factory, selected.layout, runtimeAlias);
   }

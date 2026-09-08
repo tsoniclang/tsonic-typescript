@@ -16,6 +16,7 @@ import { createTargetProgramIndex } from "../program-index.js";
 import { createPointerLoweringPlan } from "./plan.js";
 import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
 import { createMemoryArrayPlan } from "./memory/array-plan.js";
+import { createMemoryReferencePlan } from "./memory/references/plan.js";
 
 test("plans addressed bindings with one source-reference pass", () => {
   const small = referenceLookupsFor(16);
@@ -69,11 +70,12 @@ function pointerLoweringPlan(
   sourceFile: SourceFile,
 ) {
   const program = pointerProgramIndex(source);
+  const names = createProgramGeneratedNames(source, program);
   return createPointerLoweringPlan(
     source,
     sourceFile,
     program,
-    createProgramGeneratedNames(source, program).forFile(sourceFile),
+    names.forFile(sourceFile),
     undefined,
     createPointerProjectionCallablePlan(
       source,
@@ -82,6 +84,7 @@ function pointerLoweringPlan(
       (selected) => source.documents.forFile(selected).identity,
     ),
     createMemoryArrayPlan(source, program),
+    createMemoryReferencePlan(source, program, names),
   );
 }
 

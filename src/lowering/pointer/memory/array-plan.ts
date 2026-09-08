@@ -10,6 +10,7 @@ import type { TargetProgramIndex } from "../../program-index.js";
 import { PointerLoweringError } from "../diagnostic.js";
 import { scalarMemoryLayout } from "./layout.js";
 import type { ScalarMemoryLayout } from "./layout.js";
+import { memoryABIKey } from "./identity.js";
 
 export interface MemoryArrayPlan {
   owns(source: TargetSourceProgram): boolean;
@@ -92,7 +93,5 @@ export function createMemoryArrayPlan(source: TargetSourceProgram, program: Targ
 function sameLayout(left: ScalarMemoryLayout, right: ScalarMemoryLayout): boolean {
   return left.runtimeFactory === right.runtimeFactory && left.fact.byteSize === right.fact.byteSize &&
     left.fact.byteAlignment === right.fact.byteAlignment && left.fact.stride === right.fact.stride &&
-    left.fact.dataLayout.fingerprint === right.fact.dataLayout.fingerprint &&
-    left.fact.dataLayout.byteOrder === right.fact.dataLayout.byteOrder &&
-    left.fact.dataLayout.addressWidth === right.fact.dataLayout.addressWidth;
+    memoryABIKey(left.fact.dataLayout) === memoryABIKey(right.fact.dataLayout);
 }

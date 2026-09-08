@@ -53,6 +53,20 @@ rather than a whole-record refresh. Integer-record support
 does not certify pointer leaves, descriptors, reference-record codecs or a
 containing allocation inferred from a standalone property location.
 
+Managed-reference words require exact pointer facts and a closed typed codec
+domain. The selected outer type must itself be a pointer; a record containing
+a pointer is not a pointer word. Opaque relocation tokens may preserve pointer values and complete-word
+copies; they must not masquerade as native address integers or pointer bits.
+Source-core owns cross-file memory-domain identity. Raw conversions consume
+`selectTsonicRawLocationOperation(...).memoryType`; independently authored
+layouts share a codec only when `readTsonicMemoryType(...).identity`, exact ABI
+provider identity, fingerprint, byte order, address width, size, alignment,
+stride and child layouts agree. Checker-local Type objects and target-derived
+primitive strings are not codec-domain keys. Never repeat source-core's
+pointee/layout agreement by comparing foreign checker types. The target still
+owns representation admission, static imports, cyclic initialization safety
+and exact alias preservation; missing shared evidence fails before printing.
+
 Scalar width selects the codec, not the alignment or stride. Those dimensions
 come independently from the finalized source layout. For example,
 `memoryLayout<uint64>(abi32, 8, 4, 8)` lowers to an eight-byte codec with

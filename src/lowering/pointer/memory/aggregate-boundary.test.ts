@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectTsonicRawLocationOperation } from "@tsonic/source-core/facts";
-import { canonicalTypeScriptOptimizationProfile } from "../../profile.js";
-import { prepareTypeScriptLowering } from "../../transform.js";
+import { readTsonicMemoryType, selectTsonicRawLocationOperation } from "@tsonic/source-core/facts";
 import { countCallsNamed, visit } from "../pointer.test-support.js";
 import { lowerMemoryFixture, memoryFixture } from "./memory.test-support.js";
 
@@ -12,7 +10,6 @@ const cases = [
     size: 8,
     offsets: [0, 4],
     childSizes: [4, 4],
-    executable: true,
     source: `
       import { memoryField } from "@tsonic/core/lang.js";
       const Pair = struct({ First: field<uint32>(), Second: field<uint32>() });
@@ -30,7 +27,6 @@ const cases = [
     size: 8,
     offsets: [0],
     childSizes: [8],
-    executable: false,
     source: `
       import { memoryField } from "@tsonic/core/lang.js";
       const Header = struct({ data: field<Pointer<uint32> | undefined>() });
@@ -60,23 +56,12 @@ for (const selectedCase of cases) {
       assert.equal(selected.layout.byteSize, selectedCase.size);
       assert.deepEqual(selected.layout.fields.map(field => field.byteOffset), selectedCase.offsets);
       assert.deepEqual(selected.layout.fields.map(field => field.fieldLayout.byteSize), selectedCase.childSizes);
-      assert.equal(source.semantics.forNode(node).types.isIdentical(
-        selected.layout.sourceType, selected.operation.pointeeType,
-      ), true);
+      assert.equal(readTsonicMemoryType(source.sourceFacts, selected.layout.call)?.identity, selected.memoryType);
     });
     assert.equal(conversions, 1);
-    if (selectedCase.executable) {
-      const lowered = lowerMemoryFixture(fixture);
-      assert.equal(countCallsNamed(source, lowered.sourceFile, "recordLayout"), 1);
-      assert.equal(countCallsNamed(source, lowered.sourceFile, "recordField"), 2);
-      assert.equal(countCallsNamed(source, lowered.sourceFile, "memoryField"), 0);
-      return;
-    }
-    const result = prepareTypeScriptLowering(source, source.navigation.sourceFiles,
-      canonicalTypeScriptOptimizationProfile(), file => source.documents.forFile(file).identity);
-    assert.equal(result.kind, "rejected");
-    if (result.kind !== "rejected") return;
-    assert.equal(result.failures.length, 1);
-    assert.match(result.failures[0]?.message ?? "", /memory layout.*(?:scalar|integer)/u);
+    const lowered = lowerMemoryFixture(fixture);
+    assert.equal(countCallsNamed(source, lowered.sourceFile, "recordLayout"), 1);
+    assert.equal(countCallsNamed(source, lowered.sourceFile, "recordField"), selectedCase.offsets.length);
+    assert.equal(countCallsNamed(source, lowered.sourceFile, "memoryField"), 0);
   });
 }

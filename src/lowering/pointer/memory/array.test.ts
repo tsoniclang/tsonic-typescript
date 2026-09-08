@@ -65,14 +65,27 @@ test("array variable replacement is not mistaken for fixed allocation storage", 
   assert.throws(() => lowerMemoryFixture(fixture), /non-reassigned/);
 });
 
-test("conflicting array element layouts reject rather than depend on conversion order", () => {
-  const fixture = memoryFixture(`
+test("conflicting array element domains reject at shared source selection", () => {
+  assert.throws(() => memoryFixture(`
     const word = memoryLayout<uint32>(abi, 4, 4, 4);
     const signed = memoryLayout<int32>(abi, 4, 4, 4);
     export function run(): void {
       const values: uint32[] = [1, 2];
       const first = toRawPointer(addressOf(values[0]), word);
       const second = toRawPointer(addressOf(values[1]), signed);
+      keepAlive(first); keepAlive(second);
+    }
+  `), /same exact closed memory type and marker domain/);
+});
+
+test("conflicting array element dimensions reject rather than depend on conversion order", () => {
+  const fixture = memoryFixture(`
+    const word = memoryLayout<uint32>(abi, 4, 4, 4);
+    const padded = memoryLayout<uint32>(abi, 4, 4, 8);
+    export function run(): void {
+      const values: uint32[] = [1, 2];
+      const first = toRawPointer(addressOf(values[0]), word);
+      const second = toRawPointer(addressOf(values[1]), padded);
       keepAlive(first); keepAlive(second);
     }
   `);

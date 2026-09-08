@@ -2,11 +2,13 @@ import { fieldFactKey, structFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
 import { KindPropertySignature } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "@tsonic/source-core/facts";
+import { readTsonicMemoryType } from "@tsonic/source-core/facts";
+import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicMemoryTypeIdentity } from "@tsonic/source-core/facts";
 import type { GeneratedBindingName, SourceFileGeneratedNames } from "../../generated-names.js";
 import { PointerLoweringError } from "../diagnostic.js";
 import { scalarMemoryLayout } from "./layout.js";
 import type { ScalarMemoryLayout } from "./layout.js";
+import type { MemoryReferencePlan, ReferenceMemoryLayout } from "./references/plan.js";
 
 export interface RecordMemoryField {
   readonly fact: TsonicMemoryFieldLayoutFact;
@@ -22,9 +24,9 @@ export interface RecordMemoryLayout {
   readonly accessBinding: GeneratedBindingName;
 }
 
-export type ExecutableMemoryLayout = ScalarMemoryLayout | RecordMemoryLayout;
+export type ExecutableMemoryLayout = ScalarMemoryLayout | RecordMemoryLayout | ReferenceMemoryLayout;
 
-export function createExecutableMemoryLayouts(source: TargetSourceProgram, names: SourceFileGeneratedNames) {
+export function createExecutableMemoryLayouts(source: TargetSourceProgram, names: SourceFileGeneratedNames, references: MemoryReferencePlan) {
   const layouts = new Map<Node, ExecutableMemoryLayout>();
   const fields = new Map<Node, RecordMemoryField>();
 
@@ -32,6 +34,11 @@ export function createExecutableMemoryLayouts(source: TargetSourceProgram, names
     const previous = fields.get(fact.call);
     if (previous !== undefined) return previous;
     const semantics = source.semantics.forNode(fact.call);
+    const fieldType = readTsonicMemoryType(source.sourceFacts, fact.call);
+    const childType = readTsonicMemoryType(source.sourceFacts, fact.fieldLayout.call);
+    if (fieldType === undefined || childType === undefined || fieldType.identity !== childType.identity) {
+      throw new PointerLoweringError("record field codec requires its exact shared child memory-type identity");
+    }
     const properties = semantics.types.propertyInfos(fact.sourceType);
     const matching = properties.filter(property => property.symbol === fact.selectedSymbol ||
       fact.selectedSymbol !== undefined && property.rootSymbols.includes(fact.selectedSymbol) ||
@@ -53,11 +60,16 @@ export function createExecutableMemoryLayouts(source: TargetSourceProgram, names
     return result;
   }
 
-  function layout(fact: TsonicMemoryLayoutFact): ExecutableMemoryLayout {
+  function layout(fact: TsonicMemoryLayoutFact, expectedType?: TsonicMemoryTypeIdentity): ExecutableMemoryLayout {
+    const memoryType = readTsonicMemoryType(source.sourceFacts, fact.call);
+    if (memoryType === undefined || memoryType.sourceType !== fact.sourceType ||
+        expectedType !== undefined && memoryType.identity !== expectedType) {
+      throw new PointerLoweringError("memory codec requires its exact finalized memory-type, ABI and child-layout contract");
+    }
     const previous = layouts.get(fact.call);
     if (previous !== undefined) return previous;
     if (fact.fields.length === 0) {
-      const scalar = scalarMemoryLayout(source, fact);
+      const scalar = references.forLayout(fact) ?? scalarMemoryLayout(source, fact);
       layouts.set(fact.call, scalar);
       return scalar;
     }
@@ -92,7 +104,6 @@ export function createExecutableMemoryLayouts(source: TargetSourceProgram, names
     }
     const selected = fact.fields.map(field);
     if (new Set(selected.map(entry => entry.key)).size !== properties.length ||
-        selected.some(entry => !semantics.types.isIdentical(entry.fact.sourceType, fact.sourceType)) ||
         schemas.some(schema => schema.fields?.length !== selected.length ||
           schema.fields.some(member => member.readonly || !selected.some(entry => entry.key === member.name)))) {
       throw new PointerLoweringError("record memory field set does not exactly match its selected type");

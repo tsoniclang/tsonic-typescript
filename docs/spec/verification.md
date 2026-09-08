@@ -80,6 +80,19 @@ Prove that a field view can address a sibling through its retained allocation.
 A deterministic wide-record control must distinguish narrow access from
 serializing every field; output cardinality is not a construction-cost proof.
 
+Reference-word proofs must distinguish replacing a pointer field from mutating
+its pointee, retain copied references and nil, and reject wrong-domain decoding
+and partial/native-bit observations. Repeated descriptors must share only an
+exact domain. Independently authored descriptors in different files require
+strict printed execution, including import cycles and name collisions; a
+single-file success or checker-local Type equality does not certify that join.
+Masking the shared memory-type fact must fail before printing. Equivalent
+imported/aliased layouts must reuse a codec; signed, unsigned, nested and closed
+generic pointer domains must remain distinct where source-core distinguishes
+them. A shared source domain never erases ABI or child-layout differences.
+Reject a nullable record that merely contains a pointer, and reject `null`
+where the selected executable nil representation requires `undefined`.
+
 Closed-array proof must include every independently obtained element address,
 alias equality and hashes observed before conversion, cross-element byte writes,
 retained padding, both byte orders, and a work-count control comparing small and
