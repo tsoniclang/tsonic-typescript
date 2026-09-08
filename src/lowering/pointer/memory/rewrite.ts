@@ -10,6 +10,8 @@ import { runtimeCall, runtimeType, requiredRuntimeNode } from "../runtime-ast.js
 import { PointerLoweringError } from "../diagnostic.js";
 import type { MemoryRewrite } from "./plan.js";
 import type { ScalarMemoryLayout } from "./layout.js";
+import { rewriteRecordField, rewriteRecordLayout } from "./record-ast.js";
+import { rewriteRecordSchema } from "./record-schema-ast.js";
 
 export function runtimeMemoryLayout(factory: NodeFactory, layout: ScalarMemoryLayout, runtimeAlias: GeneratedBindingName): Node {
   return runtimeCall(factory, runtimeAlias, layout.runtimeFactory, [], [
@@ -20,6 +22,7 @@ export function runtimeMemoryLayout(factory: NodeFactory, layout: ScalarMemoryLa
 }
 
 export function rewriteMemoryNode(factory: NodeFactory, selected: MemoryRewrite, updated: Node, runtimeAlias: GeneratedBindingName): Node {
+  if (selected.kind === "record-schema" || selected.kind === "record-schema-reference") return rewriteRecordSchema(factory, selected, updated);
   if (selected.kind === "abi-type") return requiredRuntimeNode(NewKeywordTypeNode(factory, KindUndefinedKeyword), "erased closed ABI alias type");
   if (selected.kind === "layout-type") {
     const reference = AsTypeReferenceNode(updated);
@@ -32,8 +35,10 @@ export function rewriteMemoryNode(factory: NodeFactory, selected: MemoryRewrite,
   if (call === undefined) throw new PointerLoweringError("memory operation lost its call node");
   const args = call.Arguments?.Nodes ?? [];
   if (selected.kind === "layout") {
-    return runtimeMemoryLayout(factory, selected.layout, runtimeAlias);
+    return selected.layout.kind === "record" ? rewriteRecordLayout(factory, selected.layout, updated, runtimeAlias) :
+      runtimeMemoryLayout(factory, selected.layout, runtimeAlias);
   }
+  if (selected.kind === "field") return rewriteRecordField(factory, selected.field, updated, runtimeAlias);
   if (selected.kind === "query") return requiredRuntimeNode(NewNumericLiteral(factory, String(selected.value), 0), "exact layout query");
   const first = args[0];
   if (first === undefined) throw new PointerLoweringError("memory operation lost its first operand");

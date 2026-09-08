@@ -10,7 +10,7 @@ export function pointerLoweringPlanUsesRuntime(
   plan: PointerLoweringPlan,
 ): boolean {
   if ([...plan.memory.rewrites.values()].some((rewrite) =>
-    rewrite.kind === "layout" || rewrite.kind === "layout-type" || rewrite.kind === "raw")) return true;
+    rewrite.kind === "layout" || rewrite.kind === "field" || rewrite.kind === "layout-type" || rewrite.kind === "raw")) return true;
   if (plan.rawPointerOperations.size !== 0 || plan.rawPointerTypes.size !== 0) {
     return true;
   }

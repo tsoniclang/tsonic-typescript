@@ -5,6 +5,7 @@ import type { TsonicMemoryLayoutFact } from "@tsonic/source-core/facts";
 import { PointerLoweringError } from "../diagnostic.js";
 
 export interface ScalarMemoryLayout {
+  readonly kind: "scalar";
   readonly fact: TsonicMemoryLayoutFact;
   readonly runtimeFactory: keyof typeof import("@tsonic/typescript-runtime");
 }
@@ -32,7 +33,7 @@ export function scalarMemoryLayout(source: TargetSourceProgram, fact: TsonicMemo
     fact.byteSize !== selected.bytes) {
     throw new PointerLoweringError("memory layout does not match an exact supported integer storage codec");
   }
-  return Object.freeze({ fact, runtimeFactory: selected.factory });
+  return Object.freeze({ kind: "scalar", fact, runtimeFactory: selected.factory });
 }
 
 function scalarCodec(primitive: SourcePrimitiveFact): { readonly bytes: number; readonly factory: keyof typeof import("@tsonic/typescript-runtime") } | undefined {

@@ -63,10 +63,22 @@ produces 1793).
 Delete a selected call's fact and require rejection before printing. Prove
 same-spelled ordinary calls are untouched; closed immutable ABI aliases lower
 but observable ABI comparisons cannot be erased. Unsupported native addresses,
-aggregate storage, unproven scalar domains, and mismatched scalar dimensions
+unproven aggregate storage, unproven scalar domains, and mismatched scalar dimensions
 must fail instead of acquiring an approximate codec. Inspect printed output,
 strict-typecheck it, and execute it under both canonical and optimized pointer
 profiles. A scalar proof never certifies whole-allocation or aggregate views.
+
+Record proofs require exact schema/field facts, complete mutable field coverage,
+and strict printed execution. Exercise nested records, aliases acquired before
+raw conversion, record and zero-offset-field raw equality, typed-root hashing,
+field addresses obtained through independent record views, padding, both byte
+orders, conflicting layouts, and generated-name collisions. Delete the schema
+fact and require rejection; a plain object type, missing field, readonly field,
+index signature or schema used as a runtime value must not gain a byte codec.
+These proofs do not certify pointer-bearing fields or descriptor transport.
+Prove that a field view can address a sibling through its retained allocation.
+A deterministic wide-record control must distinguish narrow access from
+serializing every field; output cardinality is not a construction-cost proof.
 
 Closed-array proof must include every independently obtained element address,
 alias equality and hashes observed before conversion, cross-element byte writes,

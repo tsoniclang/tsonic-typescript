@@ -3,8 +3,8 @@ import test from "node:test";
 import { selectTsonicRawLocationOperation } from "@tsonic/source-core/facts";
 import { canonicalTypeScriptOptimizationProfile } from "../../profile.js";
 import { prepareTypeScriptLowering } from "../../transform.js";
-import { visit } from "../pointer.test-support.js";
-import { memoryFixture } from "./memory.test-support.js";
+import { countCallsNamed, visit } from "../pointer.test-support.js";
+import { lowerMemoryFixture, memoryFixture } from "./memory.test-support.js";
 
 const cases = [
   {
@@ -12,9 +12,11 @@ const cases = [
     size: 8,
     offsets: [0, 4],
     childSizes: [4, 4],
+    executable: true,
     source: `
       import { memoryField } from "@tsonic/core/lang.js";
-      type Pair = { First: uint32; Second: uint32 };
+      const Pair = struct({ First: field<uint32>(), Second: field<uint32>() });
+      type Pair = typeof Pair;
       const word = memoryLayout<uint32>(abi, 4, 4, 4);
       const layout = memoryLayout<Pair>(abi, 8, 4, 8,
         memoryField((pair: Pair) => pair.First, 0, 4, word),
@@ -28,9 +30,11 @@ const cases = [
     size: 8,
     offsets: [0],
     childSizes: [8],
+    executable: false,
     source: `
       import { memoryField } from "@tsonic/core/lang.js";
-      type Header = { data: Pointer<uint32> | undefined };
+      const Header = struct({ data: field<Pointer<uint32> | undefined>() });
+      type Header = typeof Header;
       const address = memoryLayout<Pointer<uint32> | undefined>(abi, 8, 8, 8);
       const layout = memoryLayout<Header>(abi, 8, 8, 8,
         memoryField((header: Header) => header.data, 0, 8, address));
@@ -41,7 +45,7 @@ const cases = [
 ];
 
 for (const selectedCase of cases) {
-  test(`${selectedCase.name} has complete shared evidence but no scalar target representation`, () => {
+  test(`${selectedCase.name} consumes complete shared evidence at its representation owner`, () => {
     const fixture = memoryFixture(selectedCase.source);
     const source = fixture.source;
     let conversions = 0;
@@ -61,6 +65,13 @@ for (const selectedCase of cases) {
       ), true);
     });
     assert.equal(conversions, 1);
+    if (selectedCase.executable) {
+      const lowered = lowerMemoryFixture(fixture);
+      assert.equal(countCallsNamed(source, lowered.sourceFile, "recordLayout"), 1);
+      assert.equal(countCallsNamed(source, lowered.sourceFile, "recordField"), 2);
+      assert.equal(countCallsNamed(source, lowered.sourceFile, "memoryField"), 0);
+      return;
+    }
     const result = prepareTypeScriptLowering(source, source.navigation.sourceFiles,
       canonicalTypeScriptOptimizationProfile(), file => source.documents.forFile(file).identity);
     assert.equal(result.kind, "rejected");

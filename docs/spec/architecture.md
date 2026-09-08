@@ -32,6 +32,27 @@ storage observation has not been proved equivalent. All selected layout,
 ABI-token, and memory-operation uses have an explicit lowering or diagnostic;
 dropping an import is never sufficient semantic consumption.
 
+An executable record additionally requires finalized `struct`/`field` evidence
+and complete mutable data-property coverage. Each selected field declaration
+must join its exact schema, property type and child layout. A plain reference
+record with matching offsets is not sufficient. The target consumes a
+standalone immutable, type-only schema as a private type literal, rewrites its
+local type queries and retains the authored public type alias. Runtime uses of
+the schema are rejected rather than silently erased. Same-spelled ordinary
+functions are unaffected.
+
+Record layouts generate statically typed field lenses and a live accessor view;
+the runtime never discovers fields by reflection. Raw writes mutate existing
+record fields in place, including nested records, so pre-existing field
+locations remain live. Selected byte order, padding, field identity and typed
+root identity survive independently obtained aliases. Record codecs are
+demand-driven and recursive over admitted child codecs. Field addresses
+obtained through a raw record view retain its containing allocation. Narrow
+byte accesses select only intersected fields, with logarithmic index lookup
+rather than a whole-record refresh. Integer-record support
+does not certify pointer leaves, descriptors, reference-record codecs or a
+containing allocation inferred from a standalone property location.
+
 Scalar width selects the codec, not the alignment or stride. Those dimensions
 come independently from the finalized source layout. For example,
 `memoryLayout<uint64>(abi32, 8, 4, 8)` lowers to an eight-byte codec with

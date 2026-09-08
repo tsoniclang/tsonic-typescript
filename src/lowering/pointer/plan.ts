@@ -135,7 +135,7 @@ export function createPointerLoweringPlan(
     );
   }
   const nodes = program.nodesFor(sourceFile);
-  const memory = createMemoryLoweringPlan(source, sourceFile, nodes);
+  const memory = createMemoryLoweringPlan(source, sourceFile, nodes, generatedNames);
   const operations = new Map<Node, PointerOperationFact>();
   const pointerTypes = new Set<Node>();
   const rawPointerOperations = new Map<Node, RawPointerOperationFact>();
@@ -147,7 +147,7 @@ export function createPointerLoweringPlan(
     Node,
     ProjectedPropertyLocationFusion
   >();
-  let usesRuntimeValue = [...memory.rewrites.values()].some((rewrite) => rewrite.kind === "layout" || rewrite.kind === "raw");
+  let usesRuntimeValue = [...memory.rewrites.values()].some((rewrite) => rewrite.kind === "layout" || rewrite.kind === "field" || rewrite.kind === "raw");
 
   for (const node of nodes) {
     const directObjectReplacement = flowPlan?.directObjectReplacementFor(node);

@@ -9,13 +9,18 @@ import {
 import type { TsonicRawMemoryOperationFact, TsonicKeepAliveFact } from "@tsonic/source-core/facts";
 import { PointerLoweringError } from "../diagnostic.js";
 import { memoryProviderDeclaration } from "./identity.js";
-import { scalarMemoryLayout } from "./layout.js";
-import type { ScalarMemoryLayout } from "./layout.js";
+import { createExecutableMemoryLayouts } from "./record-plan.js";
+import type { ExecutableMemoryLayout, RecordMemoryField } from "./record-plan.js";
+import type { SourceFileGeneratedNames } from "../../generated-names.js";
+import { planRecordSchemas } from "./record-schema.js";
+import type { RecordSchemaRewrite } from "./record-schema.js";
 import { validateRawMemoryCall, validateKeepAliveCall } from "./operation-contract.js";
 import { planABIOperandUses } from "./abi-uses.js";
 
 export type MemoryRewrite =
-  | { readonly kind: "layout"; readonly layout: ScalarMemoryLayout }
+  | RecordSchemaRewrite
+  | { readonly kind: "layout"; readonly layout: ExecutableMemoryLayout }
+  | { readonly kind: "field"; readonly field: RecordMemoryField }
   | { readonly kind: "raw"; readonly fact: TsonicRawMemoryOperationFact }
   | { readonly kind: "keep-alive"; readonly fact: TsonicKeepAliveFact }
   | { readonly kind: "query"; readonly value: number }
@@ -32,9 +37,12 @@ export function createMemoryLoweringPlan(
   source: TargetSourceProgram,
   sourceFile: SourceFile,
   nodes: readonly Node[],
+  names: SourceFileGeneratedNames,
 ): MemoryLoweringPlan {
-  const rewrites = new Map<Node, MemoryRewrite>();
-  const removableDeclarations = new Set<Node>();
+  const executable = createExecutableMemoryLayouts(source, names);
+  const schemas = planRecordSchemas(source, nodes, names);
+  const rewrites = new Map<Node, MemoryRewrite>(schemas.rewrites);
+  const removableDeclarations = new Set<Node>(schemas.declarations);
   const consumedOperands = new Set<Node>();
   const importedMemory = nodes.some((node) => source.ast.is.IsImportSpecifier(node) && memoryProviderDeclaration(source, node) !== undefined);
   const namespaceImports = nodes.some((node) => source.ast.is.IsNamespaceImport(node));
@@ -65,7 +73,7 @@ export function createMemoryLoweringPlan(
         if (!source.semantics.forNode(node).types.isIdentical(selection.layout.sourceType, raw.pointeeType)) {
           throw new PointerLoweringError("raw conversion has no exact matching pointee layout");
         }
-        scalarMemoryLayout(source, selection.layout);
+        executable.layout(selection.layout);
       } else {
         if (readTsonicDataLayout(source.sourceFacts, raw.dataLayoutExpression) === undefined) {
           throw new PointerLoweringError("raw byte offset is missing its selected source ABI fact");
@@ -74,7 +82,7 @@ export function createMemoryLoweringPlan(
       }
       rewrites.set(node, { kind: "raw", fact: raw });
     } else if (layout?.call === node) {
-      rewrites.set(node, { kind: "layout", layout: scalarMemoryLayout(source, layout) });
+      rewrites.set(node, { kind: "layout", layout: executable.layout(layout) });
       consumedOperands.add(layout.dataLayoutExpression);
     } else if (query !== undefined) {
       const observation = resolveTsonicMemoryLayoutObservation(source.sourceFacts, node);
@@ -85,8 +93,10 @@ export function createMemoryLoweringPlan(
     } else if (keepAlive !== undefined) {
       validateKeepAliveCall(source, selected, keepAlive);
       rewrites.set(node, { kind: "keep-alive", fact: keepAlive });
+    } else if (field !== undefined) {
+      rewrites.set(node, { kind: "field", field: executable.field(field) });
     } else {
-      throw new PointerLoweringError("aggregate memory fields require an exact executable aggregate storage representation");
+      throw new PointerLoweringError("memory operation has no executable selected fact");
     }
     for (const argument of source.ast.arguments(node)) if (argument !== undefined) consumedOperands.add(argument);
   }
