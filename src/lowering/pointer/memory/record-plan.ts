@@ -68,6 +68,9 @@ export function createExecutableMemoryLayouts(source: TargetSourceProgram, names
     }
     const previous = layouts.get(fact.call);
     if (previous !== undefined) return previous;
+    if (fact.kind === "array") {
+      throw new PointerLoweringError("physical inline-array storage has no executable TypeScript memory codec");
+    }
     if (fact.fields.length === 0) {
       const leaf = references.forLayout(fact) ?? leafMemoryLayout(source, fact);
       layouts.set(fact.call, leaf);

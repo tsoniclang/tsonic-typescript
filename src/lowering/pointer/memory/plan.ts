@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import {
   readTsonicDataLayout, readTsonicMemoryLayout, readTsonicMemoryLayoutQuery,
   readTsonicMemoryFieldLayout, readTsonicRawMemoryOperation, readTsonicKeepAlive,
+  readTsonicMemoryType,
   selectTsonicRawLocationOperation,
   resolveTsonicMemoryLayoutObservation,
 } from "@tsonic/source-core/facts";
@@ -14,9 +15,11 @@ import type { ExecutableMemoryLayout, RecordMemoryField } from "./record-plan.js
 import type { SourceFileGeneratedNames } from "../../generated-names.js";
 import { planRecordSchemas } from "./record-schema.js";
 import type { RecordSchemaRewrite } from "./record-schema.js";
-import type { MemoryReferencePlan, ReferenceMemoryLayout } from "./references/plan.js";
+import type { ReferenceMemoryLayout } from "./references/plan.js";
+import type { MemoryProgramPlan } from "./program-plan.js";
 import { validateRawMemoryCall, validateKeepAliveCall } from "./operation-contract.js";
 import { planABIOperandUses } from "./abi-uses.js";
+import { metadataOnlyTypeImports } from "./metadata-imports.js";
 
 export type MemoryRewrite =
   | RecordSchemaRewrite
@@ -25,6 +28,8 @@ export type MemoryRewrite =
   | { readonly kind: "raw"; readonly fact: TsonicRawMemoryOperationFact }
   | { readonly kind: "keep-alive"; readonly fact: TsonicKeepAliveFact }
   | { readonly kind: "query"; readonly value: number }
+  | { readonly kind: "metadata-value" }
+  | { readonly kind: "metadata-type" }
   | { readonly kind: "layout-type" }
   | { readonly kind: "abi-type" }
   | { readonly kind: "abi-token" };
@@ -40,8 +45,9 @@ export function createMemoryLoweringPlan(
   sourceFile: SourceFile,
   nodes: readonly Node[],
   names: SourceFileGeneratedNames,
-  references: MemoryReferencePlan,
+  program: MemoryProgramPlan,
 ): MemoryLoweringPlan {
+  const { references, metadata } = program;
   if (!references.owns(source)) throw new PointerLoweringError("reference memory plan belongs to another checked program");
   references.validate(sourceFile);
   const referenceEntries = references.forFile(sourceFile);
@@ -85,7 +91,15 @@ export function createMemoryLoweringPlan(
       }
       rewrites.set(node, { kind: "raw", fact: raw });
     } else if (layout?.call === node) {
-      rewrites.set(node, { kind: "layout", layout: executable.layout(layout) });
+      const memoryType = readTsonicMemoryType(source.sourceFacts, node);
+      if (memoryType === undefined || memoryType.sourceType !== layout.sourceType) {
+        throw new PointerLoweringError("memory descriptor requires its exact finalized memory-type contract");
+      }
+      if (program.requiresCodec(node)) rewrites.set(node, { kind: "layout", layout: executable.layout(layout) });
+      else {
+        validateMetadataPlacement(source, node, program);
+        rewrites.set(node, { kind: "metadata-value" });
+      }
       consumedOperands.add(layout.dataLayoutExpression);
     } else if (query !== undefined) {
       const observation = resolveTsonicMemoryLayoutObservation(source.sourceFacts, node);
@@ -97,11 +111,22 @@ export function createMemoryLoweringPlan(
       validateKeepAliveCall(source, selected, keepAlive);
       rewrites.set(node, { kind: "keep-alive", fact: keepAlive });
     } else if (field !== undefined) {
-      rewrites.set(node, { kind: "field", field: executable.field(field) });
+      if (program.requiresCodec(node)) rewrites.set(node, { kind: "field", field: executable.field(field) });
+      else {
+        validateMetadataPlacement(source, node, program);
+        rewrites.set(node, { kind: "metadata-value" });
+      }
     } else {
       throw new PointerLoweringError("memory operation has no executable selected fact");
     }
     for (const argument of source.ast.arguments(node)) if (argument !== undefined) consumedOperands.add(argument);
+  }
+  for (const node of nodes) {
+    const declaration = metadata.declaration(node);
+    if (declaration === undefined || declaration.value.kind === "data-layout" || program.requiresCodec(declaration.value.fact.call)) continue;
+    if (declaration.issues.length !== 0) throw new PointerLoweringError(declaration.issues.map(issue => issue.reason).join("; "));
+    const annotation = source.ast.as.AsVariableDeclaration(node)?.Type;
+    if (annotation !== undefined) rewrites.set(annotation, { kind: "metadata-type" });
   }
   if (rewrites.size === 0 && !importedMemory) return Object.freeze({ rewrites, removableDeclarations, references: referenceEntries });
   const abiUses = planABIOperandUses(source, sourceFile, consumedOperands);
@@ -124,6 +149,7 @@ export function createMemoryLoweringPlan(
     if (source.ast.is.IsImportSpecifier(node)) {
       removableDeclarations.add(node);
     } else if (source.ast.is.IsTypeReferenceNode(node)) {
+      if (rewrites.get(node)?.kind === "metadata-type") continue;
       const parent = source.ast.parent(node);
       if (selected.exportId === "DataLayout" && parent !== undefined && abiUses.aliases.has(parent)) {
         rewrites.set(node, { kind: "abi-type" });
@@ -142,5 +168,15 @@ export function createMemoryLoweringPlan(
     }
   }
   if (source.ast.getSourceFile(sourceFile) !== sourceFile) throw new PointerLoweringError("memory planning received an invalid source owner");
+  for (const declaration of metadataOnlyTypeImports(source, nodes, rewrites)) removableDeclarations.add(declaration);
   return Object.freeze({ rewrites, removableDeclarations, references: referenceEntries });
+}
+
+function validateMetadataPlacement(source: TargetSourceProgram, node: Node, program: MemoryProgramPlan): void {
+  let parent = source.ast.parent(node);
+  while (parent !== undefined && source.ast.is.IsParenthesizedExpression(parent)) parent = source.ast.parent(parent);
+  if (parent !== undefined && (program.metadata.declaration(parent) !== undefined ||
+    source.ast.is.IsExpressionStatement(parent) || program.metadata.isCompileTimeExpression(parent) ||
+    readTsonicMemoryLayoutQuery(source.sourceFacts, parent) !== undefined)) return;
+  throw new PointerLoweringError("memory descriptor escapes its exact compile-time metadata uses");
 }

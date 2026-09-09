@@ -17,6 +17,27 @@ facts carry an exact unsigned 32/number or 64/bigint domain matching their
 selected ABI. This target validates that evidence before rejecting physical
 address execution; it never coerces a 64-bit address through number.
 
+Layout facts are a closed `value | array` graph. A value owns its declared
+fields; an array owns one selected element layout and an exact bigint extent
+with its authored number/bigint runtime base. Child stride is not whole-array
+stride. The target never infers element layout from a JavaScript numeric
+carrier, fabricates fields for indexes, or converts a large count to number.
+
+One program-level demand pass follows finalized raw-location selections to
+their layout children. Only those descriptors request executable codecs.
+Compile-time-only descriptors and field builders erase after their exact
+metadata-use check; layout observations consume the shared validated query.
+Consequently `sizeOf(memoryArrayLayout(abi, 0, 1, 0, empty, 9007199254740993n))`
+can emit `0` without allocating an array or building a memory codec. Type-only
+imports whose exact uses all disappear with metadata may disappear with them;
+ordinary public-signature uses remain. Runtime escapes of descriptors reject.
+
+A raw operation whose physical graph includes an inline array rejects at the
+codec owner before printing. Array metadata support is not an executable array
+codec, nor permission to choose a scalar, zero-sized-record or identity codec
+for an array. This target does not acquire a general JavaScript byte-memory
+emulator to accommodate native-target preservation.
+
 `toRawPointer(addressOf(count), layout)` retains writable storage. A matching
 `reinterpretRawPointer(raw, layout)` produces a view whose writes update that
 same storage. Byte offsets preserve exact integer values, byte order, bounds,

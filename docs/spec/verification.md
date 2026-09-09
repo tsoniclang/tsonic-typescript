@@ -1,5 +1,13 @@
 # TypeScript Target Verification
 
+Fixed-array memory proof separates metadata from execution: cover zero and
+large exact counts, nested record/array graphs, cross-file aliases, lost child
+facts, runtime descriptor escapes, and actual raw-array rejection. Removing a
+codec must be justified by exact lack of raw-storage demand, not by a favorable
+fixture. Keep an independently used child codec and ordinary type import as
+negative controls. Inspect and strictly check printed observation output;
+passing source selection alone does not certify target output.
+
 ## Focused Family Proof
 
 Each representation family begins with a failing source example and closes

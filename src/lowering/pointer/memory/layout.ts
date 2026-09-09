@@ -17,6 +17,9 @@ export interface IdentityMemoryLayout {
 }
 
 export function leafMemoryLayout(source: TargetSourceProgram, fact: TsonicMemoryLayoutFact): ScalarMemoryLayout | IdentityMemoryLayout {
+  if (fact.kind !== "value") {
+    throw new PointerLoweringError("an array layout cannot select a scalar or identity memory codec");
+  }
   const semantics = source.semantics.forNode(fact.call);
   if (semantics.types.isBooleanLike(fact.sourceType)) {
     if (fact.fields.length !== 0 || fact.byteSize !== 1) {

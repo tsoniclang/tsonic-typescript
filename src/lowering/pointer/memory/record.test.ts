@@ -36,6 +36,8 @@ for (const selected of [
       const word = memoryLayout<uint32>(abi, 4, 4, 4);
       export const layout = memoryLayout<Pair>(abi, 4, 4, 4,
         memoryField((value: Pair) => value.first, 0, 4, word));
+      declare const pointer: Pointer<Pair>;
+      export const raw = toRawPointer(pointer, layout);
     `);
     assert.throws(() => lowerMemoryFixture(fixture), selected.expected);
   });

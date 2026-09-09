@@ -13,6 +13,10 @@ for (const optimize of [false, true]) {
       export const flag = memoryLayout<Flag>(abi, 1, 1, 1);
       export const small = memoryLayout<Small>(abi, 4, 4, 4);
       export const large = memoryLayout<Large>(abi, 8, 4, 8);
+      declare const raw: RawPointer;
+      export const flagView = reinterpretRawPointer(raw, flag);
+      export const smallView = reinterpretRawPointer(raw, small);
+      export const largeView = reinterpretRawPointer(raw, large);
     `);
     const lowered = lowerMemoryFixture(fixture, optimize);
     for (const name of ["booleanLayout", "float32Layout", "float64Layout"]) {
@@ -31,6 +35,8 @@ for (const [name, declaration] of [
       import type { float32 } from "@tsonic/core/types.js";
       type Ordinary = number;
       export const layout = ${declaration};
+      declare const raw: RawPointer;
+      export const view = reinterpretRawPointer(raw, layout);
     `);
     assert.throws(() => lowerMemoryFixture(fixture), /memory layout/);
   });
@@ -44,6 +50,10 @@ for (const optimize of [false, true]) {
       export const numeric = memoryLayout<float32>(abi, 8, 8, 8);
       export const integral = memoryLayout<bigint>(abi, 8, 8, 8);
       export const empty = memoryLayout<Empty>(abi, 0, 1, 0);
+      declare const raw: RawPointer;
+      export const numericView = reinterpretRawPointer(raw, numeric);
+      export const integralView = reinterpretRawPointer(raw, integral);
+      export const emptyView = reinterpretRawPointer(raw, empty);
     `);
     const lowered = lowerMemoryFixture(fixture, optimize);
     assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "identityLayout"), 3);

@@ -12,6 +12,8 @@ export function memoryRuntimeImport(rewrite: MemoryRewrite): "none" | "type" | "
     case "record-schema":
     case "record-schema-reference":
     case "query":
+    case "metadata-value":
+    case "metadata-type":
     case "abi-type":
     case "abi-token":
       return "none";

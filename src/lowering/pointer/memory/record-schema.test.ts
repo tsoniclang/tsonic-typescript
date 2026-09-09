@@ -12,6 +12,8 @@ const word = memoryLayout<uint32>(abi, 4, 4, 4);
 import { memoryField } from "@tsonic/core/lang.js";
 export const layout = memoryLayout<Shape>(abi, 4, 4, 4,
   memoryField((value: Shape) => value.value, 0, 4, word));
+declare const raw: RawPointer;
+export const view = reinterpretRawPointer(raw, layout);
 `;
 
 for (const missing of [structFactKey, fieldFactKey]) {
@@ -63,6 +65,8 @@ for (const runtimeUse of [false, true]) {
       const word = memoryLayout<uint32>(abi, 4, 4, 4);
       export const layout = memoryLayout<Shape>(abi, 4, 4, 4,
         memoryField((value: Shape) => value.value, 0, 4, word));
+      declare const raw: RawPointer;
+      export const view = reinterpretRawPointer(raw, layout);
       ${runtimeUse ? "export const escaped = Shape.value;" : ""}
     `, undefined, {
       "/src/record.ts": `

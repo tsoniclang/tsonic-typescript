@@ -23,6 +23,10 @@ test("different pointer domains cannot share a typed codec", () => {
     export const first = memoryLayout<Pointer<uint32> | undefined>(abi, 8, 8, 8);
     export const second = memoryLayout<Pointer<int32> | undefined>(abi, 8, 8, 8);
     export const third = memoryLayout<RawPointer | undefined>(abi, 8, 8, 8);
+    declare const raw: RawPointer;
+    export const firstView = reinterpretRawPointer(raw, first);
+    export const secondView = reinterpretRawPointer(raw, second);
+    export const thirdView = reinterpretRawPointer(raw, third);
   `);
   const lowered = lowerMemoryFixture(fixture);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "referenceLayout"), 3);
@@ -52,6 +56,11 @@ test("closed generic and nested pointer domains retain their shared distinctions
     export const same = memoryLayout<Pointer<uint32> | undefined>(abi, 8, 8, 8);
     export const signed = memoryLayout<Link<int32>>(abi, 8, 8, 8);
     export const nested = memoryLayout<Pointer<Link<uint32>> | undefined>(abi, 8, 8, 8);
+    declare const raw: RawPointer;
+    export const firstView = reinterpretRawPointer(raw, first);
+    export const sameView = reinterpretRawPointer(raw, same);
+    export const signedView = reinterpretRawPointer(raw, signed);
+    export const nestedView = reinterpretRawPointer(raw, nested);
   `);
   const lowered = lowerMemoryFixture(fixture);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "referenceLayout"), 3);
@@ -65,7 +74,11 @@ test("open reference domains fail at shared source selection", () => {
 
 test("local reference types are not hoisted out of their authority", () => {
   const fixture = memoryFixture(`
-    function layout() { type Local = { value: number }; return memoryLayout<Pointer<Local> | undefined>(abi, 8, 8, 8); }
+    function view(raw: RawPointer) {
+      type Local = { value: number };
+      const layout = memoryLayout<Pointer<Local> | undefined>(abi, 8, 8, 8);
+      return reinterpretRawPointer(raw, layout);
+    }
   `);
   assert.throws(() => lowerMemoryFixture(fixture), /local declaration/);
 });
@@ -74,6 +87,8 @@ test("a nullable record containing a pointer is not itself a pointer word", () =
   const fixture = memoryFixture(`
     type Container = { pointer: Pointer<uint32> };
     export const layout = memoryLayout<Container | undefined>(abi, 8, 8, 8);
+    declare const raw: RawPointer;
+    export const view = reinterpretRawPointer(raw, layout);
   `);
   assert.throws(() => lowerMemoryFixture(fixture), /memory layout/);
 });
@@ -81,6 +96,8 @@ test("a nullable record containing a pointer is not itself a pointer word", () =
 test("null cannot silently become the undefined nil representation", () => {
   const fixture = memoryFixture(`
     export const layout = memoryLayout<Pointer<uint32> | null>(abi, 8, 8, 8);
+    declare const raw: RawPointer;
+    export const view = reinterpretRawPointer(raw, layout);
   `);
   assert.throws(() => lowerMemoryFixture(fixture), /closed nullable pointer domain/);
 });

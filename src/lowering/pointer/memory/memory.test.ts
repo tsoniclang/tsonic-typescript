@@ -111,7 +111,11 @@ for (const [name, expression] of [
   ["aggregate", "memoryLayout<{count:uint32}>(abi, 4, 4, 4)"],
 ]) {
   test(`unsupported ${name} cannot acquire a scalar codec`, () => {
-    const fixture = memoryFixture(`export const result = ${expression};`);
+    const fixture = memoryFixture(`
+      const layout = ${expression};
+      declare const raw: RawPointer;
+      export const result = reinterpretRawPointer(raw, layout);
+    `);
     assert.throws(() => lowerMemoryFixture(fixture), /memory layout/);
   });
 }

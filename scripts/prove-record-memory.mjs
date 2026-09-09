@@ -12,8 +12,8 @@ assert.ok(printer, "usage: node --preserve-symlinks scripts/prove-record-memory.
 const root = resolve(".temp/record-execution", `${Date.now()}-${process.pid}`);
 mkdirSync(root, { recursive: true });
 const sourceText = `
-import { memoryField } from "@tsonic/core/lang.js";
-import type { float32, float64 } from "@tsonic/core/types.js";
+import { memoryField, memoryArrayLayout } from "@tsonic/core/lang.js";
+import type { float32, float64, FixedArray } from "@tsonic/core/types.js";
 const Pair: {First: uint32; Second: uint32; Flag: boolean; Small: float32; Large: float64} =
   struct({ First: field<uint32>(), Second: field<uint32>(), Flag: field<boolean>(), Small: field<float32>(), Large: field<float64>() });
 type Pair = typeof Pair;
@@ -29,6 +29,11 @@ const layout = memoryLayout<Pair>(abi, 32, 8, 32,
   memoryField((pair: Pair) => pair.Flag, 12, 1, flagLayout),
   memoryField((pair: Pair) => pair.Small, 16, 4, smallLayout),
   memoryField((pair: Pair) => pair.Large, 24, 8, largeLayout));
+const array: MemoryLayout<FixedArray<Pair, 2>> = memoryArrayLayout(abi, 64, 8, 64, layout, 2);
+const matrix = memoryArrayLayout(abi, 192, 8, 192, array, 3);
+interface Empty {}
+const empty = memoryLayout<Empty>(abi, 0, 1, 0);
+const huge = memoryArrayLayout(abi, 0, 1, 0, empty, 9007199254740993n);
 const memoryAccess = 101;
 const fieldLayout = 103;
 const fieldValue = 107;
@@ -53,7 +58,8 @@ if (largeBytes !== undefined) storePointer(largeBytes, 0x4014000000000000n);
 export const result = [loadPointer(saved), view === undefined ? 0 : loadPointer(view).Second,
   equalPointer(second, saved), equalPointer(view, pair), equalRawPointer(raw, toRawPointer(first, word)),
   padding === undefined ? 0 : loadPointer(padding), memoryAccess, fieldLayout, fieldValue,
-  original.Flag, original.Small, original.Large];
+  original.Flag, original.Small, original.Large,
+  sizeOf(array), strideOf(matrix), sizeOf(huge), alignOf(huge)];
 `;
 const results = [];
 for (const order of ["little", "big"]) {
@@ -81,7 +87,7 @@ for (const order of ["little", "big"]) {
     assert.equal(checked.error, undefined);
     assert.equal(checked.status, 0, checked.stdout + checked.stderr);
     const executed = await import(pathToFileURL(resolve(root, "js", `${name}.js`)).href);
-    assert.deepEqual(executed.result, [23, 23, true, true, true, 79, 101, 103, 107, true, 2.5, 5]);
+    assert.deepEqual(executed.result, [23, 23, true, true, true, 79, 101, 103, 107, true, 2.5, 5, 64, 192, 0, 1]);
     results.push({ order, optimize, bytes: Buffer.byteLength(text), result: executed.result });
   }
 }
