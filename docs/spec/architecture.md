@@ -104,6 +104,11 @@ The selected Node representation uses ECMAScript's current-job kept-object
 rule; it is neither native pinning nor permission for foreign asynchronous
 use after that job. No generic marker erasure may drop this obligation.
 
+The memory owner classifies every rewrite's runtime demand exhaustively as
+none, type or value. Import creation and value/type import selection consume
+that same decision. A standalone lifetime call must import its executable
+runtime even when its file contains no pointer types, layouts or raw operations.
+
 TSTS owns source parsing, checking, exact nodes, marker selection, and
 finalized semantic facts. The TypeScript target consumes those identities and
 transforms the same TS-Go-contract AST. It does not parse source again, join by

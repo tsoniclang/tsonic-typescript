@@ -20,6 +20,7 @@ import type {
 import { validateAddressableStorage } from "./addressability.js";
 import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
+import { memoryRuntimeImport } from "./memory/runtime-import.js";
 import { requireCallTarget, validatePointerOperationFact } from "./operation-contract.js";
 import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 import {
@@ -150,7 +151,7 @@ export function createPointerLoweringPlan(
     Node,
     ProjectedPropertyLocationFusion
   >();
-  let usesRuntimeValue = [...memory.rewrites.values()].some((rewrite) => rewrite.kind === "layout" || rewrite.kind === "field" || rewrite.kind === "raw");
+  let usesRuntimeValue = [...memory.rewrites.values()].some(rewrite => memoryRuntimeImport(rewrite) === "value");
 
   for (const node of nodes) {
     const directObjectReplacement = flowPlan?.directObjectReplacementFor(node);

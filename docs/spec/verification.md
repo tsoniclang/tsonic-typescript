@@ -93,6 +93,10 @@ them. A shared source domain never erases ABI or child-layout differences.
 Reject a nullable record that merely contains a pointer, and reject `null`
 where the selected executable nil representation requires `undefined`.
 
+Lifetime proofs must include a file whose only selected operation is
+`keepAlive`: inspect a value-phase runtime import and strictly execute the
+printed file. Another pointer operation must not mask a missing import.
+
 Closed-array proof must include every independently obtained element address,
 alias equality and hashes observed before conversion, cross-element byte writes,
 retained padding, both byte orders, and a work-count control comparing small and
