@@ -10,7 +10,13 @@ export interface ScalarMemoryLayout {
   readonly runtimeFactory: keyof typeof import("@tsonic/typescript-runtime");
 }
 
-export function scalarMemoryLayout(source: TargetSourceProgram, fact: TsonicMemoryLayoutFact): ScalarMemoryLayout {
+export interface IdentityMemoryLayout {
+  readonly kind: "identity";
+  readonly fact: TsonicMemoryLayoutFact;
+  readonly domain: "number" | "bigint" | "zero";
+}
+
+export function leafMemoryLayout(source: TargetSourceProgram, fact: TsonicMemoryLayoutFact): ScalarMemoryLayout | IdentityMemoryLayout {
   const semantics = source.semantics.forNode(fact.call);
   if (semantics.types.isBooleanLike(fact.sourceType)) {
     if (fact.fields.length !== 0 || fact.byteSize !== 1) {
@@ -27,6 +33,12 @@ export function scalarMemoryLayout(source: TargetSourceProgram, fact: TsonicMemo
     if (primitive !== undefined) primitives.push(primitive);
   }
   const primitive = primitives[0];
+  if (primitive === undefined && fact.fields.length === 0) {
+    const domain = fact.byteSize === 0 ? "zero" :
+      semantics.types.isNumberLike(fact.sourceType) ? "number" :
+      semantics.types.isBigIntLike(fact.sourceType) ? "bigint" : undefined;
+    if (domain !== undefined) return Object.freeze({ kind: "identity", fact, domain });
+  }
   if (primitive === undefined || primitives.some((candidate) =>
     candidate.kind !== primitive.kind || candidate.runtimeBase !== primitive.runtimeBase ||
     candidate.width !== primitive.width || candidate.signed !== primitive.signed)) {

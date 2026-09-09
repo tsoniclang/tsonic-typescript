@@ -6,8 +6,8 @@ import { readTsonicMemoryType } from "@tsonic/source-core/facts";
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicMemoryTypeIdentity } from "@tsonic/source-core/facts";
 import type { GeneratedBindingName, SourceFileGeneratedNames } from "../../generated-names.js";
 import { PointerLoweringError } from "../diagnostic.js";
-import { scalarMemoryLayout } from "./layout.js";
-import type { ScalarMemoryLayout } from "./layout.js";
+import { leafMemoryLayout } from "./layout.js";
+import type { IdentityMemoryLayout, ScalarMemoryLayout } from "./layout.js";
 import type { MemoryReferencePlan, ReferenceMemoryLayout } from "./references/plan.js";
 
 export interface RecordMemoryField {
@@ -24,7 +24,7 @@ export interface RecordMemoryLayout {
   readonly accessBinding: GeneratedBindingName;
 }
 
-export type ExecutableMemoryLayout = ScalarMemoryLayout | RecordMemoryLayout | ReferenceMemoryLayout;
+export type ExecutableMemoryLayout = ScalarMemoryLayout | IdentityMemoryLayout | RecordMemoryLayout | ReferenceMemoryLayout;
 
 export function createExecutableMemoryLayouts(source: TargetSourceProgram, names: SourceFileGeneratedNames, references: MemoryReferencePlan) {
   const layouts = new Map<Node, ExecutableMemoryLayout>();
@@ -69,9 +69,9 @@ export function createExecutableMemoryLayouts(source: TargetSourceProgram, names
     const previous = layouts.get(fact.call);
     if (previous !== undefined) return previous;
     if (fact.fields.length === 0) {
-      const scalar = references.forLayout(fact) ?? scalarMemoryLayout(source, fact);
-      layouts.set(fact.call, scalar);
-      return scalar;
+      const leaf = references.forLayout(fact) ?? leafMemoryLayout(source, fact);
+      layouts.set(fact.call, leaf);
+      return leaf;
     }
     const semantics = source.semantics.forNode(fact.call);
     const subjects = new Set([...semantics.facts.typeSubjects(fact.sourceType),

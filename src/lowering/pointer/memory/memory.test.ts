@@ -107,7 +107,6 @@ test("scalar layouts follow finalized authored alias dependencies", () => {
 });
 
 for (const [name, expression] of [
-  ["unproven scalar domain", "memoryLayout<number>(abi, 4, 4, 4)"],
   ["mismatched size", "memoryLayout<uint32>(abi, 8, 8, 8)"],
   ["aggregate", "memoryLayout<{count:uint32}>(abi, 4, 4, 4)"],
 ]) {

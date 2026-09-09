@@ -63,8 +63,12 @@ produces 1793).
 Delete a selected call's fact and require rejection before printing. Prove
 same-spelled ordinary calls are untouched; closed immutable ABI aliases lower
 but observable ABI comparisons cannot be erased. Unsupported native addresses,
-unproven aggregate storage, unproven scalar domains, and mismatched scalar dimensions
-must fail instead of acquiring an approximate codec. Inspect printed output,
+unproven aggregate storage, conflicting primitive facts, and mismatched scalar dimensions
+must fail instead of acquiring an approximate codec. Ordinary number/bigint
+and zero-size leaf descriptors have identity-only proofs: independent addresses,
+nil and stable equality/hash, plus byte-read/write rejection without source
+mutation. A same-spelled scalar alias must not select a scalar byte codec.
+Inspect printed output,
 strict-typecheck it, and execute it under both canonical and optimized pointer
 profiles. A scalar proof never certifies whole-allocation or aggregate views.
 

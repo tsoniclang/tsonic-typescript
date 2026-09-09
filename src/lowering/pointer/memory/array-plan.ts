@@ -8,7 +8,7 @@ import {
 } from "@tsonic/source-core/facts";
 import type { TargetProgramIndex } from "../../program-index.js";
 import { PointerLoweringError } from "../diagnostic.js";
-import { scalarMemoryLayout } from "./layout.js";
+import { leafMemoryLayout } from "./layout.js";
 import type { ScalarMemoryLayout } from "./layout.js";
 import { memoryABIKey } from "./identity.js";
 
@@ -56,7 +56,8 @@ export function createMemoryArrayPlan(source: TargetSourceProgram, program: Targ
             throw new PointerLoweringError("raw array storage has an element write without a proven in-bounds index");
           }
         }
-        const layout = scalarMemoryLayout(source, selected.layout);
+        const layout = leafMemoryLayout(source, selected.layout);
+        if (layout.kind !== "scalar") throw new PointerLoweringError("array byte addressing requires an exact scalar codec, not an identity-only descriptor");
         for (const element of storage.elements) {
           const address = addresses.get(element.expression);
           if (address === undefined) continue;

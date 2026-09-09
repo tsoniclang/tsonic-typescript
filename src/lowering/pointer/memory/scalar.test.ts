@@ -25,8 +25,6 @@ for (const optimize of [false, true]) {
 for (const [name, declaration] of [
   ["boolean width", "memoryLayout<boolean>(abi, 4, 4, 4)"],
   ["float width", "memoryLayout<float32>(abi, 8, 8, 8)"],
-  ["ordinary number", "memoryLayout<number>(abi, 8, 8, 8)"],
-  ["same-spelled ordinary alias", "memoryLayout<Ordinary>(abi, 8, 8, 8)"],
 ]) {
   test(`scalar storage rejects ${name}`, () => {
     const fixture = memoryFixture(`
@@ -35,5 +33,23 @@ for (const [name, declaration] of [
       export const layout = ${declaration};
     `);
     assert.throws(() => lowerMemoryFixture(fixture), /memory layout/);
+  });
+}
+
+for (const optimize of [false, true]) {
+  test(`identity-only layouts do not invent a scalar codec, optimize=${optimize}`, () => {
+    const fixture = memoryFixture(`
+      type float32 = number;
+      class Empty {}
+      export const numeric = memoryLayout<float32>(abi, 8, 8, 8);
+      export const integral = memoryLayout<bigint>(abi, 8, 8, 8);
+      export const empty = memoryLayout<Empty>(abi, 0, 1, 0);
+    `);
+    const lowered = lowerMemoryFixture(fixture, optimize);
+    assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "identityLayout"), 3);
+    assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "float64Layout"), 0);
+    assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "float32Layout"), 0);
+    assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "int64Layout"), 0);
+    assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "memoryLayout"), 0);
   });
 }

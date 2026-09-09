@@ -5,19 +5,21 @@ import { canonicalTypeScriptOptimizationProfile } from "../../profile.js";
 import { prepareTypeScriptLowering } from "../../transform.js";
 import { memoryFixture } from "./memory.test-support.js";
 
-for (const missing of ["address ABI", "raw location layout", "query layout", "memory domain"] as const) {
+for (const missing of ["address ABI", "raw location layout", "query layout", "memory domain", "identity domain"] as const) {
   test(`missing ${missing} fails at finalized evidence consumption`, () => {
     const input = missing === "address ABI"
       ? `declare const raw: RawPointer; export const result = rawPointerToAddressInteger<uint64>(raw, abi);`
       : missing === "raw location layout"
         ? `const word = memoryLayout<uint32>(abi, 4, 4, 4); declare const raw: RawPointer; export const result = reinterpretRawPointer(raw, word);`
+        : missing === "identity domain"
+          ? `export const word = memoryLayout<number>(abi, 8, 8, 8);`
         : missing === "memory domain"
           ? `export const word = memoryLayout<Pointer<uint32> | undefined>(abi, 8, 8, 8);`
           : `const word = memoryLayout<uint32>(abi, 4, 4, 4); export const result = sizeOf(word);`;
     const fixture = memoryFixture(input);
     const facts = fixture.source.sourceFacts;
     const hidden = missing === "address ABI" ? tsonicDataLayoutFactKey
-      : missing === "memory domain" ? tsonicMemoryTypeFactKey : tsonicMemoryLayoutFactKey;
+      : missing === "memory domain" || missing === "identity domain" ? tsonicMemoryTypeFactKey : tsonicMemoryLayoutFactKey;
     const source = { ...fixture.source, sourceFacts: {
       ...facts,
       getFact<T>(subject: Parameters<typeof facts.getFact>[0], key: import("@tsonic/tsts").ExtensionFactKey<T>): T | undefined {

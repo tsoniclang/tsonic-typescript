@@ -24,8 +24,15 @@ and alignment. The one TypeScript runtime owns these locations and their
 equality/hash identity; the emitter does not create another pointer runtime.
 
 Managed memory is not physical native address emulation. Physical
-pointer/integer conversions and layouts lacking an exact executable
-representation fail before publication. Scalar codec support does not imply
+pointer/integer conversions and layouts lacking an exact target disposition
+fail before publication. Closed ordinary-number, ordinary-bigint and zero-size
+leaf domains may retain identity-only descriptors: dimensions, ABI, nil,
+address equality and hashing remain defined, but byte reads and writes throw
+before changing source storage. They never acquire a guessed scalar codec.
+Creating a managed address does not allocate byte scratch. Exact primitive
+facts still require their matching codec dimensions; conflicts are rejected.
+This target disposition does not change the canonical input consumed by native
+targets. Scalar codec support does not imply
 support for aggregate padding, floating NaN payloads, or arbitrary object
 projection. Pointer flow optimization must retain any component whose raw
 storage observation has not been proved equivalent. All selected layout,
