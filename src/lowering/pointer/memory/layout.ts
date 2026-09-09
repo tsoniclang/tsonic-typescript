@@ -12,6 +12,12 @@ export interface ScalarMemoryLayout {
 
 export function scalarMemoryLayout(source: TargetSourceProgram, fact: TsonicMemoryLayoutFact): ScalarMemoryLayout {
   const semantics = source.semantics.forNode(fact.call);
+  if (semantics.types.isBooleanLike(fact.sourceType)) {
+    if (fact.fields.length !== 0 || fact.byteSize !== 1) {
+      throw new PointerLoweringError("boolean memory layout requires exactly one byte and no fields");
+    }
+    return Object.freeze({ kind: "scalar", fact, runtimeFactory: "booleanLayout" });
+  }
   const subjects = fact.explicitTypeNode === undefined
     ? semantics.facts.typeSubjects(fact.sourceType)
     : semantics.facts.authoredTypeSubjects(fact.explicitTypeNode);
@@ -31,7 +37,7 @@ export function scalarMemoryLayout(source: TargetSourceProgram, fact: TsonicMemo
     !(primitive.runtimeBase === "number" ? semantics.types.isNumberLike(fact.sourceType) : semantics.types.isBigIntLike(fact.sourceType)) ||
     primitive.width !== selected.bytes * 8 ||
     fact.byteSize !== selected.bytes) {
-    throw new PointerLoweringError("memory layout does not match an exact supported integer storage codec");
+    throw new PointerLoweringError("memory layout does not match an exact supported scalar storage codec");
   }
   return Object.freeze({ kind: "scalar", fact, runtimeFactory: selected.factory });
 }
@@ -39,6 +45,8 @@ export function scalarMemoryLayout(source: TargetSourceProgram, fact: TsonicMemo
 function scalarCodec(primitive: SourcePrimitiveFact): { readonly bytes: number; readonly factory: keyof typeof import("@tsonic/typescript-runtime") } | undefined {
   if (primitive.runtimeBase === "number") {
     switch (primitive.kind) {
+      case "float32": return { bytes: 4, factory: "float32Layout" };
+      case "float64": return { bytes: 8, factory: "float64Layout" };
       case "int8": return { bytes: 1, factory: "int8Layout" };
       case "uint8": return { bytes: 1, factory: "uint8Layout" };
       case "int16": return { bytes: 2, factory: "int16Layout" };

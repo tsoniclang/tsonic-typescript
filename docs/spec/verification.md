@@ -100,6 +100,13 @@ large allocations. Reject escaped, resized, sparsely written, or reassigned
 arrays before printing. Exercise actual printed, strictly checked output; AST
 shape counts alone do not prove storage aliasing.
 
+Boolean and floating codecs require actual byte and alias proofs, not only
+factory names. Compare float32/float64 finite values, signed zeros, subnormals
+and infinities against independent IEEE constants and Go. Test both byte
+orders, float32 rounding and ABI32 alignment of a 64-bit field. Invalid boolean
+bytes and signaling/quiet NaN payloads must reject rather than coerce or
+normalize. Ordinary number aliases and wrong widths must fail admission.
+
 Address facts must retain the unsigned ABI32/number or ABI64/bigint domain,
 including values beyond number's exact-integer range. Removing the selected
 ABI must fail at evidence consumption, before the physical-address boundary.

@@ -75,6 +75,15 @@ calls receive byte order, alignment, and stride explicitly; no default or
 host-ABI inference is allowed. The declared pointee extent is not evidence of
 a containing array or struct allocation.
 
+Boolean storage requires the finalized boolean domain and a one-byte layout;
+only zero and one are valid encodings. Floating storage requires exact float32
+or float64 primitive facts, never an ordinary `number` or an alias spelling.
+The codecs preserve finite values, signed zero, subnormals and infinities,
+with explicit ABI byte order and float32 rounding. Encoding or decoding NaN
+through managed floating memory rejects explicitly: the existing NaN-payload
+boundary is not permission to silently normalize signaling or payload bits.
+This boundary does not change ordinary arithmetic or canonical source facts.
+
 A closed, dense, non-reassigned local array can supply its complete allocation
 when the shared pointer-origin and array-storage queries prove that extent.
 The target plans all addressed elements together: `addressOf(values[0])` and

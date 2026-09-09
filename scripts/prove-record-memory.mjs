@@ -13,17 +13,26 @@ const root = resolve(".temp/record-execution", `${Date.now()}-${process.pid}`);
 mkdirSync(root, { recursive: true });
 const sourceText = `
 import { memoryField } from "@tsonic/core/lang.js";
-const Pair: {First: uint32; Second: uint32} = struct({ First: field<uint32>(), Second: field<uint32>() });
+import type { float32, float64 } from "@tsonic/core/types.js";
+const Pair: {First: uint32; Second: uint32; Flag: boolean; Small: float32; Large: float64} =
+  struct({ First: field<uint32>(), Second: field<uint32>(), Flag: field<boolean>(), Small: field<float32>(), Large: field<float64>() });
 type Pair = typeof Pair;
 const word = memoryLayout<uint32>(abi, 4, 4, 4);
 const byte = memoryLayout<uint8>(abi, 1, 1, 1);
-const layout = memoryLayout<Pair>(abi, 12, 4, 12,
+const flagLayout = memoryLayout<boolean>(abi, 1, 1, 1);
+const smallLayout = memoryLayout<float32>(abi, 4, 4, 4);
+const largeLayout = memoryLayout<float64>(abi, 8, 8, 8);
+const wide = memoryLayout<uint64>(abi, 8, 8, 8);
+const layout = memoryLayout<Pair>(abi, 32, 8, 32,
   memoryField((pair: Pair) => pair.First, 0, 4, word),
-  memoryField((pair: Pair) => pair.Second, 8, 4, word));
+  memoryField((pair: Pair) => pair.Second, 8, 4, word),
+  memoryField((pair: Pair) => pair.Flag, 12, 1, flagLayout),
+  memoryField((pair: Pair) => pair.Small, 16, 4, smallLayout),
+  memoryField((pair: Pair) => pair.Large, 24, 8, largeLayout));
 const memoryAccess = 101;
 const fieldLayout = 103;
 const fieldValue = 107;
-const pair = allocatePointer<Pair>({ First: 1, Second: 2 });
+const pair = allocatePointer<Pair>({ First: 1, Second: 2, Flag: false, Small: 1.5, Large: 3 });
 const original = loadPointer(pair);
 const first = addressOf(original.First);
 const saved = addressOf(original.Second);
@@ -35,9 +44,16 @@ if (view !== undefined) loadPointer(view).Second = 17;
 const padding = reinterpretRawPointer(offsetRawPointer(raw, 5, abi), byte);
 if (padding !== undefined) storePointer(padding, 79);
 storePointer(saved, 23);
+const flagBytes = reinterpretRawPointer(offsetRawPointer(raw, 12, abi), byte);
+const smallBytes = reinterpretRawPointer(offsetRawPointer(raw, 16, abi), word);
+const largeBytes = reinterpretRawPointer(offsetRawPointer(raw, 24, abi), wide);
+if (flagBytes !== undefined) storePointer(flagBytes, 1);
+if (smallBytes !== undefined) storePointer(smallBytes, 0x40200000);
+if (largeBytes !== undefined) storePointer(largeBytes, 0x4014000000000000n);
 export const result = [loadPointer(saved), view === undefined ? 0 : loadPointer(view).Second,
   equalPointer(second, saved), equalPointer(view, pair), equalRawPointer(raw, toRawPointer(first, word)),
-  padding === undefined ? 0 : loadPointer(padding), memoryAccess, fieldLayout, fieldValue];
+  padding === undefined ? 0 : loadPointer(padding), memoryAccess, fieldLayout, fieldValue,
+  original.Flag, original.Small, original.Large];
 `;
 const results = [];
 for (const order of ["little", "big"]) {
@@ -65,7 +81,7 @@ for (const order of ["little", "big"]) {
     assert.equal(checked.error, undefined);
     assert.equal(checked.status, 0, checked.stdout + checked.stderr);
     const executed = await import(pathToFileURL(resolve(root, "js", `${name}.js`)).href);
-    assert.deepEqual(executed.result, [23, 23, true, true, true, 79, 101, 103, 107]);
+    assert.deepEqual(executed.result, [23, 23, true, true, true, 79, 101, 103, 107, true, 2.5, 5]);
     results.push({ order, optimize, bytes: Buffer.byteLength(text), result: executed.result });
   }
 }
