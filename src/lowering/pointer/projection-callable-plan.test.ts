@@ -3,8 +3,10 @@ import { test } from "node:test";
 
 import {
   AsCallExpression,
+  AsExpressionWithTypeArguments,
   IsArrowFunction,
   IsCallExpression,
+  IsExpressionWithTypeArguments,
 } from "@tsonic/tsts/target-ast";
 
 import { prepareTypeScriptLowering } from "../transform.js";
@@ -39,6 +41,54 @@ const projected = projectPointer<Storage, Box>(
 )!;
 export const result = hashPointer(projected);
 `;
+
+test("forwarding projections preserve explicit generic instantiation", () => {
+  const fixture = checkedPointerFixture(`
+    import type { Pointer } from "./markers.js";
+    import { bindPointer, hashPointer, projectPointer } from "./markers.js";
+    class Box<T> {
+      constructor(readonly storage: T) {}
+      static from<T>(value: T): Box<T> { return new Box(value); }
+      static to<T>(value: Box<T>): T { return value.storage; }
+    }
+    let value = 1;
+    const source = bindPointer({}, () => value, next => { value = next; });
+    const pointer = projectPointer<number, Box<number>>(source,
+      (value: number): Box<number> => Box.from<number>(value),
+      (value: Box<number>): number => Box.to<number>(value))!;
+    export const result = hashPointer(pointer);
+  `);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, createFixturePointerFlowPlan(fixture.source));
+  const call = callNamed(fixture, lowered.sourceFile, "projectLocation");
+  for (const argument of AsCallExpression(call)?.Arguments?.Nodes.slice(1) ?? []) {
+    assert.equal(IsExpressionWithTypeArguments(argument), true);
+    const selected = AsExpressionWithTypeArguments(argument);
+    assert.ok(selected);
+    assert.equal(selected.TypeArguments?.Nodes.length, 1);
+  }
+});
+
+test("implicit generic instantiation retains the checked forwarding context", () => {
+  const fixture = checkedPointerFixture(`
+    import { bindPointer, hashPointer, projectPointer } from "./markers.js";
+    class Box<T> {
+      constructor(readonly storage: T) {}
+      static from<T>(value: T): Box<T> { return new Box(value); }
+      static to<T>(value: Box<T>): T { return value.storage; }
+    }
+    let value = 1;
+    const source = bindPointer({}, () => value, next => { value = next; });
+    const pointer = projectPointer<number, Box<number>>(source,
+      (value: number): Box<number> => Box.from(value),
+      (value: Box<number>): number => Box.to(value))!;
+    export const result = hashPointer(pointer);
+  `);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, createFixturePointerFlowPlan(fixture.source));
+  const call = callNamed(fixture, lowered.sourceFile, "projectLocation");
+  for (const argument of AsCallExpression(call)?.Arguments?.Nodes.slice(1) ?? []) {
+    assert.equal(IsArrowFunction(argument), true);
+  }
+});
 
 test("elides exact project-pointer forwarding callables at their semantic owner", () => {
   const fixture = checkedPointerFixture(exactProjection);

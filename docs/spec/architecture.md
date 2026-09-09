@@ -23,14 +23,64 @@ same storage. Byte offsets preserve exact integer values, byte order, bounds,
 and alignment. The one TypeScript runtime owns these locations and their
 equality/hash identity; the emitter does not create another pointer runtime.
 
+Closed direct-object and mutable-cell pointer hashes call that runtime's
+`hashObjectIdentity` directly, including nil. They do not fabricate raw
+addresses, allocate hash wrappers or introduce nullable hashing closures.
+Forwarding projection collapse preserves the exact checked call's explicit
+type arguments as a TS-Go instantiation expression. A generic converter whose
+instantiation is implicit retains its checked arrow; the target does not infer
+replacement type arguments from physical storage.
+
 Managed memory is not physical native address emulation. Physical
-pointer/integer conversions and layouts lacking an exact executable
-representation fail before publication. Scalar codec support does not imply
+pointer/integer conversions and layouts lacking an exact target disposition
+fail before publication. Closed ordinary-number, ordinary-bigint and zero-size
+leaf domains may retain identity-only descriptors: dimensions, ABI, nil,
+address equality and hashing remain defined, but byte reads and writes throw
+before changing source storage. They never acquire a guessed scalar codec.
+Creating a managed address does not allocate byte scratch. Exact primitive
+facts still require their matching codec dimensions; conflicts are rejected.
+This target disposition does not change the canonical input consumed by native
+targets. Scalar codec support does not imply
 support for aggregate padding, floating NaN payloads, or arbitrary object
 projection. Pointer flow optimization must retain any component whose raw
 storage observation has not been proved equivalent. All selected layout,
 ABI-token, and memory-operation uses have an explicit lowering or diagnostic;
 dropping an import is never sufficient semantic consumption.
+
+An executable record additionally requires finalized `struct`/`field` evidence
+and complete mutable data-property coverage. Each selected field declaration
+must join its exact schema, property type and child layout. A plain reference
+record with matching offsets is not sufficient. The target consumes a
+standalone immutable, type-only schema as a private type literal, rewrites its
+local type queries and retains the authored public type alias. Runtime uses of
+the schema are rejected rather than silently erased. Same-spelled ordinary
+functions are unaffected.
+
+Record layouts generate statically typed field lenses and a live accessor view;
+the runtime never discovers fields by reflection. Raw writes mutate existing
+record fields in place, including nested records, so pre-existing field
+locations remain live. Selected byte order, padding, field identity and typed
+root identity survive independently obtained aliases. Record codecs are
+demand-driven and recursive over admitted child codecs. Field addresses
+obtained through a raw record view retain its containing allocation. Narrow
+byte accesses select only intersected fields, with logarithmic index lookup
+rather than a whole-record refresh. Integer-record support
+does not certify pointer leaves, descriptors, reference-record codecs or a
+containing allocation inferred from a standalone property location.
+
+Managed-reference words require exact pointer facts and a closed typed codec
+domain. The selected outer type must itself be a pointer; a record containing
+a pointer is not a pointer word. Opaque relocation tokens may preserve pointer values and complete-word
+copies; they must not masquerade as native address integers or pointer bits.
+Source-core owns cross-file memory-domain identity. Raw conversions consume
+`selectTsonicRawLocationOperation(...).memoryType`; independently authored
+layouts share a codec only when `readTsonicMemoryType(...).identity`, exact ABI
+provider identity, fingerprint, byte order, address width, size, alignment,
+stride and child layouts agree. Checker-local Type objects and target-derived
+primitive strings are not codec-domain keys. Never repeat source-core's
+pointee/layout agreement by comparing foreign checker types. The target still
+owns representation admission, static imports, cyclic initialization safety
+and exact alias preservation; missing shared evidence fails before printing.
 
 Scalar width selects the codec, not the alignment or stride. Those dimensions
 come independently from the finalized source layout. For example,
@@ -39,6 +89,15 @@ four-byte alignment, not a target-host eight-byte alignment. Runtime factory
 calls receive byte order, alignment, and stride explicitly; no default or
 host-ABI inference is allowed. The declared pointee extent is not evidence of
 a containing array or struct allocation.
+
+Boolean storage requires the finalized boolean domain and a one-byte layout;
+only zero and one are valid encodings. Floating storage requires exact float32
+or float64 primitive facts, never an ordinary `number` or an alias spelling.
+The codecs preserve finite values, signed zero, subnormals and infinities,
+with explicit ABI byte order and float32 rounding. Encoding or decoding NaN
+through managed floating memory rejects explicitly: the existing NaN-payload
+boundary is not permission to silently normalize signaling or payload bits.
+This boundary does not change ordinary arithmetic or canonical source facts.
 
 A closed, dense, non-reassigned local array can supply its complete allocation
 when the shared pointer-origin and array-storage queries prove that extent.
@@ -59,6 +118,11 @@ selection evidence. A discarded read (`void value`) is not a lifetime proof.
 The selected Node representation uses ECMAScript's current-job kept-object
 rule; it is neither native pinning nor permission for foreign asynchronous
 use after that job. No generic marker erasure may drop this obligation.
+
+The memory owner classifies every rewrite's runtime demand exhaustively as
+none, type or value. Import creation and value/type import selection consume
+that same decision. A standalone lifetime call must import its executable
+runtime even when its file contains no pointer types, layouts or raw operations.
 
 TSTS owns source parsing, checking, exact nodes, marker selection, and
 finalized semantic facts. The TypeScript target consumes those identities and

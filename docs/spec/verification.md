@@ -25,6 +25,12 @@ hashing, mutation, nesting, and projection. Scalar and representation mutations 
 open consumer, observable nominal identity, missed store, mismatched AST kind,
 duplicate plan consumption, and omitted call-site rewrite.
 
+Direct identity hashing must agree with bound-location and managed-raw hashing,
+return zero for nil, evaluate operands once, and introduce no hash closure.
+Forwarding projection proof must distinguish explicit generic instantiation
+from implicit contextual instantiation, retain transformed type arguments in
+both ordinary and property-fused projections, and strictly check printed output.
+
 Source-primitive proof must cover every runtime base, renamed named type-only
 imports, a same-spelled local alias foil, and exact type/binding consumption.
 A namespace import without exact binding-reference evidence, value import, external
@@ -63,10 +69,43 @@ produces 1793).
 Delete a selected call's fact and require rejection before printing. Prove
 same-spelled ordinary calls are untouched; closed immutable ABI aliases lower
 but observable ABI comparisons cannot be erased. Unsupported native addresses,
-aggregate storage, unproven scalar domains, and mismatched scalar dimensions
-must fail instead of acquiring an approximate codec. Inspect printed output,
+unproven aggregate storage, conflicting primitive facts, and mismatched scalar dimensions
+must fail instead of acquiring an approximate codec. Ordinary number/bigint
+and zero-size leaf descriptors have identity-only proofs: independent addresses,
+nil and stable equality/hash, plus byte-read/write rejection without source
+mutation. A same-spelled scalar alias must not select a scalar byte codec.
+Inspect printed output,
 strict-typecheck it, and execute it under both canonical and optimized pointer
 profiles. A scalar proof never certifies whole-allocation or aggregate views.
+
+Record proofs require exact schema/field facts, complete mutable field coverage,
+and strict printed execution. Exercise nested records, aliases acquired before
+raw conversion, record and zero-offset-field raw equality, typed-root hashing,
+field addresses obtained through independent record views, padding, both byte
+orders, conflicting layouts, and generated-name collisions. Delete the schema
+fact and require rejection; a plain object type, missing field, readonly field,
+index signature or schema used as a runtime value must not gain a byte codec.
+These proofs do not certify pointer-bearing fields or descriptor transport.
+Prove that a field view can address a sibling through its retained allocation.
+A deterministic wide-record control must distinguish narrow access from
+serializing every field; output cardinality is not a construction-cost proof.
+
+Reference-word proofs must distinguish replacing a pointer field from mutating
+its pointee, retain copied references and nil, and reject wrong-domain decoding
+and partial/native-bit observations. Repeated descriptors must share only an
+exact domain. Independently authored descriptors in different files require
+strict printed execution, including import cycles and name collisions; a
+single-file success or checker-local Type equality does not certify that join.
+Masking the shared memory-type fact must fail before printing. Equivalent
+imported/aliased layouts must reuse a codec; signed, unsigned, nested and closed
+generic pointer domains must remain distinct where source-core distinguishes
+them. A shared source domain never erases ABI or child-layout differences.
+Reject a nullable record that merely contains a pointer, and reject `null`
+where the selected executable nil representation requires `undefined`.
+
+Lifetime proofs must include a file whose only selected operation is
+`keepAlive`: inspect a value-phase runtime import and strictly execute the
+printed file. Another pointer operation must not mask a missing import.
 
 Closed-array proof must include every independently obtained element address,
 alias equality and hashes observed before conversion, cross-element byte writes,
@@ -74,6 +113,13 @@ retained padding, both byte orders, and a work-count control comparing small and
 large allocations. Reject escaped, resized, sparsely written, or reassigned
 arrays before printing. Exercise actual printed, strictly checked output; AST
 shape counts alone do not prove storage aliasing.
+
+Boolean and floating codecs require actual byte and alias proofs, not only
+factory names. Compare float32/float64 finite values, signed zeros, subnormals
+and infinities against independent IEEE constants and Go. Test both byte
+orders, float32 rounding and ABI32 alignment of a 64-bit field. Invalid boolean
+bytes and signaling/quiet NaN payloads must reject rather than coerce or
+normalize. Ordinary number aliases and wrong widths must fail admission.
 
 Address facts must retain the unsigned ABI32/number or ABI64/bigint domain,
 including values beyond number's exact-integer range. Removing the selected

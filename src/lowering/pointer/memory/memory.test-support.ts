@@ -12,10 +12,10 @@ import { abi } from "test:memory";
 import type { Pointer, RawPointer, MemoryLayout, int32, uint32, uint8, uint64, nativeUint } from "@tsonic/core/types.js";
 import { memoryLayout, addressOf, allocatePointer, toRawPointer, reinterpretRawPointer, offsetRawPointer,
   loadPointer, storePointer, equalPointer, equalRawPointer, hashRawPointer, sizeOf, alignOf, strideOf,
-  keepAlive, rawPointerToAddressInteger, addressIntegerToRawPointer } from "@tsonic/core/lang.js";
+  keepAlive, rawPointerToAddressInteger, addressIntegerToRawPointer, struct, field } from "@tsonic/core/lang.js";
 `;
 
-export function memoryFixture(text: string, abi: Pick<TsonicDataLayoutDescriptor, "byteOrder" | "addressWidth"> = { byteOrder: "little", addressWidth: 64 }) {
+export function memoryFixture(text: string, abi: Pick<TsonicDataLayoutDescriptor, "byteOrder" | "addressWidth"> = { byteOrder: "little", addressWidth: 64 }, additionalFiles: Readonly<Record<string, string>> = {}) {
   const provider = createSourceSemanticsVirtualModuleProvider({
     id: "test.memory", version: "1", displayName: "Test memory ABI", virtualDirectory: "test-memory",
     modules: [{ moduleSpecifier: "test:memory", exports: [] }], evidenceMessage: "Explicit test ABI",
@@ -24,7 +24,7 @@ export function memoryFixture(text: string, abi: Pick<TsonicDataLayoutDescriptor
       type: { kind: "provider-ref", moduleSpecifier: "@tsonic/core/types.js", exportName: "DataLayout" } }],
   });
   const checked = createCompilerSessionFromFiles({
-    currentDirectory: "/src", files: { "/src/index.ts": memoryPrelude + text },
+    currentDirectory: "/src", files: { ...additionalFiles, "/src/index.ts": memoryPrelude + text },
     compilerOptions: { module: "esnext", moduleResolution: "bundler", strict: true, target: "es2022" },
     extensionHostOptions: { extensions: [
       createSourceSemanticsExtension({ modules: tsonicCoreSourceSemanticsModules() }),
@@ -51,7 +51,12 @@ export function lowerMemoryFixture(fixture: ReturnType<typeof memoryFixture>, op
     (file) => fixture.source.documents.forFile(file).identity);
   assert.equal(prepared.kind, "ready", prepared.kind === "rejected" ? prepared.failures.map((failure) => failure.message).join("\n") : "");
   if (prepared.kind !== "ready") throw new Error("memory preparation failed");
-  const result = prepared.transaction.lower(fixture.sourceFile);
+  let result;
+  for (const file of fixture.source.navigation.sourceFiles) {
+    const lowered = prepared.transaction.lower(file);
+    if (file === fixture.sourceFile) result = lowered;
+  }
   prepared.transaction.finish();
+  assert.ok(result);
   return result;
 }

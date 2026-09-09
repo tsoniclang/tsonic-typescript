@@ -6,7 +6,14 @@ import {
   tsonicCoreProviderVersion, tsonicCoreVirtualModulesProviderId,
 } from "@tsonic/source-core/facts";
 import { tsonicMemorySignatureIds, tsonicMemoryTypeExports } from "@tsonic/source-core/extension";
+import type { TsonicDataLayoutFact } from "@tsonic/source-core/facts";
 import { PointerLoweringError } from "../diagnostic.js";
+
+export function memoryABIKey(abi: TsonicDataLayoutFact): string {
+  const provider = abi.providerDeclaration;
+  return JSON.stringify([provider.providerId, provider.providerVersion, provider.providerModuleId,
+    provider.moduleSpecifier, provider.exportId, abi.fingerprint, abi.byteOrder, abi.addressWidth]);
+}
 
 export function memoryProviderDeclaration(
   source: TargetSourceProgram,
@@ -16,7 +23,11 @@ export function memoryProviderDeclaration(
   const candidates: ProviderVirtualDeclarationFact[] = [];
   const direct = source.sourceFacts.getFact(node, providerVirtualDeclarationFactKey);
   if (direct !== undefined) candidates.push(direct);
-  if (source.ast.is.IsCallExpression(node)) {
+  if (source.ast.is.IsImportSpecifier(node)) {
+    const declaration = source.navigation.sourceReferenceFor(source.ast.name(node) ?? node)?.declaration;
+    const fact = source.sourceFacts.getFact(declaration, providerVirtualDeclarationFactKey);
+    if (fact !== undefined) candidates.push(fact);
+  } else if (source.ast.is.IsCallExpression(node)) {
     const call = semantics.operations.call(node);
     const declaration = call === undefined ? undefined : semantics.declarations.signatureDeclaration(call.selectedSignature);
     const fact = source.sourceFacts.getFact(declaration, providerVirtualDeclarationFactKey);

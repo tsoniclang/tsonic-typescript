@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readTsonicKeepAlive, tsonicKeepAliveFactKey } from "@tsonic/source-core/facts";
+import { AsImportClause, AsImportDeclaration, KindUnknown } from "@tsonic/tsts/target-ast";
 import { canonicalTypeScriptOptimizationProfile } from "../../profile.js";
 import { prepareTypeScriptLowering } from "../../transform.js";
-import { countCallsNamed, visit } from "../pointer.test-support.js";
+import { countCallsNamed, importModules, visit } from "../pointer.test-support.js";
 import { memoryFixture, lowerMemoryFixture } from "./memory.test-support.js";
 
 for (const optimize of [false, true]) {
@@ -15,6 +16,12 @@ for (const optimize of [false, true]) {
     const lowered = lowerMemoryFixture(fixture, optimize);
     assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "keepAlive"), 1);
     assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "owner"), 1);
+    assert.deepEqual(importModules(fixture.source, lowered.sourceFile), ["@tsonic/typescript-runtime", "test:memory"]);
+    const declaration = lowered.sourceFile.Statements?.Nodes[0];
+    assert.ok(declaration);
+    const clause = AsImportDeclaration(declaration)?.ImportClause;
+    assert.ok(clause);
+    assert.equal(AsImportClause(clause)?.PhaseModifier, KindUnknown);
   });
 }
 

@@ -5,12 +5,12 @@ import type {
   PointerFlowRepresentation,
 } from "./flow-plan.js";
 import type { PointerLoweringPlan } from "./plan.js";
+import { memoryRuntimeImport } from "./memory/runtime-import.js";
 
 export function pointerLoweringPlanUsesRuntime(
   plan: PointerLoweringPlan,
 ): boolean {
-  if ([...plan.memory.rewrites.values()].some((rewrite) =>
-    rewrite.kind === "layout" || rewrite.kind === "layout-type" || rewrite.kind === "raw")) return true;
+  if ([...plan.memory.rewrites.values()].some(rewrite => memoryRuntimeImport(rewrite) !== "none")) return true;
   if (plan.rawPointerOperations.size !== 0 || plan.rawPointerTypes.size !== 0) {
     return true;
   }

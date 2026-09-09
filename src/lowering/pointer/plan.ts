@@ -20,6 +20,7 @@ import type {
 import { validateAddressableStorage } from "./addressability.js";
 import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
+import { memoryRuntimeImport } from "./memory/runtime-import.js";
 import { requireCallTarget, validatePointerOperationFact } from "./operation-contract.js";
 import type { ClosedPointerFlowPlan } from "./flow-plan.js";
 import {
@@ -33,14 +34,12 @@ import {
 import { planPointerMarkerUsage } from "./marker-usage.js";
 import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
 import type { ProjectedPropertyLocationFusion } from "./projected-property.js";
-import {
-  planReferenceHashes,
-  type ReferenceHashPlan,
-} from "./reference-hash.js";
 import { planRootLocationClass } from "./root-location-plan.js";
 import { validatePointerFact } from "./type-contract.js";
 import { createMemoryLoweringPlan, type MemoryLoweringPlan } from "./memory/plan.js";
 import type { MemoryArrayPlan } from "./memory/array-plan.js";
+import type { MemoryReferencePlan } from "./memory/references/plan.js";
+import { requireStatementListOwner, requireVariableScope } from "./location-scope.js";
 
 export interface LocalLocationBinding {
   readonly kind: "variable";
@@ -85,7 +84,6 @@ export interface PointerLoweringPlan {
   readonly flowPlan: ClosedPointerFlowPlan | undefined;
   readonly projectionCallables: PointerProjectionCallablePlan;
   readonly runtimeAlias: GeneratedBindingName;
-  readonly referenceHashes: ReadonlyMap<Node, ReferenceHashPlan>;
   readonly inferenceStabilizations: ReadonlyMap<
     Node,
     PointerInferenceStabilization
@@ -116,6 +114,7 @@ export function createPointerLoweringPlan(
   flowPlan: ClosedPointerFlowPlan | undefined,
   projectionCallables: PointerProjectionCallablePlan,
   memoryArrays: MemoryArrayPlan,
+  memoryReferences: MemoryReferencePlan,
 ): PointerLoweringPlan {
   if (!memoryArrays.owns(source)) throw new PointerLoweringError("array memory plan belongs to another checked program");
   memoryArrays.validate(sourceFile);
@@ -135,7 +134,7 @@ export function createPointerLoweringPlan(
     );
   }
   const nodes = program.nodesFor(sourceFile);
-  const memory = createMemoryLoweringPlan(source, sourceFile, nodes);
+  const memory = createMemoryLoweringPlan(source, sourceFile, nodes, generatedNames, memoryReferences);
   const operations = new Map<Node, PointerOperationFact>();
   const pointerTypes = new Set<Node>();
   const rawPointerOperations = new Map<Node, RawPointerOperationFact>();
@@ -147,7 +146,7 @@ export function createPointerLoweringPlan(
     Node,
     ProjectedPropertyLocationFusion
   >();
-  let usesRuntimeValue = [...memory.rewrites.values()].some((rewrite) => rewrite.kind === "layout" || rewrite.kind === "raw");
+  let usesRuntimeValue = [...memory.rewrites.values()].some(rewrite => memoryRuntimeImport(rewrite) === "value");
 
   for (const node of nodes) {
     const directObjectReplacement = flowPlan?.directObjectReplacementFor(node);
@@ -330,12 +329,6 @@ export function createPointerLoweringPlan(
     flowPlan,
     generatedNames,
   );
-  const referenceHashes = planReferenceHashes(
-    source,
-    operations,
-    flowPlan,
-    generatedNames,
-  );
   const inferenceStabilizations = planPointerInferenceStabilizations(
     source,
     sourceFile,
@@ -358,7 +351,6 @@ export function createPointerLoweringPlan(
     flowPlan,
     projectionCallables,
     runtimeAlias,
-    referenceHashes,
     inferenceStabilizations,
     directObjectReplacements,
     projectedPropertyLocations,
@@ -536,70 +528,4 @@ function appendBinding<T extends LocationBinding>(
   const existing = bindings.get(owner) ?? [];
   existing.push(binding);
   bindings.set(owner, existing);
-}
-
-function requireVariableScope(
-  source: TargetSourceProgram,
-  declaration: Node,
-): Node {
-  for (
-    let current = source.ast.parent(declaration);
-    current !== undefined;
-    current = source.ast.parent(current)
-  ) {
-    if (
-      source.ast.is.IsSourceFile(current) ||
-      source.ast.is.IsModuleBlock(current)
-    ) {
-      return current;
-    }
-    if (!source.ast.is.IsBlock(current)) {
-      continue;
-    }
-    const parent = source.ast.parent(current);
-    if (
-      parent !== undefined &&
-      (isFunctionLike(source, parent) ||
-        source.ast.is.IsClassStaticBlockDeclaration(parent)) &&
-      source.ast.body(parent) === current
-    ) {
-      return current;
-    }
-  }
-  throw new PointerLoweringError(
-    "addressed var binding has no exact variable scope",
-  );
-}
-
-function isFunctionLike(
-  source: TargetSourceProgram,
-  node: Node,
-): boolean {
-  return source.ast.is.IsFunctionDeclaration(node) ||
-    source.ast.is.IsFunctionExpression(node) ||
-    source.ast.is.IsArrowFunction(node) ||
-    source.ast.is.IsMethodDeclaration(node) ||
-    source.ast.is.IsConstructorDeclaration(node) ||
-    source.ast.is.IsGetAccessorDeclaration(node) ||
-    source.ast.is.IsSetAccessorDeclaration(node);
-}
-
-function requireStatementListOwner(
-  source: TargetSourceProgram,
-  statement: Node,
-): void {
-  const owner = source.ast.parent(statement);
-  if (
-    owner !== undefined &&
-    (source.ast.is.IsSourceFile(owner) ||
-      source.ast.is.IsBlock(owner) ||
-      source.ast.is.IsModuleBlock(owner) ||
-      source.ast.is.IsCaseClause(owner) ||
-      source.ast.is.IsDefaultClause(owner))
-  ) {
-    return;
-  }
-  throw new PointerLoweringError(
-    "addressed let binding requires a statement-list owner",
-  );
 }

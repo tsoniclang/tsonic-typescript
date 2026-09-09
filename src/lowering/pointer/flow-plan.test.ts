@@ -32,6 +32,7 @@ import {
 import { createPointerRewriteSession, lowerPointers } from "./transform.js";
 import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
 import { createMemoryArrayPlan } from "./memory/array-plan.js";
+import { createMemoryReferencePlan } from "./memory/references/plan.js";
 test("contracts one closed readonly scalar parameter flow", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, loadPointer } from "./markers.js";
@@ -378,11 +379,12 @@ export const result = loadPointer(pointer);
   const program = createTargetProgramIndex(fixture.source, {
     bindingWrites: true,
   });
+  const programNames = createProgramGeneratedNames(fixture.source, program);
   const session = createPointerRewriteSession(
     fixture.source,
     fixture.sourceFile,
     program,
-    createProgramGeneratedNames(fixture.source, program).forFile(
+    programNames.forFile(
       fixture.sourceFile,
     ),
     flowPlan,
@@ -394,6 +396,7 @@ export const result = loadPointer(pointer);
     ),
     finalNodes,
     createMemoryArrayPlan(fixture.source, program),
+    createMemoryReferencePlan(fixture.source, program, programNames),
   );
   let composedRewrites = 0;
   const transformed = transformTargetSourceFile(

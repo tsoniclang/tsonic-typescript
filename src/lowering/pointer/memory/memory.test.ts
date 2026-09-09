@@ -107,13 +107,17 @@ test("scalar layouts follow finalized authored alias dependencies", () => {
 });
 
 for (const [name, expression] of [
-  ["unproven scalar domain", "memoryLayout<number>(abi, 4, 4, 4)"],
   ["mismatched size", "memoryLayout<uint32>(abi, 8, 8, 8)"],
   ["aggregate", "memoryLayout<{count:uint32}>(abi, 4, 4, 4)"],
-  ["nested scalar in aggregate", "memoryLayout<readonly uint32[]>(abi, 4, 4, 4)"],
 ]) {
   test(`unsupported ${name} cannot acquire a scalar codec`, () => {
     const fixture = memoryFixture(`export const result = ${expression};`);
     assert.throws(() => lowerMemoryFixture(fixture), /memory layout/);
   });
 }
+
+test("unproved nested array domain fails at shared source selection", () => {
+  assert.throws(() => memoryFixture(`
+    export const result = memoryLayout<readonly uint32[]>(abi, 4, 4, 4);
+  `), /exact closed source memory type/);
+});
