@@ -25,9 +25,9 @@ export type ForwardingCallableShapeResult =
   | { readonly kind: "unrelated" }
   | {
       readonly kind: "retained";
-      readonly reason: "open-call" | "unstable-binding";
+      readonly reason: "open-call" | "unstable-binding" | "implicit-instantiation";
     }
-  | { readonly kind: "proved"; readonly target: Node };
+  | { readonly kind: "proved"; readonly call: Node };
 
 export function forwardingCallableTarget(
   source: TargetSourceProgram,
@@ -75,7 +75,13 @@ export function forwardingCallableTarget(
   if (!bindingProof.stableCallable(declaration)) {
     return { kind: "retained", reason: "unstable-binding" };
   }
-  return Object.freeze({ kind: "proved" as const, target: call.Expression });
+  if (
+    source.ast.typeParameters(declaration).length !== 0 &&
+    (call.TypeArguments?.Nodes.length ?? 0) === 0
+  ) {
+    return { kind: "retained", reason: "implicit-instantiation" };
+  }
+  return Object.freeze({ kind: "proved" as const, call: returned });
 }
 
 export function identityCallArgument(

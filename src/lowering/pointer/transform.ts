@@ -355,7 +355,6 @@ function rewriteNode(
       pointerFlowRepresentation(plan, original),
       plan.directObjectReplacements.get(original),
       plan.runtimeAlias,
-      plan.referenceHashes.get(original),
     );
     if (optimized !== undefined) {
       return optimized;

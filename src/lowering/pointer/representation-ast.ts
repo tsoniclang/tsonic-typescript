@@ -4,29 +4,16 @@ import {
   AsTypeReferenceNode,
   IsCallExpression,
   IsTypeReferenceNode,
-  KindColonToken,
   KindEqualsEqualsEqualsToken,
-  KindEqualsGreaterThanToken,
   KindEqualsToken,
-  KindObjectKeyword,
-  KindQuestionToken,
-  KindUndefinedKeyword,
-  NewArrowFunction,
   NewBinaryExpression,
-  NewCallExpression,
-  NewConditionalExpression,
   NewIdentifier,
-  NewKeywordTypeNode,
-  NewNumericLiteral,
   NewObjectLiteralExpression,
-  NewParameterDeclaration,
-  NewParenthesizedExpression,
   NewPropertyAssignment,
   NewPropertyAccessExpression,
   NewPropertySignatureDeclaration,
   NewToken,
   NewTypeLiteralNode,
-  NewUnionTypeNode,
   NewVoidExpression,
   NodeFactory_NewNodeList,
 } from "@tsonic/tsts/target-ast";
@@ -41,7 +28,6 @@ import type { DirectObjectReplacement } from "./direct-object-replacement.js";
 import { PointerLoweringError } from "./diagnostic.js";
 import type { PointerFlowRepresentation } from "./flow-plan.js";
 import { pointerTypeCanBeUndefined } from "./nullability.js";
-import type { ReferenceHashPlan } from "./reference-hash.js";
 import { runtimeCall } from "./runtime-ast.js";
 
 export function lowerOptimizedPointerType(
@@ -99,7 +85,6 @@ export function lowerOptimizedPointerOperation(
   representation: PointerFlowRepresentation,
   directObjectReplacement: DirectObjectReplacement | undefined,
   runtimeAlias: GeneratedBindingName,
-  referenceHash: ReferenceHashPlan | undefined,
 ): Node | undefined {
   if (representation === "location") {
     return undefined;
@@ -125,7 +110,6 @@ export function lowerOptimizedPointerOperation(
       operation,
       values,
       runtimeAlias,
-      referenceHash,
     );
     if (identity !== undefined) {
       return identity;
@@ -268,7 +252,6 @@ function lowerReferenceIdentityOperation(
   operation: PointerOperationFact,
   values: readonly Node[],
   runtimeAlias: GeneratedBindingName,
-  referenceHash: ReferenceHashPlan | undefined,
 ): Node | undefined {
   if (operation.operation === "equal-pointer") {
     requireArity(operation.operation, values, 2);
@@ -280,11 +263,12 @@ function lowerReferenceIdentityOperation(
   }
   if (operation.operation === "hash-pointer") {
     requireArity(operation.operation, values, 1);
-    return directObjectHash(
+    return runtimeCall(
       factory,
-      requiredValue(values, 0),
       runtimeAlias,
-      referenceHash,
+      "hashObjectIdentity",
+      [],
+      [requiredValue(values, 0)],
     );
   }
   return undefined;
@@ -301,143 +285,6 @@ function strictIdentity(factory: NodeFactory, left: Node, right: Node): Node {
       right,
     ),
     "direct object pointer identity",
-  );
-}
-
-function directObjectHash(
-  factory: NodeFactory,
-  pointer: Node,
-  runtimeAlias: GeneratedBindingName,
-  plan: ReferenceHashPlan | undefined,
-): Node {
-  if (plan === undefined) {
-    throw new PointerLoweringError(
-      "optimized reference pointer hash has no settled plan",
-    );
-  }
-  if (!plan.nullable) {
-    return hashObject(factory, pointer, runtimeAlias);
-  }
-  const parameterName = plan.parameterName;
-  if (parameterName === undefined) {
-    throw new PointerLoweringError(
-      "nullable direct pointer hash has no reserved parameter binding",
-    );
-  }
-  const parameter = requiredNode(
-    NewParameterDeclaration(
-      factory,
-      undefined,
-      undefined,
-      NewIdentifier(factory, parameterName.text),
-      undefined,
-      requiredNode(
-        NewUnionTypeNode(
-          factory,
-          NodeFactory_NewNodeList(factory, [
-            requiredNode(
-              NewKeywordTypeNode(factory, KindObjectKeyword),
-              "object pointer parameter type",
-            ),
-            requiredNode(
-              NewKeywordTypeNode(factory, KindUndefinedKeyword),
-              "undefined pointer parameter type",
-            ),
-          ]),
-        ),
-        "nullable pointer parameter type",
-      ),
-      undefined,
-    ),
-    "direct pointer hash parameter",
-  );
-  const selectedPointer = requiredNode(
-    NewConditionalExpression(
-      factory,
-      strictIdentity(
-        factory,
-        requiredIdentifier(factory, parameterName),
-        undefinedExpression(factory),
-      ),
-      NewToken(factory, KindQuestionToken),
-      undefinedExpression(factory),
-      NewToken(factory, KindColonToken),
-      runtimeCall(
-        factory,
-        runtimeAlias,
-        "rawPointer",
-        [],
-        [requiredIdentifier(factory, parameterName)],
-      ),
-    ),
-    "nullable direct pointer identity",
-  );
-  const arrow = requiredNode(
-    NewArrowFunction(
-      factory,
-      undefined,
-      undefined,
-      NodeFactory_NewNodeList(factory, [parameter]),
-      undefined,
-      undefined,
-      NewToken(factory, KindEqualsGreaterThanToken),
-      runtimeCall(
-        factory,
-        runtimeAlias,
-        "hashRawPointer",
-        [],
-        [selectedPointer],
-      ),
-    ),
-    "nullable direct pointer hash function",
-  );
-  return requiredNode(
-    NewCallExpression(
-      factory,
-      requiredNode(
-        NewParenthesizedExpression(factory, arrow),
-        "parenthesized direct pointer hash function",
-      ),
-      undefined,
-      undefined,
-      NodeFactory_NewNodeList(factory, [pointer]),
-      0,
-    ),
-    "nullable direct pointer hash call",
-  );
-}
-
-function hashObject(
-  factory: NodeFactory,
-  pointer: Node,
-  runtimeAlias: GeneratedBindingName,
-): Node {
-  return runtimeCall(
-    factory,
-    runtimeAlias,
-    "hashRawPointer",
-    [],
-    [runtimeCall(factory, runtimeAlias, "rawPointer", [], [pointer])],
-  );
-}
-
-function undefinedExpression(factory: NodeFactory): Node {
-  return requiredNode(
-    NewVoidExpression(
-      factory,
-      requiredNode(NewNumericLiteral(factory, "0", 0), "zero literal"),
-    ),
-    "undefined expression",
-  );
-}
-
-function requiredIdentifier(
-  factory: NodeFactory,
-  name: GeneratedBindingName,
-): Node {
-  return requiredNode(
-    NewIdentifier(factory, name.text),
-    `identifier ${name.text}`,
   );
 }
 

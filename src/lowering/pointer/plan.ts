@@ -34,10 +34,6 @@ import {
 import { planPointerMarkerUsage } from "./marker-usage.js";
 import type { PointerProjectionCallablePlan } from "./projection-callable-plan.js";
 import type { ProjectedPropertyLocationFusion } from "./projected-property.js";
-import {
-  planReferenceHashes,
-  type ReferenceHashPlan,
-} from "./reference-hash.js";
 import { planRootLocationClass } from "./root-location-plan.js";
 import { validatePointerFact } from "./type-contract.js";
 import { createMemoryLoweringPlan, type MemoryLoweringPlan } from "./memory/plan.js";
@@ -88,7 +84,6 @@ export interface PointerLoweringPlan {
   readonly flowPlan: ClosedPointerFlowPlan | undefined;
   readonly projectionCallables: PointerProjectionCallablePlan;
   readonly runtimeAlias: GeneratedBindingName;
-  readonly referenceHashes: ReadonlyMap<Node, ReferenceHashPlan>;
   readonly inferenceStabilizations: ReadonlyMap<
     Node,
     PointerInferenceStabilization
@@ -334,12 +329,6 @@ export function createPointerLoweringPlan(
     flowPlan,
     generatedNames,
   );
-  const referenceHashes = planReferenceHashes(
-    source,
-    operations,
-    flowPlan,
-    generatedNames,
-  );
   const inferenceStabilizations = planPointerInferenceStabilizations(
     source,
     sourceFile,
@@ -362,7 +351,6 @@ export function createPointerLoweringPlan(
     flowPlan,
     projectionCallables,
     runtimeAlias,
-    referenceHashes,
     inferenceStabilizations,
     directObjectReplacements,
     projectedPropertyLocations,

@@ -80,6 +80,7 @@ export function lowerProjectedPropertyLocation(
     );
   }
   const projectionArguments = loweredProjectionArguments(
+    factory,
     requireNodes(
       call.Arguments?.Nodes ?? [],
       "projected-property arguments",

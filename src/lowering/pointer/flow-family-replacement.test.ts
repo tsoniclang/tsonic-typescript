@@ -299,8 +299,9 @@ export const result = loadPointer(left).value;
   assert.equal(fixture.source.ast.text(equality?.Right), "right");
   assert.ok(lowered.runtimeAlias !== undefined);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashPointer"), 0);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 4);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 4);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashObjectIdentity"), 4);
 });
 
 test("keeps mutation storage local to its connected pointer flow", () => {

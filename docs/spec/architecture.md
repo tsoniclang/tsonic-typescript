@@ -23,6 +23,14 @@ same storage. Byte offsets preserve exact integer values, byte order, bounds,
 and alignment. The one TypeScript runtime owns these locations and their
 equality/hash identity; the emitter does not create another pointer runtime.
 
+Closed direct-object and mutable-cell pointer hashes call that runtime's
+`hashObjectIdentity` directly, including nil. They do not fabricate raw
+addresses, allocate hash wrappers or introduce nullable hashing closures.
+Forwarding projection collapse preserves the exact checked call's explicit
+type arguments as a TS-Go instantiation expression. A generic converter whose
+instantiation is implicit retains its checked arrow; the target does not infer
+replacement type arguments from physical storage.
+
 Managed memory is not physical native address emulation. Physical
 pointer/integer conversions and layouts lacking an exact target disposition
 fail before publication. Closed ordinary-number, ordinary-bigint and zero-size

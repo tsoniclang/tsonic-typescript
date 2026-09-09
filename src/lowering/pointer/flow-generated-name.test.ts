@@ -3,8 +3,6 @@ import { test } from "node:test";
 
 import { pointerOperationFactKey } from "@tsonic/tsts";
 
-import { createProgramGeneratedNames } from "../generated-names.js";
-import { createTargetProgramIndex } from "../program-index.js";
 import {
   checkedPointerFixture,
   countCallsNamed,
@@ -12,12 +10,8 @@ import {
   visit,
 } from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";
-import { createPointerLoweringPlan } from "./plan.js";
-import { createPointerProjectionCallablePlan } from "./projection-callable-plan.js";
-import { createMemoryArrayPlan } from "./memory/array-plan.js";
-import { createMemoryReferencePlan } from "./memory/references/plan.js";
 
-test("reserves the nullable hash binding against authored source names", () => {
+test("nullable identity hashing introduces no binding beside authored names", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, hashPointer } from "./markers.js";
 class Box { value = 1; }
@@ -50,48 +44,12 @@ export const result = [$pointer, hashPointer(nextPointer())];
   });
 
   assert.deepEqual(representations, new Set(["direct-object"]));
-  assert.equal(arrowParameters.includes("$pointer"), false);
-  assert.equal(arrowParameters.includes("$pointer2"), true);
+  assert.deepEqual(arrowParameters, []);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashObjectIdentity"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "nextPointer"), 1);
 });
 
-test("reserves against a synthetic binding selected before pointer planning", () => {
-  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
-import { allocatePointer, hashPointer } from "./markers.js";
-class Box { value = 1; }
-function nextPointer(): Pointer<Box> | undefined {
-  return allocatePointer(new Box());
-}
-export const result = hashPointer(nextPointer());
-`);
-  const program = createTargetProgramIndex(fixture.source, {
-    bindingWrites: true,
-  });
-  const programNames = createProgramGeneratedNames(fixture.source, program);
-  const generatedNames = programNames.forFile(fixture.sourceFile);
-  assert.equal(generatedNames.reserve("$pointer").text, "$pointer");
-  const flowPlan = createFixturePointerFlowPlan(fixture.source);
-  const pointerPlan = createPointerLoweringPlan(
-    fixture.source,
-    fixture.sourceFile,
-    program,
-    generatedNames,
-    flowPlan,
-    createPointerProjectionCallablePlan(
-      fixture.source,
-      program,
-      "closed-direct",
-      (selected) => fixture.source.documents.forFile(selected).identity,
-    ),
-    createMemoryArrayPlan(fixture.source, program),
-    createMemoryReferencePlan(fixture.source, program, programNames),
-  );
-
-  const hash = [...pointerPlan.referenceHashes.values()][0];
-  assert.equal(hash?.nullable, true);
-  assert.equal(hash?.parameterName?.text, "$pointer2");
-});
-
-test("reserves each synthetic closure parameter independently", () => {
+test("repeated identity hashing evaluates each operand once without closures", () => {
   const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
 import { allocatePointer, hashPointer } from "./markers.js";
 class Box { value = 1; }
@@ -115,7 +73,9 @@ export const result = [
     }
   });
 
-  assert.deepEqual(arrowParameters.sort(), ["$pointer", "$pointer2"]);
+  assert.deepEqual(arrowParameters, []);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashObjectIdentity"), 2);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "nextPointer"), 2);
 });
 
 test("settles a nullable hash read from a class field before rewriting", () => {
@@ -134,6 +94,7 @@ export const result = Parameters.hash(new Parameters(allocatePointer(new Changes
   const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
 
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashPointer"), 0);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 1);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashObjectIdentity"), 1);
 });

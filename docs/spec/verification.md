@@ -25,6 +25,12 @@ hashing, mutation, nesting, and projection. Scalar and representation mutations 
 open consumer, observable nominal identity, missed store, mismatched AST kind,
 duplicate plan consumption, and omitted call-site rewrite.
 
+Direct identity hashing must agree with bound-location and managed-raw hashing,
+return zero for nil, evaluate operands once, and introduce no hash closure.
+Forwarding projection proof must distinguish explicit generic instantiation
+from implicit contextual instantiation, retain transformed type arguments in
+both ordinary and property-fused projections, and strictly check printed output.
+
 Source-primitive proof must cover every runtime base, renamed named type-only
 imports, a same-spelled local alias foil, and exact type/binding consumption.
 A namespace import without exact binding-reference evidence, value import, external

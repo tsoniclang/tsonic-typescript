@@ -19,6 +19,7 @@ export const projectionCallableRetentionReasons = Object.freeze([
   "profile-preserved",
   "open-call",
   "unstable-binding",
+  "implicit-instantiation",
 ] as const);
 
 export type ProjectionCallableRetentionReason =
@@ -106,6 +107,6 @@ export function createPointerProjectionCallablePlan(
       return undefined;
     }
     optimizedCount += 1;
-    return shape.target;
+    return shape.call;
   }
 }

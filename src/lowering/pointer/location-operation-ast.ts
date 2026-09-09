@@ -7,8 +7,10 @@ import {
   IsTypeReferenceNode,
   KindEqualsToken,
   NewBinaryExpression,
+  NewExpressionWithTypeArguments,
   NewToken,
   NewVoidExpression,
+  NodeFactory_NewNodeList,
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
 
@@ -139,7 +141,7 @@ export function lowerLocationPointerOperation(
           call.TypeArguments?.Nodes ?? [],
           `${operation.operation} type arguments`,
         ),
-        loweredProjectionArguments(arguments_, operation, plan, finalNodes),
+        loweredProjectionArguments(factory, arguments_, operation, plan, finalNodes),
       );
     case "address-of":
       requireArity(operation.operation, arguments_, 1);
@@ -155,6 +157,7 @@ export function lowerLocationPointerOperation(
 }
 
 export function loweredProjectionArguments(
+  factory: NodeFactory,
   arguments_: readonly Node[],
   operation: Extract<PointerOperationFact, { readonly operation: "project-pointer" }>,
   plan: PointerLoweringPlan,
@@ -168,11 +171,37 @@ export function loweredProjectionArguments(
     requiredElement(arguments_, 0),
     selected.fromSource === undefined
       ? requiredElement(arguments_, 1)
-      : requiredFinalNode(finalNodes, selected.fromSource, "from-source converter"),
+      : instantiatedCallable(factory, finalNodes, selected.fromSource),
     selected.toSource === undefined
       ? requiredElement(arguments_, 2)
-      : requiredFinalNode(finalNodes, selected.toSource, "to-source converter"),
+      : instantiatedCallable(factory, finalNodes, selected.toSource),
   ]);
+}
+
+function instantiatedCallable(
+  factory: NodeFactory,
+  finalNodes: FinalNodeLookup,
+  original: Node,
+): Node {
+  const call = IsCallExpression(original) ? AsCallExpression(original) : undefined;
+  if (call?.Expression === undefined) {
+    throw new PointerLoweringError("forwarding converter lost its checked call");
+  }
+  const target = requiredFinalNode(finalNodes, call.Expression, "converter target");
+  const typeArguments = requireNodes(
+    call.TypeArguments?.Nodes ?? [],
+    "converter type arguments",
+  ).map((argument) => requiredFinalNode(finalNodes, argument, "converter type argument"));
+  return typeArguments.length === 0
+    ? target
+    : requiredNode(
+      NewExpressionWithTypeArguments(
+        factory,
+        target,
+        NodeFactory_NewNodeList(factory, typeArguments),
+      ),
+      "instantiated forwarding converter",
+    );
 }
 
 function requiredFinalNode(

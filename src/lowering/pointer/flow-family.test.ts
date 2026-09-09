@@ -308,8 +308,9 @@ export const result = [
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "loadPointer"), 0);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "equalPointer"), 0);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashPointer"), 0);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 2);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 2);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashObjectIdentity"), 2);
 });
 
 test("uses exact fresh static factories for pointer identity", () => {
@@ -498,8 +499,9 @@ export const result = [hashPointer(nextPointer()), evaluations];
   assertAllOperations(fixture.source, plan, "direct-object");
   const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
   assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "nextPointer"), 1);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 1);
-  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "rawPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashRawPointer"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "hashObjectIdentity"), 1);
 });
 
 test("keeps addressed identity in the canonical location representation", () => {

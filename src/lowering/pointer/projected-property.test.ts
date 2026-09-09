@@ -4,6 +4,8 @@ import { test } from "node:test";
 import type { Node } from "@tsonic/tsts";
 import {
   AsNewExpression,
+  AsExpressionWithTypeArguments,
+  IsExpressionWithTypeArguments,
   IsClassDeclaration,
   IsNewExpression,
 } from "@tsonic/tsts/target-ast";
@@ -15,6 +17,35 @@ import {
   visit,
 } from "./pointer.test-support.js";
 import { lowerPointers } from "./transform.js";
+
+test("fused generic converters retain their exact logical instantiation", () => {
+  const fixture = checkedPointerFixture(`
+import { addressOf, hashPointer, projectPointer } from "./markers.js";
+class Box<T> {
+  constructor(readonly value: T) {}
+  static from<T>(value: T): Box<T> { return new Box(value); }
+  static to<T>(value: Box<T>): T { return value.value; }
+}
+const record = { value: 1 };
+const pointer = projectPointer<number, Box<number>>(addressOf(record.value),
+  (value: number): Box<number> => Box.from<number>(value),
+  (value: Box<number>): number => Box.to<number>(value))!;
+export const result = hashPointer(pointer);
+`);
+  const plan = createFixturePointerFlowPlan(fixture.source);
+  assert.equal(plan.optimizedProjectedPropertyLocationCount, 1);
+  const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+  const constructions = newExpressionsNamed(
+    fixture, lowered.sourceFile, "$ProjectedPropertyLocation",
+  );
+  assert.equal(constructions.length, 1);
+  const converters = AsNewExpression(constructions[0])?.Arguments?.Nodes.slice(2) ?? [];
+  assert.equal(converters.length, 2);
+  for (const converter of converters) {
+    assert.equal(IsExpressionWithTypeArguments(converter), true);
+    assert.equal(AsExpressionWithTypeArguments(converter)?.TypeArguments?.Nodes.length, 1);
+  }
+});
 
 test("fuses exact projected property and element locations", () => {
   const fixture = checkedPointerFixture(`
