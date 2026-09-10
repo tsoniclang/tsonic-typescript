@@ -87,11 +87,13 @@ export interface CheckedPointerFixture {
 export function checkedPointerFixture(
   sourceText: string,
   additionalFiles: Readonly<Record<string, string>> = {},
+  options: { readonly noUncheckedIndexedAccess?: boolean } = {},
 ): CheckedPointerFixture {
   return checkedPointerFixtureWithExtension(
     sourceText,
     additionalFiles,
     createSourceSemanticsExtension({ modules: pointerMarkerSemantics }),
+    options,
   );
 }
 
@@ -140,6 +142,7 @@ function checkedPointerFixtureWithExtension(
   sourceText: string,
   additionalFiles: Readonly<Record<string, string>>,
   extension: CompilerExtension,
+  options: { readonly noUncheckedIndexedAccess?: boolean } = {},
 ): CheckedPointerFixture {
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/src",
@@ -154,6 +157,7 @@ function checkedPointerFixtureWithExtension(
       moduleResolution: "bundler",
       strict: true,
       target: "es2022",
+      ...options,
     },
     extensionHostOptions: {
       extensions: [extension],

@@ -52,6 +52,13 @@ type arguments as a TS-Go instantiation expression. A generic converter whose
 instantiation is implicit retains its checked arrow; the target does not infer
 replacement type arguments from physical storage.
 
+Projected-property fusion requires the exact selected keyed-storage type to
+equal the projection's source pointee. A read-flow type is not that contract:
+`T[][number]` is `T`, even when an indexed read is `T | undefined`. A widened
+projection keeps the ordinary typed location path; exact optional-property
+and generic-element contracts remain eligible. This decision consumes finalized
+property/index evidence, never inferred converter types or source spelling.
+
 Managed memory is not physical native address emulation. Physical
 pointer/integer conversions and layouts lacking an exact target disposition
 fail before publication. Closed ordinary-number, ordinary-bigint and zero-size

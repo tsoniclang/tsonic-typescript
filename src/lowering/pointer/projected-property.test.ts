@@ -192,6 +192,75 @@ test("the fused location preserves live storage and pointer identity", () => {
   assert.deepEqual(fused, canonical);
 });
 
+test("retains projections whose pointee differs from keyed storage", () => {
+  const cases = [
+    `
+const record = { value: 1 };
+export const pointer = projectPointer<number | undefined, string>(
+  addressOf<number | undefined>(record.value),
+  value => String(value),
+  value => value === "missing" ? undefined : Number(value),
+)!;
+`,
+    `
+const record: { value: number | undefined } = { value: 1 };
+record.value = 2;
+export const pointer = projectPointer<number, string>(
+  addressOf(record.value), String, Number,
+)!;
+`,
+    `
+export function projected<T>(values: T[], initial: T) {
+  const backing = values;
+  return projectPointer<T | undefined, T>(
+    addressOf<T | undefined>(backing[0]),
+    value => value === undefined ? initial : value,
+    value => value,
+  )!;
+}
+`,
+  ];
+  for (const sourceText of cases) {
+    for (const noUncheckedIndexedAccess of [false, true]) {
+      const fixture = checkedPointerFixture(`
+import { addressOf, projectPointer } from "./markers.js";
+${sourceText}`, {}, { noUncheckedIndexedAccess });
+      const plan = createFixturePointerFlowPlan(fixture.source);
+      assert.equal(plan.optimizedProjectedPropertyLocationCount, 0);
+      const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+      assert.equal(
+        countCallsNamed(fixture.source, lowered.sourceFile, "projectLocation"), 1,
+      );
+    }
+  }
+});
+
+test("fuses exact optional-property and generic-element source carriers", () => {
+  for (const noUncheckedIndexedAccess of [false, true]) {
+    const fixture = checkedPointerFixture(`
+import { addressOf, projectPointer } from "./markers.js";
+const record: { value?: number } = {};
+export const property = projectPointer<number | undefined, string>(
+  addressOf(record.value), value => String(value),
+  value => value === "missing" ? undefined : Number(value),
+)!;
+export function projected<T>(values: (T | undefined)[], initial: T) {
+  const backing = values;
+  return projectPointer<T | undefined, T>(
+    addressOf(backing[0]),
+    value => value === undefined ? initial : value,
+    value => value,
+  )!;
+}`, {}, { noUncheckedIndexedAccess });
+    const plan = createFixturePointerFlowPlan(fixture.source);
+    assert.equal(plan.optimizedProjectedPropertyLocationCount, 2);
+    const lowered = lowerPointers(fixture.source, fixture.sourceFile, plan);
+    assert.equal(
+      countCallsNamed(fixture.source, lowered.sourceFile, "projectLocation"), 0,
+    );
+  }
+});
+
 function generatedClassNames(
   fixture: ReturnType<typeof checkedPointerFixture>,
   root: Node,
