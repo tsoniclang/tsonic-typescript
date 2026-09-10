@@ -199,6 +199,10 @@ first-evaluated-expression proof applies to both. It must not cross an earlier
 declarator, conditional operand, effectful call target/argument, or loop
 initializer. Source binding identity and absence of writes remain mandatory;
 type annotations and generated names never establish dominance.
+An initializer anchor follows its exact finalized declaration, not the enclosing
+statement identity: addressed-local lowering may split that statement. The
+declaration must remain first in exactly one rewritten statement in the selected
+block. Missing or duplicated anchors fail instead of using source order or text.
 
 No source artifact is printed until every source plan succeeds. A planning,
 rewrite, encoding, printer, count, or ordering failure publishes no partial

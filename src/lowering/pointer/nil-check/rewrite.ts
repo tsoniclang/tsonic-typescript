@@ -1,6 +1,8 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import {
   AsBlock,
+  AsVariableDeclarationList,
+  AsVariableStatement,
   NewIdentifier,
   NewVariableDeclaration,
   NewVariableDeclarationList,
@@ -115,14 +117,22 @@ function insertCheckedBindings(
   }
   const statements = [...(block.Statements?.Nodes ?? [])];
   for (const binding of bindings) {
-    const anchor = finalNodes.forOriginal(binding.anchorStatement);
+    const anchor = finalNodes.forOriginal(binding.anchor.node);
     const initializer = initializers.get(binding);
     if (anchor === undefined || initializer === undefined) {
       throw new Error("dominating nil-check binding lost its exact anchor");
     }
-    const anchorIndex = statements.indexOf(anchor);
-    if (anchorIndex < 0) {
-      throw new Error("dominating nil-check anchor left its selected block");
+    const matches: number[] = [];
+    for (const [index, statement] of statements.entries()) {
+      const list = AsVariableStatement(statement)?.DeclarationList;
+      const subject = binding.anchor.kind === "statement"
+        ? statement
+        : list === undefined ? undefined : AsVariableDeclarationList(list)?.Declarations?.Nodes[0];
+      if (subject === anchor) matches.push(index);
+    }
+    const anchorIndex = matches[0];
+    if (matches.length !== 1 || anchorIndex === undefined) {
+      throw new Error(`dominating nil-check anchor has ${matches.length} matches in its selected block`);
     }
     statements.splice(
       anchorIndex,
