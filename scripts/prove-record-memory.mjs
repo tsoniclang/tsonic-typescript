@@ -11,8 +11,33 @@ const [printer, ...printerArguments] = process.argv.slice(2);
 assert.ok(printer, "usage: node --preserve-symlinks scripts/prove-record-memory.mjs /absolute/path/to/pinned-printer [printer arguments]");
 const root = resolve(".temp/record-execution", `${Date.now()}-${process.pid}`);
 mkdirSync(root, { recursive: true });
+function projectedComplex(width) {
+  const component = `float${width}`;
+  const bytes = width / 8;
+  return `
+type Logical${width} = { readonly real: number; readonly imag: number };
+const Complex${width}: {real: ${component}; imag: ${component}} = struct({real: field<${component}>(), imag: field<${component}>()});
+const scalar${width} = memoryLayout<${component}>(abi, ${bytes}, ${bytes}, ${bytes});
+const complex${width} = memoryLayout<typeof Complex${width}>(abi, ${bytes * 2}, ${bytes}, ${bytes * 2},
+  memoryField((value: typeof Complex${width}) => value.real, 0, ${bytes}, scalar${width}),
+  memoryField((value: typeof Complex${width}) => value.imag, ${bytes}, ${bytes}, scalar${width}));
+const logical${width} = allocatePointer<Logical${width}>({real: 1.5, imag: -2.25});
+const physical${width} = projectPointer<Logical${width}, typeof Complex${width}>(logical${width},
+  (value: Logical${width}) => ({real: value.real, imag: value.imag}),
+  (value: typeof Complex${width}) => ({real: value.real, imag: value.imag}));
+const raw${width} = toRawPointer(physical${width}, complex${width});
+const imaginary${width} = reinterpretRawPointer(offsetRawPointer(raw${width}, ${bytes}, abi), scalar${width});
+if (imaginary${width} !== undefined) storePointer(imaginary${width}, 9.5);
+const updated${width} = loadPointer(logical${width});
+storePointer(logical${width}, {real: 3.75, imag: -5});
+const replaced${width} = imaginary${width} === undefined ? 0 : loadPointer(imaginary${width});
+const whole${width} = reinterpretRawPointer(raw${width}, complex${width});
+if (whole${width} !== undefined) storePointer(whole${width}, {real: 7, imag: 8});
+const final${width} = loadPointer(logical${width});
+`;
+}
 const sourceText = `
-import { memoryField, memoryArrayLayout } from "@tsonic/core/lang.js";
+import { memoryField, memoryArrayLayout, projectPointer } from "@tsonic/core/lang.js";
 import type { float32, float64, FixedArray } from "@tsonic/core/types.js";
 const Pair: {First: uint32; Second: uint32; Flag: boolean; Small: float32; Large: float64} =
   struct({ First: field<uint32>(), Second: field<uint32>(), Flag: field<boolean>(), Small: field<float32>(), Large: field<float64>() });
@@ -55,11 +80,15 @@ const largeBytes = reinterpretRawPointer(offsetRawPointer(raw, 24, abi), wide);
 if (flagBytes !== undefined) storePointer(flagBytes, 1);
 if (smallBytes !== undefined) storePointer(smallBytes, 0x40200000);
 if (largeBytes !== undefined) storePointer(largeBytes, 0x4014000000000000n);
+${projectedComplex(32)}
+${projectedComplex(64)}
 export const result = [loadPointer(saved), view === undefined ? 0 : loadPointer(view).Second,
   equalPointer(second, saved), equalPointer(view, pair), equalRawPointer(raw, toRawPointer(first, word)),
   padding === undefined ? 0 : loadPointer(padding), memoryAccess, fieldLayout, fieldValue,
   original.Flag, original.Small, original.Large,
-  sizeOf(array), strideOf(matrix), sizeOf(huge), alignOf(huge)];
+  sizeOf(array), strideOf(matrix), sizeOf(huge), alignOf(huge),
+  updated32.real, updated32.imag, replaced32, final32.real, final32.imag,
+  updated64.real, updated64.imag, replaced64, final64.real, final64.imag];
 `;
 const results = [];
 for (const order of ["little", "big"]) {
@@ -87,7 +116,8 @@ for (const order of ["little", "big"]) {
     assert.equal(checked.error, undefined);
     assert.equal(checked.status, 0, checked.stdout + checked.stderr);
     const executed = await import(pathToFileURL(resolve(root, "js", `${name}.js`)).href);
-    assert.deepEqual(executed.result, [23, 23, true, true, true, 79, 101, 103, 107, true, 2.5, 5, 64, 192, 0, 1]);
+    assert.deepEqual(executed.result, [23, 23, true, true, true, 79, 101, 103, 107, true, 2.5, 5, 64, 192, 0, 1,
+      1.5, 9.5, -5, 7, 8, 1.5, 9.5, -5, 7, 8]);
     results.push({ order, optimize, bytes: Buffer.byteLength(text), result: executed.result });
   }
 }
