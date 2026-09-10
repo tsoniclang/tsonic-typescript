@@ -82,6 +82,10 @@ export function planRecordSchemas(source: TargetSourceProgram, nodes: readonly N
       if (query === undefined || !source.ast.is.IsTypeQueryNode(query)) {
         throw new PointerLoweringError("record schema reference has no exact authored type query");
       }
+      const entity = source.ast.as.AsTypeQueryNode(query)?.ExprName;
+      if (source.navigation.sourceReferenceFor(entityReference(source, entity))?.declaration !== declaration) {
+        throw new PointerLoweringError("record schema type query must select the complete schema, not one of its value members");
+      }
       if (source.ast.getSourceFile(query) !== names.sourceFile) continue;
       rewrites.set(query, { kind: "record-schema-reference", schema });
     }
@@ -91,8 +95,7 @@ export function planRecordSchemas(source: TargetSourceProgram, nodes: readonly N
   for (const node of nodes) {
     if (!source.ast.is.IsTypeQueryNode(node)) continue;
     const name = source.ast.as.AsTypeQueryNode(node)?.ExprName;
-    const selectedName = name !== undefined && source.ast.is.IsQualifiedName(name) ? source.ast.as.AsQualifiedName(name)?.Right : name;
-    const reference = source.navigation.sourceReferenceFor(selectedName);
+    const reference = source.navigation.sourceReferenceFor(entityReference(source, name));
     const declaration = reference?.declaration;
     if (declaration === undefined || source.ast.getSourceFile(declaration) === names.sourceFile ||
         !source.ast.is.IsVariableDeclaration(declaration)) continue;
@@ -118,4 +121,8 @@ export function planRecordSchemas(source: TargetSourceProgram, nodes: readonly N
     throw new PointerLoweringError(`selected record marker at ${source.ast.kindName(node)}:${source.ast.pos(node)} has a use outside its exact type-only schema`);
   }
   return { rewrites, declarations };
+}
+
+function entityReference(source: TargetSourceProgram, name: Node | undefined): Node | undefined {
+  return name !== undefined && source.ast.is.IsQualifiedName(name) ? source.ast.as.AsQualifiedName(name)?.Right : name;
 }

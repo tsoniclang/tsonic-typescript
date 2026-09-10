@@ -149,3 +149,17 @@ test("an imported standalone schema rejects observable runtime use", () => {
   `});
   assert.throws(() => lowerMemoryFixture(fixture), /record schema/);
 });
+
+for (const imported of [false, true]) {
+  test(`schema member queries are not silently widened to the whole record, imported=${imported}`, () => {
+    const declaration = `
+      import { struct, field } from "@tsonic/core/lang.js";
+      export const Shape: {value: number} = struct({value: field<number>()});
+    `;
+    const fixture = memoryFixture(`
+      ${imported ? 'import type { Shape } from "./record.js";' : declaration.replace('import { struct, field } from "@tsonic/core/lang.js";', "")}
+      export const value: typeof Shape.value = 3;
+    `, undefined, imported ? {"/src/record.ts": declaration} : {});
+    assert.throws(() => lowerMemoryFixture(fixture), /complete schema/);
+  });
+}

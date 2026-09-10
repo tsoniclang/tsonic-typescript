@@ -313,6 +313,9 @@ A schema with its own local type alias retains that alias and uses the existing
 collision-safe internal shape name. Finalized declaration uses and schema facts
 own this transport. Observable schema values, mutation and missing facts still
 fail before printing. Ordinary same-spelled objects are not schemas.
+Queries of a schema's value members (for example `typeof Shape.value`) are
+not whole-record transports and fail explicitly rather than acquiring the
+record's type or leaving a dangling value query after erasure.
 
 One program-scoped name owner selects every target-generated binding. A name
 must not collide with any authored identifier visible where it is introduced,
