@@ -11,6 +11,7 @@ export function memoryRuntimeImport(rewrite: MemoryRewrite): "none" | "type" | "
       return "type";
     case "record-schema":
     case "record-schema-reference":
+    case "record-schema-imported-query":
     case "query":
     case "metadata-value":
     case "metadata-type":

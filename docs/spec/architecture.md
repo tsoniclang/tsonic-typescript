@@ -305,6 +305,15 @@ consumed original node.
 
 ## Generated Names
 
+Record schemas are compile-time value-record declarations, not runtime objects.
+A standalone schema used only through `typeof` becomes an ordinary type alias
+under its existing authored binding. Exact imported type queries become type
+references to that binding; imports and re-exports retain their authored names.
+A schema with its own local type alias retains that alias and uses the existing
+collision-safe internal shape name. Finalized declaration uses and schema facts
+own this transport. Observable schema values, mutation and missing facts still
+fail before printing. Ordinary same-spelled objects are not schemas.
+
 One program-scoped name owner selects every target-generated binding. A name
 must not collide with any authored identifier visible where it is introduced,
 another generated name, an import, parameter, type parameter, local, member,

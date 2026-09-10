@@ -25,7 +25,7 @@ export function runtimeMemoryLayout(factory: NodeFactory, layout: ScalarMemoryLa
 export function rewriteMemoryNode(factory: NodeFactory, selected: MemoryRewrite, updated: Node, runtimeAlias: GeneratedBindingName): Node {
   if (selected.kind === "metadata-type") return requiredRuntimeNode(NewKeywordTypeNode(factory, KindUndefinedKeyword), "compile-time descriptor type");
   if (selected.kind === "metadata-value") return requiredRuntimeNode(NewVoidExpression(factory, NewNumericLiteral(factory, "0", 0)), "compile-time descriptor");
-  if (selected.kind === "record-schema" || selected.kind === "record-schema-reference") return rewriteRecordSchema(factory, selected, updated);
+  if (selected.kind === "record-schema" || selected.kind === "record-schema-reference" || selected.kind === "record-schema-imported-query") return rewriteRecordSchema(factory, selected, updated);
   if (selected.kind === "abi-type") return requiredRuntimeNode(NewKeywordTypeNode(factory, KindUndefinedKeyword), "erased closed ABI alias type");
   if (selected.kind === "layout-type") {
     const reference = AsTypeReferenceNode(updated);

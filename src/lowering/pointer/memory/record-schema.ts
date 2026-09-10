@@ -7,13 +7,14 @@ import { PointerLoweringError } from "../diagnostic.js";
 export interface RecordSchema {
   readonly declaration: Node;
   readonly statement: Node;
-  readonly name: GeneratedBindingName;
+  readonly name: { readonly kind: "authored" } | { readonly kind: "generated"; readonly binding: GeneratedBindingName };
   readonly fields: readonly string[];
 }
 
 export type RecordSchemaRewrite =
   | { readonly kind: "record-schema"; readonly schema: RecordSchema }
-  | { readonly kind: "record-schema-reference"; readonly schema: RecordSchema };
+  | { readonly kind: "record-schema-reference"; readonly schema: RecordSchema }
+  | { readonly kind: "record-schema-imported-query" };
 
 export function planRecordSchemas(source: TargetSourceProgram, nodes: readonly Node[], names: SourceFileGeneratedNames) {
   const rewrites = new Map<Node, RecordSchemaRewrite>();
@@ -55,8 +56,6 @@ export function planRecordSchemas(source: TargetSourceProgram, nodes: readonly N
     if (uses.bindingWritten || uses.memberWritten) {
       throw new PointerLoweringError("record schema is not an immutable type-only declaration");
     }
-    const schema = Object.freeze({ declaration, statement, name: names.reserve(`${source.ast.text(name)}Fields`),
-      fields: Object.freeze(fact.fields.map(field => field.name)) });
     const aliases = new Set(uses.uses.flatMap(use => {
       const parent = source.ast.parent(use.reference);
       return parent !== undefined && source.ast.is.IsTypeAliasDeclaration(parent) && source.ast.name(parent) === use.reference ? [parent] : [];
@@ -67,23 +66,44 @@ export function planRecordSchemas(source: TargetSourceProgram, nodes: readonly N
       return query !== undefined && source.ast.is.IsTypeQueryNode(query) && owner !== undefined && aliases.has(owner) &&
         source.ast.as.AsTypeAliasDeclaration(owner)?.Type === query;
     });
+    const schema = Object.freeze<RecordSchema>({ declaration, statement,
+      name: hasTypeAlias ? { kind: "generated", binding: names.reserve(`${source.ast.text(name)}Fields`) } : { kind: "authored" },
+      fields: Object.freeze(fact.fields.map(field => field.name)) });
     for (const use of uses.uses) {
       const parent = source.ast.parent(use.reference);
       if (parent !== undefined && source.ast.is.IsTypeAliasDeclaration(parent) && source.ast.name(parent) === use.reference) continue;
-      if (use.kind === "source-linkage" && hasTypeAlias) continue;
+      if (use.kind === "source-linkage" && (hasTypeAlias || parent !== undefined && source.ast.isTypeOnlyImportOrExportDeclaration(parent))) continue;
       if (use.kind !== "type-only") {
         throw new PointerLoweringError("record schema has a value or nonlocal use without a type-only transport");
       }
       let query: Node | undefined = use.reference;
       while (query !== undefined && !source.ast.is.IsTypeQueryNode(query) && !source.ast.is.IsTypeReferenceNode(query) && query !== statement) query = source.ast.parent(query);
       if (query !== undefined && source.ast.is.IsTypeReferenceNode(query)) continue;
-      if (query === undefined || !source.ast.is.IsTypeQueryNode(query) || source.ast.getSourceFile(query) !== names.sourceFile) {
+      if (query === undefined || !source.ast.is.IsTypeQueryNode(query)) {
         throw new PointerLoweringError("record schema reference has no exact authored type query");
       }
+      if (source.ast.getSourceFile(query) !== names.sourceFile) continue;
       rewrites.set(query, { kind: "record-schema-reference", schema });
     }
     ownedCalls.add(node);
     rewrites.set(statement, { kind: "record-schema", schema });
+  }
+  for (const node of nodes) {
+    if (!source.ast.is.IsTypeQueryNode(node)) continue;
+    const name = source.ast.as.AsTypeQueryNode(node)?.ExprName;
+    const selectedName = name !== undefined && source.ast.is.IsQualifiedName(name) ? source.ast.as.AsQualifiedName(name)?.Right : name;
+    const reference = source.navigation.sourceReferenceFor(selectedName);
+    const declaration = reference?.declaration;
+    if (declaration === undefined || source.ast.getSourceFile(declaration) === names.sourceFile ||
+        !source.ast.is.IsVariableDeclaration(declaration)) continue;
+    const initializer = source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    const expression = initializer === undefined ? undefined : source.ast.as.AsCallExpression(initializer)?.Expression;
+    const marker = source.sourceFacts.getFact(expression, sourceMarkerFactKey);
+    if (marker?.kind !== "call-marker" || marker.marker !== "struct") continue;
+    if (source.sourceFacts.getFact(initializer, structFactKey)?.valueType !== true) {
+      throw new PointerLoweringError("imported record schema query lacks its finalized schema fact");
+    }
+    rewrites.set(node, { kind: "record-schema-imported-query" });
   }
   for (const node of nodes) {
     const marker = source.sourceFacts.getFact(node, sourceMarkerFactKey);

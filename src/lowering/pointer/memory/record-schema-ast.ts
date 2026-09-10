@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import {
   AsCallExpression, AsObjectLiteralExpression, AsPropertyAssignment, AsVariableDeclaration, AsVariableDeclarationList,
-  AsVariableStatement, NewIdentifier, NewPropertySignatureDeclaration, NewStringLiteral,
+  AsVariableStatement, AsTypeQueryNode, NewIdentifier, NewPropertySignatureDeclaration, NewStringLiteral,
   NewTypeAliasDeclaration, NewTypeLiteralNode, NewTypeReferenceNode, NodeFactory_NewNodeList,
 } from "@tsonic/tsts/target-ast";
 import type { NodeFactory } from "@tsonic/tsts/target-ast";
@@ -10,7 +10,15 @@ import { requiredRuntimeNode as required } from "../runtime-ast.js";
 import type { RecordSchemaRewrite } from "./record-schema.js";
 
 export function rewriteRecordSchema(factory: NodeFactory, rewrite: RecordSchemaRewrite, updated: Node): Node {
-  const name = required(NewIdentifier(factory, rewrite.schema.name.text), "record schema name");
+  if (rewrite.kind === "record-schema-imported-query") {
+    const name = required(AsTypeQueryNode(updated)?.ExprName, "imported record schema type name");
+    return required(NewTypeReferenceNode(factory, name, undefined), "imported record schema type reference");
+  }
+  const name = rewrite.schema.name.kind === "generated"
+    ? required(NewIdentifier(factory, rewrite.schema.name.binding.text), "record schema name")
+    : rewrite.kind === "record-schema-reference"
+      ? required(AsTypeQueryNode(updated)?.ExprName, "record schema authored query")
+      : required(AsVariableDeclaration(AsVariableDeclarationList(AsVariableStatement(updated)?.DeclarationList)?.Declarations?.Nodes[0])?.name, "record schema authored name");
   if (rewrite.kind === "record-schema-reference") {
     return required(NewTypeReferenceNode(factory, name, undefined), "record schema type reference");
   }
@@ -28,6 +36,6 @@ export function rewriteRecordSchema(factory: NodeFactory, rewrite: RecordSchemaR
     return required(NewPropertySignatureDeclaration(factory, undefined, NewStringLiteral(factory, fieldName, 0), undefined,
       type, undefined), "record schema field");
   });
-  return required(NewTypeAliasDeclaration(factory, undefined, name, undefined,
+  return required(NewTypeAliasDeclaration(factory, rewrite.schema.name.kind === "authored" ? AsVariableStatement(updated)?.modifiers : undefined, name, undefined,
     NewTypeLiteralNode(factory, NodeFactory_NewNodeList(factory, members))), "record schema type declaration");
 }
