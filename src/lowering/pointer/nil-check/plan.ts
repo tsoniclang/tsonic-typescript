@@ -265,6 +265,17 @@ function isFirstEvaluatedExpression(
       ) {
         return false;
       }
+    } else if (source.ast.is.IsVariableDeclaration(parent)) {
+      if (source.ast.as.AsVariableDeclaration(parent)?.Initializer !== current) {
+        return false;
+      }
+    } else if (source.ast.is.IsVariableDeclarationList(parent)) {
+      if (source.ast.as.AsVariableDeclarationList(parent)?.Declarations?.Nodes[0] !== current) {
+        return false;
+      }
+    } else if (source.ast.is.IsVariableStatement(parent)) {
+      return parent === statement &&
+        source.ast.as.AsVariableStatement(parent)?.DeclarationList === current;
     } else if (source.ast.is.IsExpressionStatement(parent)) {
       return parent === statement &&
         source.ast.as.AsExpressionStatement(parent)?.Expression === current;

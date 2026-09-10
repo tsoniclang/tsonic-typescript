@@ -84,6 +84,52 @@ export function conditional(box: Box | undefined, enabled: boolean): number {
   assert.equal(countNilChecks(fixture.source, lowered), 5);
 });
 
+test("retains dominating guards through first-declarator value snapshots", () => {
+  const fixture = checkedPointerFixture(`function panic(): never { throw new Error("nil"); }
+interface Box { value: number }
+declare function effect(): number;
+export function read(box: Box | undefined): number {
+  let value: number = (box ?? panic()).value;
+  return value + (box ?? panic()).value;
+}
+export function first(box: Box | undefined): number {
+  const value = (box ?? panic()).value, other = effect();
+  return value + other + (box ?? panic()).value;
+}
+`);
+  const result = lowerFixture(fixture);
+  assert.equal(countNilChecks(fixture.source, result.sourceFile), 2);
+  assert.equal(nilCheckEvidence(result.transaction).optimizedBindingCount, 2);
+  assert.equal(nilCheckEvidence(result.transaction).eliminatedGuardCount, 2);
+});
+
+test("snapshot anchors cannot cross earlier effects or conditional evaluation", () => {
+  const fixture = checkedPointerFixture(`function panic(): never { throw new Error("nil"); }
+interface Box { value: number }
+declare function effect(): number;
+declare function call(): (value: number) => number;
+export function later(box: Box | undefined): number {
+  const first = effect(), value = (box ?? panic()).value;
+  return first + value + (box ?? panic()).value;
+}
+export function conditional(box: Box | undefined, enabled: boolean): number {
+  const value = enabled ? (box ?? panic()).value : 0;
+  return value + (box ?? panic()).value;
+}
+export function argument(box: Box | undefined): number {
+  const value = call()((box ?? panic()).value);
+  return value + (box ?? panic()).value;
+}
+export function loop(box: Box | undefined): number {
+  for (let index = (box ?? panic()).value; index < 1; index++) effect();
+  return (box ?? panic()).value;
+}
+`);
+  const result = lowerFixture(fixture);
+  assert.equal(countNilChecks(fixture.source, result.sourceFile), 8);
+  assert.equal(nilCheckEvidence(result.transaction).eliminatedGuardCount, 0);
+});
+
 test("does not cross a nested callable and reserves a collision-free name", () => {
   const fixture = checkedPointerFixture(`function panic(): never { throw new Error("nil"); }
 interface Box { value: number }

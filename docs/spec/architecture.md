@@ -193,6 +193,13 @@ checked source and facts
     -> atomic artifact publication
 ```
 
+Block-local nil-check contraction may start at an expression statement or the
+first declarator's unconditionally evaluated initializer. The same exact
+first-evaluated-expression proof applies to both. It must not cross an earlier
+declarator, conditional operand, effectful call target/argument, or loop
+initializer. Source binding identity and absence of writes remain mandatory;
+type annotations and generated names never establish dominance.
+
 No source artifact is printed until every source plan succeeds. A planning,
 rewrite, encoding, printer, count, or ordering failure publishes no partial
 target result.
