@@ -37,7 +37,7 @@ const final${width} = loadPointer(logical${width});
 `;
 }
 const sourceText = `
-import { memoryField, memoryArrayLayout, projectPointer } from "@tsonic/core/lang.js";
+import { memoryField, memoryArrayLayout, projectPointer, bindPointer, viewPointer, bindMemoryField, bindMemoryRecord } from "@tsonic/core/lang.js";
 import type { float32, float64, FixedArray } from "@tsonic/core/types.js";
 const Pair: {First: uint32; Second: uint32; Flag: boolean; Small: float32; Large: float64} =
   struct({ First: field<uint32>(), Second: field<uint32>(), Flag: field<boolean>(), Small: field<float32>(), Large: field<float64>() });
@@ -82,13 +82,42 @@ if (smallBytes !== undefined) storePointer(smallBytes, 0x40200000);
 if (largeBytes !== undefined) storePointer(largeBytes, 0x4014000000000000n);
 ${projectedComplex(32)}
 ${projectedComplex(64)}
+let viewReads = 0;
+let viewWrites = 0;
+const unreadable = bindPointer<uint32>({}, (): uint32 => { throw new Error("unexpected base read"); },
+  (_value: uint32): void => { throw new Error("unexpected base write"); });
+const emptyValue: [] = [];
+const emptyView = viewPointer<uint32, FixedArray<uint32, 0>>(unreadable,
+  (): FixedArray<uint32, 0> => { viewReads++; return emptyValue; },
+  (_value: FixedArray<uint32, 0>): void => { viewWrites++; });
+const constructionReads = viewReads;
+const constructionWrites = viewWrites;
+const emptyLength = loadPointer(emptyView).length;
+storePointer(emptyView, emptyValue);
+const Bound = struct({ Count: field<uint32>(), Next: field<uint32>() });
+type Bound = typeof Bound;
+const countField = memoryField((value: Bound) => value.Count, 0, 4, word);
+const nextField = memoryField((value: Bound) => value.Next, 4, 4, word);
+const boundLayout = memoryLayout<Bound>(abi, 8, 4, 8, countField, nextField);
+const originalCount = allocatePointer<uint32>(13);
+let countSelection = originalCount;
+const bound = bindMemoryRecord(boundLayout,
+  bindMemoryField(nextField, allocatePointer<uint32>(21)), bindMemoryField(countField, countSelection));
+countSelection = allocatePointer<uint32>(91);
+const capturedField = addressOf(bound.Count);
+storePointer(capturedField, 17);
+const boundRaw = toRawPointer(allocatePointer<Bound>(bound), boundLayout);
+const rawCount = reinterpretRawPointer(boundRaw, word);
 export const result = [loadPointer(saved), view === undefined ? 0 : loadPointer(view).Second,
   equalPointer(second, saved), equalPointer(view, pair), equalRawPointer(raw, toRawPointer(first, word)),
   padding === undefined ? 0 : loadPointer(padding), memoryAccess, fieldLayout, fieldValue,
   original.Flag, original.Small, original.Large,
   sizeOf(array), strideOf(matrix), sizeOf(huge), alignOf(huge),
   updated32.real, updated32.imag, replaced32, final32.real, final32.imag,
-  updated64.real, updated64.imag, replaced64, final64.real, final64.imag];
+  updated64.real, updated64.imag, replaced64, final64.real, final64.imag,
+  constructionReads, constructionWrites, emptyLength, viewReads, viewWrites,
+  loadPointer(originalCount), loadPointer(countSelection), bound.Next,
+  equalPointer(capturedField, originalCount), equalPointer(rawCount, originalCount)];
 `;
 const results = [];
 for (const order of ["little", "big"]) {
@@ -117,7 +146,8 @@ for (const order of ["little", "big"]) {
     assert.equal(checked.status, 0, checked.stdout + checked.stderr);
     const executed = await import(pathToFileURL(resolve(root, "js", `${name}.js`)).href);
     assert.deepEqual(executed.result, [23, 23, true, true, true, 79, 101, 103, 107, true, 2.5, 5, 64, 192, 0, 1,
-      1.5, 9.5, -5, 7, 8, 1.5, 9.5, -5, 7, 8]);
+      1.5, 9.5, -5, 7, 8, 1.5, 9.5, -5, 7, 8,
+      0, 0, 0, 1, 1, 17, 91, 21, true, true]);
     results.push({ order, optimize, bytes: Buffer.byteLength(text), result: executed.result });
   }
 }

@@ -60,6 +60,13 @@ name owner against all authored and previously generated bindings visible at
 its insertion point. This includes parameters inside synthetic closures; a
 counter or supposedly private prefix is not collision proof.
 
+Native preservation and JavaScript execution are separate obligations. Retain
+the established JavaScript workload correctness and performance characteristics;
+consume or erase finalized neutral facts without adding allocation or byte-memory
+emulation solely for native consumers. A reached unsupported operation rejects
+before output publication. C# and Rust consume the canonical GoToTS artifact,
+never this target's lowered output.
+
 ## Coordinated Repository Scope
 
 This workstream owns GoToTS, tsonic-typescript, typescript-runtime, and TSTS.

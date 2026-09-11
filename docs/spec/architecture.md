@@ -4,6 +4,23 @@
 
 ### Layout-Backed Pointers
 
+Explicit location relationships consume `selectTsonicPointerView`,
+`selectTsonicMemoryFieldBinding`, and `selectTsonicMemoryRecordBinding` on their
+exact checked calls. A pointer view lowers to the runtime's read-free
+`viewLocation`: it retains its base without accessing the base value.
+Existing `projectLocation` continues to load/store through its source converter.
+Missing or contradictory facts reject, including same-name imports without
+the canonical provider selection.
+
+A field binding captures its pointer once in a closed, typed field carrier.
+Record binding evaluates all those operands in authored order, then constructs
+statically named accessors and explicit property-location identities. No field
+is read during construction. Ordinary accessors never acquire this identity
+rule. Binding-only field/layout operands erase after the shared metadata-use
+check and do not request byte codecs; only an independently selected raw
+operation may demand a codec. The generated runtime constructor uses a finite
+source-selected factory, not reflection or dynamic property installation.
+
 Raw-memory and layout semantics come from the public finalized source-core
 facts, not from marker names or Go source. The target exact-joins each fact to
 its call, type, selected field, and registered source ABI before printing.
@@ -32,11 +49,36 @@ can emit `0` without allocating an array or building a memory codec. Type-only
 imports whose exact uses all disappear with metadata may disappear with them;
 ordinary public-signature uses remain. Runtime escapes of descriptors reject.
 
+An ordinary selected `FixedArray<Element, Extent>` type lowers to the target
+runtime's type-only structural carrier. This retains indexed mutation,
+iteration, readonly length and the exact extent without introducing a wrapper
+or changing backing identity. Only finalized facts on the exact authored type
+and the exact provider binding authorize that replacement. Same-spelled local
+types stay ordinary. Metadata-only references still erase with their owning
+descriptor; ordinary storage references do not. This planning runs even for a
+file containing only the array type and no raw-memory call or import. Paired
+type-name/type-reference facts must agree on the exact element and extent.
+Ordinary authored aliases stay aliases; the target does not recognize marker
+spelling through an alias's resolved shape. The extent annotation is emitted
+from the finalized exact number/bigint fact.
+
+This type-only lowering adds no copying, wrapping or memory allocation. A
+selected fixed-array `defaultValue` allocation currently rejects explicitly;
+it is not expanded into a huge JavaScript array or an interpreter for native
+zero-sized memory. Metadata-only size/alignment observations remain supported.
+
 A raw operation whose physical graph includes an inline array rejects at the
 codec owner before printing. Array metadata support is not an executable array
 codec, nor permission to choose a scalar, zero-sized-record or identity codec
 for an array. This target does not acquire a general JavaScript byte-memory
 emulator to accommodate native-target preservation.
+
+The JavaScript target retains its established workload correctness and
+performance characteristics independently of native preservation. Native
+consumers receive canonical GoToTS output directly. Richer canonical types do
+not authorize new runtime machinery or a provider/string representation rewrite
+in this target; any necessary execution change needs a concrete reached
+workload and exact evidence.
 
 `toRawPointer(addressOf(count), layout)` retains writable storage. A matching
 `reinterpretRawPointer(raw, layout)` produces a view whose writes update that

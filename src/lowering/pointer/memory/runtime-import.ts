@@ -6,8 +6,12 @@ export function memoryRuntimeImport(rewrite: MemoryRewrite): "none" | "type" | "
     case "field":
     case "raw":
     case "keep-alive":
+    case "pointer-view":
+    case "record-binding":
       return "value";
     case "layout-type":
+    case "fixed-array-type":
+    case "field-binding-type":
       return "type";
     case "record-schema":
     case "record-schema-reference":
@@ -17,6 +21,7 @@ export function memoryRuntimeImport(rewrite: MemoryRewrite): "none" | "type" | "
     case "metadata-type":
     case "abi-type":
     case "abi-token":
+    case "field-binding":
       return "none";
     default: {
       const exhaustive: never = rewrite;

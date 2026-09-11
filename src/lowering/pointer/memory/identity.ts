@@ -5,7 +5,7 @@ import {
   tsonicCoreLangModule, tsonicCoreTypesModule,
   tsonicCoreProviderVersion, tsonicCoreVirtualModulesProviderId,
 } from "@tsonic/source-core/facts";
-import { tsonicMemorySignatureIds, tsonicMemoryTypeExports } from "@tsonic/source-core/extension";
+import { tsonicMemorySignatureIds, tsonicMemoryTypeExports, tsonicPointerViewSignatureIds } from "@tsonic/source-core/extension";
 import type { TsonicDataLayoutFact } from "@tsonic/source-core/facts";
 import { PointerLoweringError } from "../diagnostic.js";
 
@@ -52,15 +52,16 @@ export function memoryProviderDeclaration(
     candidate.providerVersion === tsonicCoreProviderVersion &&
     candidate.memberId === undefined && (
       candidate.providerModuleId === tsonicCoreLangModule && candidate.moduleSpecifier === tsonicCoreLangModule &&
-        Object.entries(tsonicMemorySignatureIds).some(([exportId, signatureId]) =>
+        (Object.entries(tsonicMemorySignatureIds).some(([exportId, signatureId]) =>
           candidate.exportId === exportId && candidate.signatureId === signatureId) ||
+          candidate.exportId === "viewPointer" && Object.values(tsonicPointerViewSignatureIds).some(signature => candidate.signatureId === signature)) ||
       candidate.providerModuleId === tsonicCoreTypesModule && candidate.moduleSpecifier === tsonicCoreTypesModule &&
         tsonicMemoryTypeExports.some((exportId) => candidate.exportId === exportId)
     ));
   const selected = matching[0];
   if (selected !== undefined && matching.some((candidate) =>
     candidate.providerModuleId !== selected.providerModuleId || candidate.exportId !== selected.exportId ||
-    candidate.signatureId !== selected.signatureId)) {
+    source.ast.is.IsCallExpression(node) && candidate.signatureId !== selected.signatureId)) {
     throw new PointerLoweringError("memory occurrence selects multiple incompatible provider declarations");
   }
   return selected;

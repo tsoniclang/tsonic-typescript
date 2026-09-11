@@ -6,6 +6,7 @@ import {
   readTsonicMemoryType,
   selectTsonicRawLocationOperation,
   resolveTsonicMemoryLayoutObservation,
+  selectTsonicPointerView, selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding,
 } from "@tsonic/source-core/facts";
 import type { TsonicRawMemoryOperationFact, TsonicKeepAliveFact } from "@tsonic/source-core/facts";
 import { PointerLoweringError } from "../diagnostic.js";
@@ -20,6 +21,9 @@ import type { MemoryProgramPlan } from "./program-plan.js";
 import { validateRawMemoryCall, validateKeepAliveCall } from "./operation-contract.js";
 import { planABIOperandUses } from "./abi-uses.js";
 import { metadataOnlyTypeImports } from "./metadata-imports.js";
+import { planFixedArrayTypes } from "./fixed-array.js";
+import { boundMemoryFieldKey, boundMemoryRecord } from "./bindings/plan.js";
+import type { BoundMemoryRecord } from "./bindings/plan.js";
 
 export type MemoryRewrite =
   | RecordSchemaRewrite
@@ -31,7 +35,12 @@ export type MemoryRewrite =
   | { readonly kind: "metadata-value" }
   | { readonly kind: "metadata-type" }
   | { readonly kind: "layout-type" }
+  | { readonly kind: "fixed-array-type"; readonly length: bigint; readonly lengthRuntimeBase: "number" | "bigint" }
   | { readonly kind: "abi-type" }
+  | { readonly kind: "pointer-view" }
+  | { readonly kind: "field-binding"; readonly key: string }
+  | { readonly kind: "record-binding"; readonly record: BoundMemoryRecord }
+  | { readonly kind: "field-binding-type" }
   | { readonly kind: "abi-token" };
 
 export interface MemoryLoweringPlan {
@@ -60,6 +69,20 @@ export function createMemoryLoweringPlan(
   const namespaceImports = nodes.some((node) => source.ast.is.IsNamespaceImport(node));
   for (const node of nodes) {
     if (!source.ast.is.IsCallExpression(node)) continue;
+    const view = selectTsonicPointerView(source.ast, source.sourceFacts, node);
+    const fieldBinding = selectTsonicMemoryFieldBinding(source.ast, source.sourceFacts, node);
+    const recordBinding = selectTsonicMemoryRecordBinding(source.ast, source.sourceFacts, node);
+    const bindings = [view, fieldBinding, recordBinding].filter(selection => selection !== undefined);
+    if (bindings.length !== 0) {
+      if (bindings.length !== 1 || bindings[0]?.kind !== "resolved") {
+        throw new PointerLoweringError(bindings[0]?.kind === "rejected" ? bindings[0].reason : "location relationship requires one exact finalized selection");
+      }
+      if (view?.kind === "resolved") rewrites.set(node, { kind: "pointer-view" });
+      if (fieldBinding?.kind === "resolved") rewrites.set(node, { kind: "field-binding", key: boundMemoryFieldKey(source, fieldBinding.operation.field) });
+      if (recordBinding?.kind === "resolved") rewrites.set(node, { kind: "record-binding", record: boundMemoryRecord(source, names, recordBinding.operation) });
+      for (const argument of source.ast.arguments(node)) if (argument !== undefined) consumedOperands.add(argument);
+      continue;
+    }
     const raw = readTsonicRawMemoryOperation(source.sourceFacts, node);
     const layout = readTsonicMemoryLayout(source.sourceFacts, node);
     const query = readTsonicMemoryLayoutQuery(source.sourceFacts, node);
@@ -128,6 +151,7 @@ export function createMemoryLoweringPlan(
     const annotation = source.ast.as.AsVariableDeclaration(node)?.Type;
     if (annotation !== undefined) rewrites.set(annotation, { kind: "metadata-type" });
   }
+  planFixedArrayTypes(source, nodes, rewrites, removableDeclarations);
   if (rewrites.size === 0 && !importedMemory) return Object.freeze({ rewrites, removableDeclarations, references: referenceEntries });
   const abiUses = planABIOperandUses(source, sourceFile, consumedOperands);
   for (const expression of abiUses.expressions) rewrites.set(expression, { kind: "abi-token" });
@@ -155,10 +179,11 @@ export function createMemoryLoweringPlan(
         rewrites.set(node, { kind: "abi-type" });
         continue;
       }
-      if (selected.exportId !== "MemoryLayout") throw new PointerLoweringError("memory descriptor type has no executable target representation at this use");
-      rewrites.set(node, { kind: "layout-type" });
+      if (selected.exportId === "MemoryFieldBinding") rewrites.set(node, { kind: "field-binding-type" });
+      else if (selected.exportId === "MemoryLayout") rewrites.set(node, { kind: "layout-type" });
+      else throw new PointerLoweringError("memory descriptor type has no executable target representation at this use");
     } else {
-      if (selected.exportId === "MemoryLayout" || selected.exportId === "MemoryFieldLayout") continue;
+      if (selected.exportId === "MemoryLayout" || selected.exportId === "MemoryFieldLayout" || selected.exportId === "MemoryFieldBinding") continue;
       const parent = source.ast.parent(node);
       if (selected.exportId === "DataLayout" && (abiUses.expressions.has(node) || parent !== undefined && abiUses.aliases.has(parent))) continue;
       if (parent !== undefined && (source.ast.is.IsImportSpecifier(parent) ||
@@ -173,10 +198,20 @@ export function createMemoryLoweringPlan(
 }
 
 function validateMetadataPlacement(source: TargetSourceProgram, node: Node, program: MemoryProgramPlan): void {
+  let operand = node;
   let parent = source.ast.parent(node);
-  while (parent !== undefined && source.ast.is.IsParenthesizedExpression(parent)) parent = source.ast.parent(parent);
+  while (parent !== undefined && source.ast.is.IsParenthesizedExpression(parent)) {
+    operand = parent;
+    parent = source.ast.parent(parent);
+  }
   if (parent !== undefined && (program.metadata.declaration(parent) !== undefined ||
     source.ast.is.IsExpressionStatement(parent) || program.metadata.isCompileTimeExpression(parent) ||
     readTsonicMemoryLayoutQuery(source.sourceFacts, parent) !== undefined)) return;
+  if (parent !== undefined && source.ast.is.IsCallExpression(parent)) {
+    const field = selectTsonicMemoryFieldBinding(source.ast, source.sourceFacts, parent);
+    if (field?.kind === "resolved" && field.operation.fieldExpression === operand) return;
+    const record = selectTsonicMemoryRecordBinding(source.ast, source.sourceFacts, parent);
+    if (record?.kind === "resolved" && record.operation.layoutExpression === operand) return;
+  }
   throw new PointerLoweringError("memory descriptor escapes its exact compile-time metadata uses");
 }
