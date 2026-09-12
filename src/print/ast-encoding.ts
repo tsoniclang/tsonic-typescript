@@ -11,6 +11,7 @@ import { printerProtocolLimits } from "./protocol-budget.js";
 export const targetAstEncodingLimits: TargetAstEncodingLimits = Object.freeze({
   ...defaultTargetAstEncodingLimits,
   maximumNodeRows: 4_194_304,
+  maximumStringCount: 2_097_152,
   maximumEncodedBytes: printerProtocolLimits.maximumFrameBytes,
 });
 

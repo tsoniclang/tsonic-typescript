@@ -163,11 +163,12 @@ The backend must prove:
   zero artifacts;
 - successful sources are encoded and printed under one finite batch budget;
 - the selected public encoder budget admits an actual AST above the unchanged
-  shared default node ceiling, preserves ordinary encoded bytes, and retains
-  the existing frame ceiling before any printer request;
-- the production budget admits a 96 MiB single official-AST frame, rejects one
-  byte above 128 MiB without allocating that payload, and never exceeds the
-  256 MiB request ceiling;
+  shared default node and string ceilings, rejects an actual AST above the
+  selected string ceiling, preserves ordinary encoded bytes, and enforces the
+  single frame ceiling before any printer request;
+- the production budget admits the measured 150,556,128-byte official-AST frame
+  and the exact 160 MiB boundary, rejects one byte above that boundary without
+  allocating the payload, and never exceeds the 320 MiB request ceiling;
 - source-to-artifact order and membership exact-join; and
 - every planned fact and generated name is consumed exactly once.
 

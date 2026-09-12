@@ -6,7 +6,10 @@ import {
   defaultTargetAstEncodingLimits,
   encodeTargetSourceFileForPrinting,
   KindSourceFile,
+  NewArrayLiteralExpression,
   NewEmptyStatement,
+  NewExpressionStatement,
+  NewIdentifier,
   NodeFactory_NewNodeList,
   NodeFactory_UpdateSourceFile,
   transformTargetSourceFile,
@@ -16,17 +19,19 @@ import {
 import { encodeTargetSourceFile, targetAstEncodingLimits } from "./ast-encoding.js";
 import { FramedPayloadBudget, printerProtocolLimits } from "./protocol-budget.js";
 
-test("target encoding selects finite node capacity within the existing frame budget", () => {
+test("target encoding selects finite node and string capacity within its frame budget", () => {
   assert.deepEqual(targetAstEncodingLimits, {
     ...defaultTargetAstEncodingLimits,
     maximumNodeRows: 4_194_304,
+    maximumStringCount: 2_097_152,
     maximumEncodedBytes: printerProtocolLimits.maximumFrameBytes,
   });
   assert.ok(Object.isFrozen(targetAstEncodingLimits));
   assert.equal(Reflect.set(targetAstEncodingLimits, "maximumNodeRows", Infinity), false);
   assert.equal(defaultTargetAstEncodingLimits.maximumNodeRows, 2_097_152);
-  assert.equal(printerProtocolLimits.maximumFrameBytes, 128 * 1024 * 1024);
-  assert.equal(printerProtocolLimits.maximumPayloadBytes, 256 * 1024 * 1024);
+  assert.equal(defaultTargetAstEncodingLimits.maximumStringCount, 1_048_576);
+  assert.equal(printerProtocolLimits.maximumFrameBytes, 160 * 1024 * 1024);
+  assert.equal(printerProtocolLimits.maximumPayloadBytes, 320 * 1024 * 1024);
 });
 
 test("selected target encoding leaves ordinary source bytes unchanged", () => {
@@ -53,6 +58,38 @@ test("target encodes a real source above the unchanged shared default node ceili
   budget.reserveFrame(encoded.byteLength);
   assert.equal(budget.payloadLength, encoded.byteLength + 8);
 });
+
+test("target admits actual strings above the shared default without changing ordinary wire encoding", () => {
+  const expanded = stringSource(defaultTargetAstEncodingLimits.maximumStringCount + 1);
+  assert.throws(() => encodeTargetSourceFileForPrinting(expanded),
+    /strings 1048577 exceeds limit 1048576/u);
+  const encoded = encodeTargetSourceFile(expanded);
+  assert.ok(encoded.byteLength > 0);
+  assert.ok(encoded.byteLength < targetAstEncodingLimits.maximumEncodedBytes);
+  new FramedPayloadBudget(0, printerProtocolLimits, "string source").reserveFrame(encoded.byteLength);
+});
+
+test("target rejects actual strings above its selected finite ceiling", () => {
+  const expanded = stringSource(targetAstEncodingLimits.maximumStringCount + 1);
+  assert.throws(() => encodeTargetSourceFile(expanded),
+    /strings 2097153 exceeds limit 2097152/u);
+});
+
+function stringSource(count: number) {
+  const sourceFile = checkedFile(";");
+  return transformTargetSourceFile(sourceFile, (original, updated, factory) => {
+    if (original.Kind !== KindSourceFile) return updated;
+    const identifier = NewIdentifier(factory, "value");
+    assert.ok(identifier);
+    const array = NewArrayLiteralExpression(factory,
+      NodeFactory_NewNodeList(factory, new Array<Node>(count).fill(identifier)), false);
+    assert.ok(array);
+    const statement = NewExpressionStatement(factory, array);
+    assert.ok(statement);
+    return NodeFactory_UpdateSourceFile(factory, sourceFile,
+      NodeFactory_NewNodeList(factory, [statement]), sourceFile.EndOfFileToken);
+  });
+}
 
 function checkedFile(text: string) {
   const checked = createCompilerSessionFromFiles({

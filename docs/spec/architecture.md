@@ -257,8 +257,8 @@ No source artifact is printed until every source plan succeeds. A planning,
 rewrite, encoding, printer, count, or ordering failure publishes no partial
 target result.
 
-The printer transport admits at most 128 MiB for one official external-AST
-file and 256 MiB for one complete request. The single-file ceiling is global,
+The printer transport admits at most 160 MiB for one official external-AST
+file and 320 MiB for one complete request. The single-file ceiling is global,
 path-independent, and no larger than half the request ceiling; batching remains
 the only aggregate-growth mechanism. It is calibrated above the largest
 selected full-product frame while preserving a finite fail-closed boundary.
@@ -266,8 +266,12 @@ A larger source file is rejected before that frame is sent rather than split
 by text, assigned a privileged path, or sent through an unbounded request.
 
 The target's print owner selects a complete immutable finite budget for the
-public TSTS encoder: 4,194,304 node rows and an encoded-byte ceiling derived
-from that same 128 MiB frame owner. Other encoder dimensions retain the shared
+public TSTS encoder: 4,194,304 node rows, 2,097,152 string entries, and an
+encoded-byte ceiling derived from that same 160 MiB frame owner. A complete
+1,040-file production measurement requires 150,556,128 bytes, 3,322,062 node
+rows and 1,198,310 string entries for its largest frame. The byte ceiling has
+approximately 11% headroom over that complete frame, not merely over its first
+rejected reservation. Other encoder dimensions retain the shared
 defaults. TSTS owns validation and incremental wire-byte accounting; the target
 neither copies its accounting nor bypasses it. Process-memory guards remain
 independent because source ASTs and transient tables are not wire bytes.
