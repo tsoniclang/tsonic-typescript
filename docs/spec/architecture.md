@@ -67,11 +67,18 @@ selected fixed-array `defaultValue` allocation currently rejects explicitly;
 it is not expanded into a huge JavaScript array or an interpreter for native
 zero-sized memory. Metadata-only size/alignment observations remain supported.
 
-A raw operation whose physical graph includes an inline array rejects at the
-codec owner before printing. Array metadata support is not an executable array
-codec, nor permission to choose a scalar, zero-sized-record or identity codec
-for an array. This target does not acquire a general JavaScript byte-memory
-emulator to accommodate native-target preservation.
+A raw operation whose physical graph includes an inline array selects an exact
+array-address descriptor, not an executable array byte codec. The descriptor
+retains the finalized count, child shape, ABI dimensions and whole-array stride.
+Address formation, nil, identity/hash and checked view formation use the existing
+location runtime without reading or enumerating elements. Empty and huge
+zero-sized extents allocate no backing. Byte access rejects before array-sized
+scratch allocation or source mutation, including when another scalar layout attempts to
+read array-owned storage. A typed view must still fit its actual retained
+allocation; array metadata does not prove a containing allocation from a lone
+element address. Metadata-only arrays still erase. This neither selects a
+scalar/zero-sized-record codec for an array nor introduces a general JavaScript
+byte-memory emulator to accommodate native-target preservation.
 
 The JavaScript target retains its established workload correctness and
 performance characteristics independently of native preservation. Native

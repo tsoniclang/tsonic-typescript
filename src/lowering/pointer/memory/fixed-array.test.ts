@@ -60,7 +60,7 @@ test("nested array and record metadata does not demand an executable record code
   assert.deepEqual(importModules(fixture.source, lowered.sourceFile), []);
 });
 
-test("physical raw arrays reject at the target codec owner rather than selecting a leaf", () => {
+test("physical raw arrays retain an address descriptor rather than selecting a scalar codec", () => {
   const fixture = memoryFixture(`
     import { memoryArrayLayout } from "@tsonic/core/lang.js";
     import type { FixedArray } from "@tsonic/core/types.js";
@@ -70,7 +70,47 @@ test("physical raw arrays reject at the target codec owner rather than selecting
     let values: FixedArray<uint32, 2> = tuple;
     export const raw = toRawPointer(addressOf(values), layout);
   `);
-  assert.throws(() => lowerMemoryFixture(fixture), /physical inline-array storage/);
+  const lowered = lowerMemoryFixture(fixture);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "arrayAddressLayout"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "uint32Layout"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "toRawPointer"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "memoryArrayLayout"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "identityLayout"), 0);
+});
+
+test("nested address descriptors retain each exact array layer", () => {
+  const fixture = memoryFixture(`
+    import { memoryArrayLayout } from "@tsonic/core/lang.js";
+    import type { FixedArray } from "@tsonic/core/types.js";
+    const word = memoryLayout<uint32>(abi, 4, 4, 4);
+    const pair = memoryArrayLayout(abi, 8, 4, 8, word, 2);
+    const matrix = memoryArrayLayout(abi, 24, 4, 24, pair, 3);
+    export function retain(value: FixedArray<FixedArray<uint32, 2>, 3>) {
+      return toRawPointer(addressOf(value), matrix);
+    }
+  `);
+  const lowered = lowerMemoryFixture(fixture);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "arrayAddressLayout"), 2);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "uint32Layout"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "identityLayout"), 0);
+});
+
+test("huge zero-sized address descriptors preserve bigint counts without allocating arrays", () => {
+  const fixture = memoryFixture(`
+    import { memoryArrayLayout } from "@tsonic/core/lang.js";
+    import type { FixedArray } from "@tsonic/core/types.js";
+    interface Empty {}
+    const empty = memoryLayout<Empty>(abi, 0, 1, 0);
+    const values = memoryArrayLayout(abi, 0, 1, 0, empty, 9007199254740993n);
+    export function retain(value: FixedArray<Empty, 9007199254740993n>) {
+      return toRawPointer(addressOf(value), values);
+    }
+  `);
+  const lowered = lowerMemoryFixture(fixture);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "arrayAddressLayout"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "identityLayout"), 1);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "defaultValue"), 0);
+  assert.equal(countCallsNamed(fixture.source, lowered.sourceFile, "Array"), 0);
 });
 
 test("renamed fixed-array imports erase through exact bindings, not marker spelling", () => {
@@ -92,6 +132,29 @@ test("dropping an array child fact fails the real finalized observation join", (
     const word = memoryLayout<uint32>(abi, 4, 4, 4);
     const values = memoryArrayLayout(abi, 8, 4, 8, word, 2);
     export const result = sizeOf(values);
+  `);
+  const facts = fixture.source.sourceFacts;
+  const source = { ...fixture.source, sourceFacts: {
+    ...facts,
+    getFact<T>(subject: Parameters<typeof facts.getFact>[0], key: import("@tsonic/tsts").ExtensionFactKey<T>): T | undefined {
+      if (Object.is(key, tsonicMemoryLayoutFactKey) && readTsonicMemoryLayout(facts, subject)?.kind === "value") return undefined;
+      return facts.getFact(subject, key);
+    },
+  } };
+  const prepared = prepareTypeScriptLowering(source, source.navigation.sourceFiles, canonicalTypeScriptOptimizationProfile(),
+    file => source.documents.forFile(file).identity);
+  assert.equal(prepared.kind, "rejected");
+});
+
+test("dropping an array child fact also blocks address-only raw transport", () => {
+  const fixture = memoryFixture(`
+    import { memoryArrayLayout } from "@tsonic/core/lang.js";
+    import type { FixedArray } from "@tsonic/core/types.js";
+    const word = memoryLayout<uint32>(abi, 4, 4, 4);
+    const values = memoryArrayLayout(abi, 8, 4, 8, word, 2);
+    export function retain(value: FixedArray<uint32, 2>) {
+      return toRawPointer(addressOf(value), values);
+    }
   `);
   const facts = fixture.source.sourceFacts;
   const source = { ...fixture.source, sourceFacts: {

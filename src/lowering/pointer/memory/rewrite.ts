@@ -56,6 +56,20 @@ export function rewriteMemoryNode(factory: NodeFactory, selected: MemoryRewrite,
   if (selected.kind === "field-binding") return rewriteBoundField(factory, selected.key, updated);
   if (selected.kind === "record-binding") return rewriteBoundRecord(factory, selected.record, updated, runtimeAlias);
   if (selected.kind === "layout") {
+    if (selected.layout.kind === "array-address") {
+      const element = args[4];
+      const extent = args[5];
+      const types = call.TypeArguments?.Nodes ?? [];
+      if (args.length !== 6 || element === undefined || extent === undefined || types.length !== 0 && types.length !== 2) {
+        throw new PointerLoweringError("array address layout lost its exact element descriptor or extent");
+      }
+      return runtimeCall(factory, runtimeAlias, "arrayAddressLayout", types.map(type => requiredRuntimeNode(type, "array address type")), [
+        requiredRuntimeNode(NewStringLiteral(factory, selected.layout.fact.dataLayout.byteOrder, 0), "array byte order"),
+        ...[selected.layout.fact.byteSize, selected.layout.fact.byteAlignment, selected.layout.fact.stride].map(value =>
+          requiredRuntimeNode(NewNumericLiteral(factory, String(value), 0), "array dimension")),
+        element, extent,
+      ]);
+    }
     if (selected.layout.kind === "reference") return referenceMemoryCall(factory, selected.layout);
     if (selected.layout.kind === "identity") {
       const type = call.TypeArguments?.Nodes[0];

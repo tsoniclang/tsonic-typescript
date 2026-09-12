@@ -12,7 +12,13 @@ separate mandatory regression gates; type-only shape tests do not certify them.
 
 Fixed-array memory proof separates metadata from execution: cover zero and
 large exact counts, nested record/array graphs, cross-file aliases, lost child
-facts, runtime descriptor escapes, and actual raw-array rejection. Removing a
+facts, runtime descriptor escapes, and exact raw-array address descriptors.
+Address descriptors must preserve nested child shapes and exact number/bigint
+counts without allocating element backing. Runtime proof must distinguish
+identity/view formation from forbidden byte reads and writes, preserve actual
+allocation bounds, and reject before touching source storage or allocating
+array-sized byte scratch. They do not certify an executable inline-array byte
+codec. Removing a
 codec must be justified by exact lack of raw-storage demand, not by a favorable
 fixture. Keep an independently used child codec and ordinary type import as
 negative controls. Inspect and strictly check printed observation output;
