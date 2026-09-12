@@ -265,6 +265,13 @@ selected full-product frame while preserving a finite fail-closed boundary.
 A larger source file is rejected before that frame is sent rather than split
 by text, assigned a privileged path, or sent through an unbounded request.
 
+The target's print owner selects a complete immutable finite budget for the
+public TSTS encoder: 4,194,304 node rows and an encoded-byte ceiling derived
+from that same 128 MiB frame owner. Other encoder dimensions retain the shared
+defaults. TSTS owns validation and incremental wire-byte accounting; the target
+neither copies its accounting nor bypasses it. Process-memory guards remain
+independent because source ASTs and transient tables are not wire bytes.
+
 ## Selected Program Index
 
 One immutable owner may census selected nodes, syntax kinds, authored visible

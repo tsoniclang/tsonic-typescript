@@ -162,6 +162,9 @@ The backend must prove:
 - a failed source, rewrite, encoding, printer batch, file count, or order emits
   zero artifacts;
 - successful sources are encoded and printed under one finite batch budget;
+- the selected public encoder budget admits an actual AST above the unchanged
+  shared default node ceiling, preserves ordinary encoded bytes, and retains
+  the existing frame ceiling before any printer request;
 - the production budget admits a 96 MiB single official-AST frame, rejects one
   byte above 128 MiB without allocating that payload, and never exceeds the
   256 MiB request ceiling;
