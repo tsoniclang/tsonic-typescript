@@ -13,6 +13,7 @@ export interface ReferenceSelection {
 }
 
 export function selectReferenceMemory(source: TargetSourceProgram, fact: TsonicMemoryLayoutFact): ReferenceSelection | undefined {
+  if (fact.kind !== "value") return undefined;
   const syntax = fact.explicitTypeNode;
   if (fact.fields.length !== 0 || syntax === undefined) return undefined;
   const semantics = source.semantics.forNode(fact.call);

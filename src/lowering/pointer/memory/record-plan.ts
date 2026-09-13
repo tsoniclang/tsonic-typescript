@@ -3,7 +3,7 @@ import type { Node } from "@tsonic/tsts";
 import { KindPropertySignature } from "@tsonic/tsts/target-ast";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { readTsonicMemoryType } from "@tsonic/source-core/facts";
-import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicMemoryTypeIdentity } from "@tsonic/source-core/facts";
+import type { TsonicArrayMemoryLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicMemoryTypeIdentity } from "@tsonic/source-core/facts";
 import type { GeneratedBindingName, SourceFileGeneratedNames } from "../../generated-names.js";
 import { PointerLoweringError } from "../diagnostic.js";
 import { leafMemoryLayout } from "./layout.js";
@@ -24,7 +24,12 @@ export interface RecordMemoryLayout {
   readonly accessBinding: GeneratedBindingName;
 }
 
-export type ExecutableMemoryLayout = ScalarMemoryLayout | IdentityMemoryLayout | RecordMemoryLayout | ReferenceMemoryLayout;
+export interface ArrayAddressMemoryLayout {
+  readonly kind: "array-address";
+  readonly fact: TsonicArrayMemoryLayoutFact;
+}
+
+export type ExecutableMemoryLayout = ScalarMemoryLayout | IdentityMemoryLayout | RecordMemoryLayout | ReferenceMemoryLayout | ArrayAddressMemoryLayout;
 
 export function createExecutableMemoryLayouts(source: TargetSourceProgram, names: SourceFileGeneratedNames, references: MemoryReferencePlan) {
   const layouts = new Map<Node, ExecutableMemoryLayout>();
@@ -68,6 +73,12 @@ export function createExecutableMemoryLayouts(source: TargetSourceProgram, names
     }
     const previous = layouts.get(fact.call);
     if (previous !== undefined) return previous;
+    if (fact.kind === "array") {
+      layout(fact.elementLayout);
+      const result: ArrayAddressMemoryLayout = Object.freeze({ kind: "array-address", fact });
+      layouts.set(fact.call, result);
+      return result;
+    }
     if (fact.fields.length === 0) {
       const leaf = references.forLayout(fact) ?? leafMemoryLayout(source, fact);
       layouts.set(fact.call, leaf);

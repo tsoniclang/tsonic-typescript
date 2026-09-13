@@ -38,7 +38,7 @@ import { planRootLocationClass } from "./root-location-plan.js";
 import { validatePointerFact } from "./type-contract.js";
 import { createMemoryLoweringPlan, type MemoryLoweringPlan } from "./memory/plan.js";
 import type { MemoryArrayPlan } from "./memory/array-plan.js";
-import type { MemoryReferencePlan } from "./memory/references/plan.js";
+import type { MemoryProgramPlan } from "./memory/program-plan.js";
 import { requireStatementListOwner, requireVariableScope } from "./location-scope.js";
 
 export interface LocalLocationBinding {
@@ -114,7 +114,7 @@ export function createPointerLoweringPlan(
   flowPlan: ClosedPointerFlowPlan | undefined,
   projectionCallables: PointerProjectionCallablePlan,
   memoryArrays: MemoryArrayPlan,
-  memoryReferences: MemoryReferencePlan,
+  memoryReferences: MemoryProgramPlan,
 ): PointerLoweringPlan {
   if (!memoryArrays.owns(source)) throw new PointerLoweringError("array memory plan belongs to another checked program");
   memoryArrays.validate(sourceFile);

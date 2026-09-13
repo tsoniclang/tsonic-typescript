@@ -62,7 +62,8 @@ export function planProjectedPropertyLocations(
       address?.operation !== "address-of" ||
       address.call !== sourcePointer ||
       representationFor(address.call) !== "location" ||
-      !hasDirectPropertyStorage(source, facts, address)
+      !hasDirectPropertyStorage(source, facts, address) ||
+      !hasExactKeyedStorageType(source, address, projection)
     ) {
       continue;
     }
@@ -86,6 +87,48 @@ export function planProjectedPropertyLocations(
     },
     count: byProjection.size,
   });
+}
+
+function hasExactKeyedStorageType(
+  source: TargetSourceProgram,
+  address: AddressOperation,
+  projection: ProjectionOperation,
+): boolean {
+  const storage = address.storageExpression;
+  const semantics = source.semantics.forNode(storage);
+  const access = source.ast.is.IsPropertyAccessExpression(storage)
+    ? semantics.operations.propertyAccess(storage)
+    : semantics.operations.elementAccess(storage);
+  if (access === undefined) {
+    return false;
+  }
+  if (access.selectedSymbol !== undefined) {
+    const selectedType = semantics.types.typeOfSymbol(access.selectedSymbol);
+    return selectedType !== undefined &&
+      semantics.types.relationship(
+        selectedType, projection.sourcePointeeType,
+      ) === "identical";
+  }
+  if (!source.ast.is.IsElementAccessExpression(storage)) {
+    return false;
+  }
+  const element = semantics.operations.elementAccess(storage);
+  if (element === undefined) {
+    return false;
+  }
+  const indexes = semantics.types.indexInfos(element.receiver.type);
+  const selected = indexes.length === 1 ? indexes[0] : undefined;
+  if (selected?.keyType === undefined || selected.valueType === undefined) {
+    return false;
+  }
+  const sameKeyDomain =
+    semantics.types.isNumberLike(selected.keyType) &&
+      semantics.types.isNumberLike(element.argument.type) ||
+    semantics.types.isStringLike(selected.keyType) &&
+      semantics.types.isStringLike(element.argument.type);
+  return sameKeyDomain && semantics.types.relationship(
+    selected.valueType, projection.sourcePointeeType,
+  ) === "identical";
 }
 
 function hasDirectPropertyStorage(

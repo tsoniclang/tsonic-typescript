@@ -30,7 +30,11 @@ for (const byteOrder of ["little", "big"] as const) {
 }
 
 test("selected stride and over-alignment do not become scalar width", () => {
-  const fixture = memoryFixture("export const layout = memoryLayout<uint32>(abi, 4, 8, 16);");
+  const fixture = memoryFixture(`
+    const layout = memoryLayout<uint32>(abi, 4, 8, 16);
+    let value: uint32 = 1;
+    export const raw = toRawPointer(addressOf(value), layout);
+  `);
   const lowered = lowerMemoryFixture(fixture);
   const dimensions: string[][] = [];
   visit(fixture.source, lowered.sourceFile, (node) => {

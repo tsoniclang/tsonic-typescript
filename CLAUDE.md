@@ -1,5 +1,8 @@
 # Agent Notes (Tsonic TypeScript Target)
 
+Read and follow `../tsonic/docs/architecture/workspace-agent-policy.md` before
+any work.
+
 `AGENTS.md` and `CLAUDE.md` must remain byte-identical. Apply every change to
 both and verify with `cmp`.
 
@@ -57,6 +60,13 @@ name owner against all authored and previously generated bindings visible at
 its insertion point. This includes parameters inside synthetic closures; a
 counter or supposedly private prefix is not collision proof.
 
+Native preservation and JavaScript execution are separate obligations. Retain
+the established JavaScript workload correctness and performance characteristics;
+consume or erase finalized neutral facts without adding allocation or byte-memory
+emulation solely for native consumers. A reached unsupported operation rejects
+before output publication. C# and Rust consume the canonical GoToTS artifact,
+never this target's lowered output.
+
 ## Coordinated Repository Scope
 
 This workstream owns GoToTS, tsonic-typescript, typescript-runtime, and TSTS.
@@ -104,3 +114,12 @@ Parallel agents are forbidden unless the user explicitly authorizes them for
 the specific task. When authorized, every worker uses a separate worktree; the
 coordinator reviews and integrates every change and alone runs combined and
 heavy verification.
+
+## Pull Request Workflow
+
+Never use the GitHub CLI (`gh`), install it, or request its authentication.
+Do not create pull requests through APIs or other automation. When a PR is
+requested, provide the GitHub creation URL for the pushed feature branch:
+`https://github.com/<owner>/<repo>/compare/<base>...<branch>?quick_pull=1`.
+The user creates and merges the PR. Clearly distinguish a creation link from
+an existing PR; a pushed branch does not mean a PR has been opened.

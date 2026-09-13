@@ -25,19 +25,22 @@ test("nested record layouts consume each child once and preserve alias-safe view
 });
 
 for (const selected of [
-  { name: "omitted member", definition: "const Pair = struct({first: field<uint32>(), second: field<uint32>()}); type Pair = typeof Pair;", expected: /complete finite/ },
-  { name: "index signature", definition: "const Shape = struct({first: field<uint32>()}); type Pair = typeof Shape & {[key: string]: uint32};", expected: /complete finite/ },
-  { name: "unproven reference record", definition: "type Pair = {first: uint32};", expected: /value-record evidence/ },
+  { name: "omitted member", owner: "target", definition: "const Pair = struct({first: field<uint32>(), second: field<uint32>()}); type Pair = typeof Pair;", expected: /complete finite/ },
+  { name: "index signature", owner: "shared", definition: "const Shape = struct({first: field<uint32>()}); type Pair = typeof Shape & {[key: string]: uint32};", expected: /memoryField requires the exact selected child layout for its field type/ },
+  { name: "unproven reference record", owner: "target", definition: "type Pair = {first: uint32};", expected: /value-record evidence/ },
 ]) {
   test(`record ${selected.name} fails before printing`, () => {
-    const fixture = memoryFixture(`
+    const createFixture = () => memoryFixture(`
       import { memoryField } from "@tsonic/core/lang.js";
       ${selected.definition}
       const word = memoryLayout<uint32>(abi, 4, 4, 4);
       export const layout = memoryLayout<Pair>(abi, 4, 4, 4,
         memoryField((value: Pair) => value.first, 0, 4, word));
+      declare const pointer: Pointer<Pair>;
+      export const raw = toRawPointer(pointer, layout);
     `);
-    assert.throws(() => lowerMemoryFixture(fixture), selected.expected);
+    if (selected.owner === "shared") assert.throws(createFixture, selected.expected);
+    else assert.throws(() => lowerMemoryFixture(createFixture()), selected.expected);
   });
 }
 

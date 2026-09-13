@@ -15,7 +15,7 @@ import { memoryLayout, addressOf, allocatePointer, toRawPointer, reinterpretRawP
   keepAlive, rawPointerToAddressInteger, addressIntegerToRawPointer, struct, field } from "@tsonic/core/lang.js";
 `;
 
-export function memoryFixture(text: string, abi: Pick<TsonicDataLayoutDescriptor, "byteOrder" | "addressWidth"> = { byteOrder: "little", addressWidth: 64 }, additionalFiles: Readonly<Record<string, string>> = {}) {
+export function memoryFixture(text: string, abi: Pick<TsonicDataLayoutDescriptor, "byteOrder" | "addressWidth"> = { byteOrder: "little", addressWidth: 64 }, additionalFiles: Readonly<Record<string, string>> = {}, prelude = memoryPrelude) {
   const provider = createSourceSemanticsVirtualModuleProvider({
     id: "test.memory", version: "1", displayName: "Test memory ABI", virtualDirectory: "test-memory",
     modules: [{ moduleSpecifier: "test:memory", exports: [] }], evidenceMessage: "Explicit test ABI",
@@ -24,7 +24,7 @@ export function memoryFixture(text: string, abi: Pick<TsonicDataLayoutDescriptor
       type: { kind: "provider-ref", moduleSpecifier: "@tsonic/core/types.js", exportName: "DataLayout" } }],
   });
   const checked = createCompilerSessionFromFiles({
-    currentDirectory: "/src", files: { ...additionalFiles, "/src/index.ts": memoryPrelude + text },
+    currentDirectory: "/src", files: { ...additionalFiles, "/src/index.ts": prelude + text },
     compilerOptions: { module: "esnext", moduleResolution: "bundler", strict: true, target: "es2022" },
     extensionHostOptions: { extensions: [
       createSourceSemanticsExtension({ modules: tsonicCoreSourceSemanticsModules() }),

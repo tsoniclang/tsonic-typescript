@@ -5,9 +5,18 @@ import type { Node, SourceFile } from "@tsonic/tsts";
 import {
   AsVariableDeclaration,
   IsVariableDeclaration,
+  IsVariableStatement,
+  NewBlock,
+  NodeFactory_NewNodeList,
+  transformTargetSourceFile,
 } from "@tsonic/tsts/target-ast";
 
 import { checkedPointerFixture, visit } from "../pointer.test-support.js";
+import { createFinalNodeJournal } from "../../final-nodes.js";
+import { createProgramGeneratedNames } from "../../generated-names.js";
+import { createTargetProgramIndex } from "../../program-index.js";
+import { createDominatingNilCheckPlan } from "./plan.js";
+import { createDominatingNilCheckRewriteSession } from "./rewrite.js";
 import {
   prepareTypeScriptLowering,
   type TypeScriptLoweringTransaction,
@@ -82,6 +91,109 @@ export function conditional(box: Box | undefined, enabled: boolean): number {
 
   assert.deepEqual(variableNames(fixture.source, lowered), []);
   assert.equal(countNilChecks(fixture.source, lowered), 5);
+});
+
+test("retains dominating guards through first-declarator value snapshots", () => {
+  const fixture = checkedPointerFixture(`function panic(): never { throw new Error("nil"); }
+interface Box { value: number }
+declare function effect(): number;
+export function read(box: Box | undefined): number {
+  let value: number = (box ?? panic()).value;
+  return value + (box ?? panic()).value;
+}
+export function first(box: Box | undefined): number {
+  const value = (box ?? panic()).value, other = effect();
+  return value + other + (box ?? panic()).value;
+}
+`);
+  const result = lowerFixture(fixture);
+  assert.equal(countNilChecks(fixture.source, result.sourceFile), 2);
+  assert.equal(nilCheckEvidence(result.transaction).optimizedBindingCount, 2);
+  assert.equal(nilCheckEvidence(result.transaction).eliminatedGuardCount, 2);
+});
+
+test("snapshot anchors cannot cross earlier effects or conditional evaluation", () => {
+  const fixture = checkedPointerFixture(`function panic(): never { throw new Error("nil"); }
+interface Box { value: number }
+declare function effect(): number;
+declare function call(): (value: number) => number;
+export function later(box: Box | undefined): number {
+  const first = effect(), value = (box ?? panic()).value;
+  return first + value + (box ?? panic()).value;
+}
+export function conditional(box: Box | undefined, enabled: boolean): number {
+  const value = enabled ? (box ?? panic()).value : 0;
+  return value + (box ?? panic()).value;
+}
+export function argument(box: Box | undefined): number {
+  const value = call()((box ?? panic()).value);
+  return value + (box ?? panic()).value;
+}
+export function loop(box: Box | undefined): number {
+  for (let index = (box ?? panic()).value; index < 1; index++) effect();
+  return (box ?? panic()).value;
+}
+`);
+  const result = lowerFixture(fixture);
+  assert.equal(countNilChecks(fixture.source, result.sourceFile), 8);
+  assert.equal(nilCheckEvidence(result.transaction).eliminatedGuardCount, 0);
+});
+
+test("snapshot anchors follow addressed declarations through statement expansion", () => {
+  const fixture = checkedPointerFixture(`import type { Pointer } from "./markers.js";
+import { addressOf, loadPointer } from "./markers.js";
+function panic(): never { throw new Error("nil"); }
+interface Box { value: number }
+declare function observe(pointer: Pointer<number>): void;
+export function read(box: Box | undefined): number {
+  let value = (box ?? panic()).value;
+  const pointer = addressOf(value);
+  observe(pointer);
+  return loadPointer(pointer) + (box ?? panic()).value;
+}
+export function first(box: Box | undefined): number {
+  let value = (box ?? panic()).value, next = 3;
+  observe(addressOf(value));
+  observe(addressOf(next));
+  return value + next + (box ?? panic()).value;
+}
+`);
+  const result = lowerFixture(fixture);
+  assert.equal(countNilChecks(fixture.source, result.sourceFile), 2);
+  assert.equal(nilCheckEvidence(result.transaction).eliminatedGuardCount, 2);
+});
+
+test("missing and duplicated finalized declaration anchors fail closed", () => {
+  const fixture = checkedPointerFixture(`function panic(): never { throw new Error("nil"); }
+interface Box { value: number }
+export function read(box: Box | undefined): number {
+  const value = (box ?? panic()).value;
+  return value + (box ?? panic()).value;
+}
+`);
+  const program = createTargetProgramIndex(fixture.source, { bindingWrites: true });
+  const plan = createDominatingNilCheckPlan(
+    fixture.source, program, createProgramGeneratedNames(fixture.source, program),
+    undefined, "closed-direct", sourceFile => fixture.source.ast.getFileName(sourceFile),
+  );
+  assert.equal(plan.optimizedBindingCount, 1);
+  for (const expected of [0, 2]) {
+    const finalNodes = createFinalNodeJournal();
+    const session = createDominatingNilCheckRewriteSession(plan.forFile(fixture.sourceFile), finalNodes);
+    assert.throws(() => transformTargetSourceFile(fixture.sourceFile, (original, updated, factory) => {
+      const statements = fixture.source.ast.is.IsBlock(original)
+        ? [...fixture.source.ast.statements(updated)]
+        : [];
+      const first = statements[0];
+      if (first !== undefined && IsVariableStatement(first)) {
+        const changed = NewBlock(factory, NodeFactory_NewNodeList(factory,
+          expected === 0 ? statements.slice(1) : [first, ...statements]), true);
+        assert.ok(changed !== undefined);
+        updated = changed;
+      }
+      return finalNodes.record(original, session.rewrite(original, updated, factory));
+    }), new RegExp(`anchor has ${expected} matches in its selected block`));
+  }
 });
 
 test("does not cross a nested callable and reserves a collision-free name", () => {

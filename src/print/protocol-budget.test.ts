@@ -66,20 +66,25 @@ test("printer protocol budget validates its complete finite policy", () => {
 
 test("production printer budget admits large official ASTs within its finite ceiling", () => {
   const mebibyte = 1024 * 1024;
-  assert.equal(printerProtocolLimits.maximumFrameBytes, 128 * mebibyte);
-  assert.equal(printerProtocolLimits.maximumPayloadBytes, 256 * mebibyte);
+  assert.equal(printerProtocolLimits.maximumFrameBytes, 160 * mebibyte);
+  assert.equal(printerProtocolLimits.maximumPayloadBytes, 320 * mebibyte);
   const admitted = new FramedPayloadBudget(
     8,
     printerProtocolLimits,
     "production printer request",
   );
-  admitted.reserveFrame(96 * mebibyte);
+  admitted.reserveFrame(150_556_128);
+  assert.equal(admitted.payloadLength, 150_556_144);
+  const boundary = new FramedPayloadBudget(8, printerProtocolLimits, "boundary");
+  boundary.reserveFrame(printerProtocolLimits.maximumFrameBytes);
+  assert.equal(boundary.tryReserveFrame(printerProtocolLimits.maximumFrameBytes), false);
+  assert.equal(boundary.payloadLength, printerProtocolLimits.maximumFrameBytes + 16);
   assert.throws(
     () => new FramedPayloadBudget(
       8,
       printerProtocolLimits,
       "production printer request",
-    ).reserveFrame(128 * mebibyte + 1),
+    ).reserveFrame(printerProtocolLimits.maximumFrameBytes + 1),
     /frame 0 size .* exceeds limit/u,
   );
 });

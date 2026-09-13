@@ -54,6 +54,8 @@ for (const selectedCase of cases) {
       conversions++;
       assert.equal(selected.operation.operation, "to-raw");
       assert.equal(selected.layout.byteSize, selectedCase.size);
+      assert.equal(selected.layout.kind, "value");
+      if (selected.layout.kind !== "value") return;
       assert.deepEqual(selected.layout.fields.map(field => field.byteOffset), selectedCase.offsets);
       assert.deepEqual(selected.layout.fields.map(field => field.fieldLayout.byteSize), selectedCase.childSizes);
       assert.equal(readTsonicMemoryType(source.sourceFacts, selected.layout.call)?.identity, selected.memoryType);

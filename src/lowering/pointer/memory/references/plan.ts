@@ -34,14 +34,14 @@ export interface MemoryReferencePlan {
   validate(sourceFile: SourceFile): void;
 }
 
-export function createMemoryReferencePlan(source: TargetSourceProgram, program: TargetProgramIndex, names: ProgramGeneratedNames): MemoryReferencePlan {
+export function createMemoryReferencePlan(source: TargetSourceProgram, program: TargetProgramIndex, names: ProgramGeneratedNames, required: ReadonlySet<Node>): MemoryReferencePlan {
   const definitions = new Map<TsonicMemoryTypeIdentity, Map<string, ReferenceMemoryDefinition>>();
   const layouts = new Map<Node, ReferenceMemoryLayout>();
   const files = new Map<SourceFile, Map<ReferenceMemoryDefinition, ReferenceMemoryLayout>>();
   const failures = new Map<SourceFile, string[]>();
   for (const node of program.nodesOfKind(KindCallExpression)) {
     const fact = readTsonicMemoryLayout(source.sourceFacts, node);
-    if (fact?.call !== node) continue;
+    if (fact?.call !== node || !required.has(node)) continue;
     const sourceFile = source.ast.getSourceFile(node);
     if (sourceFile === undefined) throw new PointerLoweringError("memory reference lost its source file");
     try {

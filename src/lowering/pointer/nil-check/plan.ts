@@ -12,6 +12,7 @@ import type { ClosedPointerFlowPlan } from "../flow-plan.js";
 import { validatePointerOperationFact } from "../operation-contract.js";
 
 import type {
+  DominatingNilCheckAnchor,
   DominatingNilCheckBindingPlan,
   DominatingNilCheckPlan,
   DominatingNilCheckRetentionReason,
@@ -22,11 +23,10 @@ interface GuardCandidate {
   readonly guard: Node;
   readonly declaration: Node;
   readonly block: Node;
-  readonly statement: Node;
   readonly statementIndex: number;
   readonly sourceFile: SourceFile;
   readonly sourceName: string;
-  readonly canAnchor: boolean;
+  readonly anchor: DominatingNilCheckAnchor | undefined;
 }
 
 interface DirectBlockOwner {
@@ -99,11 +99,10 @@ export function createDominatingNilCheckPlan(
       guard: node,
       declaration: reference.declaration,
       block: owner.block,
-      statement: owner.statement,
       statementIndex: owner.statementIndex,
       sourceFile,
       sourceName: source.ast.text(guard.left),
-      canAnchor: isFirstEvaluatedExpression(
+      anchor: selectAnchor(
         source,
         pointerFlowPlan,
         node,
@@ -265,6 +264,17 @@ function isFirstEvaluatedExpression(
       ) {
         return false;
       }
+    } else if (source.ast.is.IsVariableDeclaration(parent)) {
+      if (source.ast.as.AsVariableDeclaration(parent)?.Initializer !== current) {
+        return false;
+      }
+    } else if (source.ast.is.IsVariableDeclarationList(parent)) {
+      if (source.ast.as.AsVariableDeclarationList(parent)?.Declarations?.Nodes[0] !== current) {
+        return false;
+      }
+    } else if (source.ast.is.IsVariableStatement(parent)) {
+      return parent === statement &&
+        source.ast.as.AsVariableStatement(parent)?.DeclarationList === current;
     } else if (source.ast.is.IsExpressionStatement(parent)) {
       return parent === statement &&
         source.ast.as.AsExpressionStatement(parent)?.Expression === current;
@@ -274,6 +284,28 @@ function isFirstEvaluatedExpression(
     current = parent;
   }
   return false;
+}
+
+function selectAnchor(
+  source: TargetSourceProgram,
+  pointerFlowPlan: ClosedPointerFlowPlan | undefined,
+  guard: Node,
+  statement: Node,
+): DominatingNilCheckAnchor | undefined {
+  if (!isFirstEvaluatedExpression(source, pointerFlowPlan, guard, statement)) {
+    return undefined;
+  }
+  if (!source.ast.is.IsVariableStatement(statement)) {
+    return Object.freeze({ kind: "statement", node: statement });
+  }
+  const list = source.ast.as.AsVariableStatement(statement)?.DeclarationList;
+  const declaration = list === undefined
+    ? undefined
+    : source.ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes[0];
+  if (declaration === undefined) {
+    throw new Error("dominating nil-check initializer lost its first declaration");
+  }
+  return Object.freeze({ kind: "declaration", node: declaration });
 }
 
 function isErasedPointerLoad(
@@ -306,8 +338,8 @@ function selectGroup(
   const ordered = [...candidates].sort((left, right) =>
     left.statementIndex - right.statementIndex
   );
-  const anchor = ordered.find((candidate) => candidate.canAnchor);
-  if (anchor === undefined) {
+  const anchor = ordered.find((candidate) => candidate.anchor !== undefined);
+  if (anchor?.anchor === undefined) {
     recordAll(retention, "no-unconditional-anchor", ordered);
     return;
   }
@@ -327,7 +359,7 @@ function selectGroup(
   );
   const binding: DominatingNilCheckBindingPlan = Object.freeze({
     block: anchor.block,
-    anchorStatement: anchor.statement,
+    anchor: anchor.anchor,
     anchorStatementIndex: anchor.statementIndex,
     anchorGuard: anchor.guard,
     checkedName,

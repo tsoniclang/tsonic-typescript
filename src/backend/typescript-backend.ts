@@ -7,10 +7,6 @@ import {
   type TargetArtifact,
   type TargetCompileResult,
 } from "@tsonic/target-api/artifacts";
-import {
-  encodeTargetSourceFileForPrinting,
-  TargetAstEncodingError,
-} from "@tsonic/tsts/target-ast";
 import type { SourceFile } from "@tsonic/tsts";
 
 import {
@@ -31,6 +27,7 @@ import {
   type TypeScriptLoweringTransaction,
 } from "../lowering/transform.js";
 import type { TypeScriptAstPrinter } from "../print/ast-printer.js";
+import { encodeTargetSourceFile } from "../print/ast-encoding.js";
 import { createTypeScriptProjectArtifact } from "./project-artifact.js";
 import { createOptimizationEvidenceArtifact } from "./optimization-evidence-artifact.js";
 import {
@@ -247,26 +244,6 @@ function loweringDiagnostic(
     source: "@tsonic/target-typescript",
     message: `${fileName}: ${error instanceof Error ? error.message : String(error)}`,
   });
-}
-
-function encodeTargetSourceFile(
-  sourceFile: Parameters<typeof encodeTargetSourceFileForPrinting>[0],
-): Uint8Array {
-  try {
-    return encodeTargetSourceFileForPrinting(sourceFile);
-  } catch (error) {
-    if (!(error instanceof TargetAstEncodingError)) {
-      throw error;
-    }
-    const evidence = [
-      error.kind === undefined ? undefined : `kind=${error.kind}`,
-      error.field === undefined ? undefined : `field=${error.field}`,
-    ].filter((value): value is string => value !== undefined);
-    throw new Error(
-      `${error.message}${evidence.length === 0 ? "" : ` (${evidence.join(", ")})`}`,
-      { cause: error },
-    );
-  }
 }
 
 function sourceArtifactPath(input: TargetCompileInput, fileName: string): string {

@@ -4,6 +4,23 @@
 
 ### Layout-Backed Pointers
 
+Explicit location relationships consume `selectTsonicPointerView`,
+`selectTsonicMemoryFieldBinding`, and `selectTsonicMemoryRecordBinding` on their
+exact checked calls. A pointer view lowers to the runtime's read-free
+`viewLocation`: it retains its base without accessing the base value.
+Existing `projectLocation` continues to load/store through its source converter.
+Missing or contradictory facts reject, including same-name imports without
+the canonical provider selection.
+
+A field binding captures its pointer once in a closed, typed field carrier.
+Record binding evaluates all those operands in authored order, then constructs
+statically named accessors and explicit property-location identities. No field
+is read during construction. Ordinary accessors never acquire this identity
+rule. Binding-only field/layout operands erase after the shared metadata-use
+check and do not request byte codecs; only an independently selected raw
+operation may demand a codec. The generated runtime constructor uses a finite
+source-selected factory, not reflection or dynamic property installation.
+
 Raw-memory and layout semantics come from the public finalized source-core
 facts, not from marker names or Go source. The target exact-joins each fact to
 its call, type, selected field, and registered source ABI before printing.
@@ -16,6 +33,59 @@ does not substitute for its own finalized child/ABI evidence. Address/integer
 facts carry an exact unsigned 32/number or 64/bigint domain matching their
 selected ABI. This target validates that evidence before rejecting physical
 address execution; it never coerces a 64-bit address through number.
+
+Layout facts are a closed `value | array` graph. A value owns its declared
+fields; an array owns one selected element layout and an exact bigint extent
+with its authored number/bigint runtime base. Child stride is not whole-array
+stride. The target never infers element layout from a JavaScript numeric
+carrier, fabricates fields for indexes, or converts a large count to number.
+
+One program-level demand pass follows finalized raw-location selections to
+their layout children. Only those descriptors request executable codecs.
+Compile-time-only descriptors and field builders erase after their exact
+metadata-use check; layout observations consume the shared validated query.
+Consequently `sizeOf(memoryArrayLayout(abi, 0, 1, 0, empty, 9007199254740993n))`
+can emit `0` without allocating an array or building a memory codec. Type-only
+imports whose exact uses all disappear with metadata may disappear with them;
+ordinary public-signature uses remain. Runtime escapes of descriptors reject.
+
+An ordinary selected `FixedArray<Element, Extent>` type lowers to the target
+runtime's type-only structural carrier. This retains indexed mutation,
+iteration, readonly length and the exact extent without introducing a wrapper
+or changing backing identity. Only finalized facts on the exact authored type
+and the exact provider binding authorize that replacement. Same-spelled local
+types stay ordinary. Metadata-only references still erase with their owning
+descriptor; ordinary storage references do not. This planning runs even for a
+file containing only the array type and no raw-memory call or import. Paired
+type-name/type-reference facts must agree on the exact element and extent.
+Ordinary authored aliases stay aliases; the target does not recognize marker
+spelling through an alias's resolved shape. The extent annotation is emitted
+from the finalized exact number/bigint fact.
+
+This type-only lowering adds no copying, wrapping or memory allocation. A
+selected fixed-array `defaultValue` allocation currently rejects explicitly;
+it is not expanded into a huge JavaScript array or an interpreter for native
+zero-sized memory. Metadata-only size/alignment observations remain supported.
+
+A raw operation whose physical graph includes an inline array selects an exact
+array-address descriptor, not an executable array byte codec. The descriptor
+retains the finalized count, child shape, ABI dimensions and whole-array stride.
+Address formation, nil, identity/hash and checked view formation use the existing
+location runtime without reading or enumerating elements. Empty and huge
+zero-sized extents allocate no backing. Byte access rejects before array-sized
+scratch allocation or source mutation, including when another scalar layout attempts to
+read array-owned storage. A typed view must still fit its actual retained
+allocation; array metadata does not prove a containing allocation from a lone
+element address. Metadata-only arrays still erase. This neither selects a
+scalar/zero-sized-record codec for an array nor introduces a general JavaScript
+byte-memory emulator to accommodate native-target preservation.
+
+The JavaScript target retains its established workload correctness and
+performance characteristics independently of native preservation. Native
+consumers receive canonical GoToTS output directly. Richer canonical types do
+not authorize new runtime machinery or a provider/string representation rewrite
+in this target; any necessary execution change needs a concrete reached
+workload and exact evidence.
 
 `toRawPointer(addressOf(count), layout)` retains writable storage. A matching
 `reinterpretRawPointer(raw, layout)` produces a view whose writes update that
@@ -30,6 +100,13 @@ Forwarding projection collapse preserves the exact checked call's explicit
 type arguments as a TS-Go instantiation expression. A generic converter whose
 instantiation is implicit retains its checked arrow; the target does not infer
 replacement type arguments from physical storage.
+
+Projected-property fusion requires the exact selected keyed-storage type to
+equal the projection's source pointee. A read-flow type is not that contract:
+`T[][number]` is `T`, even when an indexed read is `T | undefined`. A widened
+projection keeps the ordinary typed location path; exact optional-property
+and generic-element contracts remain eligible. This decision consumes finalized
+property/index evidence, never inferred converter types or source spelling.
 
 Managed memory is not physical native address emulation. Physical
 pointer/integer conversions and layouts lacking an exact target disposition
@@ -165,17 +242,39 @@ checked source and facts
     -> atomic artifact publication
 ```
 
+Block-local nil-check contraction may start at an expression statement or the
+first declarator's unconditionally evaluated initializer. The same exact
+first-evaluated-expression proof applies to both. It must not cross an earlier
+declarator, conditional operand, effectful call target/argument, or loop
+initializer. Source binding identity and absence of writes remain mandatory;
+type annotations and generated names never establish dominance.
+An initializer anchor follows its exact finalized declaration, not the enclosing
+statement identity: addressed-local lowering may split that statement. The
+declaration must remain first in exactly one rewritten statement in the selected
+block. Missing or duplicated anchors fail instead of using source order or text.
+
 No source artifact is printed until every source plan succeeds. A planning,
 rewrite, encoding, printer, count, or ordering failure publishes no partial
 target result.
 
-The printer transport admits at most 128 MiB for one official external-AST
-file and 256 MiB for one complete request. The single-file ceiling is global,
+The printer transport admits at most 160 MiB for one official external-AST
+file and 320 MiB for one complete request. The single-file ceiling is global,
 path-independent, and no larger than half the request ceiling; batching remains
 the only aggregate-growth mechanism. It is calibrated above the largest
 selected full-product frame while preserving a finite fail-closed boundary.
 A larger source file is rejected before that frame is sent rather than split
 by text, assigned a privileged path, or sent through an unbounded request.
+
+The target's print owner selects a complete immutable finite budget for the
+public TSTS encoder: 4,194,304 node rows, 2,097,152 string entries, and an
+encoded-byte ceiling derived from that same 160 MiB frame owner. A complete
+1,040-file production measurement requires 150,556,128 bytes, 3,322,062 node
+rows and 1,198,310 string entries for its largest frame. The byte ceiling has
+approximately 11% headroom over that complete frame, not merely over its first
+rejected reservation. Other encoder dimensions retain the shared
+defaults. TSTS owns validation and incremental wire-byte accounting; the target
+neither copies its accounting nor bypasses it. Process-memory guards remain
+independent because source ASTs and transient tables are not wire bytes.
 
 ## Selected Program Index
 
@@ -283,6 +382,18 @@ every expected rewrite, and finalization exact-joins each record to one
 consumed original node.
 
 ## Generated Names
+
+Record schemas are compile-time value-record declarations, not runtime objects.
+A standalone schema used only through `typeof` becomes an ordinary type alias
+under its existing authored binding. Exact imported type queries become type
+references to that binding; imports and re-exports retain their authored names.
+A schema with its own local type alias retains that alias and uses the existing
+collision-safe internal shape name. Finalized declaration uses and schema facts
+own this transport. Observable schema values, mutation and missing facts still
+fail before printing. Ordinary same-spelled objects are not schemas.
+Queries of a schema's value members (for example `typeof Shape.value`) are
+not whole-record transports and fail explicitly rather than acquiring the
+record's type or leaving a dangling value query after erasure.
 
 One program-scoped name owner selects every target-generated binding. A name
 must not collide with any authored identifier visible where it is introduced,

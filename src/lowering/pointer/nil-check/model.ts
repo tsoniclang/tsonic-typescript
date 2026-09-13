@@ -13,9 +13,13 @@ export type DominatingNilCheckRetentionReason =
   | "before-dominating-anchor"
   | "single-guard-suffix";
 
+export type DominatingNilCheckAnchor =
+  | { readonly kind: "statement"; readonly node: Node }
+  | { readonly kind: "declaration"; readonly node: Node };
+
 export interface DominatingNilCheckBindingPlan {
   readonly block: Node;
-  readonly anchorStatement: Node;
+  readonly anchor: DominatingNilCheckAnchor;
   readonly anchorStatementIndex: number;
   readonly anchorGuard: Node;
   readonly checkedName: GeneratedBindingName;

@@ -1,5 +1,29 @@
 # TypeScript Target Verification
 
+Fixed-array proof also covers ordinary storage types independently of raw
+codecs: renamed canonical imports, exact element and extent facts, nested
+storage, retained indexed aliasing, readonly length, same-spelled local types
+and missing/contradictory paired-fact mutations. Include a file with no memory
+prelude or raw-operation imports and retain ordinary authored type aliases.
+Native-only default allocation must fail before publication rather than select
+an array emulator. No runtime allocation or copy may be introduced by type
+lowering. Existing JavaScript workload correctness and performance remain
+separate mandatory regression gates; type-only shape tests do not certify them.
+
+Fixed-array memory proof separates metadata from execution: cover zero and
+large exact counts, nested record/array graphs, cross-file aliases, lost child
+facts, runtime descriptor escapes, and exact raw-array address descriptors.
+Address descriptors must preserve nested child shapes and exact number/bigint
+counts without allocating element backing. Runtime proof must distinguish
+identity/view formation from forbidden byte reads and writes, preserve actual
+allocation bounds, and reject before touching source storage or allocating
+array-sized byte scratch. They do not certify an executable inline-array byte
+codec. Removing a
+codec must be justified by exact lack of raw-storage demand, not by a favorable
+fixture. Keep an independently used child codec and ordinary type import as
+negative controls. Inspect and strictly check printed observation output;
+passing source selection alone does not certify target output.
+
 ## Focused Family Proof
 
 Each representation family begins with a failing source example and closes
@@ -138,11 +162,28 @@ The backend must prove:
 - a failed source, rewrite, encoding, printer batch, file count, or order emits
   zero artifacts;
 - successful sources are encoded and printed under one finite batch budget;
-- the production budget admits a 96 MiB single official-AST frame, rejects one
-  byte above 128 MiB without allocating that payload, and never exceeds the
-  256 MiB request ceiling;
+- the selected public encoder budget admits an actual AST above the unchanged
+  shared default node and string ceilings, rejects an actual AST above the
+  selected string ceiling, preserves ordinary encoded bytes, and enforces the
+  single frame ceiling before any printer request;
+- the production budget admits the measured 150,556,128-byte official-AST frame
+  and the exact 160 MiB boundary, rejects one byte above that boundary without
+  allocating the payload, and never exceeds the 320 MiB request ceiling;
 - source-to-artifact order and membership exact-join; and
 - every planned fact and generated name is consumed exactly once.
+
+## Explicit Location Relationships
+
+Explicit relationship proofs cover read-free view construction, nil, captured
+base identity, independent loads/stores, retained one-past positions, and
+nonzero-sized I/O rejection. Record bindings cover reordered fields, aliases,
+cross-file descriptors, complete child identities, empty records, and
+pointer-variable retargeting. Removing a selected view/field/record fact fails
+before output. Both canonical and closed-direct profiles retain required
+location carriers. Ordinary same-spelled functions and ordinary forwarding
+accessors are negative controls. Runtime executions, not only AST counts,
+must prove alias preservation; tests authored during a code-only batch are
+not execution evidence.
 
 ## Synchronous Product Proof
 
